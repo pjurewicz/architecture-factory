@@ -15,7 +15,7 @@ from backends.base import TEXT_ALIGN
 from engineering.validation import short_repr
 from security import illegal_symbol_name_chars
 
-ALLOWED_TYPES = ("line", "circle", "arc", "polyline", "text", "solid")
+ALLOWED_TYPES = ("line", "circle", "arc", "polyline", "text", "solid", "wipeout")
 #: The TEXT justifications every create shares (``backends.base.TEXT_ALIGN``).
 TEXT_ALIGNMENTS = tuple(TEXT_ALIGN)
 #: Checked with ``fullmatch`` — ``$`` alone would accept a trailing newline, which
@@ -31,6 +31,7 @@ _REQUIRED = {
     "polyline": ("points",),
     "text": ("text", "x", "y", "height"),
     "solid": ("points",),
+    "wipeout": ("points",),
 }
 #: Keys a primitive may carry besides ``type``, ``layer`` and its required ones.
 _OPTIONAL = {
@@ -40,6 +41,7 @@ _OPTIONAL = {
     "polyline": ("closed", "bulges"),
     "text": ("rotation", "align"),
     "solid": (),
+    "wipeout": (),
 }
 _ATTDEF_KEYS = (
     "tag",
@@ -228,6 +230,10 @@ def validate_entity_specs(entities) -> list[dict]:
             )
         elif kind == "solid":
             norm["points"] = _points(spec, where, minimum=3, maximum=4)
+        elif kind == "wipeout":
+            # A closed polygon (its last point joins the first); it masks what a
+            # layout draws before the INSERT, and the primitives listed after it.
+            norm["points"] = _points(spec, where, minimum=3)
         out.append(norm)
     return out
 

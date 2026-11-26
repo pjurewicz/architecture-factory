@@ -4763,7 +4763,9 @@ async def block_define(
         "Primitives in block-local coordinates, keyed like entity_create_* / entity_batch_create. "
         "type=line {x1,y1,x2,y2} | circle {cx,cy,radius} | "
         "arc {cx,cy,radius,start_angle,end_angle} | polyline {points,closed,bulges?} | "
-        "text {text,x,y,height,rotation?,align? (left, center, right, middle, top_left ... bottom_right)} | solid {points (3-4)}. Optional layer (default 0).",
+        "text {text,x,y,height,rotation?,align? (left, center, right, middle, top_left ... bottom_right)} | solid {points (3-4)} | "
+        "wipeout {points (3+), closed polygon; masks what is drawn before it, so list it first}. "
+        "Optional layer (default 0).",
     ],
     attdefs: Annotated[
         list[dict] | None,

@@ -112,6 +112,29 @@ async def test_solid_uses_bowtie_order(backend):
     assert tuple(solid.dxf.vtx3)[:2] == (1.0, 1.0)
 
 
+async def test_a_wipeout_masks_its_outline_and_survives_a_reload(backend, tmp_path):
+    """A non-rectangular outline, written before the lines it sits under."""
+    outline = [[0, 0], [40, 0], [40, 10], [10, 30], [0, 30]]
+    await backend.block_define(
+        "MASKED",
+        [
+            {"type": "wipeout", "points": outline},
+            {"type": "polyline", "points": outline, "closed": True},
+        ],
+    )
+    path = tmp_path / "masked.dxf"
+    await backend.drawing_save_as(str(path))
+    import ezdxf
+
+    blk = ezdxf.readfile(str(path)).blocks.get("MASKED")
+    first = next(iter(blk))
+    assert first.dxftype() == "WIPEOUT"
+    assert [(round(v.x), round(v.y)) for v in first.boundary_path_wcs()][:5] == [
+        tuple(p) for p in outline
+    ]
+    assert first.dxf.color == 0 and first.dxf.layer == "0"
+
+
 async def test_block_text_takes_every_shared_alignment(backend):
     await backend.block_define(
         "LBL",

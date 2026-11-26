@@ -8855,6 +8855,8 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     txt.set_placement((spec["x"], spec["y"]), align=align_map[spec["align"]])
                 elif kind == "solid":
                     blk.add_solid(solid_vertices(spec["points"]), dxfattribs=attribs)
+                elif kind == "wipeout":
+                    blk.add_wipeout(spec["points"], dxfattribs=attribs)
             for att in atts:
                 attdef = blk.add_attdef(
                     att["tag"],

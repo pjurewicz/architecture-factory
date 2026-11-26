@@ -120,3 +120,15 @@ async def test_the_tool_draws_one_closed_polyline_per_piece_on_the_floor_layer(c
     assert len(rows) == 70
     with pytest.raises(ToolError, match="give both or neither"):
         await client.call_tool("interior_tile_layout", args | {"start_x": 5})
+
+
+@pytest.mark.asyncio
+async def test_tiles_laid_after_the_furniture_go_behind_its_wipeout(backend):
+    """The pieces are sent to the back, so a bed inserted first still masks them."""
+    from engineering.arch.catalogue import insert_item
+    from engineering.arch.draw import draw_tile_layout
+
+    bed = await insert_item(backend, "single_bed", at=(600.0, 300.0))
+    drawn = await draw_tile_layout(backend, outline=ROOM, length=600, width=300, joint=0)
+    order = [e.dxf.handle for e in backend._doc.modelspace().entities_in_redraw_order()]
+    assert order.index(bed["handle"]) > max(order.index(h) for h in drawn["handles"])

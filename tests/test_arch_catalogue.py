@@ -34,7 +34,7 @@ def _spec_points(spec: dict) -> list[tuple[float, float]]:
     if kind == "arc":
         arc = Arc((spec["cx"], spec["cy"]), spec["radius"], spec["start_angle"], spec["end_angle"])
         return list(points_of(arc))
-    if kind == "polyline":
+    if kind in ("polyline", "wipeout"):
         return [tuple(p) for p in spec["points"]]
     raise AssertionError(f"unexpected spec type {kind!r}")
 
@@ -99,6 +99,43 @@ def test_every_block_spec_validates_against_block_define(name):
     assert item_att["invisible"] is True and size_att["tag"] == "SIZE"
     assert spec["name"] == "ARCH_" + name.upper()
     assert spec["size_basis"] == SIZE_BASIS
+
+
+def _inside(point, polygon) -> bool:
+    x, y = point
+    hit = False
+    for (x1, y1), (x2, y2) in zip(polygon, polygon[1:] + polygon[:1], strict=True):
+        if (y1 > y) != (y2 > y) and x < x1 + (y - y1) * (x2 - x1) / (y2 - y1):
+            hit = not hit
+    return hit
+
+
+@pytest.mark.parametrize("name", CATALOGUE_NAMES)
+def test_every_block_starts_with_its_wipeouts(name):
+    """Inside a block a WIPEOUT hides only what is drawn before it."""
+    kinds = [entity["type"] for entity in block_spec(name)["entities"]]
+    masks = kinds.count("wipeout")
+    assert masks >= 1 and kinds[:masks] == ["wipeout"] * masks, name
+
+
+def test_a_shaped_item_masks_its_outline_not_its_bounding_box():
+    """The floor shows beside a WC bowl, in the L of a corner sofa, between chairs."""
+
+    def masks(name):
+        spec = block_spec(name)
+        return [e["points"] for e in spec["entities"] if e["type"] == "wipeout"], spec["size"]
+
+    for name, covered, open_ in (
+        ("wc", (190, 400), (10, 690)),  # inside the bowl / the corner beside it
+        ("corner_sofa", (1300, 450), (500, 1300)),  # the seat / inside the L
+        ("freestanding_bathtub", (850, 400), (5, 5)),  # the tub / its rounded corner
+        ("dining_table_4", (700, 850), (20, 200)),  # the table / beside the first chair
+    ):
+        polys, _ = masks(name)
+        assert any(_inside(covered, poly) for poly in polys), name
+        assert not any(_inside(open_, poly) for poly in polys), name
+    polys, (w, d) = masks("double_bed")
+    assert polys == [[[0.0, 0.0], [w, 0.0], [w, d], [0.0, d]]]
 
 
 def test_every_outline_reaches_its_declared_size():

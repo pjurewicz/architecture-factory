@@ -13,8 +13,8 @@ from backends.block_specs import (
 )
 
 
-def test_allowed_types_are_the_documented_six():
-    assert ALLOWED_TYPES == ("line", "circle", "arc", "polyline", "text", "solid")
+def test_allowed_types_are_the_documented_seven():
+    assert ALLOWED_TYPES == ("line", "circle", "arc", "polyline", "text", "solid", "wipeout")
 
 
 def test_empty_entities_is_refused():
@@ -31,9 +31,11 @@ def test_each_type_normalises_to_floats_and_layer_zero():
             {"type": "polyline", "points": [[0, 0], [1, 0], [1, 1]], "closed": True},
             {"type": "text", "text": "M", "x": 0, "y": 0, "height": 2},
             {"type": "solid", "points": [[0, 0], [1, 0], [0, 1]]},
+            {"type": "wipeout", "points": [[0, 0], [2, 0], [2, 1], [1, 2], [0, 1]]},
         ]
     )
     assert [e["type"] for e in out] == list(ALLOWED_TYPES)
+    assert len(out[6]["points"]) == 5  # no four-point cap, unlike a SOLID
     assert out[0] == {"type": "line", "layer": "0", "x1": 0.0, "y1": 0.0, "x2": 1.0, "y2": 0.0}
     assert out[3]["points"] == [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)]
     assert out[3]["closed"] is True and out[3]["bulges"] is None
@@ -62,6 +64,7 @@ def test_each_type_normalises_to_floats_and_layer_zero():
         ({"type": "polyline", "points": [[0, 0], [1, 1]], "closed": "yes"}, "closed"),
         ({"type": "solid", "points": [[0, 0], [1, 0]]}, "points"),
         ({"type": "solid", "points": [[0, 0], [1, 0], [1, 1], [0, 1], [2, 2]]}, "at most 4"),
+        ({"type": "wipeout", "points": [[0, 0], [1, 0]]}, "at least 3"),
         ({"type": "line", "x1": 0, "y1": 0, "x2": 1, "y2": 0, "layer": ""}, "layer"),
         ({"type": "line", "x1": 0, "y1": 0, "x2": 1, "y2": 0, "layer": "BAD<LAYER"}, "layer"),
         ({"type": "line", "x1": 0, "y1": 0, "x2": 1, "y2": 0, "layer": "A;B"}, "layer"),

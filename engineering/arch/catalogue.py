@@ -22,6 +22,12 @@ on a wall that runs along +X below it, and every primitive lies inside
 Block content is on layer ``0`` (colour and linetype ByBlock, which is how
 ``block_define`` writes them), so an INSERT takes the look of the layer it is
 inserted on: ``ARCH_ROLE_LAYER["furniture"]`` or ``ARCH_ROLE_LAYER["sanitary"]``.
+
+Every block starts with WIPEOUTs over the item's own outline (``mask``; the
+footprint rectangle unless the item says otherwise - the WC bowl, the L of the
+corner sofa, the table and chairs of a dining set), so a floor pattern drawn
+before the INSERT does not show through the item. A curved edge is masked by
+its inscribed polygon.
 """
 
 from __future__ import annotations
@@ -108,6 +114,33 @@ def _rect(x0: float, y0: float, x1: float, y1: float) -> dict:
     return _poly(((x0, y0), (x1, y0), (x1, y1), (x0, y1)), True)
 
 
+def _box_pts(x0: float, y0: float, x1: float, y1: float) -> list[tuple[float, float]]:
+    return [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+
+
+#: Chords per half circle of a mask outline. A wipeout is a polygon, so a curved
+#: edge is masked by its inscribed polygon: at a 400 mm radius the sliver left
+#: between chord and arc is under 2 mm.
+_MASK_STEPS = 24
+
+
+def _arc_pts(cx: float, cy: float, r: float, start_deg: float, end_deg: float):
+    """Points on a CCW arc from ``start_deg`` to ``end_deg``, both ends included."""
+    sweep = (end_deg - start_deg) % 360.0 or 360.0
+    n = max(2, math.ceil(_MASK_STEPS * sweep / 180.0))
+    return [
+        (
+            cx + r * math.cos(math.radians(start_deg + sweep * k / n)),
+            cy + r * math.sin(math.radians(start_deg + sweep * k / n)),
+        )
+        for k in range(n + 1)
+    ]
+
+
+def _wipeout(points) -> dict:
+    return {"type": "wipeout", "points": [[float(x), float(y)] for x, y in points], "layer": "0"}
+
+
 # -- the items ---------------------------------------------------------------
 
 
@@ -119,6 +152,9 @@ class CatalogueItem(NamedTuple):
     ``d_range`` are the sizes the generator keeps a legible symbol for - a
     repository sanity bound, not a standards value. ``h`` is the nominal
     height: it changes nothing in plan and is written into the SIZE attribute.
+    ``mask(w, d)`` returns the polygons the block's wipeouts cover - the
+    item's own outline, so a floor pattern stops at it; ``None`` is the whole
+    ``w x d`` footprint.
     """
 
     name: str
@@ -131,6 +167,7 @@ class CatalogueItem(NamedTuple):
     w_range: tuple[float, float]
     d_range: tuple[float, float]
     draw: Callable[[float, float], tuple[dict, ...]]
+    mask: Callable[[float, float], list[list[tuple[float, float]]]] | None = None
 
     @property
     def entities(self) -> tuple[dict, ...]:
@@ -165,6 +202,19 @@ def _dining(per_side: int):
         return (_rect(0, CHAIR, w, d - CHAIR), *chairs)
 
     return draw
+
+
+def _dining_mask(per_side: int):
+    """The table and each chair seat: the floor shows between the chairs."""
+
+    def mask(w: float, d: float) -> list[list[tuple[float, float]]]:
+        polys = [_box_pts(0, CHAIR, w, d - CHAIR)]
+        for i in range(per_side):
+            x = w * (2 * i + 1) / (2 * per_side) - CHAIR / 2.0
+            polys += [_box_pts(x, 0, x + CHAIR, CHAIR), _box_pts(x, d - CHAIR, x + CHAIR, d)]
+        return polys
+
+    return mask
 
 
 def _single_bed(w, d):
@@ -215,6 +265,11 @@ def _corner_sofa(w, d):
         *(_line(200 + k * step, 200, 200 + k * step, s) for k in range(1, seats + 1)),
         _line(w - s, s, w - 200, s),
     )
+
+
+def _corner_sofa_mask(w, d):
+    s = CORNER_SEAT
+    return [[(0, 0), (w, 0), (w, d), (w - s, d), (w - s, s), (0, s)]]
 
 
 def _armchair(w, d):
@@ -289,6 +344,22 @@ def _wc(w, d):
     )
 
 
+def _wc_mask(w, d):
+    r = w / 2.0 - 40.0
+    cy = d - 20.0 - r
+    return [
+        [
+            (0, 0),
+            (w, 0),
+            (w, 180),
+            (w - 40, 180),
+            *_arc_pts(w / 2, cy, r, 0, 180),
+            (40, 180),
+            (0, 180),
+        ]
+    ]
+
+
 def _bidet(w, d):
     r = w / 2.0
     cy = d - r
@@ -304,6 +375,11 @@ def _bidet(w, d):
     )
 
 
+def _bidet_mask(w, d):
+    r = w / 2.0
+    return [[(0, 0), (w, 0), *_arc_pts(w / 2, d - r, r, 0, 180)]]
+
+
 def _wall_basin(w, d):
     side = d - w / 2.0
     if side < 50.0:
@@ -315,6 +391,11 @@ def _wall_basin(w, d):
         _circle(w / 2, side + 50, 20),
         _circle(w / 2, 50, 15),
     )
+
+
+def _wall_basin_mask(w, d):
+    side = d - w / 2.0
+    return [[(0, 0), (w, 0), *_arc_pts(w / 2, side, w / 2, 0, 180)]]
 
 
 def _countertop_basin(w, d):
@@ -367,6 +448,11 @@ def _freestanding_bathtub(w, d):
     return (*_stadium(0, 0, w, d), *_stadium(70, 70, w - 70, d - 70), _circle(w / 2, d / 2, 25))
 
 
+def _freestanding_bathtub_mask(w, d):
+    r = d / 2.0
+    return [[*_arc_pts(w - r, r, r, 270, 90), *_arc_pts(r, r, r, 90, 270)]]
+
+
 def _sink(w, d):
     return (
         _rect(0, 0, w, d),
@@ -382,8 +468,10 @@ def _washing_machine(w, d):
     return (_rect(0, 0, w, d), _circle(w / 2, d / 2, min(w, d) / 3))
 
 
-def _item(name, family, en, tr, w, d, h, w_range, d_range, draw) -> CatalogueItem:
-    return CatalogueItem(name, family, en, tr, float(w), float(d), float(h), w_range, d_range, draw)
+def _item(name, family, en, tr, w, d, h, w_range, d_range, draw, mask=None) -> CatalogueItem:
+    return CatalogueItem(
+        name, family, en, tr, float(w), float(d), float(h), w_range, d_range, draw, mask
+    )
 
 
 ITEMS: tuple[CatalogueItem, ...] = (
@@ -471,6 +559,7 @@ ITEMS: tuple[CatalogueItem, ...] = (
         (1200, 1800),
         (1600, 1900),
         _dining(2),
+        _dining_mask(2),
     ),
     _item(
         "desk",
@@ -555,6 +644,7 @@ ITEMS: tuple[CatalogueItem, ...] = (
         (2000, 3600),
         (1400, 2400),
         _corner_sofa,
+        _corner_sofa_mask,
     ),
     _item(
         "dining_table_6",
@@ -567,6 +657,7 @@ ITEMS: tuple[CatalogueItem, ...] = (
         (1600, 2400),
         (1700, 2000),
         _dining(3),
+        _dining_mask(3),
     ),
     _item(
         "dining_table_8",
@@ -579,6 +670,7 @@ ITEMS: tuple[CatalogueItem, ...] = (
         (2200, 3000),
         (1800, 2100),
         _dining(4),
+        _dining_mask(4),
     ),
     _item(
         "induction_hob",
@@ -618,9 +710,31 @@ ITEMS: tuple[CatalogueItem, ...] = (
     ),
     # -- sanitary ------------------------------------------------------------
     _item(
-        "wc", "sanitary", "wc with cistern", "klozet", 380, 700, 800, (340, 420), (480, 750), _wc
+        "wc",
+        "sanitary",
+        "wc with cistern",
+        "klozet",
+        380,
+        700,
+        800,
+        (340, 420),
+        (480, 750),
+        _wc,
+        _wc_mask,
     ),
-    _item("bidet", "sanitary", "bidet", "bide", 360, 560, 400, (340, 400), (480, 600), _bidet),
+    _item(
+        "bidet",
+        "sanitary",
+        "bidet",
+        "bide",
+        360,
+        560,
+        400,
+        (340, 400),
+        (480, 600),
+        _bidet,
+        _bidet_mask,
+    ),
     _item(
         "wall_basin",
         "sanitary",
@@ -632,6 +746,7 @@ ITEMS: tuple[CatalogueItem, ...] = (
         (400, 700),
         (350, 600),
         _wall_basin,
+        _wall_basin_mask,
     ),
     _item(
         "shower_tray",
@@ -704,6 +819,7 @@ ITEMS: tuple[CatalogueItem, ...] = (
         (1400, 1900),
         (700, 900),
         _freestanding_bathtub,
+        _freestanding_bathtub_mask,
     ),
     _item(
         "countertop_basin",
@@ -891,6 +1007,8 @@ def block_spec(
     any other footprint is ``ARCH_<NAME>_<W>x<D>``. The height changes nothing
     in plan and is written into the SIZE attribute (``WxDxH``).
 
+    ``entities`` begins with the item's wipeouts (see the module docstring).
+
     Returns ``{"name", "entities", "attdefs", "base_x", "base_y", "item",
     "family", "size", "height", "size_basis"}``. An unknown name (with the
     nearest names) and a size outside the item's range are refused before
@@ -904,6 +1022,10 @@ def block_spec(
         entities = item.draw(w, d)
     except ValueError as exc:
         raise ValueError(f"arch catalogue: {item.name} {_mm(w)} x {_mm(d)}: {exc}.") from None
+    # The wipeouts come first: inside a block a WIPEOUT hides what is drawn
+    # before it, so the item's own lines, listed after, stay on top of it.
+    masks = item.mask(w, d) if item.mask else [_box_pts(0.0, 0.0, w, d)]
+    entities = (*(_wipeout(poly) for poly in masks), *entities)
     nominal = (w, d) == (item.w, item.d)
     block = f"{BLOCK_PREFIX}{item.name.upper()}"
     if not nominal:

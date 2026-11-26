@@ -18,6 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Nine catalogue items (29 in all): `corner_sofa` (L), `dining_table_6`,
   `dining_table_8`, `induction_hob`, `oven_tall_unit`, `dishwasher`,
   `walk_in_shower`, `freestanding_bathtub`, `countertop_basin`.
+- `block_define` takes `type: "wipeout"` (`points`, 3 or more, a closed
+  polygon). Inside a block a WIPEOUT hides what is drawn before it, so list it
+  first.
+- Every `arch_catalogue_insert` block starts with wipeouts over the item's own
+  outline (the footprint rectangle, or the shape for the WC, bidet, wall basin,
+  freestanding bathtub, corner sofa and the table and chairs of a dining set),
+  so a floor pattern no longer shows through furniture. `interior_tile_layout`
+  sends its pieces to the back of the draw order, so this holds also for items
+  inserted before the tiles.
 
 ### Changed
 

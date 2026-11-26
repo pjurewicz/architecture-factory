@@ -676,7 +676,8 @@ async def draw_tile_layout(backend, *, dry_run: bool = False, **spec) -> dict:
     """`engineering.arch.tiles.layout` drawn: one closed polyline per tile piece on the floor layer.
 
     A full tile is its four corners; a cut piece is each closed loop of its
-    boundary (a cutout wholly inside one tile is a second loop). Refusals fire
+    boundary (a cutout wholly inside one tile is a second loop), sent to the
+    back of the draw order so furniture wipeouts cover it. Refusals fire
     before the first entity; ``dry_run`` computes the takeoff and draws nothing.
     """
     from engineering.arch.tiles import layout
@@ -718,4 +719,8 @@ async def draw_tile_layout(backend, *, dry_run: bool = False, **spec) -> dict:
         )
     out["handles"] = [row["handle"] for row in drawn["entities"]]
     out["count"] = len(out["handles"])
+    # Floor patterns go to the back (DRAWORDER), so the wipeouts of furniture
+    # inserted before the layout still hide them.
+    if out["handles"]:
+        await backend.draw_order(out["handles"], "send_to_back")
     return out
