@@ -28,8 +28,8 @@ decimal commas.
 DECLARED, not standard: the paper column widths below and the reuse of the
 parts list's 7 mm row and 2.5 mm text (`engineering.sheet.bom.ROW_HEIGHT`,
 `TEXT_HEIGHT`) - no standard fixes a schedule's layout. A column is widened
-past its declared width when its longest header or value would not fit
-(``CHAR_WIDTH_FACTOR`` per character plus the cell margins).
+past its declared width when its widest header or value would not fit, measured
+as every table measures it (`engineering.annotation.fit_column_widths`).
 """
 
 from __future__ import annotations
@@ -38,6 +38,7 @@ import math
 import re
 from typing import TYPE_CHECKING
 
+from engineering.annotation import fit_column_widths
 from engineering.arch.lang import LANGS, fmt_area_m2, fmt_number, tag_prefix, vocab
 from engineering.arch.layers import ARCH_LAYERS, ARCH_ROLE_LAYER
 from engineering.arch.model import DOOR_KINDS, WINDOW_KINDS
@@ -85,22 +86,14 @@ COLUMN_WIDTHS: dict[str, float] = {
     "area": 25.0,
 }
 
-#: Character advance in text heights used to widen a column to its longest
-#: cell - generous for upper-case, as `engineering.arch.rooms.CHAR_WIDTH_FACTOR`.
-CHAR_WIDTH_FACTOR = 0.9
-
 
 def _column_widths(columns, headers, cells, text_height: float, row_height: float) -> list[float]:
-    """Paper widths: `COLUMN_WIDTHS` as the minimum, widened so the longest
-    header or value fits between the cell margins `entity_create_table` keeps
-    (``min(0.4 h, 0.15 row)`` on each side), rounded up to a whole millimetre."""
-    margin = min(0.4 * text_height, 0.15 * row_height)
-    widths = []
-    for index, column in enumerate(columns):
-        longest = max(len(str(text)) for text in [headers[index], *(r[index] for r in cells)])
-        need = CHAR_WIDTH_FACTOR * text_height * longest + 2.0 * margin
-        widths.append(max(COLUMN_WIDTHS[column], float(math.ceil(need))))
-    return widths
+    """Paper widths: `COLUMN_WIDTHS` as the minimum, widened so the widest
+    header or value fits between the cell margins, rounded up to a whole millimetre."""
+    fitted = fit_column_widths(
+        [headers, *cells], text_height, row_height, [COLUMN_WIDTHS[c] for c in columns]
+    )
+    return [float(math.ceil(w - 1e-9)) for w in fitted]
 
 
 #: `entity_create_table` takes at most 200 rows, the title and header included.
@@ -296,8 +289,8 @@ async def draw_schedule(
         title=words[SCHEDULE_TITLES[kind]],
         layer=layer,
     )
-    width = sum(paper_widths) * factor
-    height = (len(rows) + 2) * ROW_HEIGHT * factor
+    (x0, y_min), (x1, _y) = entity.properties["bounds"]["min"], entity.properties["bounds"]["max"]
+    width, height = x1 - x0, y - y_min
     return {
         "ok": True,
         "kind": kind,

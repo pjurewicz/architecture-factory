@@ -33,6 +33,7 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
+from engineering.annotation import prepare_table_layout
 from engineering.mech.primitives import Circle, Line, Prim, Pt, Text
 from engineering.mech.xdata import APP_ID, PAYLOAD_VERSION, decode, to_values
 from engineering.sheet.frames import SHEET_TEXT_LAYER, draw_sheet_prims, enter_layout
@@ -228,7 +229,12 @@ def table_layout(
     heading = [COLUMN_LABELS[c] for c in chosen]
     body = [[str(row.get(c, "")) for c in chosen] for row in rows]
     cells = list(reversed(body)) + [heading] if direction == "up" else [heading] + body
-    height = row_height * len(cells)
+    # the widths are fixed by the title block; a cell that does not fit is
+    # wrapped and its row grows, as every table fits its cells
+    row_heights = list(
+        prepare_table_layout(cells, None, widths, row_height, TEXT_HEIGHT).row_heights
+    )
+    height = sum(row_heights)
     ax, ay = float(at[0]), float(at[1])
     insert = (ax, ay + height) if direction == "up" else (ax, ay)
     return {
@@ -238,6 +244,7 @@ def table_layout(
         "width": sum(widths),
         "height": height,
         "row_height": row_height,
+        "row_heights": row_heights,
         "direction": direction,
         "anchor": (ax, ay),
         "insert": insert,
@@ -264,8 +271,9 @@ def table_prims(
     ax, ay = layout["anchor"]
     total_w, total_h = layout["width"], layout["height"]
     prims: list[Prim] = []
-    for index in range(len(layout["cells"]) + 1):
-        y = ay + index * layout["row_height"]
+    # rows from the bottom up: the last cell row is the lowest
+    bottoms = [ay + sum(layout["row_heights"][i + 1 :]) for i in range(len(layout["cells"]))]
+    for y in [*bottoms, ay + total_h]:
         prims.append(Line(p1=(ax, y), p2=(ax + total_w, y)))
     x = ax
     prims.append(Line(p1=(x, ay), p2=(x, ay + total_h)))
@@ -275,7 +283,7 @@ def table_prims(
     pad = min(1.0, layout["row_height"] * 0.15)
     for row_index, cells in enumerate(layout["cells"]):
         # cells are top-to-bottom; the top row is the last one up the sheet
-        baseline = ay + (len(layout["cells"]) - row_index - 1) * layout["row_height"] + pad
+        baseline = bottoms[row_index] + pad
         x = ax
         for column_index, value in enumerate(cells):
             if value:

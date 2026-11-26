@@ -5973,7 +5973,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 x_positions.append(x_positions[-1] + width)
 
             for row_index in range(layout.row_count + 1):
-                yy = y0 - row_index * layout.row_height
+                yy = y0 - layout.row_top(row_index)
                 line = msp.add_line((x0, yy), (x0 + layout.width, yy))
                 self._apply_attrs(line, layer, None)
                 children.append(line)
@@ -5982,34 +5982,30 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 # a title row is merged, as AutoCAD's TABLE draws it: only the
                 # outer edges cross it
                 inner = 0 < index < last
-                top = y0 - layout.row_height if layout.title_row and inner else y0
+                top = y0 - layout.row_heights[0] if layout.title_row and inner else y0
                 line = msp.add_line((xx, top), (xx, y0 - layout.height))
                 self._apply_attrs(line, layer, None)
                 children.append(line)
 
             # the cell margin scales with the lettering: 1.0 at the default 2.5
             # text, 50 on a 1:50 schedule (a flat 1.0 there is 0.02 mm on the
-            # sheet and the text sat on the cell line)
-            padding = min(0.4 * layout.text_height, 0.15 * layout.row_height)
+            # sheet and the text sat on the cell line); a cell too long for its
+            # column wraps and `prepare_table_layout` grows its row
+            padding = layout.padding
             for row_index, row in enumerate(layout.cells):
                 for column_index, value in enumerate(row):
                     if not value:
                         continue
-                    span = (
-                        layout.width
-                        if layout.title_row and row_index == 0
-                        else layout.column_widths[column_index]
-                    )
                     text_entity = msp.add_mtext(
                         value,
                         dxfattribs={
                             "char_height": layout.text_height,
-                            "width": max(1.0, span - 2 * padding),
+                            "width": max(1.0, layout.span(row_index, column_index) - 2 * padding),
                         },
                     )
                     text_entity.dxf.insert = (
                         x_positions[column_index] + padding,
-                        y0 - row_index * layout.row_height - padding,
+                        y0 - layout.row_top(row_index) - padding,
                         0.0,
                     )
                     self._apply_attrs(text_entity, layer, None)
@@ -6034,6 +6030,8 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     "child_handles": child_handles,
                     "rows": layout.row_count,
                     "columns": layout.column_count,
+                    "column_widths": list(layout.column_widths),
+                    "text_fit": layout.fitted,
                     "bounds": {
                         "min": [x0, y0 - layout.height],
                         "max": [x0 + layout.width, y0],

@@ -504,7 +504,6 @@ def legacy_table_pieces(part, payload: dict, records, dimensioned: dict, eps: fl
     ``hole_table``; the rest are the untagged lines and texts on its layer
     inside the box the OLD model's rows lay out from that line's corner.
     A live TABLE is one entity, the stored handle alone."""
-    from engineering.annotation import prepare_table_layout
     from engineering.mech.dimension import hole_table_rows
     from engineering.mech.draw import _view_from_record
 
@@ -524,17 +523,14 @@ def legacy_table_pieces(part, payload: dict, records, dimensioned: dict, eps: fl
             break
     if not rows:
         return []
-    layout = prepare_table_layout(
-        [[r["tag"], f"{r['d']:g}", str(r["qty"]), r["note"]] for r in rows],
-        ["TAG", "DIA", "QTY", "NOTE"],
-        None,
-        7.0,
-        2.5,
-        "HOLE TABLE",
-    )
+    cells = [["HOLE TABLE", "", "", ""], ["TAG", "DIA", "QTY", "NOTE"]]
+    cells += [[r["tag"], f"{r['d']:g}", str(r["qty"]), r["note"]] for r in rows]
+    # the box as the pre-1.8.0 engine sized it: 0.7 text heights per character,
+    # 10 at least, one 7.0 row per line - not today's measured fit
+    width = sum(max(10.0, max(len(row[c]) for row in cells) * 2.5 * 0.7) for c in range(4))
     x0 = min(p[0] for p in first.points)
     y0 = max(p[1] for p in first.points)
-    box = (x0, y0 - layout.height, x0 + layout.width, y0)
+    box = (x0, y0 - 7.0 * len(cells), x0 + width, y0)
     return [
         str(rec.handle)
         for rec in records

@@ -202,9 +202,10 @@ async def test_a_column_widens_to_its_longest_value(backend):
     await write_record(backend, wall, "wall")
     await write_record(backend, door, "door")
     result = await draw_schedule(backend, "doors", at=(0.0, 0.0), scale=1)
-    # 10 characters x 0.9 x 2.5 mm + 2 x 1 mm margin = 24.5 -> 25 mm, not the declared 20;
+    # W_INT_VEST measures 8.51 text heights in the renderer's font: 21.3 mm
+    # + 2 x 1 mm margin = 23.3 -> 24 mm, not the declared 20;
     # the other columns keep theirs: 15+35+20+20+20+20 = 130
-    assert result["bbox"]["max"][0] == 155.0
+    assert result["bbox"]["max"][0] == 154.0
 
 
 @pytest.mark.asyncio

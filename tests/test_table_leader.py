@@ -66,6 +66,34 @@ async def test_ezdxf_table_cell_margin_scales_with_the_lettering(backend):
     assert left.dxf.width == pytest.approx(1000 - 2 * 50.0)
 
 
+async def test_ezdxf_table_auto_width_fits_the_measured_text(backend):
+    # Eight capitals W are 27.1 at 2.5 lettering; the old 0.7-per-character
+    # estimate gave the column 14 and the text ran over the next cell.
+    from ezdxf.fonts import fonts
+
+    wide = fonts.make_font("DejaVuSans.ttf", 2.5).text_width("WWWWWWWW")
+    result = await backend.entity_create_table(0, 0, rows=[["A1", "WWWWWWWW"]])
+    assert result.properties["column_widths"][1] == pytest.approx(wide + 2 * 1.0)
+    assert result.properties["text_fit"] == {"wrapped": 0, "overflowing": 0}
+
+
+async def test_ezdxf_table_fixed_width_wraps_and_grows_only_that_row(backend):
+    result = await backend.entity_create_table(
+        0,
+        0,
+        rows=[["Pokrywa łożyska z uszczelnieniem", "x"], ["M8", "WWWWMMMM"]],
+        column_widths=[30, 10],
+    )
+    # 28 wide at 2.5 lettering holds 11.2 text heights; "Pokrywa łożyska" is
+    # 11.6, so three lines - 2 x 1.0 margin + 2.5 + 2 x 5/3 x 2.5 pitch + 0.3 x
+    # 2.5 descent - and the second row keeps its 7.0; one word wider than its
+    # cell cannot wrap and is reported, not hidden
+    assert result.properties["bounds"]["min"][1] == pytest.approx(
+        -(2 + 2.5 + 2 * 2.5 * 5 / 3 + 0.75) - 7.0
+    )
+    assert result.properties["text_fit"] == {"wrapped": 1, "overflowing": 1}
+
+
 async def test_ezdxf_table_survives_save_and_reopen(backend, tmp_path):
     result = await backend.entity_create_table(0, 30, rows=[["A", "1"]], headers=["Name", "Qty"])
     path = tmp_path / "table.dxf"
