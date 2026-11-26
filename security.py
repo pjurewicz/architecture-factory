@@ -1,6 +1,6 @@
 """Security utilities for AutoCAD MCP Pro.
 
-Path traversal protection and command injection prevention.
+Path validation and the symbol-name / macro-argument guards.
 """
 
 from __future__ import annotations
@@ -9,7 +9,6 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import NamedTuple
 
 from fastmcp.exceptions import ToolError
 
@@ -33,36 +32,6 @@ class PathRefusedError(ToolError):
         #: The refusal's own envelope fields (1.8-17: ``reason``, ``extension``,
         #: ``allowed``); empty for the 1.7 traversal / directory refusals.
         self.details = {key: value for key, value in details.items() if value is not None}
-
-
-class CommandRefusedError(ToolError):
-    """The raw command / LISP denylist refused the string (plan 1.8-02).
-
-    ``verbs`` are the refused command verbs - for LISP, the command names its
-    ``(command "...")`` forms carry - and ``symbols`` the restricted LISP
-    symbols found. ``alternatives`` (``[{tool, summary}]``) is filled by the
-    server, which knows the tools the active profile and packs advertise.
-    """
-
-    kind = "policy_refused"
-
-    def __init__(self, message: str, *, verbs=(), symbols=(), channel: str = "command"):
-        super().__init__(message)
-        self.verbs = [str(v) for v in verbs]
-        self.symbols = [str(s) for s in symbols]
-        self.channel = channel
-        self.alternatives: list[dict] = []
-
-    @property
-    def alternative_verbs(self) -> list[str]:
-        """The command verbs whose typed tools fill ``alternatives``: ``verbs``
-        here; a LISP refusal adds the verbs its symbols map to (1.8-18)."""
-        return list(self.verbs)
-
-    def fields(self) -> dict:
-        """The refusal's own envelope fields beyond channel / verbs / symbols
-        (1.8-18: ``security_lisp.LispPolicyRefusedError``'s location)."""
-        return {}
 
 
 # ---------------------------------------------------------------------------
@@ -300,292 +269,14 @@ def validate_path(path: str, *, allow_write: bool = False, kinds=None) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# Command / LISP sanitization
-#
-# Why it is NOT incoherent to block INSERT/SAVEAS/NEW/OPEN/PURGE/ERASE here
-# while `block_insert` / `drawing_save_as` / `drawing_new` / `drawing_open` /
-# `drawing_purge` / `entity_delete` are tools — this gets re-raised, so it is
-# recorded once:
-#
-# `sanitize_command` and `sanitize_lisp` each have exactly ONE caller, both of
-# them the COM-only free-text escape hatch into SendCommand. The policy is
-# scoped to the CHANNEL, not to the operation, which is capability narrowing
-# rather than a contradiction.
-#
-# That "the CHANNEL" was singular was wrong, and it took an audit to notice.
-# `_ensure_linetype_loaded` and `ComBackend.linetype_load` reach SendCommand
-# too, carrying a caller's linetype name and file path, and neither passed
-# through anything here — so the denylist below was guarding one door of two.
-# `sanitize_symbol_name` / `sanitize_macro_argument` at the end of this module
-# close the other. Before adding a third SendCommand site, guard it there and
-# amend this paragraph rather than this one:
-#
-#   * `block_insert(name, x, y, ...)` takes a block ALREADY in the drawing plus
-#     typed geometry. The INSERT *command* takes a file path and pulls in an
-#     external DWG, which can carry an attached VBA/LISP payload. Same name,
-#     different capability.
-#   * `entity_delete(handle)` deletes one named entity. `ERASE ALL` does not.
-#   * `drawing_save_as` / `_open` / `_new` route their path through
-#     validate_path. A free-text `SAVEAS C:\...` routes through nothing.
-# ---------------------------------------------------------------------------
-
-# Matched against the extracted VERB, so the "_XXX" duplicates the old list
-# carried are gone — command_verbs() strips every decorator AutoCAD accepts.
-#
-# Single-letter aliases are deliberately absent. `E` is the ERASE alias, but it
-# is also the Extents *option* of ZOOM, so blocking it refuses `_ZOOM\nE\n` —
-# the canonical zoom-extents macro, and this repo's own safe-command fixture.
-# A guardrail that blocks the most common harmless macro gets switched off, and
-# then it guards nothing.
-_DANGEROUS_COMMANDS = frozenset(
-    {
-        # destructive to the drawing
-        "ERASE",
-        "DELETE",
-        "PURGE",
-        "WBLOCK",
-        "INSERT",
-        "XREF",
-        # ends or overwrites the session / file
-        "QUIT",
-        "EXIT",
-        "CLOSE",
-        "CLOSEALL",
-        "QSAVE",
-        "SAVE",
-        "SAVEAS",
-        "NEW",
-        "OPEN",
-        "RECOVER",
-        "RECOVERALL",
-        # loads or runs code — every channel found while probing
-        "SHELL",
-        "SCRIPT",
-        "SCR",
-        "APPLOAD",
-        "NETLOAD",
-        "ARX",
-        "VBARUN",
-        "VBALOAD",
-        "VBASTMT",
-        "VBAIDE",
-        "VBAMAN",
-        "CUILOAD",
-        "MENULOAD",
-        "MENU",
-        "CUI",
-        # writes files outside the tool layer's path validation
-        "EXPORT",
-        "ETRANSMIT",
-        "PUBLISH",
-        "SECURITYOPTIONS",
-    }
-)
-
-# AutoCAD accepts a command with any mix of these leading decorators:
-#   _  international (locale-independent) form
-#   .  suppress a redefined command
-#   -  the command-line (no dialog) variant
-#   '  transparent
-_COMMAND_DECORATORS = "_.-*'"
-
-
-def command_verbs(command: str) -> list[str]:
-    """Every command verb in a SendCommand string.
-
-    SendCommand takes a whole macro, not one command: segments are separated by
-    a newline or ``;``, and only the FIRST token of a segment is a verb — the
-    rest is argument data. Scanning the raw string with a word-boundary regex is
-    what refused ``MTEXT 0,0 10,10 Do not erase this part``, which is annotation
-    text, while still missing spellings AutoCAD accepts.
-    """
-    verbs: list[str] = []
-    for segment in re.split(r"[\n;]+", command):
-        segment = segment.strip()
-        if not segment:
-            continue
-        token = segment.split()[0].split(",")[0].lstrip(_COMMAND_DECORATORS)
-        if token:
-            verbs.append(token.upper())
-    return verbs
-
-
-# Dangerous LISP symbols. We match these as **bare tokens anywhere** in the
-# expression — not only when they appear right after `(` — because aliasing
-# tricks like `(setq f command)(f "ERASE")` reference the symbol as a value.
-_DANGEROUS_LISP_PATTERNS = [
-    # File and shell I/O
-    r"startapp",
-    r"dos_[\w-]*",
-    r"vl-file-(?:delete|rename|copy|directory-p)",
-    r"vl-mkdir",
-    r"vl-directory-files",
-    r"read-line",
-    r"write-line",
-    r"findfile",
-    r"getfiled",
-    # Command execution (every known channel)
-    r"command(?:-s)?",
-    r"vl-cmdf",
-    # ActiveX/COM family — vla-*, vlax-*, vlr-*; covers vla-SendCommand etc.
-    r"vla[xr]?-[\w-]+",
-    # AutoCAD Express Tools — acet-sys-shell and friends
-    r"acet-[\w-]+",
-    # Code loading
-    r"vl-acad-(?:de|un)fun",
-    r"(?:auto)?load",
-    r"arxload",
-    # Indirection vectors that bypass head-only matching
-    r"eval",
-    r"apply",
-    r"funcall",
-    r"function",
-    r"\(\s*quote\s+command\b",
-    # Custom command invocation prefix `(c:my-cmd)`
-    r"c:[\w-]+",
-    # Error handler hijack
-    r"\*push-error-using-command\*",
-    r"\*push-error-using-stack\*",
-]
-
-# A double-quoted literal is DATA — drawing text, a layer name, a note. The
-# symbol denylist must not read it. Without this, an engineering CAD server
-# refused its own vocabulary: '(setq desc "Max load 500 kg")' matched
-# r"(?:auto)?load" and '(setq layer "C:CENTER")' matched r"c:[\w-]+".
-_LISP_STRING_LITERAL = re.compile(r'"(?:[^"\\]|\\.)*"')
-
-_DANGEROUS_LISP_PATTERN = re.compile(
-    r"(?:(?<![\w-])|^)(?:" + "|".join(_DANGEROUS_LISP_PATTERNS) + r")(?![\w-])",
-    re.IGNORECASE,
-)
-
-
-def sanitize_command(command: str) -> str:
-    """Validate an AutoCAD command string for safety.
-
-    Raises ToolError if a dangerous command pattern is detected
-    (unless DANGEROUS_COMMANDS_ENABLED is true).
-    """
-    if not command or not command.strip():
-        raise ToolError("Command string cannot be empty.")
-
-    if config.settings.dangerous_commands_enabled:
-        log.info("Dangerous commands enabled — bypassing sanitization for: %s", command[:80])
-        return command
-
-    blocked = {verb for verb in command_verbs(command) if verb in _DANGEROUS_COMMANDS}
-    if blocked:
-        log.warning("Blocked dangerous command: %s", command[:120])
-        raise CommandRefusedError(
-            f"Command rejected: {', '.join(sorted(blocked))} "
-            f"{'is a restricted command' if len(blocked) == 1 else 'are restricted commands'}. "
-            "This denylist is a guardrail against accidental destruction, not a "
-            "security boundary — "
-            "prefer the typed tools (entity_delete, drawing_save_as, block_insert, "
-            "drawing_purge), which validate their arguments. Set "
-            "DANGEROUS_COMMANDS_ENABLED=true to allow all commands.",
-            verbs=sorted(blocked),
-            channel="command",
-        )
-
-    return command
-
-
-class DenylistHit(NamedTuple):
-    """One match of the 1.7 LISP denylist: ``symbol`` (lower-cased; the
-    ``command`` of a ``(quote command`` match), its span in the expression and
-    the ``raw`` lower-cased match 1.7 reported in ``symbols``."""
-
-    symbol: str
-    start: int
-    end: int
-    raw: str
-
-
-_QUOTED_COMMAND = re.compile(r"command", re.IGNORECASE)
-
-
-def lisp_denylist_matches(expression: str) -> list[DenylistHit]:
-    """Every match of the 1.7 denylist, in order, string literals blanked.
-
-    The literals are blanked to spaces of the same length (1.7 blanked them to
-    ``""``; neither spelling holds a word character, so the matches are the
-    same) so a match's span is its span in ``expression``.
-    """
-    code_only = _LISP_STRING_LITERAL.sub(
-        lambda m: '"' + " " * (len(m.group(0)) - 2) + '"', expression or ""
-    )
-    hits: list[DenylistHit] = []
-    for match in _DANGEROUS_LISP_PATTERN.finditer(code_only):
-        raw = match.group(0).lower()
-        start, end = match.start(), match.end()
-        if raw.startswith("("):
-            inner = _QUOTED_COMMAND.search(raw)
-            if inner is not None:
-                start, end = match.start() + inner.start(), match.start() + inner.end()
-        hits.append(DenylistHit(code_only[start:end].lower(), start, end, raw))
-    return hits
-
-
-def sanitize_lisp(expression: str) -> str:
-    """Validate an AutoLISP expression for safety.
-
-    Raises ToolError if a dangerous LISP function is detected
-    (unless DANGEROUS_COMMANDS_ENABLED is true).
-
-    1.8-18: under ``LISP_POLICY`` (``config.settings.lisp_policy``) -
-    ``read`` (default) runs what passes the read tier of ``security_lisp`` and
-    sends everything else to the 1.7 denylist unchanged; ``denylist`` is 1.7's
-    behaviour; ``off`` checks nothing. A refusal is
-    ``security_lisp.LispPolicyRefusedError`` (a ``CommandRefusedError``) with
-    the symbol, line and column.
-    """
-    if not expression or not expression.strip():
-        raise ToolError("LISP expression cannot be empty.")
-
-    if config.settings.dangerous_commands_enabled:
-        log.info(
-            "Dangerous commands enabled — bypassing LISP sanitization for: %s", expression[:80]
-        )
-        return expression
-
-    # Decides whether to run it, never rewrites it: the ORIGINAL expression is
-    # returned. String literals are data to both the reader and the denylist.
-    from security_lisp import check_expression
-
-    return check_expression(expression, getattr(config.settings, "lisp_policy", "read"))
-
-
-#: ``(command "_.ERASE" ...)`` / ``(command-s ...)`` / ``(vl-cmdf ...)``: the
-#: command name is the first token of the first string argument.
-_LISP_COMMAND_FORM = re.compile(r'\(\s*(?:command-s|command|vl-cmdf)\s+"([^"]*)"', re.IGNORECASE)
-
-
-def lisp_command_verbs(expression: str) -> list[str]:
-    """The AutoCAD command names a LISP expression's command forms invoke.
-
-    Only for naming typed alternatives to a refused expression - never a
-    security decision (the symbol denylist above is that).
-    """
-    verbs: list[str] = []
-    for match in _LISP_COMMAND_FORM.finditer(expression or ""):
-        for verb in command_verbs(match.group(1)):
-            if verb not in verbs:
-                verbs.append(verb)
-    return verbs
-
-
-# ---------------------------------------------------------------------------
 # Symbol-table names interpolated into a SendCommand macro
 # ---------------------------------------------------------------------------
 #
-# The scoped-to-the-CHANNEL argument above assumed `sanitize_command` and
-# `sanitize_lisp` were the only routes into SendCommand. They were not.
 # `_ensure_linetype_loaded` built `_-LINETYPE _LOAD {name} {file}` from a
 # caller's `linetype=` argument, and `ComBackend.linetype_load` added a
 # caller-supplied path. SendCommand takes a whole macro and treats a newline
 # and `;` as segment separators, so either string could append commands that
-# the 36-verb denylist never sees. (v1.6 moved both loaders to the ActiveX
+# no command check ever saw. (v1.6 moved both loaders to the ActiveX
 # `Linetypes.Load` member, which takes the name as data; the guard stays,
 # because a name this rule refuses was never a loadable linetype either.)
 #

@@ -14,8 +14,6 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from backends.capability import capability
-
 
 class EnvironmentContract(ABC):
     # ── documents ────────────────────────────────────────────────────────────
@@ -107,56 +105,6 @@ class EnvironmentContract(ABC):
     @abstractmethod
     async def ucs_restore(self, name: str) -> dict:
         """``"world"`` resets."""
-        ...
-
-    # ── application, preferences, operator prompts (COM only) ───────────────
-
-    @capability(  # noqa: B027 — @capability supplies the body
-        "live_application",
-        reason="only a live CAD application can be launched or attached",
-    )
-    async def system_launch(self, visible: bool = True, open_path: str | None = None) -> dict:
-        """→ ``{"launched": bool, "attached": bool, "version", "document"}``."""
-        ...
-
-    @capability(  # noqa: B027 — @capability supplies the body
-        "preferences",
-        reason="AutoCAD preferences live in the running application, not in a file",
-    )
-    async def preferences_get(self, keys: list[str] | None = None) -> dict:
-        """→ ``{"values": {key: value}, "read_only": [keys]}``."""
-        ...
-
-    @capability(  # noqa: B027 — @capability supplies the body
-        "preferences",
-        reason="AutoCAD preferences live in the running application, not in a file",
-    )
-    async def preferences_set(self, key: str, value) -> dict:
-        """→ ``{"ok", "key", "old", "new"}``."""
-        ...
-
-    @capability(  # noqa: B027 — @capability supplies the body
-        "interactive_prompt",
-        reason="prompting the operator needs a live AutoCAD session",
-    )
-    async def user_pick_point(self, prompt: str) -> dict:
-        """→ ``{"cancelled": bool, "x", "y"}`` | ``{"timed_out": True}``."""
-        ...
-
-    @capability(  # noqa: B027 — @capability supplies the body
-        "interactive_prompt",
-        reason="prompting the operator needs a live AutoCAD session",
-    )
-    async def user_select(self, prompt: str, mode: str = "single") -> dict:
-        """→ ``{"cancelled", "handles": [...]}``; ``mode="single"`` adds ``"picked": [x, y]`` in WCS."""
-        ...
-
-    @capability(  # noqa: B027 — @capability supplies the body
-        "interactive_prompt",
-        reason="prompting the operator needs a live AutoCAD session",
-    )
-    async def system_prompt_message(self, text: str) -> dict:
-        """→ ``{"ok"}``."""
         ...
 
     # ── properties (declared here; implemented by group C on both engines) ───

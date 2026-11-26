@@ -17,13 +17,9 @@ from __future__ import annotations
 import types
 
 import pytest
-from fastmcp import Client
 
 import config
-import server
-from backends.base import UnsupportedCapabilityError
 from backends.capability import is_capability_default
-from backends.ezdxf_backend import EzdxfBackend
 from engineering.environment.preferences import (
     PREFERENCE_KEYS,
     READ_ONLY_KEYS,
@@ -109,41 +105,6 @@ def test_describe_preferences_covers_every_key():
 
 
 # ── headless: declared refusals ─────────────────────────────────────────────
-
-
-@pytest.mark.parametrize(
-    "method, args, key",
-    [
-        ("system_launch", (), "live_application"),
-        ("preferences_get", (), "preferences"),
-        ("preferences_set", ("Display.CursorSize", 5), "preferences"),
-        ("user_pick_point", ("Pick",), "interactive_prompt"),
-        ("user_select", ("Select",), "interactive_prompt"),
-        ("system_prompt_message", ("hi",), "interactive_prompt"),
-    ],
-)
-async def test_headless_refuses_with_the_declared_key(backend, method, args, key):
-    assert is_capability_default(EzdxfBackend, method)
-    with pytest.raises(UnsupportedCapabilityError) as excinfo:
-        await getattr(backend, method)(*args)
-    assert excinfo.value.capability == key
-    assert "ezdxf" in str(excinfo.value)
-    feature = backend.capabilities().features[key]
-    assert feature.supported is False and feature.reason
-
-
-async def test_refusal_reaches_the_client_with_the_key(monkeypatch):
-    monkeypatch.setenv("AUTOCAD_MCP_BACKEND", "ezdxf")
-    async with Client(server.mcp) as client:
-        await client.call_tool("drawing_new", {"bootstrap": False})
-        result = await client.call_tool(
-            "user_pick_point", {"prompt": "Pick the base point"}, raise_on_error=False
-        )
-        assert result.is_error is True
-        payload = result.structured_content
-        assert payload["ok"] is False and payload["capability"] == "interactive_prompt"
-        caps = (await client.call_tool("system_capabilities", {})).structured_content
-        assert caps["features"]["interactive_prompt"]["supported"] is False
 
 
 # ── live engine, against a fake ActiveX surface ──────────────────────────────

@@ -324,10 +324,4 @@ async def test_never_reaches_the_client_as_cad_not_running(monkeypatch, com, sea
         assert payload["message"].startswith(f"{config.DEFAULT_CAD_PROGID} is not running")
         assert "CAD_LAUNCH=never" in payload["message"]
         assert "Operation unavailable" in payload["message"], "the attach failure is kept"
-        launch = await connected.call_tool("system_launch", {}, raise_on_error=False)
-        assert launch.is_error is True
-        assert launch.structured_content["kind"] == "cad_not_running"
-        assert launch.structured_content["message"].startswith(
-            f"{config.DEFAULT_CAD_PROGID} is not running"
-        )
-    assert [call for call, _ in seat.calls] == ["GetActiveObject"] * 2, "nothing was launched"
+    assert [call for call, _ in seat.calls] == ["GetActiveObject"], "nothing was launched"

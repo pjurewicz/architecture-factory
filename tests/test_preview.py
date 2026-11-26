@@ -152,7 +152,7 @@ async def test_state_shows_each_session_drawing_and_renders_it(monkeypatch):
 @pytest.mark.asyncio
 async def test_tool_usage_reads_the_journal_under_the_tool_that_ran(monkeypatch):
     monkeypatch.setattr(config.settings, "session_isolation", True)
-    monkeypatch.setattr(config.settings, "hide_live_only_tools", True)
+    monkeypatch.setattr(config.settings, "tool_denylist", ("layer_delete",))
     async with _served(monkeypatch) as http:
 
         async def usage(window="all"):
@@ -179,7 +179,7 @@ async def test_tool_usage_reads_the_journal_under_the_tool_that_ran(monkeypatch)
                     )
                 await b.call_tool(
                     "call_tool",
-                    {"name": "system_run_lisp", "arguments": {"code": "(+ 1 2)"}},
+                    {"name": "layer_delete", "arguments": {"name": "X"}},
                     raise_on_error=False,
                 )
         finally:  # the mode the suite was in, not the configured default
@@ -203,8 +203,8 @@ async def test_tool_usage_reads_the_journal_under_the_tool_that_ran(monkeypatch)
     assert delta("drawing_new") == 2 and delta("entity_create_line") == 1
     assert delta("entity_get") == 2 and kinds("entity_get", "not_found") == 2
     assert delta("drawing_new", "errors") == 0
-    # a call the tool policy turned away is counted too (live-only on this engine)
-    assert kinds("system_run_lisp", "policy_refused") == 1
+    # a call the tool policy turned away is counted too (TOOL_DENYLIST)
+    assert kinds("layer_delete", "policy_refused") == 1
     assert state["calls"] == sum(t["calls"] for t in state["tools"])
     ranked = [t["calls"] for t in state["tools"]]
     assert ranked == sorted(ranked, reverse=True)

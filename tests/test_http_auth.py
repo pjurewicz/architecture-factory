@@ -29,7 +29,6 @@ def _reload_server_with_token(token: str | None):
         mock_settings.allow_remote_http = False
         mock_settings.allowed_paths = []
         mock_settings.max_undo_stack = 5
-        mock_settings.dangerous_commands_enabled = False
         mock_settings.max_dxf_bytes = 50 * 1024 * 1024
         mock_settings.max_list_limit = 5000
         mock_settings.backend = "ezdxf"

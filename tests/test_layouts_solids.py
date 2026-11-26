@@ -1,4 +1,4 @@
-"""Paper-space layouts, viewports, layout PDF export and opt-in 3D solids."""
+"""Paper-space layouts, viewports and layout PDF export."""
 
 from __future__ import annotations
 
@@ -8,9 +8,6 @@ import ezdxf
 import pytest
 import pytest_asyncio
 
-import config
-import server
-from backends.base import UnsupportedCapabilityError
 from backends.ezdxf_backend import EzdxfBackend
 
 pytestmark = pytest.mark.asyncio
@@ -100,30 +97,6 @@ async def test_export_pdf_layout(backend, tmp_path):
     assert missing["ok"] is False
 
 
-async def test_solids_unsupported_headlessly(backend):
-    """T0.7: these refuse by *raising*, so the refusal middleware can see them.
-
-    They used to return ``{"ok": False, "capability": "solid_3d"}``, which left
-    ``is_error`` False on a call that did nothing and put the refusal outside
-    the one place that turns a capability boundary into a wire payload. The
-    payload itself is unchanged — ``to_dict()`` still yields exactly what the
-    old return value did.
-    """
-    calls = [
-        backend.solid_box(0, 0, 0, 10, 10, 10),
-        backend.solid_cylinder(0, 0, 0, 5, 10),
-        backend.solid_extrude("FF", 10),
-        backend.solid_revolve("FF", 0, 0, 0, 1),
-        backend.solid_boolean("FF", "FE", "union"),
-    ]
-    for call in calls:
-        with pytest.raises(UnsupportedCapabilityError) as excinfo:
-            await call
-        assert excinfo.value.capability == "solid_3d"
-        assert excinfo.value.to_dict()["ok"] is False
-        assert excinfo.value.to_dict()["capability"] == "solid_3d"
-
-
 async def test_capability_map_reports_paper_space_and_solids(backend):
     features = backend.capabilities().to_dict()["features"]
     assert features["paper_space"]["supported"] is True
@@ -131,20 +104,3 @@ async def test_capability_map_reports_paper_space_and_solids(backend):
     # viewports. See tests/test_viewport_ops.py for the measurement.
     assert features["viewport_render"]["supported"] is True
     assert features["solid_3d"]["supported"] is False
-
-
-class TestSolidToolGating:
-    @pytest.mark.asyncio
-    async def test_solid_tools_hidden_without_enable_3d(self, monkeypatch):
-        monkeypatch.setattr(config.settings, "enable_3d", False)
-        info = await server._apply_tool_profile("full")
-        assert server.SOLID_TOOL_NAMES <= set(info["disabled_tools"])
-        await server._apply_tool_profile("full")
-
-    @pytest.mark.asyncio
-    async def test_solid_tools_visible_with_enable_3d(self, monkeypatch):
-        monkeypatch.setattr(config.settings, "enable_3d", True)
-        info = await server._apply_tool_profile("full")
-        assert not (server.SOLID_TOOL_NAMES & set(info["disabled_tools"]))
-        monkeypatch.setattr(config.settings, "enable_3d", False)
-        await server._apply_tool_profile("full")

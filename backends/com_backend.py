@@ -406,10 +406,8 @@ def _avar(values):
 
 
 def _solid_3d_capability() -> FeatureCapability:
-    """3D solids are opt-in (ENABLE_3D=true) even on the live COM backend."""
-    if config.settings.enable_3d:
-        return FeatureCapability(True, "native")
-    return FeatureCapability(False, reason="opt_in_disabled:set ENABLE_3D=true")
+    """The solid_* tools were removed with the live engine (FORK.md)."""
+    return FeatureCapability(False, reason="solid_tools_removed")
 
 
 def _acad_app():

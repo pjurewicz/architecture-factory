@@ -24,9 +24,8 @@ the live engine* below); `AUTOCAD_MCP_BACKEND=com` already fails startup.
   `HTTP_ALLOWED_HOSTS`. Several MCP clients may draw at the same time, so each
   session must have its own workspace (`SESSION_ISOLATION`, below).
 - **The model only sees tools that can work.** Every tool definition costs prompt
-  tokens and a tool that can only fail misleads the model. On a headless server
-  the tools that need a live AutoCAD are hidden (`HIDE_LIVE_ONLY_TOOLS`, below).
-  Use `DISCOVERY_MODE`, `TOOL_PROFILE` and `TOOL_PACKS` (see the
+  tokens and a tool that can only fail misleads the model, so the tools that
+  needed a live AutoCAD are removed (*Removing the live engine*, below). Use `DISCOVERY_MODE`, `TOOL_PROFILE` and `TOOL_PACKS` (see the
   [README](README.md#configuration)) to keep the catalog small; `TOOL_PACKS=core,arch`
   fits architectural drawing.
 - **Upstream is cherry-picked, not merged.** Upstream adds most features to both
@@ -43,7 +42,7 @@ the live engine* below); `AUTOCAD_MCP_BACKEND=com` already fails startup.
 
 | Change | Setting | Why |
 |---|---|---|
-| Live-only tools are hidden on a headless server: `system_run_lisp`, `system_run_command`, `system_launch`, `system_preferences_get` / `_set`, `user_pick_point`, `user_select`, `system_prompt_message`. They are left out of `tools/list` and search, and a call is refused `policy_refused` with `policy: "headless_engine"` | `HIDE_LIVE_ONLY_TOOLS` (default `true`) | They can only fail without AutoCAD and cost tokens |
+| The tools only a live AutoCAD could run are removed: `system_run_lisp`, `system_run_command`, `system_launch`, `system_preferences_get` / `_set`, `user_pick_point`, `user_select`, `system_prompt_message`, the five `solid_*` and the `view_zoom_extents` / `view_zoom_window` no-ops (`view_screenshot(region=)` frames a window). With them went the command / LISP denylist, `LISP_POLICY`, `DANGEROUS_COMMANDS_ENABLED` and `ENABLE_3D` | - | They could only fail without AutoCAD and cost tokens |
 | Each MCP session of a headless server gets its own engine: its own open documents, active document, undo and transactions. The first session keeps the server's engine; stateless HTTP requests share it. An engine is released with its unsaved documents when the client ends its session, or after the idle timeout when it vanishes | `SESSION_ISOLATION` (default `true`), `SESSION_IDLE_TIMEOUT` (default `3600` s) | Upstream has one workspace per server, as AutoCAD has one active drawing: two agents drew into each other's documents without an error |
 | A read-only browser page at `/preview`: every session, its open documents, a render of its active document that refreshes as the agent draws, its recent tool calls with duration and data size: argument bytes in, text and image bytes out, measured rather than converted to tokens, since every model counts tokens its own way, and PDF / DXF / DWG downloads; beside it `/preview/tools`, how many times each tool was called and failed (by error kind) across all sessions, read from the operation journal so it outlives a restart. HTTP Basic auth with its own credentials, separate from the MCP token; off until a password is set | `PREVIEW_PASSWORD`, `PREVIEW_USER` (default `preview`) | A headless server has no AutoCAD window to watch |
 | Amp orb setup: ODA File Converter and the headless extras | `.agents/setup` | The server runs in Amp orbs |
@@ -60,8 +59,9 @@ Decided 2026-11-26. In order, each stage its own commit with the suite green:
    startup. **Done.**
 2. The live-only tools (`system_run_*`, `system_launch`, `system_preferences_*`,
    `user_*`, `system_prompt_message`, `solid_*`, `view_zoom_extents` /
-   `view_zoom_window`) and what exists only for them (`security_lisp.py`,
-   `LISP_POLICY`, `HIDE_LIVE_ONLY_TOOLS`).
+   `view_zoom_window`) and what exists only for them (`security_lisp.py`, the
+   command denylist, `LISP_POLICY`, `DANGEROUS_COMMANDS_ENABLED`, `ENABLE_3D`,
+   `HIDE_LIVE_ONLY_TOOLS`). **Done.**
 3. The COM engine itself (`backends/com_backend.py` and its helpers, the live
    branches in `engineering/`, the `COM_*` / `CAD_LAUNCH` settings, `pywin32`,
    the COM tests), the error kinds only it raises, and the `accoreconsole` DWG

@@ -846,18 +846,25 @@ async def test_the_risk_notice_survives_to_the_wire():
         assert name in text, f"{name} hidden by the filter but not named in: {text}"
 
 
-async def test_search_cannot_surface_a_tool_the_profile_disabled():
+async def test_search_cannot_surface_a_tool_the_profile_disabled(monkeypatch):
     """Capability-aware discovery has to survive the transform.
 
-    The 3D solid tools are registered but disabled unless ENABLE_3D=true, so
+    With TOOL_PACKS=core the P&ID tools are registered but disabled, so
     searching for one must come back empty rather than advertising a call that
     would only be rejected. This works because the search reads the *filtered*
     catalog through _get_visible_tools, not the raw registry.
     """
+    monkeypatch.setattr(config.settings, "tool_packs", "core")
     server._apply_discovery_mode("search")
-    async with Client(server.mcp) as client:
-        result = await client.call_tool("search_tools", {"query": "BOX", "limit": 10})
-    assert "solid_box" not in result.content[0].text
+    try:
+        async with Client(server.mcp) as client:
+            result = await client.call_tool(
+                "search_tools", {"query": "P&ID symbol catalogue", "limit": 10}
+            )
+    finally:
+        monkeypatch.undo()
+        await server._apply_tool_profile()
+    assert "pid_symbol_list" not in result.content[0].text
 
 
 async def test_limit_reaches_the_wire():
@@ -971,7 +978,6 @@ async def test_describe_tool_shows_the_optional_parameters_a_search_card_leaves_
 @pytest.mark.parametrize(
     "name",
     [
-        "solid_box",  # registered, hidden by the ENABLE_3D gate
         "no_such_tool",  # never registered
     ],
 )
@@ -1061,7 +1067,7 @@ async def test_describe_tool_is_not_a_registered_tool():
 
 async def test_examples_come_only_from_the_docstrings_own_example_blocks():
     server._apply_discovery_mode("search")
-    visible = {t.name for t in await server._registered_tools()} - server.SOLID_TOOL_NAMES
+    visible = {t.name for t in await server._registered_tools()}
     async with Client(server.mcp) as client:
         cards = {name: await _describe(client, name) for name in sorted(visible)}
     with_examples = {name for name, card in cards.items() if card["examples"]}
@@ -1076,15 +1082,9 @@ async def test_examples_come_only_from_the_docstrings_own_example_blocks():
         "entity_batch_modify",
         "entity_list",
         "selection_get",
-        "system_run_command",
-        "system_run_lisp",
     } <= with_examples
     # a docstring with no example block gets none - nothing is made up
     assert cards["entity_fillet"]["examples"] == []
-    assert cards["system_run_command"]["examples"] == [
-        "'_LINE 0,0 100,0 \\n'.",
-        "'_-LINETYPE _LOAD CENTER acad.lin\\n\\n'.",
-    ]
     assert cards["selection_get"]["examples"] == [
         'sel = selection_get()\ndimension_auto(sel["handles"], style="chain")'
     ]

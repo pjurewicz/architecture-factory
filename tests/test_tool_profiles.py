@@ -48,12 +48,11 @@ async def test_only_lean_and_full_profiles_exist():
     assert not hasattr(server, "CORE_EXCLUDED_TOOL_NAMES")
 
 
-async def test_full_profile_hides_only_gated_solids():
-    """Full hides nothing except the opt-in 3D tools while ENABLE_3D=false."""
+async def test_full_profile_hides_nothing():
     info = await server._apply_tool_profile("full")
     assert info["profile"] == "full"
-    assert set(info["disabled_tools"]) == set(server.SOLID_TOOL_NAMES)
-    assert info["enabled_count"] == info["registered_count"] - len(server.SOLID_TOOL_NAMES)
+    assert set(info["disabled_tools"]) == set()
+    assert info["enabled_count"] == info["registered_count"]
     # An accepted profile is applied as requested, so there is nothing to report.
     assert "requested" not in info
 
@@ -63,7 +62,7 @@ async def test_invalid_profile_falls_back_to_full(caplog):
         info = await server._apply_tool_profile("does-not-exist")
     assert info["profile"] == "full"
     assert info["requested"] == "does-not-exist"
-    assert set(info["disabled_tools"]) == set(server.SOLID_TOOL_NAMES)
+    assert set(info["disabled_tools"]) == set()
     text = caplog.text
     assert "does-not-exist" in text
     # An unknown value is not a removed one; don't tell the user we deleted it.
@@ -75,7 +74,7 @@ async def test_removed_core_profile_falls_back_to_full_with_a_deprecation(caplog
     with caplog.at_level(logging.WARNING, logger="autocad_mcp"):
         info = await server._apply_tool_profile("core")
     assert info["profile"] == "full"
-    assert set(info["disabled_tools"]) == set(server.SOLID_TOOL_NAMES)
+    assert set(info["disabled_tools"]) == set()
     text = caplog.text
     assert "core" in text
     assert "removed" in text.lower()
@@ -106,9 +105,7 @@ async def test_core_env_value_still_serves_the_full_surface(full_catalog, monkey
     async with Client(server.mcp) as client:
         visible = {tool.name for tool in await client.list_tools()}
     registered = await _registered_names()
-    assert visible - OFF_MODE_SYNTHETIC == registered - server.SOLID_TOOL_NAMES
-    # The escape hatches core used to hide are back on the wire.
-    assert "system_run_command" in visible
+    assert visible - OFF_MODE_SYNTHETIC == registered
 
 
 async def test_lean_profile_filters_client_view(full_catalog, monkeypatch):
@@ -122,7 +119,7 @@ async def test_lean_profile_filters_client_view(full_catalog, monkeypatch):
 async def test_profile_switch_is_idempotent():
     await server._apply_tool_profile("lean")
     info = await server._apply_tool_profile("full")
-    assert set(info["disabled_tools"]) == set(server.SOLID_TOOL_NAMES)
+    assert set(info["disabled_tools"]) == set()
     lean_again = await server._apply_tool_profile("lean")
     assert lean_again["enabled_count"] == len(server.LEAN_TOOL_NAMES)
 

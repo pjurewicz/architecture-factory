@@ -5439,51 +5439,6 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             )
         return result
 
-    # ── 3D solids (unsupported headlessly — honest capability boundary) ─────
-
-    @staticmethod
-    def _solid_unsupported(operation: str) -> UnsupportedCapabilityError:
-        """Raise, don't return: a refusal returned as a value is invisible.
-
-        The message is unchanged, so the payload a client sees is identical; what
-        changes is that ``is_error`` stops being quietly ``False`` on a call that
-        did nothing, and that the one refusal middleware can see this at all.
-        """
-        return UnsupportedCapabilityError(
-            "solid_3d",
-            f"{operation}: 3D ACIS solids cannot be generated headlessly; "
-            "use the live COM backend with ENABLE_3D=true",
-        )
-
-    async def solid_box(
-        self, cx: float, cy: float, cz: float, length: float, width: float, height: float
-    ) -> dict:
-        raise self._solid_unsupported("solid_box")
-
-    async def solid_cylinder(
-        self, cx: float, cy: float, cz: float, radius: float, height: float
-    ) -> dict:
-        raise self._solid_unsupported("solid_cylinder")
-
-    async def solid_extrude(
-        self, profile_handle: str, height: float, taper_angle: float = 0.0
-    ) -> dict:
-        raise self._solid_unsupported("solid_extrude")
-
-    async def solid_revolve(
-        self,
-        profile_handle: str,
-        axis_x1: float,
-        axis_y1: float,
-        axis_x2: float,
-        axis_y2: float,
-        angle: float = 360.0,
-    ) -> dict:
-        raise self._solid_unsupported("solid_revolve")
-
-    async def solid_boolean(self, target_handle: str, tool_handle: str, operation: str) -> dict:
-        raise self._solid_unsupported("solid_boolean")
-
     async def drawing_purge(self) -> dict:
         """Delete every unreferenced block, layer, linetype and text style.
 
@@ -9815,18 +9770,6 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             return {"ok": True, "variable": name, "value": value}
 
         return await self._async(_sync)
-
-    async def system_run_command(self, command) -> dict:
-        return {
-            "ok": False,
-            "error": "system_run_command not supported in ezdxf backend (no live AutoCAD)",
-        }
-
-    async def system_run_lisp(self, expression) -> dict:
-        return {
-            "ok": False,
-            "error": "system_run_lisp not supported in ezdxf backend (no live AutoCAD)",
-        }
 
     # ── styles (track E) ─────────────────────────────────────────────────────
 

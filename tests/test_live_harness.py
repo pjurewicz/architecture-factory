@@ -545,7 +545,6 @@ SMOKES = (
     "smoke_operator_edits_com.py",
     "smoke_render_com.py",
     "smoke_edit_com.py",
-    "smoke_lisp_com.py",
     "smoke_durability_com.py",
 )
 

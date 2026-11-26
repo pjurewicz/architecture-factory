@@ -34,9 +34,6 @@ NO_DOCUMENT_READ = {
     "system_capabilities": "the engine's capability map",
     "system_about": "the server's own surface",
     "system_variable_describe": "the static SYSVAR_CATALOG",
-    "system_preferences_get": "live-only (capability preferences)",
-    "user_pick_point": "live-only (capability interactive_prompt)",
-    "user_select": "live-only (capability interactive_prompt)",
     "template_list": "the bundled layer templates",
     "drawing_template_list": "the bundled drawing templates",
     "plot_style_list": "the plot-style catalogue",
@@ -117,8 +114,6 @@ async def test_every_read_cost_tool_reaches_the_engine_readonly(
         "point_tangent": {"circle_handle": circle, "from_x": 100, "from_y": 100},
         "entity_select_smart": {"predicate": {"type": "LINE"}},
         "pid_tag_parse": {"tag": "FIC-101"},
-        "user_pick_point": {"prompt": "pick"},
-        "user_select": {"prompt": "select"},
         "drawing_scale_check": {"reference": str(reference)},
     }
 

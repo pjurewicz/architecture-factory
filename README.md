@@ -27,12 +27,11 @@ Live through COM on Windows, or headless through ezdxf anywhere — one typed co
 
 </div>
 
-> **v1.8 release snapshot:** 257 tools · 13 resources · 5 prompt templates · 7643 collected tests.
+> **v1.8 release snapshot:** 242 tools · 13 resources · 5 prompt templates · 7199 collected tests.
 > 257 is the **registered** count. Since 1.8.0 a default install lists six over `tools/list`
 > (`DISCOVERY_MODE=search`: `search_tools`, `describe_tool`, `call_tool` and the three
 > `DISCOVERY_PINNED` tools), and every tool the profile and packs allow stays callable by name;
-> `DISCOVERY_MODE=off` lists 253: the 252 a default profile enables (`ENABLE_3D` unset hides the five
-> solids) plus `describe_tool`. `system_about` is the runtime authority.
+> `DISCOVERY_MODE=off` lists 243: the 242 a default profile enables plus `describe_tool`. `system_about` is the runtime authority.
 
 ## What's new in 1.8
 
@@ -424,7 +423,6 @@ Nothing loads a `.env` file — export these, or set them in your MCP client's `
 | `TOOL_PACKS` | `all` | Vertical packs to advertise: `core,pid,settings,mech,arch,plant` (`core` always on) |
 | `DISCOVERY_MODE` | `search` | `search` (the default since 1.8.0) lists `search_tools` + `call_tool` + `describe_tool` and the `DISCOVERY_PINNED` tools, and every tool stays callable by name; `off` advertises the full catalog (the 1.7 default). An unknown value falls back to `off` with a warning |
 | `DISCOVERY_PINNED` | `cad_batch,drawing_info,entity_list` | Comma-separated tools search mode lists directly, as shortened cards (full input schema; `describe_tool` returns the whole description). Empty pins nothing; a pin the profile or packs hide is not listed, an unregistered name is warned about at startup |
-| `ENABLE_3D` | `false` | Expose the opt-in `solid_*` tools (COM) |
 | `LOG_LEVEL` | `INFO` | Python logging level |
 | `ALLOWED_PATHS` | *(empty)* | Comma-separated absolute paths the server may access |
 | `MAX_UNDO_STACK` | `5` | Maximum retained undo snapshots |
@@ -462,10 +460,7 @@ Nothing loads a `.env` file — export these, or set them in your MCP client's `
 | `READ_ONLY` | `false` | `true` runs only `read` tools and writes no file; anything else is refused `policy_refused` before it runs |
 | `TOOL_ALLOWLIST` | *(empty)* | Comma-separated tool names or globs (`entity_*`); only these are advertised and callable. An entry naming no tool is warned about at startup (`system_about.policy.unmatched`) |
 | `TOOL_DENYLIST` | *(empty)* | Comma-separated tool names or globs that are neither advertised nor callable |
-| `HIDE_LIVE_ONLY_TOOLS` | `true` | On a headless server (`AUTOCAD_MCP_BACKEND=ezdxf`, or any setting off Windows) the eight tools only a live AutoCAD can run - `system_run_lisp`, `system_run_command`, `system_launch`, `system_preferences_get` / `_set`, `user_pick_point`, `user_select`, `system_prompt_message` - are neither advertised nor callable (`policy_refused`, `policy: "headless_engine"`). `false` lists them again |
 | `MAX_TOOL_COST` | `escape` | The highest tool cost a call may carry: `read`, `safe`, `mutate`, `destructive` or `escape`. A file write is `mutate` whatever its tool is labelled |
-| `DANGEROUS_COMMANDS_ENABLED` | `false` | Allow blocked commands/LISP; reported as unsafe mode |
-| `LISP_POLICY` | `read` | How `system_run_lisp` checks an expression (live only): `read` runs the AutoLISP read tier and sends the rest to the 1.7 denylist, `denylist` is the 1.7 behaviour, `off` checks nothing. An unknown value falls back to `read` with a warning |
 | `ALLOW_REMOTE_HTTP` | `false` | Permit a non-loopback HTTP bind (which also needs a token and `ALLOWED_PATHS`) |
 | `MCP_AUTH_TOKEN` | *(empty)* | Bearer token required for remote HTTP; scopes `mcp:read` and `mcp:write` |
 | `MCP_AUTH_TOKEN_READONLY` | *(empty)* | A second bearer token with only `mcp:read`: its requests run under the `read` ceiling and see only read tools. Alone it also enables auth |

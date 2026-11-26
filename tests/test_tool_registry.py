@@ -139,8 +139,8 @@ async def test_tool_profile_still_disables_under_a_transform(truncating_transfor
     assert info["registered_count"] > 100
     assert info["enabled_count"] == len(server.LEAN_TOOL_NAMES)
     assert info["disabled_count"] > 50
-    # The escape hatches really are hidden, not merely counted as hidden.
-    assert "system_run_command" in info["disabled_tools"]
+    # A full-profile tool really is hidden, not merely counted as hidden.
+    assert "layer_merge" in info["disabled_tools"]
 
 
 async def test_registered_tools_returns_empty_when_registry_unknown(monkeypatch):
@@ -430,7 +430,8 @@ async def test_only_the_raw_passthroughs_are_costed_escape():
     escapes = sorted(
         t.name for t in await server._registered_tools() if (_cad(t) or {}).get("cost") == "escape"
     )
-    assert escapes == ["system_run_command", "system_run_lisp"]
+    # The two raw passthroughs left with the live engine: none is left.
+    assert escapes == []
 
 
 async def test_no_tool_carries_its_aliases_in_the_meta_card():
@@ -635,6 +636,11 @@ async def test_tool_group_sizes_are_unchanged():
     joined SECTION 10, tagged `transaction` beside the rollback tools, and 6 -> 7
     when `drawing_history` (1.8-10, the journal read as a value history) joined
     them, tagged `transaction` too: 257 tools.
+
+    The fork removed the tools only a live AutoCAD could run (FORK.md): the
+    six live-only `environment` tools (22 -> 16), `system_run_command` /
+    `system_run_lisp` (`system` 7 -> 5), the five `solids` (the group is gone)
+    and `view_zoom_extents` / `view_zoom_window` (`view` 4 -> 2): 242 tools.
     """
     sizes = {label: len(names) for label, names in (await server._tool_groups()).items()}
     assert sizes == {
@@ -649,7 +655,7 @@ async def test_tool_group_sizes_are_unchanged():
         "entity_creation": 18,
         "entity_modification": 17,  # + entity_modify_where (1.8-12)
         "entity_query": 9,
-        "environment": 22,
+        "environment": 16,
         "layers": 16,  # + layer_rename, layer_merge (1.8-12)
         "layouts": 12,
         "mechanical": 15,  # + mech_part_revise (1.8-19)
@@ -658,13 +664,12 @@ async def test_tool_group_sizes_are_unchanged():
         "plant": 2,
         "premium": 12,
         "sheet": 11,
-        "solids": 5,
         "styles": 10,
-        "system": 7,
+        "system": 5,
         "templates": 2,
         "transactions": 7,
         "understanding": 5,
         "validation": 1,
-        "view": 4,
+        "view": 2,
     }
-    assert sum(sizes.values()) == 257
+    assert sum(sizes.values()) == 242

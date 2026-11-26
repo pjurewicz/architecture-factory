@@ -20,9 +20,3 @@ class SystemContract(ABC):
 
     @abstractmethod
     async def system_set_variable(self, name: str, value: Any) -> dict: ...
-
-    @abstractmethod
-    async def system_run_command(self, command: str) -> dict: ...
-
-    @abstractmethod
-    async def system_run_lisp(self, expression: str) -> dict: ...

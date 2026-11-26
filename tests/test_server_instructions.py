@@ -215,9 +215,9 @@ async def test_an_unlisted_tool_stays_directly_callable_in_search_mode(surface):
 
 
 async def test_a_profile_hidden_tool_stays_refused_on_a_direct_call_in_search_mode(surface):
-    await surface("search")
-    assert not config.settings.enable_3d
+    await surface("search_lean")
+    assert "layer_merge" not in server.LEAN_TOOL_NAMES
     server._apply_discovery_mode("search")
     async with Client(server.mcp) as client:
         with pytest.raises(ToolError, match="Unknown tool"):
-            await client.call_tool("solid_box", {"x": 0, "y": 0, "z": 0, "dx": 1, "dy": 1, "dz": 1})
+            await client.call_tool("layer_merge", {"sources": ["A"], "target": "B"})

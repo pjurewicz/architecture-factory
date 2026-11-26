@@ -12,45 +12,6 @@ from abc import ABC, abstractmethod
 
 class SolidContract(ABC):
     @abstractmethod
-    async def solid_box(
-        self, cx: float, cy: float, cz: float, length: float, width: float, height: float
-    ) -> dict:
-        """Create a 3D solid box centered at (cx, cy, cz)."""
-        ...
-
-    @abstractmethod
-    async def solid_cylinder(
-        self, cx: float, cy: float, cz: float, radius: float, height: float
-    ) -> dict:
-        """Create a 3D solid cylinder centered at (cx, cy, cz)."""
-        ...
-
-    @abstractmethod
-    async def solid_extrude(
-        self, profile_handle: str, height: float, taper_angle: float = 0.0
-    ) -> dict:
-        """Extrude a closed profile (circle/closed polyline) into a solid."""
-        ...
-
-    @abstractmethod
-    async def solid_revolve(
-        self,
-        profile_handle: str,
-        axis_x1: float,
-        axis_y1: float,
-        axis_x2: float,
-        axis_y2: float,
-        angle: float = 360.0,
-    ) -> dict:
-        """Revolve a closed profile around an axis into a solid."""
-        ...
-
-    @abstractmethod
-    async def solid_boolean(self, target_handle: str, tool_handle: str, operation: str) -> dict:
-        """Boolean two solids: operation is union | subtract | intersect."""
-        ...
-
-    @abstractmethod
     async def drawing_audit(self) -> dict:
         """Audit the drawing, applying every repair the backend can make.
 

@@ -295,38 +295,6 @@ async def test_a_handle_missing_at_run_time_is_not_found_in_a_step_too(client):
 
 
 @pytest.mark.parametrize(
-    "tool, args, channel",
-    [
-        ("system_run_lisp", {"expression": '(command "_.ERASE" "_L" "")'}, "lisp"),
-        ("system_run_command", {"command": "_.ERASE"}, "command"),
-    ],
-)
-@pytest.mark.asyncio
-async def test_a_refused_lisp_or_command_is_policy_refused_on_both_routes(
-    client, tool, args, channel
-):
-    _, payload = await _error(client, tool, args)
-    assert payload["kind"] == "policy_refused" and payload["category"] == "policy"
-    assert payload["channel"] == channel and payload["verbs"] == ["ERASE"]
-    if channel == "lisp":
-        assert "command" in payload["symbols"]
-    step = await _step_error(client, tool, args)
-    assert step["kind"] == "policy_refused", "the direct route and the batch step must agree"
-    assert step["category"] == "policy" and step["hint"] == payload["hint"]
-    assert step["verbs"] == payload["verbs"] and step["channel"] == channel
-    assert step["alternatives"] == payload["alternatives"]
-    assert any(row["tool"] == "entity_delete" for row in step["alternatives"])
-
-
-@pytest.mark.asyncio
-async def test_an_allowed_lisp_is_still_denied_inside_a_batch(client):
-    """The escape hatches never run inside a batch; ``denied`` is for a string a
-    direct call would run, so its hint (call it directly) is true."""
-    step = await _step_error(client, "system_run_lisp", {"expression": '(setvar "LTSCALE" 2.0)'})
-    assert step["kind"] == "denied"
-
-
-@pytest.mark.parametrize(
     "tool, args",
     [
         ("block_define", {"name": "B1", "entities": [{"type": "line"}]}),
@@ -537,8 +505,6 @@ async def test_the_wire_text_is_byte_for_byte_what_it_was(client, tmp_path):
     assert result.content[0].text == (
         "Internal error: Error calling tool 'entity_get': Entity with handle 'FFFFFF' not found."
     )
-    result, _ = await _error(client, "system_run_command", {"command": "_.ERASE"})
-    assert result.content[0].text.startswith("Internal error: Command rejected: ERASE is a")
     result, payload = await _error(client, "drawing_save_as", {"path": str(tmp_path / "x.dwg")})
     assert result.content[0].text == payload["error"] == payload["message"]
 

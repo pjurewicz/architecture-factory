@@ -3,10 +3,10 @@
   "schema_version": 2,
   "package_version": "1.8.0",
   "totals": {
-    "tools": 257,
+    "tools": 242,
     "resources": 13,
     "prompts": 5,
-    "groups": 28
+    "groups": 27
   },
   "groups": {
     "analysis": 12,
@@ -20,7 +20,7 @@
     "entity_creation": 18,
     "entity_modification": 17,
     "entity_query": 9,
-    "environment": 22,
+    "environment": 16,
     "layers": 16,
     "layouts": 12,
     "mechanical": 15,
@@ -29,14 +29,13 @@
     "plant": 2,
     "premium": 12,
     "sheet": 11,
-    "solids": 5,
     "styles": 10,
-    "system": 7,
+    "system": 5,
     "templates": 2,
     "transactions": 7,
     "understanding": 5,
     "validation": 1,
-    "view": 4
+    "view": 2
   },
   "tools": [
     {
@@ -5100,119 +5099,6 @@
       }
     },
     {
-      "name": "solid_boolean",
-      "group": "solids",
-      "cost": "destructive",
-      "summary": "Union, subtract or intersect two 3D solids; the tool solid is consumed.",
-      "acad": [
-        "UNION",
-        "SUBTRACT",
-        "INTERSECT"
-      ],
-      "synonyms": [
-        "boolean",
-        "union of solids",
-        "subtract a solid",
-        "cut a pocket",
-        "combine solids"
-      ],
-      "tags": [
-        "solid"
-      ],
-      "annotations": {
-        "title": "Solid: Boolean",
-        "destructiveHint": true
-      }
-    },
-    {
-      "name": "solid_box",
-      "group": "solids",
-      "cost": "mutate",
-      "summary": "Create a 3D solid box (live AutoCAD, opt-in via ENABLE_3D).",
-      "acad": [
-        "BOX"
-      ],
-      "synonyms": [
-        "3d box",
-        "cuboid",
-        "solid block",
-        "rectangular solid"
-      ],
-      "tags": [
-        "solid"
-      ],
-      "annotations": {
-        "title": "Solid: Box",
-        "destructiveHint": false
-      }
-    },
-    {
-      "name": "solid_cylinder",
-      "group": "solids",
-      "cost": "mutate",
-      "summary": "Create a 3D solid cylinder or shaft (live AutoCAD, opt-in via ENABLE_3D).",
-      "acad": [
-        "CYLINDER"
-      ],
-      "synonyms": [
-        "3d cylinder",
-        "solid shaft",
-        "round solid",
-        "pin"
-      ],
-      "tags": [
-        "solid"
-      ],
-      "annotations": {
-        "title": "Solid: Cylinder",
-        "destructiveHint": false
-      }
-    },
-    {
-      "name": "solid_extrude",
-      "group": "solids",
-      "cost": "mutate",
-      "summary": "Pull a closed profile up into a 3D solid (live AutoCAD, opt-in via ENABLE_3D).",
-      "acad": [
-        "EXTRUDE"
-      ],
-      "synonyms": [
-        "extrude",
-        "pull a profile into 3d",
-        "give it thickness",
-        "solid from a profile"
-      ],
-      "tags": [
-        "solid"
-      ],
-      "annotations": {
-        "title": "Solid: Extrude",
-        "destructiveHint": false
-      }
-    },
-    {
-      "name": "solid_revolve",
-      "group": "solids",
-      "cost": "mutate",
-      "summary": "Spin a closed profile around an axis into a 3D solid (opt-in via ENABLE_3D).",
-      "acad": [
-        "REVOLVE"
-      ],
-      "synonyms": [
-        "revolve",
-        "turn a profile around an axis",
-        "lathe",
-        "solid of revolution"
-      ],
-      "tags": [
-        "solid"
-      ],
-      "annotations": {
-        "title": "Solid: Revolve",
-        "destructiveHint": false
-      }
-    },
-    {
       "name": "std_feature_draw",
       "group": "mechanical",
       "cost": "mutate",
@@ -5397,143 +5283,6 @@
       "annotations": {
         "title": "Get System Variable",
         "readOnlyHint": true
-      }
-    },
-    {
-      "name": "system_launch",
-      "group": "environment",
-      "cost": "safe",
-      "summary": "Attach to the running AutoCAD or start it, optionally opening a file (live only).",
-      "acad": [],
-      "synonyms": [
-        "start autocad",
-        "launch autocad",
-        "attach to the running autocad",
-        "is autocad running",
-        "open autocad with this file"
-      ],
-      "tags": [
-        "environment",
-        "system"
-      ],
-      "annotations": {
-        "title": "Launch / Attach AutoCAD",
-        "readOnlyHint": false,
-        "destructiveHint": false
-      }
-    },
-    {
-      "name": "system_preferences_get",
-      "group": "environment",
-      "cost": "read",
-      "summary": "Read AutoCAD preferences from the whitelist (OPTIONS dialog values; live only).",
-      "acad": [
-        "OPTIONS"
-      ],
-      "synonyms": [
-        "read a preference",
-        "autosave interval",
-        "support file search path",
-        "what is the pickbox size",
-        "options dialog value"
-      ],
-      "tags": [
-        "environment",
-        "system"
-      ],
-      "annotations": {
-        "title": "Get Preferences",
-        "readOnlyHint": true
-      }
-    },
-    {
-      "name": "system_preferences_set",
-      "group": "environment",
-      "cost": "safe",
-      "summary": "Change one whitelisted AutoCAD preference; reports old and new (live only).",
-      "acad": [
-        "OPTIONS"
-      ],
-      "synonyms": [
-        "change a preference",
-        "set the autosave interval",
-        "cursor size",
-        "pickbox size",
-        "default plot style table"
-      ],
-      "tags": [
-        "environment",
-        "system"
-      ],
-      "annotations": {
-        "title": "Set Preference",
-        "readOnlyHint": false,
-        "destructiveHint": false
-      }
-    },
-    {
-      "name": "system_prompt_message",
-      "group": "environment",
-      "cost": "safe",
-      "summary": "Print a message on AutoCAD's command line (live only).",
-      "acad": [],
-      "synonyms": [
-        "message on the command line",
-        "tell the operator",
-        "print to the command line",
-        "command line note",
-        "say something in autocad"
-      ],
-      "tags": [
-        "environment",
-        "system"
-      ],
-      "annotations": {
-        "title": "Command-Line Message",
-        "readOnlyHint": false,
-        "destructiveHint": false
-      }
-    },
-    {
-      "name": "system_run_command",
-      "group": "system",
-      "cost": "escape",
-      "summary": "Send a raw command string to the AutoCAD command line (COM only).",
-      "acad": [],
-      "synonyms": [
-        "run an autocad command",
-        "command line",
-        "send a command string",
-        "macro",
-        "raw command"
-      ],
-      "tags": [
-        "system"
-      ],
-      "annotations": {
-        "title": "Run AutoCAD Command",
-        "readOnlyHint": false
-      }
-    },
-    {
-      "name": "system_run_lisp",
-      "group": "system",
-      "cost": "escape",
-      "summary": "Evaluate an AutoLISP expression inside AutoCAD (COM only).",
-      "acad": [],
-      "synonyms": [
-        "autolisp",
-        "lisp",
-        "run a lisp expression",
-        "vlisp",
-        "script it"
-      ],
-      "tags": [
-        "system"
-      ],
-      "annotations": {
-        "title": "Execute AutoLISP",
-        "readOnlyHint": false
       }
     },
     {
@@ -5959,54 +5708,6 @@
       }
     },
     {
-      "name": "user_pick_point",
-      "group": "environment",
-      "cost": "read",
-      "summary": "Ask the operator to pick a point on screen (live only; blocks until they do).",
-      "acad": [
-        "ID"
-      ],
-      "synonyms": [
-        "pick a point",
-        "click a point on screen",
-        "ask the operator for a point",
-        "where should this go",
-        "let me click"
-      ],
-      "tags": [
-        "environment",
-        "system"
-      ],
-      "annotations": {
-        "title": "Ask Operator: Pick Point",
-        "readOnlyHint": true
-      }
-    },
-    {
-      "name": "user_select",
-      "group": "environment",
-      "cost": "read",
-      "summary": "Ask the operator to select one entity or a set on screen (live only).",
-      "acad": [
-        "SELECT"
-      ],
-      "synonyms": [
-        "let me select",
-        "pick objects on screen",
-        "ask the operator to select",
-        "select on screen",
-        "hand me the selection"
-      ],
-      "tags": [
-        "environment",
-        "system"
-      ],
-      "annotations": {
-        "title": "Ask Operator: Select",
-        "readOnlyHint": true
-      }
-    },
-    {
       "name": "validation_check",
       "group": "validation",
       "cost": "read",
@@ -6142,50 +5843,6 @@
       "annotations": {
         "title": "Zoom and Screenshot",
         "readOnlyHint": true
-      }
-    },
-    {
-      "name": "view_zoom_extents",
-      "group": "view",
-      "cost": "safe",
-      "summary": "Zoom out until every entity fits on screen.",
-      "acad": [
-        "ZOOM"
-      ],
-      "synonyms": [
-        "zoom to fit",
-        "fit the drawing on screen",
-        "see everything"
-      ],
-      "tags": [
-        "view"
-      ],
-      "annotations": {
-        "title": "Zoom Extents",
-        "readOnlyHint": false,
-        "destructiveHint": false
-      }
-    },
-    {
-      "name": "view_zoom_window",
-      "group": "view",
-      "cost": "safe",
-      "summary": "Zoom in on a rectangular region of the drawing.",
-      "acad": [
-        "ZOOM"
-      ],
-      "synonyms": [
-        "zoom into a region",
-        "close up of an area",
-        "magnify a rectangle"
-      ],
-      "tags": [
-        "view"
-      ],
-      "annotations": {
-        "title": "Zoom Window",
-        "readOnlyHint": false,
-        "destructiveHint": false
       }
     },
     {

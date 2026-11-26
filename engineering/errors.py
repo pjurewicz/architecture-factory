@@ -40,7 +40,7 @@ from fastmcp.exceptions import ToolError
 # Defined beside the checks that raise them (security.py imports nothing of
 # this package, so this import cannot cycle); re-exported here.
 from policy import PolicyRefusedError
-from security import CommandRefusedError, PathRefusedError
+from security import PathRefusedError
 
 log = logging.getLogger("autocad_mcp.errors")
 
@@ -56,7 +56,6 @@ __all__ = [
     "ApplicationBusyError",
     "CadNotRunningError",
     "CommandIncompleteError",
-    "CommandRefusedError",
     "DimensionRenderError",
     "EntityNotFoundError",
     "GateFailure",
@@ -231,7 +230,9 @@ ERROR_TABLE: dict[str, KindSpec] = {
     "not_found": KindSpec("input", False, "No such entity; entity_list returns live handles."),
     "unknown_handle": KindSpec("input", False, "No such entity; entity_list returns live handles."),
     "path_refused": KindSpec("policy", False, "Use a path inside ALLOWED_PATHS, not a system one."),
-    "policy_refused": KindSpec("policy", False, "Use a typed tool from `alternatives`."),
+    "policy_refused": KindSpec(
+        "policy", False, "The server's tool policy refused the call; nothing ran."
+    ),
     "file_not_found": KindSpec("file", False, "No file at that path."),
     "application_busy": KindSpec(
         "dependency", True, "AutoCAD is at a prompt or dialog; press ESC, then retry."
@@ -828,7 +829,7 @@ def classify(exc: BaseException) -> dict:
     The same function types a direct call (the refusal middleware) and a
     ``cad_batch`` step, so both routes give one kind. ``message`` is the short
     form; the extras are the kind's own fields (``capability``, ``quarantine``,
-    ``bound`` / ``active``, the stale revisions, ``verbs`` / ``alternatives``,
+    ``bound`` / ``active``, the stale revisions,
     a gate's ``score`` / ``blocking``).
     """
     from fastmcp.exceptions import NotFoundError
@@ -873,21 +874,6 @@ def classify(exc: BaseException) -> dict:
         # 1.8-17: the server's tool policy (READ_ONLY, the allow/deny lists,
         # MAX_TOOL_COST, a read-only token) - nothing ran.
         return {"kind": "policy_refused", **policy.fields(), "message": message}
-    refused = _first_of(exc, CommandRefusedError)
-    if refused is not None:
-        row = {
-            "kind": "policy_refused",
-            "channel": refused.channel,
-            "verbs": list(refused.verbs),
-            "alternatives": list(refused.alternatives),
-            "message": message,
-        }
-        if refused.symbols:
-            row["symbols"] = list(refused.symbols)
-        # 1.8-18: a LISP_POLICY refusal says where - policy, symbol, line,
-        # column, tier_needed, reason.
-        row.update(refused.fields())
-        return row
     revise = _first_of(exc, RevisionRefusedError)
     if revise is not None:
         # 1.8-19: mech_part_revise refused before writing - the handles and

@@ -25,7 +25,6 @@ import os
 import pytest
 
 import config
-import policy
 import server
 from benchmarks import token_suite as ts
 
@@ -188,13 +187,7 @@ def test_the_idle_lane_covers_the_advertised_surfaces_and_the_instructions(repor
     assert variants["search_pinned"]["advertised_tools"] == 6
     assert variants["search"]["chars"] < variants["search_pinned"]["chars"]
     packs = server.PACK_TOOL_NAMES
-    # The suite runs a headless server, which hides policy.LIVE_ONLY_TOOLS unless
-    # HIDE_LIVE_ONLY_TOOLS=false; a hidden pack tool is not in "default" either.
-    hidden = (
-        policy.LIVE_ONLY_TOOLS
-        if os.environ.get("HIDE_LIVE_ONLY_TOOLS", "true").lower().strip() != "false"
-        else frozenset()
-    )
+    hidden: frozenset[str] = frozenset()
     assert variants["packs_core"]["advertised_tools"] == (
         variants["default"]["advertised_tools"]
         - sum(

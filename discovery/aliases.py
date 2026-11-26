@@ -44,7 +44,6 @@ __all__ = [
     "ToolAliases",
     "alias_text",
     "aliases_for",
-    "tools_for_command",
 ]
 
 
@@ -96,9 +95,6 @@ class ToolAliases:
 #       (document_close); a drafter typing it could mean either.
 #   LAYERSTATE, VIEW, UCS -- umbrella dialog/option commands (save, restore,
 #       list, delete in one) that this server splits into discrete tools.
-#   OPTIONS -- one dialog both reads and writes a preference; the server
-#       splits read (system_preferences_get) and write (system_preferences_set),
-#       the SETVAR precedent.
 #   REVCLOUD -- one command draws a bare cloud (entity_create_revcloud) or a
 #       revision cloud that also files a revision row (revision_add); a
 #       drafter typing it could mean either.
@@ -126,7 +122,6 @@ SHARED_ACAD_COMMANDS: frozenset[str] = frozenset(
         "LAYOUT",
         "MEASUREGEOM",
         "MLEADERSTYLE",
-        "OPTIONS",
         "PAGESETUP",
         "PLINE",
         "PLOT",
@@ -1553,43 +1548,6 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "tangent from a point",
         ),
     ),
-    # ── 3D solids ───────────────────────────────────────────────────────────
-    "solid_boolean": ToolAliases(
-        acad=("UNION", "SUBTRACT", "INTERSECT"),
-        synonyms=(
-            "boolean",
-            "union of solids",
-            "subtract a solid",
-            "cut a pocket",
-            "combine solids",
-        ),
-    ),
-    "solid_box": ToolAliases(
-        acad=("BOX",),
-        synonyms=("3d box", "cuboid", "solid block", "rectangular solid"),
-    ),
-    "solid_cylinder": ToolAliases(
-        acad=("CYLINDER",),
-        synonyms=("3d cylinder", "solid shaft", "round solid", "pin"),
-    ),
-    "solid_extrude": ToolAliases(
-        acad=("EXTRUDE",),
-        synonyms=(
-            "extrude",
-            "pull a profile into 3d",
-            "give it thickness",
-            "solid from a profile",
-        ),
-    ),
-    "solid_revolve": ToolAliases(
-        acad=("REVOLVE",),
-        synonyms=(
-            "revolve",
-            "turn a profile around an axis",
-            "lathe",
-            "solid of revolution",
-        ),
-    ),
     # ── System ──────────────────────────────────────────────────────────────
     "system_about": ToolAliases(
         acad=("ABOUT",),
@@ -1615,18 +1573,6 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "get a sysvar",
             "current variable value",
         ),
-    ),
-    "system_run_command": ToolAliases(
-        synonyms=(
-            "run an autocad command",
-            "command line",
-            "send a command string",
-            "macro",
-            "raw command",
-        ),
-    ),
-    "system_run_lisp": ToolAliases(
-        synonyms=("autolisp", "lisp", "run a lisp expression", "vlisp", "script it"),
     ),
     "system_set_variable": ToolAliases(
         acad=("SETVAR",),
@@ -1742,14 +1688,6 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "fit and screenshot",
             "visual check",
         ),
-    ),
-    "view_zoom_extents": ToolAliases(
-        acad=("ZOOM",),
-        synonyms=("zoom to fit", "fit the drawing on screen", "see everything"),
-    ),
-    "view_zoom_window": ToolAliases(
-        acad=("ZOOM",),
-        synonyms=("zoom into a region", "close up of an area", "magnify a rectangle"),
     ),
     # ── P&ID ────────────────────────────────────────────────────────────────
     "pid_symbol_list": ToolAliases(
@@ -2069,46 +2007,6 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "save which layers are frozen",
         ),
     ),
-    "system_launch": ToolAliases(
-        acad=(),
-        synonyms=(
-            "start autocad",
-            "launch autocad",
-            "attach to the running autocad",
-            "is autocad running",
-            "open autocad with this file",
-        ),
-    ),
-    "system_preferences_get": ToolAliases(
-        acad=("OPTIONS",),
-        synonyms=(
-            "read a preference",
-            "autosave interval",
-            "support file search path",
-            "what is the pickbox size",
-            "options dialog value",
-        ),
-    ),
-    "system_preferences_set": ToolAliases(
-        acad=("OPTIONS",),
-        synonyms=(
-            "change a preference",
-            "set the autosave interval",
-            "cursor size",
-            "pickbox size",
-            "default plot style table",
-        ),
-    ),
-    "system_prompt_message": ToolAliases(
-        acad=(),
-        synonyms=(
-            "message on the command line",
-            "tell the operator",
-            "print to the command line",
-            "command line note",
-            "say something in autocad",
-        ),
-    ),
     "ucs_list": ToolAliases(
         acad=("UCS", "UCSMAN"),
         synonyms=("the current ucs", "list coordinate systems", "named ucs", "ucs manager"),
@@ -2131,26 +2029,6 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "new coordinate system at this origin",
             "rotate the ucs",
             "ucs origin",
-        ),
-    ),
-    "user_pick_point": ToolAliases(
-        acad=("ID",),
-        synonyms=(
-            "pick a point",
-            "click a point on screen",
-            "ask the operator for a point",
-            "where should this go",
-            "let me click",
-        ),
-    ),
-    "user_select": ToolAliases(
-        acad=("SELECT",),
-        synonyms=(
-            "let me select",
-            "pick objects on screen",
-            "ask the operator to select",
-            "select on screen",
-            "hand me the selection",
         ),
     ),
     "view_named_list": ToolAliases(
@@ -2880,32 +2758,6 @@ def aliases_for(tool_name: str) -> ToolAliases | None:
     if record is None:
         record = SYNTHETIC_TOOL_ALIASES.get(tool_name)
     return record
-
-
-#: The decorators AutoCAD accepts in front of a command name (``security.py``).
-_COMMAND_DECORATORS = "_.-*'"
-
-_COMMAND_INDEX: dict[str, tuple[str, ...]] | None = None
-
-
-def tools_for_command(verb: str) -> tuple[str, ...]:
-    """The registered tools whose ``acad`` lists ``verb``, in catalogue order.
-
-    The reverse of :data:`TOOL_ALIASES` (plan 1.8-02): a refused raw command or
-    LISP ``(command "...")`` names the typed tools that do the same job.
-    ``verb`` may carry AutoCAD's decorators (``_.ERASE``, ``-LAYER``); case is
-    ignored. Visibility (profile, packs) is the caller's to apply - this module
-    knows no registry. Empty when no tool claims the command.
-    """
-    global _COMMAND_INDEX
-    if _COMMAND_INDEX is None:
-        index: dict[str, list[str]] = {}
-        for name, record in TOOL_ALIASES.items():
-            for command in record.acad:
-                index.setdefault(command.upper(), []).append(name)
-        _COMMAND_INDEX = {command: tuple(names) for command, names in index.items()}
-    key = str(verb or "").strip().lstrip(_COMMAND_DECORATORS).upper()
-    return _COMMAND_INDEX.get(key, ())
 
 
 def alias_text(tool_name: str) -> str:

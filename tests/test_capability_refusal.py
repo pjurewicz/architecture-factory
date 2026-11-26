@@ -30,7 +30,6 @@ from fastmcp import Client
 
 import server
 from backends.base import UnsupportedCapabilityError
-from backends.ezdxf_backend import EzdxfBackend
 
 pytestmark = pytest.mark.asyncio
 
@@ -101,28 +100,6 @@ async def test_a_successful_call_is_untouched(client):
 
 
 # ── one refusal mechanism, not two ──────────────────────────────────────────
-
-
-async def test_solid_tools_raise_the_typed_refusal_instead_of_returning_a_dict():
-    """Returning ``{"ok": False}`` puts a refusal outside the middleware's reach.
-
-    The payload the client sees is unchanged; what flips is ``is_error``, from a
-    quiet False to an honest True.
-    """
-    backend = EzdxfBackend()
-    await backend.connect()
-    await backend.drawing_new()
-
-    with pytest.raises(UnsupportedCapabilityError) as excinfo:
-        await backend.solid_box(0, 0, 0, 10, 10, 10)
-
-    assert excinfo.value.capability == "solid_3d"
-    assert excinfo.value.to_dict() == {
-        "ok": False,
-        "error": str(excinfo.value),
-        "capability": "solid_3d",
-    }
-    await backend.disconnect()
 
 
 async def test_the_refusal_type_lives_on_the_shared_base():

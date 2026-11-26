@@ -18,9 +18,6 @@ DEFAULT_MAX_HTTP_BODY_BYTES = 8 * 1024 * 1024
 #: Default ``ACCORECONSOLE_TIMEOUT_S`` (K1): a conversion measured 1-2 s here.
 DEFAULT_ACCORECONSOLE_TIMEOUT_S = 60.0
 
-#: ``LISP_POLICY`` values (1.8-18, ``security_lisp.py``); the first is the default.
-LISP_POLICIES: tuple[str, ...] = ("read", "denylist", "off")
-
 #: ``COM_REFRESH_MODE`` values (1.8-23); the first is the default.
 COM_REFRESH_MODES: tuple[str, ...] = ("auto", "regen")
 
@@ -45,24 +42,6 @@ def parse_cad_launch(raw: str | None) -> str:
             f"CAD_LAUNCH={raw!r} is not a launch mode. Valid values: "
             f"{', '.join(CAD_LAUNCH_MODES)} (default {CAD_LAUNCH_MODES[0]!r})."
         )
-    return value
-
-
-def parse_lisp_policy(raw: str | None) -> str:
-    """A ``LISP_POLICY`` value; an unknown one falls back to ``read`` with a warning."""
-    value = str(raw or "").strip().lower()
-    if not value:
-        return LISP_POLICIES[0]
-    if value not in LISP_POLICIES:
-        import logging
-
-        logging.getLogger("autocad_mcp.config").warning(
-            "Unknown LISP_POLICY %r - falling back to %r. Valid values: %s.",
-            raw,
-            LISP_POLICIES[0],
-            ", ".join(LISP_POLICIES),
-        )
-        return LISP_POLICIES[0]
     return value
 
 
@@ -158,9 +137,6 @@ class Settings:
                     self.allowed_paths.append(Path(p).resolve())
 
         self.max_undo_stack: int = int(os.environ.get("MAX_UNDO_STACK", "5"))
-        self.dangerous_commands_enabled: bool = (
-            os.environ.get("DANGEROUS_COMMANDS_ENABLED", "false").lower().strip() == "true"
-        )
 
         # Reject opening DXF files larger than this many bytes (default 512 MB).
         # Set to 0 to disable the check. It was 50 MB until v1.6's track H: a
@@ -287,11 +263,6 @@ class Settings:
         self.tool_allowlist: tuple[str, ...] = parse_patterns(os.environ.get("TOOL_ALLOWLIST"))
         self.tool_denylist: tuple[str, ...] = parse_patterns(os.environ.get("TOOL_DENYLIST"))
         self.max_tool_cost: str = parse_cost(os.environ.get("MAX_TOOL_COST"))
-        # policy.LIVE_ONLY_TOOLS are hidden and refused on a headless server
-        # unless HIDE_LIVE_ONLY_TOOLS=false.
-        self.hide_live_only_tools: bool = (
-            os.environ.get("HIDE_LIVE_ONLY_TOOLS", "true").lower().strip() != "false"
-        )
 
         # backends/session_backends.py: each MCP session of a headless server
         # gets its own engine (documents, active document, undo) unless
@@ -321,12 +292,6 @@ class Settings:
             os.environ.get("ARTIFACT_PUBLIC_URL", "").strip().rstrip("/")
         )
 
-        # 1.8-18 (security_lisp.py): how system_run_lisp checks an expression.
-        # "read" (default) runs what passes the AutoLISP read tier and sends the
-        # rest to the 1.7 denylist unchanged; "denylist" is 1.7's behaviour;
-        # "off" checks nothing. An unknown value falls back to "read".
-        self.lisp_policy: str = parse_lisp_policy(os.environ.get("LISP_POLICY"))
-
         # 1.8-17 (http_guard.py): the HTTP transport's request guard. A request
         # carrying an Origin header must name one of HTTP_ALLOWED_ORIGINS
         # (default none: every browser origin is refused 403); its Host must be
@@ -350,7 +315,7 @@ class Settings:
         self.mcp_auth_token_readonly: str = os.environ.get("MCP_AUTH_TOKEN_READONLY", "").strip()
 
         # Exposed tool profile: "full" (default, everything) or "lean" (a
-        # curated 67-tool drafting/inspection core for clients with tight tool
+        # curated 66-tool drafting/inspection core for clients with tight tool
         # caps). Invalid values fall back to "full" with a warning at startup;
         # so does the "core" profile removed in v1.5.0 (see
         # server.REMOVED_TOOL_PROFILES).
@@ -387,11 +352,6 @@ class Settings:
                 if name.strip()
             )
         )
-
-        # Opt-in 3D solids (COM backend only). Disabled by default because the
-        # headless backend cannot produce ACIS solids and live 3D modifies real
-        # documents; enable deliberately.
-        self.enable_3d: bool = os.environ.get("ENABLE_3D", "false").lower().strip() == "true"
 
 
 settings = Settings()

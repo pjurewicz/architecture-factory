@@ -14,6 +14,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default) and `ezdxf`; any other value, `com` included, fails startup with a
   message naming the setting instead of falling back. The COM code itself is
   removed in later steps (`FORK.md`, *Removing the live engine*).
+- The tools only a live AutoCAD could run (257 -> 242 registered):
+  `system_run_command`, `system_run_lisp`, `system_launch`,
+  `system_preferences_get` / `_set`, `user_pick_point`, `user_select`,
+  `system_prompt_message`, the five `solid_*` tools, and `view_zoom_extents` /
+  `view_zoom_window`, which did nothing headlessly (`view_screenshot(region=)`
+  frames a window; lean is 66 tools, 56 with `TOOL_PACKS=core`). With them
+  went the command / LISP denylist (`security_lisp.py`, `LISP_POLICY`,
+  `DANGEROUS_COMMANDS_ENABLED`, `system_status.unsafe_mode`), `ENABLE_3D`,
+  and `HIDE_LIVE_ONLY_TOOLS` with its `policy: "headless_engine"` refusal: a
+  call to a removed tool is an unknown tool. `policy_refused` now comes only
+  from the tool policy, so it no longer carries `verbs` / `alternatives`.
 
 ### Added
 
@@ -51,13 +62,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SESSION_IDLE_TIMEOUT`; the first session's engine is emptied and goes to
   the next session. Engines are now keyed by the transport's `mcp-session-id`,
   and `initialize` no longer claims an engine of its own.
-- `HIDE_LIVE_ONLY_TOOLS` (default `true`): a headless server no longer offers
-  the eight tools that can only fail there (`policy.LIVE_ONLY_TOOLS`: LISP, the
-  command line, launch, preferences and the operator prompts). They are left
-  out of `tools/list` and of search, and a call by name, through `call_tool`
-  or as a `cad_batch` step is refused `policy_refused` with
-  `policy: "headless_engine"`. `system_status.policy.live_only_hidden` lists
-  them. Restore: `HIDE_LIVE_ONLY_TOOLS=false`.
 
 ### Fixed
 

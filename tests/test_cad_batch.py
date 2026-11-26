@@ -388,39 +388,55 @@ async def test_a_malformed_step_is_reported_not_crashed(client):
 # ---------------------------------------------------------------------------
 
 
-async def test_the_deny_set_is_derived_from_the_escape_cost_cards():
+PROBE = "_batch_escape_probe"
+
+
+@pytest.fixture
+def escape_probe():
+    """An escape-cost tool for the deny set to deny.
+
+    The raw command and LISP passthroughs left with the live engine (FORK.md),
+    so no registered tool is escape-cost any more; the deny set stays, because
+    it is what keeps the next one out of a batch the day it is registered.
+    """
+
+    @server.cad_tool(summary="Probe: hands a string to something raw.", cost="escape")
+    @server.mcp.tool(name=PROBE)
+    async def _probe(text: str = "", ctx=None) -> dict:
+        return {"ok": True}
+
+    try:
+        yield PROBE
+    finally:
+        server.mcp.local_provider.remove_tool(PROBE)
+
+
+async def test_the_deny_set_is_derived_from_the_escape_cost_cards(escape_probe):
     """Hand-listing would go stale the day a new escape hatch is registered."""
     escapes = {
         tool.name
         for tool in await server._registered_tools()
         if ((tool.meta or {}).get("cad") or {}).get("cost") == "escape"
     }
-    assert escapes, "the registry must still carry escape-cost tools for this to mean anything"
+    assert escapes == {escape_probe}
     assert server._batch_denied_tools() == escapes | {"cad_batch"}
 
 
-async def test_the_raw_command_and_lisp_hatches_are_denied():
-    denied = server._batch_denied_tools()
-    assert {"system_run_command", "system_run_lisp"} <= denied
-
-
-@pytest.mark.parametrize("tool", ["system_run_command", "system_run_lisp"])
-async def test_a_denied_tool_refuses_the_whole_batch(client, tool):
-    args = {"command": "_ZOOM E"} if tool.endswith("command") else {"expression": "(+ 1 1)"}
+async def test_a_denied_tool_refuses_the_whole_batch(client, escape_probe):
     with pytest.raises(ToolError) as excinfo:
-        await _batch(client, [_line(), {"tool": tool, "args": args}])
+        await _batch(client, [_line(), {"tool": escape_probe, "args": {"text": "x"}}])
     message = str(excinfo.value)
-    assert tool in message
+    assert escape_probe in message
     assert "denied" in message.lower() or "not callable" in message.lower()
     assert await _entity_count(client) == 0, "a denied step must abort before step 1 draws"
 
 
-async def test_a_denied_step_is_not_survivable_with_on_error_continue(client):
+async def test_a_denied_step_is_not_survivable_with_on_error_continue(client, escape_probe):
     """Otherwise the deny set would just be a step you skip past."""
     with pytest.raises(ToolError):
         await _batch(
             client,
-            [{"tool": "system_run_lisp", "args": {"expression": "(+ 1 1)"}}, _line()],
+            [{"tool": escape_probe, "args": {"text": "x"}}, _line()],
             on_error="continue",
         )
     assert await _entity_count(client) == 0
@@ -454,20 +470,16 @@ async def test_a_tool_with_no_discovery_card_is_not_run_blind(client):
         server.mcp.local_provider.remove_tool("_batch_uncarded_probe")
 
 
-async def test_a_dry_run_reports_a_denied_step_rather_than_hiding_it(client):
-    result = await _batch(
-        client,
-        [{"tool": "system_run_command", "args": {"command": "_ZOOM E"}}],
-        dry_run=True,
-    )
+async def test_a_dry_run_reports_a_denied_step_rather_than_hiding_it(client, escape_probe):
+    result = await _batch(client, [{"tool": escape_probe, "args": {"text": "x"}}], dry_run=True)
     assert result["ok"] is False
     assert result["results"][0]["error"]["kind"] == "denied"
 
 
-async def test_the_refusal_points_at_the_direct_tool(client):
+async def test_the_refusal_points_at_the_direct_tool(client, escape_probe):
     """The escape hatch stays reachable — separately, where its own gate applies."""
     with pytest.raises(ToolError) as excinfo:
-        await _batch(client, [{"tool": "system_run_command", "args": {"command": "_ZOOM E"}}])
+        await _batch(client, [{"tool": escape_probe, "args": {"text": "x"}}])
     assert "directly" in str(excinfo.value)
 
 
@@ -531,9 +543,9 @@ async def test_cad_batch_refuses_describe_tool_as_a_step(search_mode):
     assert "describe_tool" in error["message"]
 
 
-@pytest.mark.parametrize("hatch", ["system_run_command", "system_run_lisp"])
-async def test_the_search_proxy_cannot_launder_a_denied_hatch(search_mode, hatch):
-    """cad_batch -> call_tool -> system_run_* must not execute."""
+async def test_the_search_proxy_cannot_launder_a_denied_hatch(search_mode, escape_probe):
+    """cad_batch -> call_tool -> an escape-cost tool must not execute."""
+    hatch = escape_probe
     result = (
         await search_mode.call_tool(
             "call_tool",
@@ -550,7 +562,7 @@ async def test_the_search_proxy_cannot_launder_a_denied_hatch(search_mode, hatch
     assert result["results"][0]["error"]["kind"] == "denied"
 
 
-async def test_the_laundered_hatch_is_refused_before_anything_executes(search_mode):
+async def test_the_laundered_hatch_is_refused_before_anything_executes(search_mode, escape_probe):
     """Not merely reported — the whole batch is refused, so the proxy never runs."""
     with pytest.raises(ToolError) as excinfo:
         await search_mode.call_tool(
@@ -562,8 +574,8 @@ async def test_the_laundered_hatch_is_refused_before_anything_executes(search_mo
                         {
                             "tool": "call_tool",
                             "args": {
-                                "name": "system_run_command",
-                                "arguments": {"command": "_ZOOM E"},
+                                "name": escape_probe,
+                                "arguments": {"text": "x"},
                             },
                         }
                     ]
@@ -722,8 +734,15 @@ async def test_an_item_outside_entity_batch_create_schema_refuses_the_whole_batc
 
 
 async def test_a_tool_hidden_by_the_profile_is_not_reachable_through_a_batch(client):
-    """cad_batch must not be a way around TOOL_PROFILE or the ENABLE_3D gate."""
-    result = await _batch(client, [{"tool": "solid_box", "args": {}}], dry_run=True)
+    """cad_batch must not be a way around TOOL_PROFILE / TOOL_PACKS."""
+    original = config.settings.tool_packs
+    config.settings.tool_packs = "core"
+    await server._apply_tool_profile()
+    try:
+        result = await _batch(client, [{"tool": "pid_symbol_list", "args": {}}], dry_run=True)
+    finally:
+        config.settings.tool_packs = original
+        await server._apply_tool_profile()
     assert result["results"][0]["error"]["kind"] == "unknown_tool"
 
 

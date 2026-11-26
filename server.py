@@ -61,12 +61,11 @@ from backends.session_backends import (
     record_call,
 )
 from backends.session_metrics import SESSION_METRICS, result_text_bytes
-from discovery.aliases import aliases_for, tools_for_command
+from discovery.aliases import aliases_for
 from discovery.descriptions import record_wire_description
 from engineering.arch.spec import spec_schema as _arch_spec_schema
 from engineering.errors import (
     ERROR_KINDS,
-    CommandRefusedError,
     GateFailure,
     annotate,
     capability_of,
@@ -95,9 +94,6 @@ from security import (
     KINDS_REPORT,
     KINDS_TABLE,
     KINDS_TEMPLATE,
-    command_verbs,
-    sanitize_command,
-    sanitize_lisp,
     validate_path,
 )
 from version import __version__
@@ -163,12 +159,6 @@ async def autocad_lifespan(server):
     # A backend this server cannot run fails startup outright rather than
     # leaving every tool to answer the same init_error.
     _check_backend_setting()
-    if config.settings.dangerous_commands_enabled:
-        log.warning(
-            "⚠ DANGEROUS_COMMANDS_ENABLED=true — command and LISP sanitization is "
-            "DISABLED. The server will execute any AutoCAD command or LISP expression "
-            "the client sends. Do NOT enable this on a network-reachable instance."
-        )
     try:
         await _apply_tool_profile()
     except Exception as exc:  # profile trouble must never block startup
@@ -1868,7 +1858,7 @@ def cad_tool(*, summary: str, cost: str):
 # Some MCP clients degrade (or hard-cap) when a server exposes 100+ tools.
 # TOOL_PROFILE selects how much of the surface is advertised:
 #   full — everything (default, backwards compatible)
-#   lean — a curated 67-tool drafting/inspection core (LEAN_TOOL_NAMES)
+#   lean — a curated 66-tool drafting/inspection core (LEAN_TOOL_NAMES)
 # Disabled tools stay registered (system_about still reports the full
 # inventory) but are hidden from MCP list_tools and rejected if called.
 
@@ -1931,7 +1921,6 @@ LEAN_TOOL_NAMES = frozenset(
         "dimension_radius",
         "dimension_diameter",
         # view
-        "view_zoom_extents",
         "view_screenshot",
         # transactions
         "transaction_begin",
@@ -1998,13 +1987,10 @@ LEAN_TOOL_NAMES = frozenset(
         # Set-based edits (1.8-12) - the verb a tight-cap client otherwise
         # spends one call per entity on. layer_rename / layer_merge stay full:
         # this one moves a layer's entities and layer_delete drops the layer.
-        # A core-pack tool; lean is 67 (57 with TOOL_PACKS=core).
+        # A core-pack tool; lean is 66 (56 with TOOL_PACKS=core) since the fork
+        # removed view_zoom_extents.
         "entity_modify_where",
     }
-)
-
-SOLID_TOOL_NAMES = frozenset(
-    {"solid_box", "solid_cylinder", "solid_extrude", "solid_revolve", "solid_boolean"}
 )
 
 # Tool packs: vertical domains a client can opt out of advertising. `core` is
@@ -2029,7 +2015,7 @@ PACK_TOOL_NAMES: dict[str, frozenset[str]] = {
             "pid_project",
         }
     ),
-    # SECTION 20 — the 22 environment tools (spec §7, §8.2).
+    # SECTION 20 — the 16 environment tools (spec §7, §8.2).
     "settings": frozenset(
         {
             "document_list",
@@ -2045,15 +2031,9 @@ PACK_TOOL_NAMES: dict[str, frozenset[str]] = {
             "ucs_list",
             "ucs_set",
             "ucs_restore",
-            "system_launch",
-            "system_preferences_get",
-            "system_preferences_set",
             "drawing_properties_get",
             "drawing_properties_set",
             "system_variable_describe",
-            "user_pick_point",
-            "user_select",
-            "system_prompt_message",
         }
     ),
     # SECTIONS 21-23 — the mechanical part drawer, the standard-parts catalogue
@@ -2156,10 +2136,6 @@ def _profile_enabled_names(
     enabled = set(registered) - hidden_by_pack
     if profile == "lean":
         enabled &= LEAN_TOOL_NAMES
-    if not config.settings.enable_3d:
-        # Capability-aware discovery: don't advertise opt-in 3D tools that
-        # would only reject the call.
-        enabled -= SOLID_TOOL_NAMES
     return enabled
 
 
@@ -4658,8 +4634,7 @@ async def linetype_load(
 ) -> dict:
     """Load a single linetype safely.
 
-    Use this instead of `system_run_command('_-LINETYPE _LOAD ...')` — that
-    raw form deadlocks on the FILEDIA file-picker dialog and on the
+    The raw command `_-LINETYPE _LOAD ...` deadlocks on the FILEDIA file-picker dialog and on the
     -LINETYPE option-menu prompt (measured on AutoCAD 2026: it loads nothing
     either way). This tool loads through the ActiveX `Linetypes.Load` member,
     picks the right .lin file from MEASUREMENT, and verifies the linetype
@@ -5366,18 +5341,15 @@ def _batch_denied_tools() -> frozenset[str]:
     """Tools ``cad_batch`` will never call, derived from the live registry.
 
     A single ``cad_batch`` grant would otherwise reach *every* tool, including
-    ``system_run_command`` / ``system_run_lisp`` — defeating a client's per-tool
+    any raw escape hatch — defeating a client's per-tool
     allowlist and routing around the point of having the raw escape hatches be
     separately opt-in in the first place. The set is derived from the
     ``@cad_tool(cost="escape")`` cards rather than hand-listed, so a future
     escape hatch is denied the day it is registered, not the day someone
     remembers this function exists.
 
-    The denial is unconditional. ``DANGEROUS_COMMANDS_ENABLED`` governs whether
-    :mod:`security` will *sanitize* a command string; it says nothing about
-    which tool a client may reach, and reusing it here would let one env var
-    silently re-open the escalation path. The escape hatches stay fully
-    available — called directly, where their own gate applies.
+    The denial is unconditional: no setting re-opens the path. An escape
+    hatch stays available called directly, where its own gate applies.
 
     ``cad_batch`` denies itself too: no recursion, and no laundering a denied
     step through a nested executor.
@@ -5423,39 +5395,6 @@ _batch_stale_of = stale_of
 _refusal_message = refusal_message
 _compact_batch_message = compact_message
 _batch_message = short_message
-
-
-#: The raw escape hatches and the string argument their own denylist checks.
-_ESCAPE_HATCH_SANITIZERS = {
-    "system_run_command": ("command", sanitize_command),
-    "system_run_lisp": ("expression", sanitize_lisp),
-}
-
-
-async def _escape_hatch_refusal(name, args: dict) -> CommandRefusedError | None:
-    """The ``CommandRefusedError`` a direct call of ``name`` with ``args`` would
-    raise, alternatives filled, or None (1.8-02).
-
-    ``cad_batch`` denies the escape hatches whatever the string; this only lets
-    a step whose string the denylist refuses carry the direct route's kind. It
-    never runs anything, and any other outcome (an allowed or empty string) is
-    None, so the step is still ``denied``.
-    """
-    spec = _ESCAPE_HATCH_SANITIZERS.get(name) if isinstance(name, str) else None
-    if spec is None:
-        return None
-    key, sanitizer = spec
-    value = args.get(key)
-    if not isinstance(value, str) or not value.strip():
-        return None
-    try:
-        sanitizer(value)
-    except CommandRefusedError as exc:
-        exc.alternatives = await _command_alternatives(exc.alternative_verbs)
-        return exc
-    except Exception:  # anything else is the denial's business, not a policy kind
-        return None
-    return None
 
 
 def _classify_batch_error(exc: BaseException) -> dict:
@@ -6225,14 +6164,6 @@ async def cad_batch(
                 f"step {index} has unexpected key(s) {unknown_keys}; a step is "
                 "{'tool', 'args', 'bind'}",
             )
-        elif (refusal := await _escape_hatch_refusal(name, args)) is not None:
-            # 1.8-02: a command or LISP string the denylist refuses is the same
-            # policy_refused (verbs, symbols, alternatives) a direct call gets,
-            # so both routes name one kind; `denied` below is only for a string
-            # a direct call would run.
-            row["status"] = "invalid"
-            row["error"] = annotate(classify(refusal), "refused")
-            problems.append(f"step {index}: {row['error']['message']}")
         elif name in denied:
             _invalid(
                 "denied",
@@ -6254,7 +6185,7 @@ async def cad_batch(
                 _invalid(
                     "unknown_tool",
                     f"{name!r} is not a callable tool here (unregistered, or hidden by "
-                    "the active TOOL_PROFILE / TOOL_PACKS / ENABLE_3D gate).",
+                    "the active TOOL_PROFILE / TOOL_PACKS gate).",
                 )
             elif card.get("cost") == "escape":
                 # The deny set is computed from the local registry; this repeats
@@ -6273,7 +6204,7 @@ async def cad_batch(
                 # here), and `call_tool` invokes any tool by name. It is a
                 # general-purpose proxy living in the same server as this
                 # denylist, and being card-less is the ONLY thing that stops
-                # cad_batch -> call_tool -> system_run_command. The deny set
+                # cad_batch -> call_tool -> an escape-cost tool. The deny set
                 # above cannot see it: it is transform-supplied, not a local
                 # component with a cost card.
                 #
@@ -7201,34 +7132,8 @@ async def validation_check(
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 9: View & Screenshot (4 tools) ──────────────────────────────────
+# ── SECTION 9: View & Screenshot (2 tools) ──────────────────────────────────
 # ---------------------------------------------------------------------------
-
-
-@cad_tool(summary="Zoom out until every entity fits on screen.", cost="safe")
-@mcp.tool(
-    annotations={"title": "Zoom Extents", "readOnlyHint": False, "destructiveHint": False},
-    tags={"view"},
-)
-async def view_zoom_extents(ctx: Context = None) -> dict:
-    """Zoom to show all entities in the drawing (fit drawing in viewport)."""
-    return await _backend(ctx).view_zoom_extents()
-
-
-@cad_tool(summary="Zoom in on a rectangular region of the drawing.", cost="safe")
-@mcp.tool(
-    annotations={"title": "Zoom Window", "readOnlyHint": False, "destructiveHint": False},
-    tags={"view"},
-)
-async def view_zoom_window(
-    x1: Annotated[float, "Window corner 1 X"],
-    y1: Annotated[float, "Window corner 1 Y"],
-    x2: Annotated[float, "Window corner 2 X"],
-    y2: Annotated[float, "Window corner 2 Y"],
-    ctx: Context = None,
-) -> dict:
-    """Zoom to display the specified rectangular window region."""
-    return await _backend(ctx).view_zoom_window(x1, y1, x2, y2)
 
 
 @cad_tool(summary="Capture a PNG picture of the drawing as it currently looks.", cost="read")
@@ -7593,7 +7498,7 @@ async def drawing_history(
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 11: System (8 tools) ────────────────────────────────────────────
+# ── SECTION 11: System (6 tools) ────────────────────────────────────────────
 # ---------------------------------------------------------------------------
 
 
@@ -7664,13 +7569,11 @@ async def system_status(
     # R20: tool_count may be None when the registry is unavailable; omit the
     # key rather than surface a bogus value (e.g. the old -1).
     tool_count = await _registered_tool_count()
-    unsafe = config.settings.dangerous_commands_enabled
     if b is None:
         out = {
             "server": "AutoCAD MCP Pro",
             "backend": "none",
             "connected": False,
-            "unsafe_mode": unsafe,
             "error": ctx.lifespan_context.get("init_error"),
             "hint": "Set AUTOCAD_MCP_BACKEND=ezdxf to use headless mode, or start AutoCAD for COM mode.",
         }
@@ -7688,11 +7591,6 @@ async def system_status(
     status["server"] = "AutoCAD MCP Pro"
     if tool_count is not None:
         status["tool_count"] = tool_count
-    status["unsafe_mode"] = unsafe
-    if unsafe:
-        status["unsafe_mode_warning"] = (
-            "DANGEROUS_COMMANDS_ENABLED=true — command/LISP sanitization disabled."
-        )
     status["operations"] = _operations_view(journal, detail)
     status["state_store"] = state_store_status(journal)
     if ctx.lifespan_context.get("save_recovery"):
@@ -7828,135 +7726,6 @@ async def drawing_settings(
 
 
 @cad_tool(
-    summary="Send a raw command string to the AutoCAD command line (COM only).",
-    cost="escape",
-)
-@mcp.tool(
-    annotations={"title": "Run AutoCAD Command", "readOnlyHint": False},
-    tags={"system"},
-)
-async def system_run_command(
-    command: Annotated[str, "AutoCAD command string (e.g. '_ZOOM E', '_REGEN', '_EXPLODE')"],
-    ctx: Context = None,
-) -> dict:
-    """Execute an AutoCAD command string directly (COM backend only).
-
-    Append \\n for Enter. Example: '_LINE 0,0 100,0 \\n'.
-
-    IMPORTANT: commands that finish at an option menu (e.g. -LINETYPE, -LAYER,
-    -STYLE return to '[?/Create/Load/Set]:' after their action) need an EXTRA
-    blank line or '_X\\n' to exit, otherwise AutoCAD stays at a prompt and the
-    next COM call will deadlock. Example: '_-LINETYPE _LOAD CENTER acad.lin\\n\\n'.
-
-    A verb denylist refuses obviously destructive commands, but it is a guardrail
-    against issuing `ERASE ALL` by accident, NOT a security boundary — AutoCAD
-    accepts hundreds of commands and any loaded ARX/LISP adds more. Prefer the
-    typed tools (entity_delete, drawing_save_as, block_insert, drawing_purge):
-    they validate their arguments, which a free-text command string cannot.
-
-    A refused command is error kind `policy_refused` with `verbs` and
-    `alternatives` ([{tool, summary}], the typed tools for those verbs that the
-    active profile advertises); an allowed one that a typed tool also does
-    carries `typed_alternative` in the same shape.
-
-    The call waits for the command to finish (CMDACTIVE, `COMMAND_DEADLINE_S`,
-    default 8 s) and returns `{completed: true, created: [{handle, type, space}]
-    (first 50), created_count, last_prompt, target_space}`; a new entity
-    outside the target space (model space unless `layout_set_current` chose a
-    sheet) adds `warning: "created_outside_target_space"`. A command still at a
-    prompt is cancelled with ESC x3 and fails with kind `command_incomplete`
-    carrying AutoCAD's own `last_prompt`.
-    """
-    try:
-        sanitize_command(command)
-    except CommandRefusedError as exc:
-        exc.alternatives = await _command_alternatives(exc.verbs)
-        raise
-    await ctx.warning(f"Running command: {command}")
-    result = await _backend(ctx).system_run_command(command)
-    typed = await _command_alternatives(command_verbs(command))
-    if typed and isinstance(result, dict):
-        result = {**result, "typed_alternative": typed}
-    return result
-
-
-async def _command_alternatives(verbs) -> list[dict]:
-    """``[{tool, summary}]``: the typed tools for ``verbs`` this server advertises now.
-
-    ``discovery.aliases.tools_for_command`` over every verb, then only the
-    tools the active TOOL_PROFILE / TOOL_PACKS / ENABLE_3D leave callable
-    (``mcp.get_tool`` answers None for a hidden one) and never an escape hatch.
-    Evidence for a refusal, so it never raises.
-    """
-    found: list[dict] = []
-    seen: set[str] = set()
-    try:
-        for verb in verbs:
-            for name in tools_for_command(verb):
-                if name in seen:
-                    continue
-                seen.add(name)
-                tool = await mcp.get_tool(name)
-                if tool is None:
-                    continue
-                card = (getattr(tool, "meta", None) or {}).get("cad") or {}
-                if card.get("cost") == "escape":
-                    continue
-                found.append({"tool": name, "summary": str(card.get("summary") or "")})
-    except Exception as exc:  # an alternative list is never worth failing a refusal over
-        log.debug("typed alternatives for %s: %s", verbs, exc)
-    return found
-
-
-@cad_tool(summary="Evaluate an AutoLISP expression inside AutoCAD (COM only).", cost="escape")
-@mcp.tool(
-    annotations={"title": "Execute AutoLISP", "readOnlyHint": False},
-    tags={"system"},
-)
-async def system_run_lisp(
-    expression: Annotated[
-        str,
-        "AutoLISP expression to evaluate "
-        "(e.g. '(vla-get-Area (vlax-ename->vla-object (handent \"2A\")))')",
-    ],
-    ctx: Context = None,
-) -> dict:
-    """Execute an AutoLISP expression (COM backend only).
-
-    Example: '(vla-get-Area (vlax-ename->vla-object (handent "2A")))'
-
-    LISP_POLICY=read (default) reads the expression and runs what passes the
-    read tier: arithmetic and geometry (angle, distance, polar, inters, trans),
-    lists and control (car/cdr, cons, list, mapcar, foreach, if, cond, progn,
-    lambda, setq), strings (strcat, substr, rtos, vl-string-*) and database
-    reads (entget, entnext, entlast, handent, tblsearch, getvar, dictsearch,
-    ssget with a literal "_X"/"_W"/"_C"/"_CP" mode, vlax-ename->vla-object,
-    vla-get-*, vlax-get-property, vlax-curve-get*). Never run, under any tier:
-    getpoint and the other interactive get*/entsel/ssget forms (they hold
-    AutoCAD's only COM thread), load/autoload/arxload, startapp, dos_*,
-    vl-file-*, read, a non-literal eval/apply, vlax-create-object,
-    vla-SendCommand, vlr-*, defun, c:*, and unreadable or unbalanced text.
-    Anything else (command, entmod, setvar, vla-put-* ...) goes to the 1.7
-    symbol denylist unchanged; LISP_POLICY=denylist is 1.7's behaviour. A
-    guardrail, NOT a security boundary. Prefer the typed tools.
-
-    A refused expression is error kind `policy_refused` with policy
-    `lisp_allowlist` (`lisp_denylist` under LISP_POLICY=denylist), `symbol`,
-    `line`, `column`, `tier_needed` (`write`, `none`, `unclassified`; `read`
-    when only LISP_POLICY=denylist refused it),
-    `reason`, `symbols`, `verbs` (the commands its `(command "...")` forms
-    name) and `alternatives` ([{tool, summary}], the typed tools for them).
-    """
-    try:
-        sanitize_lisp(expression)
-    except CommandRefusedError as exc:
-        exc.alternatives = await _command_alternatives(exc.alternative_verbs)
-        raise
-    await ctx.warning(f"Running LISP: {expression[:80]}")
-    return await _backend(ctx).system_run_lisp(expression)
-
-
-@cad_tool(
     summary="See what this server can do: version, tool groups and active profile.",
     cost="read",
 )
@@ -7989,7 +7758,6 @@ async def system_about(ctx: Context = None) -> dict:
         "description": "Production-grade AutoCAD MCP server with dual COM+ezdxf engine",
         "active_backend": backend_name,
         "tool_groups": await _tool_groups(),
-        "unsafe_mode": config.settings.dangerous_commands_enabled,
         "capabilities": b.capabilities().to_dict()["features"] if b else {},
         "tool_profile": _active_tool_profile
         or {"profile": config.settings.tool_profile, "applied": False},
@@ -9595,129 +9363,6 @@ async def entity_change_space(
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 16: 3D Solids (5 tools) — opt-in via ENABLE_3D ──────────────────
-# ---------------------------------------------------------------------------
-
-
-def _require_3d() -> None:
-    """3D solids are opt-in: hidden from discovery and rejected when disabled."""
-    if not config.settings.enable_3d:
-        raise ToolError(
-            "3D solids are disabled. Set ENABLE_3D=true (COM backend with live "
-            "AutoCAD required; the headless backend cannot generate ACIS solids)."
-        )
-
-
-@cad_tool(summary="Create a 3D solid box (live AutoCAD, opt-in via ENABLE_3D).", cost="mutate")
-@mcp.tool(
-    annotations={"title": "Solid: Box", "destructiveHint": False},
-    tags={"solid"},
-)
-async def solid_box(
-    cx: Annotated[float, "Box center X."],
-    cy: Annotated[float, "Box center Y."],
-    cz: Annotated[float, "Box center Z."],
-    length: Annotated[float, Field(gt=0, description="Length along X (mm).")],
-    width: Annotated[float, Field(gt=0, description="Width along Y (mm).")],
-    height: Annotated[float, Field(gt=0, description="Height along Z (mm).")],
-    ctx: Context = None,
-) -> dict:
-    """Create a native 3D solid box (COM backend, opt-in)."""
-    _require_3d()
-    return await _backend(ctx).solid_box(cx, cy, cz, length, width, height)
-
-
-@cad_tool(
-    summary="Create a 3D solid cylinder or shaft (live AutoCAD, opt-in via ENABLE_3D).",
-    cost="mutate",
-)
-@mcp.tool(
-    annotations={"title": "Solid: Cylinder", "destructiveHint": False},
-    tags={"solid"},
-)
-async def solid_cylinder(
-    cx: Annotated[float, "Base-center X."],
-    cy: Annotated[float, "Base-center Y."],
-    cz: Annotated[float, "Center Z (AutoCAD places the cylinder center here)."],
-    radius: Annotated[float, Field(gt=0, description="Cylinder radius (mm).")],
-    height: Annotated[float, Field(gt=0, description="Cylinder height (mm).")],
-    ctx: Context = None,
-) -> dict:
-    """Create a native 3D solid cylinder (COM backend, opt-in)."""
-    _require_3d()
-    return await _backend(ctx).solid_cylinder(cx, cy, cz, radius, height)
-
-
-@cad_tool(
-    summary="Pull a closed profile up into a 3D solid (live AutoCAD, opt-in via ENABLE_3D).",
-    cost="mutate",
-)
-@mcp.tool(
-    annotations={"title": "Solid: Extrude", "destructiveHint": False},
-    tags={"solid"},
-)
-async def solid_extrude(
-    profile_handle: Annotated[str, "Handle of a closed profile (circle / closed polyline)."],
-    height: Annotated[float, "Extrusion height; negative extrudes downward."],
-    taper_angle: Annotated[
-        float, Field(default=0.0, ge=-45, le=45, description="Taper angle in degrees.")
-    ] = 0.0,
-    ctx: Context = None,
-) -> dict:
-    """Extrude a closed profile into a native 3D solid (COM backend, opt-in)."""
-    _require_3d()
-    return await _backend(ctx).solid_extrude(profile_handle, height, taper_angle)
-
-
-@cad_tool(
-    summary="Spin a closed profile around an axis into a 3D solid (opt-in via ENABLE_3D).",
-    cost="mutate",
-)
-@mcp.tool(
-    annotations={"title": "Solid: Revolve", "destructiveHint": False},
-    tags={"solid"},
-)
-async def solid_revolve(
-    profile_handle: Annotated[str, "Handle of a closed profile (circle / closed polyline)."],
-    axis_x1: Annotated[float, "Revolution axis start X."],
-    axis_y1: Annotated[float, "Revolution axis start Y."],
-    axis_x2: Annotated[float, "Revolution axis end X."],
-    axis_y2: Annotated[float, "Revolution axis end Y."],
-    angle: Annotated[
-        float, Field(default=360.0, gt=0, le=360, description="Revolution angle in degrees.")
-    ] = 360.0,
-    ctx: Context = None,
-) -> dict:
-    """Revolve a closed profile around an axis into a native 3D solid (COM, opt-in)."""
-    _require_3d()
-    return await _backend(ctx).solid_revolve(
-        profile_handle, axis_x1, axis_y1, axis_x2, axis_y2, angle
-    )
-
-
-@cad_tool(
-    summary="Union, subtract or intersect two 3D solids; the tool solid is consumed.",
-    cost="destructive",
-)
-@mcp.tool(
-    annotations={"title": "Solid: Boolean", "destructiveHint": True},
-    tags={"solid"},
-)
-async def solid_boolean(
-    target_handle: Annotated[str, "Handle of the solid that receives the result."],
-    tool_handle: Annotated[str, "Handle of the solid consumed by the operation."],
-    operation: Annotated[str, "union | subtract | intersect"],
-    ctx: Context = None,
-) -> dict:
-    """Boolean-combine two native 3D solids (COM backend, opt-in).
-
-    The tool solid is consumed; the target holds the result.
-    """
-    _require_3d()
-    return await _backend(ctx).solid_boolean(target_handle, tool_handle, operation)
-
-
-# ---------------------------------------------------------------------------
 # ── SECTION 17: P&ID (10 tools) ─────────────────────────────────────────────
 # ---------------------------------------------------------------------------
 
@@ -10829,7 +10474,7 @@ async def drawing_template_save(
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 20: Environment (22 tools) ──────────────────────────────────────
+# ── SECTION 20: Environment (16 tools) ──────────────────────────────────────
 # ---------------------------------------------------------------------------
 
 
@@ -11045,7 +10690,7 @@ async def view_named_restore(
     is left as the file carries it (AutoCAD reconciles a changed aspect by the
     viewport's lower-left corner, which shifts the centre); the result says
     `applied: "header_only"` with the written `vport_height` and the kept
-    `aspect_ratio`, the same reported-no-op rule as `view_zoom_extents`.
+    `aspect_ratio`.
     Refusal: an unknown name (lists the saved views). Pack: settings · lean:
     no."""
     return await _backend(ctx).view_named_restore(name)
@@ -11129,154 +10774,6 @@ async def ucs_restore(
     Refusal: an unknown name (lists the saved ones). Tool coordinates stay
     WCS. Pack: settings · lean: no."""
     return await _backend(ctx).ucs_restore(name)
-
-
-@cad_tool(
-    summary="Attach to the running AutoCAD or start it, optionally opening a file (live only).",
-    cost="safe",
-)
-@mcp.tool(
-    annotations={
-        "title": "Launch / Attach AutoCAD",
-        "readOnlyHint": False,
-        "destructiveHint": False,
-    },
-    tags={"environment", "system"},
-)
-async def system_launch(
-    visible: Annotated[bool, "Show the application window"] = True,
-    open_path: Annotated[str | None, "A .dwg/.dxf to open after attaching"] = None,
-    ctx: Context = None,
-) -> dict:
-    """Connect to the application named by `CAD_PROGID` (attach if running,
-    launch otherwise) and report `launched`, `attached`, `version` and the
-    active `document`. Refusals: headless, `capability: "live_application"`
-    (there is no application to launch); with `CAD_LAUNCH=never` and nothing
-    running, `cad_not_running` (attach only, nothing started); an `open_path`
-    that fails path validation. Pack: settings · lean: no.
-    """
-    if open_path is not None:
-        open_path = str(validate_path(open_path, allow_write=False))
-    await ctx.info(f"Launching or attaching to {config.settings.cad_progid}")
-    return await _backend(ctx).system_launch(visible, open_path)
-
-
-@cad_tool(
-    summary="Read AutoCAD preferences from the whitelist (OPTIONS dialog values; live only).",
-    cost="read",
-)
-@mcp.tool(
-    annotations={"title": "Get Preferences", "readOnlyHint": True},
-    tags={"environment", "system"},
-)
-async def system_preferences_get(
-    keys: Annotated[
-        list[str] | None,
-        "Subset of OpenSave.SaveAsType, OpenSave.AutoSaveInterval, OpenSave.CreateBackup, "
-        "OpenSave.IncrementalSavePercent, Display.CursorSize, Drafting.AutoSnapMarkerSize, "
-        "Drafting.AutoSnapTooltip, Selection.PickBoxSize, Output.DefaultPlotStyleTable, "
-        "Output.DefaultOutputDevice, Files.SupportPath, Files.TemplateDwgPath, "
-        "Files.PrinterStyleSheetPath, Files.PrinterConfigPath; omit for all",
-    ] = None,
-    ctx: Context = None,
-) -> dict:
-    """The whitelisted `Preferences.*` values, enum values as names
-    (`SaveAsType: "ac2018_dwg"`), with `read_only` naming the four `Files.*`
-    paths. Refusals: headless, `capability: "preferences"` (they live in the
-    running application, not in a file); a key outside the whitelist.
-    Pack: settings · lean: no.
-    """
-    return await _backend(ctx).preferences_get(keys)
-
-
-@cad_tool(
-    summary="Change one whitelisted AutoCAD preference; reports old and new (live only).",
-    cost="safe",
-)
-@mcp.tool(
-    annotations={"title": "Set Preference", "readOnlyHint": False, "destructiveHint": False},
-    tags={"environment", "system"},
-)
-async def system_preferences_set(
-    key: Annotated[str, "A writable key from system_preferences_get"],
-    value: Annotated[Any, "New value: bool, int within the key's range, string, or an enum name"],
-    ctx: Context = None,
-) -> dict:
-    """Write one preference and report `old`, `new` and `changed`.
-
-    Refusals, all before any write: a read-only key (`Files.*`), an unknown
-    key, a value of the wrong type, an int outside the authored range
-    (`AutoSaveInterval` 0–600 min, `CursorSize` 1–100, `PickBoxSize` 0–50, …),
-    an unknown `SaveAsType` name; headless, `capability: "preferences"`.
-    Pack: settings · lean: no.
-    """
-    await ctx.info(f"Setting preference {key} = {value!r}")
-    return await _backend(ctx).preferences_set(key, value)
-
-
-@cad_tool(
-    summary="Ask the operator to pick a point on screen (live only; blocks until they do).",
-    cost="read",
-)
-@mcp.tool(
-    annotations={"title": "Ask Operator: Pick Point", "readOnlyHint": True},
-    tags={"environment", "system"},
-)
-async def user_pick_point(
-    prompt: Annotated[str, "Shown on the command line, e.g. 'Pick the base point'"],
-    ctx: Context = None,
-) -> dict:
-    """`Utility.GetPoint`: returns the WCS `x`, `y` (`z`) the operator clicks.
-
-    ESC is an answer, not an error: `cancelled: true` with AutoCAD's reason.
-    Waiting longer than `COM_CALL_TIMEOUT` returns `timed_out: true` (the
-    prompt is abandoned on AutoCAD's side; press ESC there). Refusals: an
-    empty prompt; headless, `capability: "interactive_prompt"` (no operator).
-    Pack: settings · lean: no.
-    """
-    await ctx.info(f"Asking the operator to pick a point: {prompt}")
-    return await _backend(ctx).user_pick_point(prompt)
-
-
-@cad_tool(
-    summary="Ask the operator to select one entity or a set on screen (live only).",
-    cost="read",
-)
-@mcp.tool(
-    annotations={"title": "Ask Operator: Select", "readOnlyHint": True},
-    tags={"environment", "system"},
-)
-async def user_select(
-    prompt: Annotated[str, "Shown on the command line"],
-    mode: Annotated[str, "single (GetEntity) | multiple (SelectOnScreen)"] = "single",
-    ctx: Context = None,
-) -> dict:
-    """Returns `handles` the operator picked — one with `mode="single"` (plus
-    the `picked` point `[x, y]` in **WCS** — AutoCAD reports it in the current
-    UCS and the tool translates, so a UCS made current by `ucs_set` never
-    shifts it), any number with `mode="multiple"` (Enter with nothing
-    selected is `count: 0`, not a cancel). ESC → `cancelled: true`; a wait
-    longer than `COM_CALL_TIMEOUT` → `timed_out: true`. Refusals: a mode
-    outside the two, an empty prompt; headless, `capability:
-    "interactive_prompt"`. Pack: settings · lean: no.
-    """
-    await ctx.info(f"Asking the operator to select ({mode}): {prompt}")
-    return await _backend(ctx).user_select(prompt, mode)
-
-
-@cad_tool(summary="Print a message on AutoCAD's command line (live only).", cost="safe")
-@mcp.tool(
-    annotations={"title": "Command-Line Message", "readOnlyHint": False, "destructiveHint": False},
-    tags={"environment", "system"},
-)
-async def system_prompt_message(
-    text: Annotated[str, "The message; one line is best"],
-    ctx: Context = None,
-) -> dict:
-    """`Utility.Prompt`: tell the operator something where they are looking.
-    Nothing in the drawing changes. Refusals: an empty message; headless,
-    `capability: "interactive_prompt"`. Pack: settings · lean: no."""
-    return await _backend(ctx).system_prompt_message(text)
 
 
 @cad_tool(

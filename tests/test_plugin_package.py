@@ -626,10 +626,10 @@ REQUIRED_SCENARIOS = {
     "prompt-injection",
 }
 #: Spec §6 Task 22: "20 cases" - the named scenarios above and the rest of the
-#: suite's negative scenarios - plus 1.8-02's ``lisp-refused-routes-typed`` and
-#: 1.8-11's two call-budget cases, which fail above 6 server calls, and
-#: 1.8-10's ``history-round2``.
-SUITE_SIZE = 24
+#: suite's negative scenarios - plus 1.8-11's two call-budget cases, which fail
+#: above 6 server calls, and 1.8-10's ``history-round2``. (1.8-02's
+#: ``lisp-refused-routes-typed`` left with the LISP tool.)
+SUITE_SIZE = 23
 #: 1.8-11: the plugin runs in search mode, so a grader may name the synthetic
 #: tools a search-mode client calls (they are not in the inventory).
 SYNTHETIC_TOOLS = {"search_tools", "call_tool", "describe_tool"}

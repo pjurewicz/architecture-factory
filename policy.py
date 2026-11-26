@@ -56,26 +56,6 @@ PER_STEP_TOOLS: frozenset[str] = frozenset({"cad_batch"})
 #: The search-mode proxies: never refused by name; ``call_tool``'s target is.
 DISCOVERY_TOOLS: frozenset[str] = frozenset({"search_tools", "describe_tool", "call_tool"})
 
-#: Tools that only a live AutoCAD can run: the headless engine refuses every
-#: call to them, whatever the arguments (LISP, the command line, the
-#: application's own preferences and launch, and the operator prompts). With
-#: ``HIDE_LIVE_ONLY_TOOLS`` (default true) a headless server neither advertises
-#: nor runs them, so a model is never offered a tool that can only fail. Tools
-#: that refuse only some of their options headlessly (``system_set_variable``,
-#: ``xref_manage``, ``drawing_template_save``...) are not listed here.
-LIVE_ONLY_TOOLS: frozenset[str] = frozenset(
-    {
-        "system_run_lisp",
-        "system_run_command",
-        "system_launch",
-        "system_preferences_get",
-        "system_preferences_set",
-        "user_pick_point",
-        "user_select",
-        "system_prompt_message",
-    }
-)
-
 #: The ceiling of the request being served (``read`` for a read-only token),
 #: or None. Set by ``AuditMiddleware`` for the length of one tool call.
 REQUEST_CEILING: ContextVar[str | None] = ContextVar("acadmcp_request_ceiling", default=None)
@@ -164,16 +144,6 @@ def denylist() -> tuple[str, ...]:
     return tuple(getattr(_settings(), "tool_denylist", ()) or ())
 
 
-def headless() -> bool:
-    """True: this fork runs only the headless ezdxf engine (no live COM engine)."""
-    return True
-
-
-def hide_live_only() -> bool:
-    """True when ``LIVE_ONLY_TOOLS`` are hidden and refused: headless and the setting on."""
-    return bool(getattr(_settings(), "hide_live_only_tools", True)) and headless()
-
-
 def max_cost() -> str:
     value = getattr(_settings(), "max_tool_cost", "escape") or "escape"
     return value if value in _RANK else "escape"
@@ -222,15 +192,6 @@ def refusal(tool: str, cost: str | None) -> PolicyRefusedError | None:
             f"policy_refused: {tool!r} matches TOOL_DENYLIST ({', '.join(denied)}); the "
             "server's operator excluded it. Nothing ran.",
             policy="tool_denylist",
-            tool=tool,
-            allowed_cost=limit,
-            cost=cost,
-        )
-    if tool in LIVE_ONLY_TOOLS and hide_live_only():
-        return PolicyRefusedError(
-            f"policy_refused: {tool!r} needs a live AutoCAD (the COM backend), and this server "
-            "runs the headless ezdxf engine, so it is hidden (HIDE_LIVE_ONLY_TOOLS). Nothing ran.",
-            policy="headless_engine",
             tool=tool,
             allowed_cost=limit,
             cost=cost,
@@ -300,9 +261,7 @@ def check_write(path) -> None:
 
 def restrictive() -> bool:
     """True when anything narrows the default (every tool, every cost)."""
-    return bool(
-        read_only() or allowlist() or denylist() or max_cost() != "escape" or hide_live_only()
-    )
+    return bool(read_only() or allowlist() or denylist() or max_cost() != "escape")
 
 
 def unmatched_patterns(registered) -> dict[str, list[str]]:
@@ -344,8 +303,6 @@ def describe(registered=None) -> dict:
         "allowlist": list(allowlist()),
         "denylist": list(denylist()),
     }
-    if hide_live_only():
-        out["live_only_hidden"] = sorted(LIVE_ONLY_TOOLS)
     if registered is not None:
         unmatched = unmatched_patterns(registered)
         if unmatched:

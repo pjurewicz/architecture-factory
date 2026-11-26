@@ -79,7 +79,6 @@ TUNING_CASES: tuple[GoldenCase, ...] = (
     GoldenCase("keyed bore", "keyway_draw_keyed_bore", "synonym"),
     GoldenCase("feature control frame", "gd_frame", "synonym"),
     GoldenCase("object snap", "point_from_snap", "synonym"),
-    GoldenCase("zoom to fit", "view_zoom_extents", "synonym"),
     GoldenCase("smooth curve", "entity_create_spline", "synonym"),
     GoldenCase("true position", "gd_frame", "synonym"),
     GoldenCase("datum triangle", "datum_feature", "synonym"),
@@ -167,7 +166,6 @@ TUNING_CASES: tuple[GoldenCase, ...] = (
     GoldenCase("layer snapshot", "layer_state_save", "synonym"),
     GoldenCase("save this drawing as a template", "drawing_template_save", "paraphrase"),
     GoldenCase("switch to the other open drawing", "document_activate", "paraphrase"),
-    GoldenCase("ask the operator to click a point on screen", "user_pick_point", "paraphrase"),
     GoldenCase(
         "what does the LTSCALE variable mean",
         "system_variable_describe",

@@ -18,7 +18,7 @@ from fastmcp import Client
 
 import server
 from backends import set_edits as se
-from discovery.aliases import aliases_for, tools_for_command
+from discovery.aliases import aliases_for
 from engineering.changes.preview import StaleRevisionError, entity_fingerprints
 from engineering.errors import InvalidArgsError, classify
 
@@ -370,10 +370,9 @@ async def test_the_three_tools_are_registered_with_their_cost_pack_and_aliases(f
         assert tools[name].meta["cad"]["cost"] == cost, name
         assert server._tool_pack(name) == "core", name
         assert aliases_for(name) is not None, name
-    assert tools_for_command("LAYMRG") == ("layer_merge",)
-    assert "layer_rename" in tools_for_command("RENAME")
-    assert "entity_modify_where" in tools_for_command("QSELECT")
-    assert "entity_modify_where" in tools_for_command("CHPROP")
+    assert "LAYMRG" in aliases_for("layer_merge").acad
+    assert "RENAME" in aliases_for("layer_rename").acad
+    assert {"QSELECT", "CHPROP"} <= set(aliases_for("entity_modify_where").acad)
     assert "entity_modify_where" in server.LEAN_TOOL_NAMES
 
 
