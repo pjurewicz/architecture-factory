@@ -22,10 +22,12 @@ TEXT_ALIGNMENTS = tuple(TEXT_ALIGN)
 #: ezdxf then strips on write, turning two "distinct" tags into one duplicate.
 ATTDEF_TAG_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,30}$")
 
+#: The keys are ``entity_create_*``'s (and so ``entity_batch_create``'s): one
+#: vocabulary for a primitive wherever it is drawn.
 _REQUIRED = {
     "line": ("x1", "y1", "x2", "y2"),
-    "circle": ("cx", "cy", "r"),
-    "arc": ("cx", "cy", "r", "start_deg", "end_deg"),
+    "circle": ("cx", "cy", "radius"),
+    "arc": ("cx", "cy", "radius", "start_angle", "end_angle"),
     "polyline": ("points",),
     "text": ("text", "x", "y", "height"),
     "solid": ("points",),
@@ -36,8 +38,16 @@ _OPTIONAL = {
     "circle": (),
     "arc": (),
     "polyline": ("closed", "bulges"),
-    "text": ("rotation_deg", "align"),
+    "text": ("rotation", "align"),
     "solid": (),
+}
+#: The spellings ``block_define`` took before 1.8.1, still read as the
+#: ``entity_create_*`` name they stand for; giving both is refused.
+LEGACY_KEYS = {
+    "r": "radius",
+    "start_deg": "start_angle",
+    "end_deg": "end_angle",
+    "rotation_deg": "rotation",
 }
 _ATTDEF_KEYS = (
     "tag",
@@ -46,11 +56,11 @@ _ATTDEF_KEYS = (
     "x",
     "y",
     "height",
-    "rotation_deg",
+    "rotation",
     "align",
     "invisible",
 )
-_POSITIVE = {"r", "height"}
+_POSITIVE = {"radius", "height"}
 #: DXF symbol-table names (layers, blocks) are at most 255 characters.
 MAX_NAME_LENGTH = 255
 
@@ -146,6 +156,19 @@ def _one_line(value, where: str) -> str:
     return value
 
 
+def _canonical_keys(spec: dict, where: str) -> dict:
+    """``spec`` with every :data:`LEGACY_KEYS` spelling renamed to its canonical key."""
+    if not any(key in LEGACY_KEYS for key in spec):
+        return spec
+    out = {}
+    for key, value in spec.items():
+        name = LEGACY_KEYS.get(key, key)
+        if name in out or (name != key and name in spec):
+            raise TypeError(f"{where}: give {name!r} or its older spelling {key!r}, not both")
+        out[name] = value
+    return out
+
+
 def _refuse_unknown_keys(spec: dict, allowed: set[str], where: str, what: str) -> None:
     """A key nobody reads is refused by name, never dropped (backlog W1-T2-03)."""
     unknown = sorted(str(key) for key in spec if key not in allowed)
@@ -183,6 +206,7 @@ def validate_entity_specs(entities) -> list[dict]:
         where = f"entities[{i}]"
         if not isinstance(spec, dict):
             raise TypeError(f"{where}: must be an object")
+        spec = _canonical_keys(spec, where)
         kind = spec.get("type")
         if kind not in ALLOWED_TYPES:
             raise TypeError(
@@ -199,10 +223,10 @@ def validate_entity_specs(entities) -> list[dict]:
             for key in ("x1", "y1", "x2", "y2"):
                 norm[key] = _number(spec, key, where)
         elif kind == "circle":
-            for key in ("cx", "cy", "r"):
+            for key in ("cx", "cy", "radius"):
                 norm[key] = _number(spec, key, where)
         elif kind == "arc":
-            for key in ("cx", "cy", "r", "start_deg", "end_deg"):
+            for key in ("cx", "cy", "radius", "start_angle", "end_angle"):
                 norm[key] = _number(spec, key, where)
         elif kind == "polyline":
             pts = _points(spec, where, minimum=2)
@@ -221,7 +245,7 @@ def validate_entity_specs(entities) -> list[dict]:
                 x=_number(spec, "x", where),
                 y=_number(spec, "y", where),
                 height=_number(spec, "height", where),
-                rotation_deg=_scalar(spec.get("rotation_deg", 0.0), f"{where}: 'rotation_deg'"),
+                rotation=_scalar(spec.get("rotation", 0.0), f"{where}: 'rotation'"),
                 align=_align(spec, where),
             )
         elif kind == "solid":
@@ -242,6 +266,7 @@ def validate_attdef_specs(attdefs) -> list[dict]:
         where = f"attdefs[{i}]"
         if not isinstance(spec, dict):
             raise TypeError(f"{where}: must be an object")
+        spec = _canonical_keys(spec, where)
         _refuse_unknown_keys(spec, set(_ATTDEF_KEYS), where, "an ATTDEF")
         tag = spec.get("tag")
         if not isinstance(tag, str) or not ATTDEF_TAG_RE.fullmatch(tag):
@@ -264,7 +289,7 @@ def validate_attdef_specs(attdefs) -> list[dict]:
                 "x": _number(spec, "x", where),
                 "y": _number(spec, "y", where),
                 "height": _number(spec, "height", where),
-                "rotation_deg": _scalar(spec.get("rotation_deg", 0.0), f"{where}: 'rotation_deg'"),
+                "rotation": _scalar(spec.get("rotation", 0.0), f"{where}: 'rotation'"),
                 "align": _align(spec, where),
                 "invisible": invisible,
             }

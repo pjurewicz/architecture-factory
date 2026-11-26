@@ -8766,13 +8766,13 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                         (spec["x1"], spec["y1"]), (spec["x2"], spec["y2"]), dxfattribs=attribs
                     )
                 elif kind == "circle":
-                    blk.add_circle((spec["cx"], spec["cy"]), spec["r"], dxfattribs=attribs)
+                    blk.add_circle((spec["cx"], spec["cy"]), spec["radius"], dxfattribs=attribs)
                 elif kind == "arc":
                     blk.add_arc(
                         (spec["cx"], spec["cy"]),
-                        spec["r"],
-                        spec["start_deg"],
-                        spec["end_deg"],
+                        spec["radius"],
+                        spec["start_angle"],
+                        spec["end_angle"],
                         dxfattribs=attribs,
                     )
                 elif kind == "polyline":
@@ -8789,7 +8789,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                         dxfattribs={
                             **attribs,
                             "height": spec["height"],
-                            "rotation": spec["rotation_deg"],
+                            "rotation": spec["rotation"],
                         },
                     )
                     txt.set_placement((spec["x"], spec["y"]), align=align_map[spec["align"]])
@@ -8806,7 +8806,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                         "linetype": "ByBlock",
                         "lineweight": -2,
                         "height": att["height"],
-                        "rotation": att["rotation_deg"],
+                        "rotation": att["rotation"],
                         "prompt": att["prompt"],
                     },
                 )

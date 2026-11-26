@@ -4723,13 +4723,14 @@ async def block_define(
     name: Annotated[str, "New block definition name"],
     entities: Annotated[
         list[dict],
-        "Primitives in block-local coordinates. type=line {x1,y1,x2,y2} | circle {cx,cy,r} | "
-        "arc {cx,cy,r,start_deg,end_deg} | polyline {points,closed,bulges?} | "
-        "text {text,x,y,height,rotation_deg?,align? (left, center, right, middle, top_left ... bottom_right)} | solid {points (3-4)}. Optional layer (default 0).",
+        "Primitives in block-local coordinates, keyed like entity_create_* / entity_batch_create. "
+        "type=line {x1,y1,x2,y2} | circle {cx,cy,radius} | "
+        "arc {cx,cy,radius,start_angle,end_angle} | polyline {points,closed,bulges?} | "
+        "text {text,x,y,height,rotation?,align? (left, center, right, middle, top_left ... bottom_right)} | solid {points (3-4)}. Optional layer (default 0).",
     ],
     attdefs: Annotated[
         list[dict] | None,
-        "Attribute definitions: {tag, x, y, height, prompt?, default?, rotation_deg?, align?, invisible?}",
+        "Attribute definitions: {tag, x, y, height, prompt?, default?, rotation?, align?, invisible?}",
     ] = None,
     base_x: Annotated[float, "Block base point X"] = 0.0,
     base_y: Annotated[float, "Block base point Y"] = 0.0,
@@ -9725,7 +9726,7 @@ async def dimstyle_create(
     name: Annotated[str, "New dimension style name, e.g. ISO-25, ANSI, MECH-A3"],
     preset: Annotated[
         str | None,
-        "iso-25 (ISO 129-1, 2.5 mm, comma) | ansi (ASME Y14.2, 3 mm, point); omit for the ISO-25 base",
+        "iso-25 (alias iso; ISO 129-1, 2.5 mm, comma) | ansi (ASME Y14.2, 3 mm, point), any case; omit for the ISO-25 base",
     ] = None,
     overrides: Annotated[
         dict | None,

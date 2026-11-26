@@ -113,6 +113,9 @@ ANSI: dict[str, Any] = {
 }
 
 PRESETS: dict[str, dict[str, Any]] = {"iso-25": ISO_25, "ansi": ANSI}
+#: Other spellings of a preset: ``iso`` is the name ``drawing_apply_standard``
+#: and ``mleaderstyle_create`` use for the same standard.
+PRESET_ALIASES: dict[str, str] = {"iso": "iso-25", "iso25": "iso-25", "iso_25": "iso-25"}
 
 PRESET_SOURCES: dict[str, str] = {
     "iso-25": (
@@ -371,6 +374,7 @@ def resolve_dimstyle(preset: str | None, overrides: dict | None) -> dict[str, An
     before anything is written, because nothing here writes.
     """
     key = "iso-25" if preset is None else str(preset).strip().lower()
+    key = PRESET_ALIASES.get(key, key)
     if key not in PRESETS:
         raise ValueError(f"preset: unknown value {preset!r}; use one of {sorted(PRESETS)}")
     values = dict(PRESETS[key])
@@ -381,6 +385,7 @@ def resolve_dimstyle(preset: str | None, overrides: dict | None) -> dict[str, An
 def describe_preset(name: str) -> dict:
     """``{name, source, values, textstyle}`` for a preset, or ``ValueError``."""
     key = str(name).strip().lower()
+    key = PRESET_ALIASES.get(key, key)
     if key not in PRESETS:
         raise ValueError(f"preset: unknown value {name!r}; use one of {sorted(PRESETS)}")
     return {
