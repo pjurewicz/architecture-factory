@@ -50,6 +50,7 @@ from backends.operations import (
     OperationJournal,
     RequiresReconcileError,
 )
+from backends.session_backends import CURRENT_BACKEND, SessionBackends
 from backends.session_metrics import SESSION_METRICS, result_text_bytes
 from discovery.aliases import aliases_for, tools_for_command
 from discovery.descriptions import record_wire_description
@@ -198,14 +199,9 @@ async def autocad_lifespan(server):
     # call (backends/atomic_write.py); system_status reports them.
     save_recovery = _resolve_interrupted_saves()
     try:
-        backend = await _make_backend()
+        backend = _wire_backend(await _make_backend(), operations)
         log.info("Backend ready: %s", backend.name)
-        # A reopened file never re-issues a revision the journal saw (lineage).
-        if hasattr(backend, "revision_high_lookup"):
-            backend.revision_high_lookup = getattr(operations, "max_revision", None)
-        # 1.8-08: drawing_open reports the calls a reopened file no longer holds.
-        if hasattr(backend, "lost_since_save_lookup"):
-            backend.lost_since_save_lookup = getattr(operations, "lost_since_save", None)
+        backend = _isolate_sessions(backend, operations)
         context: dict = {"backend": backend, "operations": operations}
     except Exception as exc:
         log.error("Backend initialization failed: %s", exc)
@@ -222,6 +218,74 @@ async def autocad_lifespan(server):
         closer = getattr(operations, "close", None)
         if callable(closer):
             closer()
+
+
+def _wire_backend(backend, operations):
+    """Connect ``backend`` to the server's operation journal; returns it."""
+    # A reopened file never re-issues a revision the journal saw (lineage).
+    if hasattr(backend, "revision_high_lookup"):
+        backend.revision_high_lookup = getattr(operations, "max_revision", None)
+    # 1.8-08: drawing_open reports the calls a reopened file no longer holds.
+    if hasattr(backend, "lost_since_save_lookup"):
+        backend.lost_since_save_lookup = getattr(operations, "lost_since_save", None)
+    return backend
+
+
+def _isolate_sessions(backend, operations):
+    """A headless ``backend`` behind a per-session router (SESSION_ISOLATION).
+
+    A live AutoCAD is one application with one active document, so its
+    backend is shared as it is; only the headless engine can be built again.
+    """
+    from backends.ezdxf_backend import EzdxfBackend
+
+    if not config.settings.session_isolation or not isinstance(backend, EzdxfBackend):
+        return backend
+
+    async def factory():
+        engine = EzdxfBackend()
+        await engine.connect()
+        return _wire_backend(engine, operations)
+
+    return SessionBackends(
+        backend, factory, _disconnect_backend, config.settings.session_idle_timeout
+    )
+
+
+def _isolation_key(fastmcp_context) -> str | None:
+    """The session that owns an engine, or None for the shared one.
+
+    Stateless HTTP (no ``mcp-session-id`` header) makes a new session for
+    every request, so it has nothing to isolate: it shares the server's engine
+    as it always did.
+    """
+    try:
+        request = fastmcp_context.request_context.request
+    except Exception:  # no request context: a direct call
+        request = None
+    headers = getattr(request, "headers", None)
+    if headers is not None and not headers.get("mcp-session-id"):
+        return None
+    session = _session_key(fastmcp_context)
+    return None if session == _NO_SESSION else session
+
+
+class SessionBackendMiddleware(Middleware):
+    """Bind the calling session's own headless engine for the request (SESSION_ISOLATION)."""
+
+    async def on_request(self, context: MiddlewareContext, call_next):
+        fastmcp_context = context.fastmcp_context
+        lifespan = _lifespan_context_or_none(context)
+        router = lifespan.get("backend") if lifespan is not None else None
+        if not isinstance(router, SessionBackends):
+            return await call_next(context)
+        backend, entry = await router.acquire(_isolation_key(fastmcp_context))
+        token = CURRENT_BACKEND.set(backend)
+        try:
+            return await call_next(context)
+        finally:
+            CURRENT_BACKEND.reset(token)
+            router.release_entry(entry)
 
 
 def _resolve_interrupted_saves() -> list[dict]:
@@ -1051,6 +1115,8 @@ mcp = FastMCP(
     lifespan=autocad_lifespan,
 )
 
+# Outermost: every middleware and tool below reads the session's own engine.
+mcp.add_middleware(SessionBackendMiddleware())
 mcp.add_middleware(ErrorHandlingMiddleware())
 mcp.add_middleware(AuditMiddleware())
 mcp.add_middleware(TimingMiddleware())
