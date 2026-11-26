@@ -36,7 +36,13 @@ ARCH_LAYERS: list[tuple[str, int, str, float, str]] = [
     ("A-DIMEN-T-N", 2, "Continuous", 0.18, "Architecture / dimensions / new"),
     ("A-SYMB-T-N", 7, "Continuous", 0.25, "Architecture / symbols and marks / new"),
     ("A-OVHD-E-N", 3, "HIDDEN", 0.18, "Architecture / overhead, above the cut plane / new"),
-    ("A-FLOR-E-N", 8, "Continuous", 0.13, "Architecture / floor finish, tile and panel layout / new"),
+    (
+        "A-FLOR-E-N",
+        8,
+        "Continuous",
+        0.13,
+        "Architecture / floor finish, tile and panel layout / new",
+    ),
     ("A-CONST-E-N", 250, "Continuous", 0.05, "Architecture / construction (scratch)"),
 ]
 
