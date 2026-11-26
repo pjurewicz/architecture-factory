@@ -1,3 +1,11 @@
+> **Architecture Factory fork.** This is a fork of
+> [U-C4N/Autocad-MCP](https://github.com/U-C4N/Autocad-MCP): the drawing module of
+> Architecture Factory, through which AI agents produce technical drawings over MCP.
+> It runs headless (ezdxf, DWG through ODA File Converter, no AutoCAD) on Linux or
+> macOS, serves several agents at once with a workspace per session, and hides the
+> tools only a live AutoCAD can run. [FORK.md](FORK.md) lists its assumptions and
+> what differs from upstream; the rest of this README is upstream's.
+
 <div align="center">
 
 # AutoCAD MCP Pro
