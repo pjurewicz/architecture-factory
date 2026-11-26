@@ -301,7 +301,7 @@ tr.d{cursor:pointer}tr.d:hover td{background:var(--panel)}tr.d.sel td{background
 <main>
  <div class="bar"><span class="t" id="title">No session selected</span><span class="m" id="meta"></span><span class="sp"></span>
   <a class="b" id="pdf" href="#">PDF</a><a class="b" id="dxf" href="#">DXF</a><a class="b" id="dwg" href="#">DWG</a></div>
- <div class="view"><div class="canvas" id="cv"><img id="img" class="fit" alt="Render of the selected document" draggable="false" hidden><div class="empty" id="empty">Nothing drawn yet</div><a class="b zb" id="fitb" hidden>Fit</a><div class="hint" id="hint" hidden>scroll to zoom · drag to pan · double-click to fit</div></div>
+ <div class="view"><div class="canvas" id="cv"><img id="img" class="fit" alt="Render of the selected document" draggable="false" hidden><div class="empty" id="empty">Nothing drawn yet</div><a class="b zb" id="fitb" hidden>Fit</a><div class="hint" id="hint" hidden>wheel or pinch to zoom · drag or two-finger scroll to pan · double-click to fit</div></div>
   <div class="side"><h2>Open documents</h2><div class="id" style="margin:-2px 0 6px;color:var(--dim);font-size:12px">click a document to view it</div><table id="docs"></table><h2>Recent calls</h2><div class="id" id="tot"></div><table id="hist"></table></div></div>
 </main>
 <script>
@@ -340,8 +340,13 @@ async function tick(){
  $('hist').innerHTML=s.calls.recent.map(h=>`<tr title="in ${fmtB(h.bytes_in)} · out text ${fmtB(h.bytes_out_text)}${h.bytes_out_image?' + image '+fmtB(h.bytes_out_image):''}"><td class="n">${new Date(h.started*1000).toLocaleTimeString('en-GB',{hour12:false})}</td><td class="n">${esc(h.tool)}</td><td class="n r">${fmtMs(h.ms)}</td><td class="n r">${fmtB(h.bytes_in+h.bytes_out_text+h.bytes_out_image)}${h.bytes_out_image?' 🖼':''}</td><td class="${h.ok?'committed':'failed'}">${h.ok?'ok':'error'}</td><td class="n">${h.revision!=null?'r'+h.revision:''}</td></tr>`).join('')||'<tr><td>none yet</td></tr>';
 }
 {const c=$('cv');let drag=null;
- c.onwheel=e=>{if(!view||!imgR)return;e.preventDefault();const r=c.getBoundingClientRect(),W=c.clientWidth,H=c.clientHeight,mx=e.clientX-r.left-W/2,my=e.clientY-r.top-H/2;
-  const px=view.cx+mx/view.s,py=view.cy-my/view.s,dy=e.deltaY*(e.deltaMode===1?33:1);view.s*=Math.exp(-Math.max(-300,Math.min(300,dy))*0.0015);
+ // A pinch (ctrlKey) or a mouse wheel zooms; a two-finger trackpad scroll pans. A trackpad
+ // shows itself by sideways or fractional/small pixel deltas, and stays one for the gesture.
+ let pad=0;c.onwheel=e=>{if(!view||!imgR)return;e.preventDefault();const now=performance.now();
+  if(!e.ctrlKey&&e.deltaMode===0&&(e.deltaX!==0||Math.abs(e.deltaY)<50||!Number.isInteger(e.deltaY)||now-pad<300))pad=now;
+  if(!e.ctrlKey&&now===pad){view.cx+=e.deltaX/view.s;view.cy-=e.deltaY/view.s;moved=true;place();later();return}
+  const r=c.getBoundingClientRect(),W=c.clientWidth,H=c.clientHeight,mx=e.clientX-r.left-W/2,my=e.clientY-r.top-H/2;
+  const px=view.cx+mx/view.s,py=view.cy-my/view.s,dy=e.deltaY*(e.deltaMode===1?33:1);view.s*=Math.exp(-Math.max(-300,Math.min(300,dy))*(e.ctrlKey?0.01:0.0015));
   view.cx=px-mx/view.s;view.cy=py+my/view.s;moved=true;place();later()};
  c.onpointerdown=e=>{if(!view||!imgR||e.button!==0||e.target.id==='fitb')return;drag={x:e.clientX,y:e.clientY};c.setPointerCapture(e.pointerId);c.classList.add('drag')};
  c.onpointermove=e=>{if(!drag)return;view.cx-=(e.clientX-drag.x)/view.s;view.cy+=(e.clientY-drag.y)/view.s;drag={x:e.clientX,y:e.clientY};moved=true;place()};
