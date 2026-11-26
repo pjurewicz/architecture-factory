@@ -36,6 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The Docker image and the wheel no longer list the deleted `security_lisp.py`
+  (both builds failed on it), and `.env.example`, `server.json`, the server
+  instructions and the package description no longer offer the COM backend.
 - Dead live-engine code is gone: `cad_batch` and `entity_delete_many` no
   longer have the `best_effort_undo` rollback guarantee or the CMDACTIVE
   check (`BATCH_ROLLBACK_GUARANTEES` is `snapshot` / `unverified` / `none`),

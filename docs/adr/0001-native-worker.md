@@ -116,3 +116,9 @@ singles) makes the spike the obvious next measurement.
   design spec.
 - If neither fires, the deferral stands with the reasons above and the live engine
   stays pure COM.
+
+## Outcome (2026-11-26, this fork)
+
+Moot here: the fork removed the live COM engine (FORK.md, *Removing the live
+engine*), so there is no live seat for a worker to serve and no
+`best_effort_undo` guarantee left. Upstream's record stands for upstream.

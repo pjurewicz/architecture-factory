@@ -56,7 +56,6 @@ DEPENDENCIES: tuple[str, ...] = (
     "numpy",
     "openpyxl",
     "matplotlib",
-    "pywin32",
 )
 
 

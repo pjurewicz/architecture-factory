@@ -19,7 +19,7 @@
       "environmentVariables": [
         {
           "name": "AUTOCAD_MCP_BACKEND",
-          "description": "Backend selection: auto (default), com (live AutoCAD, Windows) or ezdxf (headless DXF).",
+          "description": "Backend: auto (default) or ezdxf; both run the headless ezdxf engine.",
           "isRequired": false,
           "format": "string",
           "isSecret": false

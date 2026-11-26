@@ -23,19 +23,12 @@ listed by `drawing_template_list`. Start from one with
   `$TDUPDATE`, `$FINGERPRINTGUID`, `$VERSIONGUID` and the two `EZDXF_META`
   entries are masked; everything else must be byte-identical).
   `tests/test_templates.py` runs the same check.
-- `<name>.dwt` — the live twin, used by `drawing_new(template=…)` on the COM
-  backend. AutoCAD's DWT is a DWG container, which no headless library
-  writes, so these are produced **on the live machine** by
-  `uv run --frozen python scripts/smoke_settings_com.py --build-dwt` (Task 25's
-  smoke): it opens each DXF over COM and calls `drawing_template_save(…dwt)`
-  (`SaveAs(path, ac2018_Template)`), then the files are committed once. While
-  a `.dwt` is missing, `resolve_template` falls back to the DXF and reports
-  `source: "bundled_dxf"`; `drawing_template_list` shows `files.dwt.present`.
-  The live engine does not open that DXF blank: `Documents.Add` accepts only
-  a genuine DWT (measured on AutoCAD 2026), so the COM `drawing_new` converts
-  the DXF through `SaveAs(…, ac2018_Template)` once, caches the result under
-  the temp folder keyed on path, size and mtime, and reports
-  `template_dwt: {path, cached}`.
+- `<name>.dwt` — a DWG-container twin of each DXF, built once on AutoCAD 2026
+  by upstream and committed. The server never opens it (`drawing_new` resolves
+  a catalogue name to the `.dxf`); `drawing_template_list` reports it under
+  `files.dwt`, and the benchmark task `dwg_headless_roundtrip` reads one as a
+  DWG through the ODA File Converter. No headless library writes DWT, so the
+  twins are not rebuilt.
 
 Line endings: ezdxf writes CRLF and `.gitattributes` pins `templates/*.dxf`
 to CRLF so a checkout on any platform equals a fresh build.
@@ -43,9 +36,3 @@ to CRLF so a checkout on any platform equals a fresh build.
 Rebuild after changing anything the build depends on (layer sets, the title
 block, the dimension presets, the settings facade) and commit the result
 together with the change — the reproducibility test is the gate.
-
-The `.dwt` twins were built on 2026-09-22 on AutoCAD 2026 by
-`scripts/smoke_settings_com.py --build-dwt` — each DXF opened over COM and
-saved as a template (`AcSaveAsType` 66, `ac2018_Template`). Rebuild them the
-same way after changing a DXF; `scripts/build_templates.py --check` gates the
-DXF side only.

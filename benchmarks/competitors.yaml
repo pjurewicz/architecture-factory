@@ -4,7 +4,7 @@
     {
       "id": "autocad-mcp-pro",
       "adapter": "benchmarks.adapters.autocad_mcp_pro:AutoCADMCPProAdapter",
-      "backends": ["ezdxf", "com"]
+      "backends": ["ezdxf"]
     },
     {
       "id": "puran-water-autocad-mcp",

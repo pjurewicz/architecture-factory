@@ -1,8 +1,6 @@
 """batch_plot: every sheet to PDF, each sheet size read back from the PDF.
 
-The composition is exercised on the headless engine end to end; the COM-only
-pieces of this task (the installed ctb scan, and the plot call's shape —
-foreground, by layout name, confirmed on disk) are fake-tested; the SECTION 19
+The composition is exercised on the headless engine end to end; the SECTION 19
 tools are called directly with a minimal context.
 """
 

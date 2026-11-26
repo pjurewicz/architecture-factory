@@ -27,7 +27,7 @@ Rules:
 
 Free of backends at import time: the backend refusal types are imported lazily,
 exactly as ``server.py`` did, so this module imports on a box without ezdxf's
-extras or pywin32.
+extras.
 """
 
 from __future__ import annotations

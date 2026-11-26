@@ -45,9 +45,6 @@ benchmarks/results/*
 !benchmarks/results/.gitkeep
 !benchmarks/results/published
 !benchmarks/results/published/**
-# The live COM harness's committed evidence (scripts/live/harness.py, B63).
-!benchmarks/results/live
-!benchmarks/results/live/**
 benchmarks/.competitors/
 # What `claude plugin eval` writes next to the cases it runs (Task 22).
 plugin/evals/results/
@@ -67,6 +64,5 @@ plugin/evals/mocks/
 # `uv sync --locked`, so ignoring it would silently disarm every locked lane.
 # Regenerate with `uv lock` whenever pyproject.toml dependencies change.
 
-# AutoCAD writes its plot-and-publish log into the cwd of the plotting process
-# (scripts/smoke_settings_com.py plots from the repo root).
+# AutoCAD writes its plot-and-publish log into the cwd of the plotting process.
 plot.log

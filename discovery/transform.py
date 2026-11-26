@@ -586,7 +586,7 @@ def _describe_tool_for(transform: Any) -> Tool:
                 "via describe_tool; list_tools already carries its full schema"
             )
         # The catalog call_tool reaches: every visibility gate (TOOL_PROFILE,
-        # TOOL_PACKS, ENABLE_3D) and auth filter already applied. Pinned
+        # TOOL_PACKS) and auth filter already applied. Pinned
         # tools are included - with their full description and schema, not
         # the shortened card search mode lists - because call_tool accepts
         # them too.

@@ -1,7 +1,6 @@
 """Tests for trim/extend/fillet/chamfer (Task #5).
 
-Backend coverage: ezdxf only. COM tests need a live AutoCAD instance and are
-skipped unless explicitly enabled.
+Backend coverage: the ezdxf engine.
 """
 
 import pytest

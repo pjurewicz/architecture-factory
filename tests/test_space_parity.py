@@ -1,9 +1,8 @@
-"""1.8-05 on the headless engine: the same answers the live engine now gives.
+"""1.8-05: the engine reports where it drew.
 
-The headless engine always drew where ``layout_set_current`` pointed it and
-started in model space; what 1.8-05 adds on both engines is the report - an
-entity on a sheet names its ``space``, and ``drawing_undo`` / ``drawing_redo``
-say ``verified``. (tests/test_com_space.py holds the live engine's half.)
+The engine always drew where ``layout_set_current`` pointed it and started in
+model space; 1.8-05 adds the report - an entity on a sheet names its
+``space``, and ``drawing_undo`` / ``drawing_redo`` say ``verified``.
 """
 
 from __future__ import annotations

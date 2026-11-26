@@ -8,4 +8,4 @@ by a new record that names the old one.
 
 | No. | Decision | Status | Plan item |
 |---|---|---|---|
-| [0001](0001-native-worker.md) | A native .NET worker inside AutoCAD: deferred to 1.9.0 under a rule fixed before measurement | Accepted (deferred) | 1.8-24 |
+| [0001](0001-native-worker.md) | A native .NET worker inside AutoCAD: deferred to 1.9.0 under a rule fixed before measurement | Accepted (deferred); moot in this fork, which has no live engine | 1.8-24 |

@@ -25,7 +25,6 @@ def _reload_server_with_token(token: str | None):
     # Patch the config settings to inject the token value without reloading config
     with patch("config.settings") as mock_settings:
         mock_settings.mcp_auth_token = token or ""
-        mock_settings.com_call_timeout = 60
         mock_settings.allow_remote_http = False
         mock_settings.allowed_paths = []
         mock_settings.max_undo_stack = 5

@@ -30,7 +30,9 @@ __all__ = ["SYNTHETIC_TOOLS", "build_instructions", "named_tools"]
 #: The search-mode surface (``discovery/transform.py``).
 SYNTHETIC_TOOLS: tuple[str, ...] = ("search_tools", "describe_tool", "call_tool")
 
-_HEAD = "AutoCAD MCP Pro drives AutoCAD live (COM) or edits DXF files headless (ezdxf)."
+_HEAD = (
+    "AutoCAD MCP Pro edits DXF drawings headless (ezdxf); DWG goes through the ODA File Converter."
+)
 _BATCH = "Batch first; never one call per entity:"
 _SAFETY = (
     "Edit safely: a dry run returns a preview; pass its revision as expected_revision.",

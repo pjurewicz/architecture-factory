@@ -1,4 +1,4 @@
-"""ACIS solids (live AutoCAD only).
+"""Drawing audit (the module kept its pre-1.5 name; the solid tools are gone).
 
 Split out of the single 1854-line ``AutoCADBackend`` ABC in v1.5.0 (M7).
 ``AutoCADBackend`` composes every contract in this package, so importing

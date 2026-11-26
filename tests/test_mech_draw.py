@@ -1,9 +1,8 @@
 """The async layer: primitives to entities, the part payload, and the sheet.
 
 Headless ezdxf against a real document - the `backend` fixture in
-tests/conftest.py. The COM paths are the same code (draw.py composes the
-generic contract members), which is the whole point of the pattern
-`gear_draw_*` and `titleblock_apply_iso_a3` already use.
+tests/conftest.py. draw.py composes the generic contract members, the
+pattern `gear_draw_*` and `titleblock_apply_iso_a3` already use.
 """
 
 from __future__ import annotations
@@ -429,7 +428,7 @@ async def test_an_engine_without_hatch_edge_paths_refuses_before_drawing(backend
         backend,
         "capabilities",
         lambda: CapabilityMap(
-            "com", {"hatch_edge_paths": FeatureCapability(False, reason="measured")}
+            "stub", {"hatch_edge_paths": FeatureCapability(False, reason="measured")}
         ),
     )
     with pytest.raises(UnsupportedCapabilityError) as excinfo:
@@ -522,10 +521,9 @@ async def test_a_single_step_disk_dimensions_without_a_text_collision(backend):
 async def test_every_layer_exists_before_an_entity_is_put_on_it(backend, monkeypatch):
     """ActiveX will not create a layer on assignment - the headless engine will.
 
-    Measured on AutoCAD 2026 by scripts/smoke_mech_com.py: ``entity.Layer =
-    "MECH"`` raised ``-0x7ffdfff7 ('Key not found')`` after every view of the
-    part had been drawn, so ``mech_part_draw`` could not finish on a live
-    seat. This backend is made as strict as ActiveX, and the whole part -
+    Measured on AutoCAD 2026: ``entity.Layer = "MECH"`` raised
+    ``-0x7ffdfff7 ('Key not found')``. The draw paths therefore ensure their
+    layers first (CLAUDE.md, *Draw paths ensure their layers first*). This backend is made as strict as ActiveX, and the whole part -
     views, anchor, dimensions - has to draw on it.
     """
     creators = (

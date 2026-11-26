@@ -91,7 +91,7 @@ async def test_the_defaults_are_permissive():
         "allowlist": [],
         "denylist": [],
     }
-    for name in ("entity_create_line", "entity_delete", "drawing_purge", "system_run_command"):
+    for name in ("entity_create_line", "entity_delete", "drawing_purge", "drawing_audit"):
         assert policy.allowed(name, _cost(name)), name
 
 

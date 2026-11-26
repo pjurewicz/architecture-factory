@@ -1,7 +1,6 @@
 """The async layer: walls, openings, stairs and chains drawn through the ezdxf backend.
 
-The same code runs on the live engine: `engineering/arch/draw.py` composes only
-generic contract members (entity_create_*, dimension_linear, entity_set_xdata,
+`engineering/arch/draw.py` composes only generic contract members (entity_create_*, dimension_linear, entity_set_xdata,
 entity_list, entity_delete), like the mechanical track's draw layer.
 """
 

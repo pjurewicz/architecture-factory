@@ -2906,8 +2906,7 @@ class AutoCADMCPProAdapter(BenchmarkAdapter):
         run-time twin, ``[entity_move(L), entity_edit_text(L)]`` (a LINE has
         no text, so the second step fails while it runs), must be rolled back
         by the default: ``ok: false``, ``atomicity.default_applied`` and
-        ``verified`` true, the summary unchanged again. Headless lane only:
-        the live engine's undo is ``scripts/smoke_durability_com.py``.
+        ``verified`` true, the summary unchanged again.
         """
         from dataclasses import asdict
 
@@ -3496,8 +3495,7 @@ class AutoCADMCPProAdapter(BenchmarkAdapter):
         twin: under a UCS rotated 30° about the moved origin (100, 50), a trim
         of (0,0)-(20,0) by (10,-5)-(10,5) keeping (2, 0) must leave the WCS
         segment (0,0)-(10,0) - worked out by hand - exactly what the same trim
-        at y = 30 under the world UCS leaves, shifted. Headless; the live half
-        is ``scripts/smoke_space_com.py`` (a DWG saved with Layout1 active).
+        at y = 30 under the world UCS leaves, shifted.
         """
         import math
 

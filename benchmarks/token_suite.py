@@ -589,8 +589,7 @@ async def idle_lane(counter: Any, turns: int = SESSION_TURNS) -> list[dict[str, 
         rows.append(
             await _idle_row(
                 "packs_core_mech",
-                "TOOL_PACKS=core,mech - a mechanical client that never opens a "
-                "P&ID or a live seat.",
+                "TOOL_PACKS=core,mech - a mechanical client that never opens a P&ID.",
                 counter,
                 turns,
             )
@@ -600,7 +599,7 @@ async def idle_lane(counter: Any, turns: int = SESSION_TURNS) -> list[dict[str, 
             await _idle_row(
                 "packs_core_arch",
                 "TOOL_PACKS=core,arch - an architectural client that never opens a "
-                "P&ID, a machine part or a live seat.",
+                "P&ID or a machine part.",
                 counter,
                 turns,
             )

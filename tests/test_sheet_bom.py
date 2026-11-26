@@ -228,7 +228,7 @@ async def test_extract_reads_the_xdata_payload_and_never_touches_the_drawing(bac
 async def test_extract_reads_a_block_reference_under_the_live_type_name(backend, monkeypatch):
     """The live engine calls an INSERT by its ObjectName, BLOCKREFERENCE.
 
-    Measured on AutoCAD 2026 by scripts/smoke_mech_com.py: a filter on
+    Measured on AutoCAD 2026: a filter on
     "INSERT" found nothing, and the parts list of a sheet holding an ISO 4014
     bolt came back empty. The listing is made to answer the way ActiveX does.
     """

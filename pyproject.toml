@@ -1,7 +1,7 @@
 [project]
 name = "autocad-mcp-pro"
 version = "1.8.0"
-description = "Production-grade AutoCAD MCP server — COM API + ezdxf dual engine"
+description = "Production-grade headless AutoCAD MCP server — ezdxf engine, DWG through the ODA File Converter"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
@@ -125,7 +125,6 @@ only-include = [
     "server.py",
     "config.py",
     "security.py",
-    "security_lisp.py",
     "policy.py",
     "http_guard.py",
     "preview.py",

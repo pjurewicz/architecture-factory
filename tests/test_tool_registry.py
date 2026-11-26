@@ -249,16 +249,16 @@ async def test_drawing_open_refusal_leaves_the_current_document_untouched(backen
 
 
 class _DwgCapableBackend:
-    """Stand-in for the live COM backend, which reads DWG natively."""
+    """Stand-in for a backend that declares native DWG reading."""
 
-    name = "com"
+    name = "stub"
 
     def __init__(self):
         self.opened: list[str] = []
 
     def capabilities(self) -> CapabilityMap:
         return CapabilityMap(
-            backend="com",
+            backend="stub",
             features={"dwg": FeatureCapability(True, "native")},
         )
 
