@@ -3830,21 +3830,26 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             resolved = self._find_layout(name)
             if resolved is None:
                 return {"ok": False, "error": f"Layout not found: {name}"}
+            before = (doc.header.get("$TILEMODE", 1), doc.layouts.active_layout().name)
             if resolved == "Model":
                 doc.header["$TILEMODE"] = 1
             else:
                 # Rebind *Paper_Space so AutoCAD treats it as the active
                 # paper-space layout; TILEMODE=0 selects the paper tab.
-                doc.layouts.set_active_layout(resolved)
+                if before[1] != resolved:
+                    doc.layouts.set_active_layout(resolved)
                 doc.header["$TILEMODE"] = 0
+            after = (doc.header.get("$TILEMODE", 1), doc.layouts.active_layout().name)
             # The whole point: subsequent entity_create_* calls write here.
             # Stored in the canonical spelling so _msp and _resync_space
             # compare against one form.
             self._current_space = resolved
             # $TILEMODE and the active-layout binding are persisted state:
             # the file on disk differs from the document after this, so the
-            # close refusal and the ``saved`` row must know about it.
-            self._mark_dirty()
+            # close refusal and the ``saved`` row must know about it. Selecting
+            # the tab that is already current changes neither, so it is no edit.
+            if after != before:
+                self._mark_dirty()
             return {"ok": True, "current": resolved}
 
         return await self._async(_sync)

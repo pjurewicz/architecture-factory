@@ -140,3 +140,18 @@ async def test_titleblock_on_a_missing_layout_refuses(backend):
             metadata=TitleBlockMetadata(title="X", drawing_no="1"),
             layout="NOSUCH",
         )
+
+
+async def test_selecting_the_current_layout_again_leaves_the_drawing_saved(backend, tmp_path):
+    """Re-selecting the tab already current writes nothing, so ``saved`` stays true."""
+    await backend.layout_create(SHEET)
+    await backend.layout_set_current(SHEET)
+    await backend.drawing_save_as(str(tmp_path / "sheet.dxf"))
+    revision = backend.document_identity()["revision"]
+
+    await backend.layout_set_current(SHEET)
+    assert backend._dirty is False
+    assert backend.document_identity()["revision"] == revision
+
+    await backend.layout_set_current("Model")
+    assert backend._dirty is True
