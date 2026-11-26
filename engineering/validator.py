@@ -130,11 +130,11 @@ class DrawingValidator:
 
         Steps 1, 2, 4 and 5 read the run's all-spaces QA snapshot
         (``engineering/qa_scan.py``): every entity of every space, by its DXF
-        type name on both engines. ``shared`` is that run's context - pass the
+        type name. ``shared`` is that run's context - pass the
         dict ``run_critique`` will receive so a finalize reads the drawing
         once. A read that did not cover the drawing is an ``error`` finding
         ``scan_incomplete``; a step that raises is a finding naming the step;
-        a quarantine refusal, or a live active-document switch, propagates
+        a quarantine refusal propagates
         (``DOCUMENT_REFUSALS``). Nothing is swallowed.
 
         ``delivered_path`` is the delivery context (``drawing_deliver``): the

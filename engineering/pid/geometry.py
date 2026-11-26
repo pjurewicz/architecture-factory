@@ -3,7 +3,7 @@
 
 Each helper returns a ``block_define`` entity/ATTDEF spec (see
 ``backends/block_specs.py``), so a symbol builder composes plain dicts and the
-same spec is validated and written identically on both engines.
+same spec is validated before anything is written.
 """
 
 from __future__ import annotations

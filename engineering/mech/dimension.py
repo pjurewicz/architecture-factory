@@ -75,7 +75,7 @@ TEXT_PADDING = 0.6
 
 #: How an auxiliary (reference) dimension is written - ISO 129-1 puts a
 #: measurement that is already given elsewhere in parentheses. ``<>`` is the
-#: DIMENSION text placeholder for the measured value, on both engines.
+#: DIMENSION text placeholder for the measured value.
 REFERENCE_FORMAT = "(<>)"
 
 #: The only keys ``DimIntent.tol`` accepts.
@@ -426,7 +426,7 @@ def _revolved_diameters(part: RevolvedPart) -> list[DimIntent]:
     """Each segment's outside diameter and bore, measured across the axis.
 
     ``p1`` is the upper chord end: a diameter's text stands beyond ``p1`` (the
-    ActiveX ``AddDimDiametric`` ChordPoint rule, which both engines follow), so
+    AutoCAD ``AddDimDiametric`` ChordPoint rule, which the engine follows), so
     every front-view diameter is annotated above the view, clear of the axial
     chain rows below it.
     """

@@ -1,10 +1,8 @@
 """Region render: a picture of a window of the drawing, at a stated scale (1.8-07).
 
 ``view_screenshot(region=...)`` and ``view_zoom_and_screenshot`` share this
-renderer on both engines. Headless it draws the backend's current space; live,
-a region request is drawn from the ``Document.Export`` snapshot of the bound
-document (``engineering/understand/snapshot.py``), so the same DXF gives the
-same pixels whichever engine asked.
+renderer: it draws the backend's current space, so the same DXF gives the
+same pixels.
 
 What the report promises, and why it is exact:
 
@@ -282,7 +280,7 @@ def render_layout(
 
 
 def render_dxf_file(path: str, *, region: Region | None, max_px: int = DEFAULT_MAX_PX) -> dict:
-    """Render the model space of the DXF at ``path`` (the live engine's snapshot)."""
+    """Render the model space of the DXF at ``path``."""
     import ezdxf
 
     doc = ezdxf.readfile(path)

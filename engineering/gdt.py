@@ -4,7 +4,7 @@ This is the single biggest "no competitor has this" capability: no surveyed
 text-to-CAD product or competing CAD MCP ships 2D geometric-tolerance authoring
 *with validation*. Frames are composed from plain LINE + TEXT primitives (not
 ezdxf's native TOLERANCE entity, which renders blank through the matplotlib
-frontend), so the exact same output lands on both the COM and ezdxf backends.
+frontend).
 
 The layout math here is pure/deterministic and unit-tested without a backend;
 the async drawing orchestration lives on `AutoCADBackend` (base.py) so both

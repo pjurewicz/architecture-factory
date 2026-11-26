@@ -4,7 +4,7 @@ A production drawing without ±/limit callouts is not manufacturable — this wa
 the dossier's "biggest functional gap". These helpers turn a small, explicit
 tolerance spec into the ezdxf/AutoCAD dimension-variable (DIMVAR) overrides that
 render tolerances, so `dimension_linear/radius/diameter` can emit toleranced
-dims on both backends.
+dims.
 
 Scope (intentionally CI-testable): explicit upper/lower deviations with
 symmetric / deviation / limit / basic display modes, plus a free-form text

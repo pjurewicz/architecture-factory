@@ -47,18 +47,16 @@ def _on_entity(kind: str, props: dict, point) -> bool:
 class PremiumContract(ABC):
     # These are CONCRETE and backend-agnostic: they orchestrate the abstract
     # primitives above plus the shared EntityInfo.properties contract (start/
-    # end/center/radius/start_angle/end_angle — populated identically by both
-    # backends), so the ezdxf and COM backends inherit identical premium
-    # behaviour. The only backend-specific primitive is `_create_xline` — XLINE
-    # has no cross-backend equivalent among the standard entity_create_* tools.
+    # end/center/radius/start_angle/end_angle). The only backend-specific
+    # primitive is `_create_xline` — XLINE has no equivalent among the
+    # standard entity_create_* tools.
 
     _plan_spec: PlanSpec | None = None
     _preflight_result: Any = None
     # The standard `drawing_apply_iso_layers` last bootstrapped on *this*
     # drawing (None until it runs) — `_active_layer_set_id` reads it ahead of
-    # the PlanSpec. Drawing-scoped like the plan: a live backend clears it
-    # when AutoCAD's active document changes, the headless registry keeps one
-    # per open document.
+    # the PlanSpec. Drawing-scoped like the plan: the headless registry keeps
+    # one per open document.
     _active_layer_set: LayerSetId | None = None
 
     def _reset_document_state(self) -> None:
@@ -669,8 +667,7 @@ class PremiumContract(ABC):
         `construction_left` reads every space: a construction line on a paper
         layout, or the 5,001st one, was flagged with "call construction_clear()"
         and survived the call (W1 review). `deleted_handles` names what went;
-        `failed` names an entity that could not be deleted (a locked layer on
-        the live engine) with the reason, rather than skipping it silently.
+        `failed` names an entity that could not be deleted with the reason, rather than skipping it silently.
         A quarantine refusal propagates: "deleted: 0" would read as "nothing
         to clear" on a document the backend has declared untrusted.
         """
@@ -690,8 +687,7 @@ class PremiumContract(ABC):
         are) in model space and every paper layout, in one locked call.
 
         Returns ``{"deleted": [handle, ...], "failed": [{"handle", "error"}]}``.
-        Backend-specific: headless walks every ezdxf layout; live walks each
-        ``Layout.Block`` (members measured on AutoCAD 2026)."""
+        Backend-specific: the headless engine walks every ezdxf layout."""
         ...
 
     async def drawing_apply_iso_layers(
@@ -727,7 +723,7 @@ class PremiumContract(ABC):
         CIRCLEs a diameter, ARCs a radius, both with the text outside the part
         box; ``overall`` the selection's width and height
         (``engineering/dimension_auto.py`` plans it, the ``dimension_*``
-        contracts draw it, so both engines draw the same plan).
+        contracts draw it).
         ``skip_existing`` binds every existing DIMENSION through
         ``engineering/verification/binding.py`` and skips a planned one that
         measures the same feature. ``dry_run`` plans and draws nothing.
@@ -783,7 +779,6 @@ class PremiumContract(ABC):
         tags = await self._dimension_auto_tags({dim.source for dim in planned if dim.source})
         created: list[EntityInfo] = []
         if planned:
-            # live ActiveX will not create a layer on assignment (CLAUDE.md)
             await self._ensure_layer(dim_layer)
         for dim in planned:
             created.append(await self._dimension_auto_draw(dim, dim_layer, tags.get(dim.source)))

@@ -23,15 +23,14 @@ the same relative path.
 
 The plugin's tools are named `mcp__plugin_autocad-mcp-pro_autocad__<tool>`;
 `allowed_tools` grants the whole server (`mcp__plugin_autocad-mcp-pro_autocad`),
-which a run must also grant with `--allow-tools`. No case grants a shell: on a
-Windows seat without the sandbox backend the CLI refuses any run that does, so
+which a run must also grant with `--allow-tools`. No case grants a shell, so
 the cases reach files through the server's own tools.
 
 Run the suite against the generated arms, never against this folder's plugin:
 `claude plugin eval` passes only `EVAL_*` variables to its runs, so the shipped
-`.mcp.json` would start the PyPI release on the `auto` engine - a live AutoCAD
-where one runs. `scripts/build_plugin.py --variant full|skill-only|server-only
---out out/<arm>` writes an arm whose server is the checkout, headless;
+`.mcp.json` would start the PyPI release, not the code under test.
+`scripts/build_plugin.py --variant full|skill-only|server-only
+--out out/<arm>` writes an arm whose server is the checkout;
 [`benchmarks/skill_eval/README.md`](../../benchmarks/skill_eval/README.md) has the
 commands, the flags and the recorded runs, and `check_artifacts.py` there
 re-measures the drawings a run saved.

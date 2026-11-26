@@ -1,9 +1,8 @@
-"""Exact HATCH loops, DIMENSION fields and ACADMCP_* XDATA, read once for both engines.
+"""Exact HATCH loops, DIMENSION fields and ACADMCP_* XDATA, read once.
 
-Both engines answer ``entity_get`` for a HATCH or a DIMENSION from this one
-reader: the headless engine runs it on the live ``ezdxf`` entity, the live
-engine on the record its measured ``Document.Export`` snapshot carries
-(``engineering/understand/snapshot.py``). One reader, so the two engines
+``entity_get`` answers for a HATCH or a DIMENSION from this one reader, run
+on the in-memory ``ezdxf`` entity; the QA snapshot
+(``engineering/understand/snapshot.py``) reads the same fields, so the two
 cannot disagree about a loop or a defpoint (v1.7.0, B16).
 
 * A loop is ``(kind, flags, depth, vertices_or_edges, bulges)`` in WCS.
@@ -432,7 +431,7 @@ def dimension_style_vars(entity) -> tuple[tuple[str, object], ...] | None:
     Read through ezdxf's ``DimStyleOverride`` - the entity's own DSTYLE XDATA
     first, then its dimension style - with the renderer's own fallbacks, so
     the formatter sees exactly what the headless renderer sees, and on a file
-    AutoCAD exported (the live engine's snapshot) exactly what AutoCAD stored.
+    AutoCAD saved exactly what AutoCAD stored.
     ``dimdsep`` is the decimal marker as a character (``get_decimal_separator``:
     code 0 is a comma); ``dimrnd`` 0 / absent is 0.0 (no rounding);
     ``dimclrt`` None means "the entity's colour". None when the style cannot

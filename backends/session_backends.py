@@ -175,7 +175,7 @@ class EndSessionOnDelete:
     """ASGI wrapper: a successful ``DELETE`` of an MCP session ends its engine too.
 
     ``router()`` returns the server's ``SessionBackends`` or None (isolation
-    off, a live engine, no lifespan yet). The session id is the
+    off, no lifespan yet). The session id is the
     ``mcp-session-id`` header, the same key ``SessionBackendMiddleware`` used.
     """
 

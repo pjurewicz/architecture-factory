@@ -27,7 +27,7 @@ class DrawingContract(ABC):
         naming ``recover=True``) and the open document is kept; ``recover=True``
         reads a damaged DXF through ``ezdxf.recover`` and reports ``recovered:
         {fixes, errors, messages, entities_read}`` and ``recovered_from`` (1.8-04,
-        B09). Both engines report the file's ``lineage`` and ``external_change``."""
+        B09). The result reports the file's ``lineage`` and ``external_change``."""
 
     @abstractmethod
     async def drawing_save(self, path: str | None = None, overwrite_source: bool = False) -> dict:

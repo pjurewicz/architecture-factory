@@ -82,7 +82,9 @@ def test_every_registered_tool_lists_a_description_within_the_limit():
 def test_a_split_description_is_whole_leading_paragraphs_of_the_docstring():
     tools = _registered()
     split = split_tool_names() & set(tools)
-    assert len(split) >= 40, "the long docstrings of the 1.8.0 catalog are split"
+    # 1.8.0 split 40; the fork dropped the live-engine sentences, so fewer
+    # docstrings run past the limit. The floor keeps the split exercised.
+    assert len(split) >= 30, "the long docstrings of the catalog are split"
     for name in split:
         wire, doc = tools[name].description, _docstring(tools[name])
         assert wire.endswith(f"\n\n{DETAILS_POINTER}"), name

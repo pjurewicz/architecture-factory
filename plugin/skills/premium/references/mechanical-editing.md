@@ -50,9 +50,7 @@ In-place edits keep the handle, layer and XDATA (feature tags included):
 `entity_edit_geometry` takes `points` / `bulges` for a polyline (the vertex
 count may change) and `x` / `y` for TEXT and MTEXT; `entity_edit_text` takes
 `x` / `y` beside content, height and rotation. An argument the type does not
-take is refused by name. On a live seat a polyline whose vertex count AutoCAD
-will not change in place is recreated with everything carried over, and the
-result lists `replaced` `[{old, new}]` - use the new handle from then on.
+take is refused by name.
 
 ## Change existing drawings under a guard
 
@@ -97,9 +95,6 @@ and `point_intersection` / `point_tangent`; never compute them in your head.
   ISO 286 tables) or `tol_upper=` / `tol_lower=` with a sourced tolerance.
   Keep the measured value in the text (`<>` placeholder); never a fixed
   number over a mismatch.
-- Live AutoCAD will not create a layer on assignment; the drawing tools
-  ensure their layers first. If you place raw entities live, `layer_create`
-  first.
 
 ## Annotation
 

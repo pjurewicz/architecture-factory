@@ -23,10 +23,6 @@ the journal, through ``revision_high``) knows a higher revision was issued for
 that ``document_id`` than the file carries - edits made after the last save
 and never saved - the open continues one past it and says so
 (``revision_floor``).
-
-The live engine keeps its per-bind uuid (``ComBackend``): there the record
-only carries the lineage and detects an external change, keyed by
-``FullName`` and recorded only while ``DBMOD`` is 0.
 """
 
 from __future__ import annotations

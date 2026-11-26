@@ -480,14 +480,12 @@ async def ensure_annotation_layers(
 
     MEASURED on AutoCAD 2026: assigning `entity.Layer = "DIM"` on a drawing
     whose layer table is `['0']` raises `-0x7ffdfff7 ('Key not found')` -
-    ActiveX will not create the layer for you. The headless engine will
-    (`EzdxfBackend._apply_attrs` calls `doc.layers.add`), so without this step
-    the same annotation silently succeeds headless and dies live on the first
-    entity, having already written the ones before it. `drawing_open` runs no
-    bootstrap, so annotating a foreign drawing - the case the spec names - is
-    exactly when the layer is missing. Ensuring every target layer up front,
-    before any entity is created, is what makes the two engines agree and what
-    keeps a refusal from leaving half a symbol behind.
+    AutoCAD will not create the layer for you. The headless engine will
+    (`EzdxfBackend._apply_attrs` calls `doc.layers.add`), but with none of the
+    layer set's properties. `drawing_open` runs no bootstrap, so annotating a
+    foreign drawing - the case the spec names - is exactly when the layer is
+    missing. Ensuring every target layer up front, before any entity is
+    created, is what keeps a refusal from leaving half a symbol behind.
     """
     wanted: list[str] = []
     for name in names:

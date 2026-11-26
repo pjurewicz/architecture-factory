@@ -9,26 +9,18 @@ module is the one reader they share now:
 * :func:`qa_snapshot` takes one all-spaces :class:`Snapshot` per run and caches
   it, with its :class:`ScanCoverage`, in ``shared["qa_snapshot"]``. A finalize
   passes one dict to the validator, the critique and the topology focuses, so
-  it costs one read (one ``Document.Export`` on the live engine), not three.
+  it costs one read, not three.
   A dict is valid only while the drawing does not change: a caller that edits
   between two runs (``drawing_refine``) passes a fresh one.
 * Before reading, the entities of every space are counted (``len`` of each
-  ezdxf layout; ``Layout.Block.Count`` on the live engine). Above
+  ezdxf layout). Above
   ``MAX_QA_ENTITIES`` (default 2,000,000; 0 disables) the read is refused and
   the coverage says why - a partial scan is never passed off as a whole one.
-* Headless, the read runs under the backend's lock as a **read-only** call:
+* The read runs under the backend's lock as a **read-only** call:
   :func:`_async_readonly` passes ``readonly=True`` *and* marks the function
   (``quarantine.mark_readonly``), so a wrapper around ``_async`` that drops
   the keyword - a monkeypatch, a tracer - still hands ``_async`` a read. An
   overrunning QA read is detached, never quarantined.
-* Live, the active document is exported to a temporary DXF
-  (``engineering/understand/snapshot.py::_com_export``) in the same COM job
-  that counts its layouts, and the export's records per layout are compared
-  with those live counts; any difference is an incomplete scan. Measured on
-  AutoCAD 2026 on 2026-10-24 in a scratch document: per layout, ``Block.Count``
-  equals the exported DXF's entity count - model space, an unused paper
-  layout (0 and 0) and an activated layout holding its two VIEWPORTs and a
-  LINE (3 and 3).
 
 The QA read computes no INSERT box (``records_from_doc(...,
 insert_boxes=False)``): a box walks the block's geometry, about 1.8 ms an

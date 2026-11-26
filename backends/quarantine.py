@@ -171,8 +171,7 @@ class DaemonExecutor(concurrent.futures.Executor):
 
     Reuse follows ``ThreadPoolExecutor`` (CPython 3.13): a worker marks itself
     idle only when the queue is empty, and ``submit`` claims an idle worker
-    before spawning a new one. ``max_workers=1`` keeps one strictly FIFO thread
-    (the COM STA apartment).
+    before spawning a new one. ``max_workers=1`` keeps one strictly FIFO thread.
     """
 
     def __init__(

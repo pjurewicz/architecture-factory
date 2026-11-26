@@ -15,14 +15,13 @@ are `claude plugin marketplace add U-C4N/Autocad-MCP` and
 
 | Part | Where | What it does |
 |---|---|---|
-| MCP server `autocad` | `.mcp.json` | Runs `uvx --from "autocad-mcp-pro[com,pdf,office]==<version>" autocad-mcp` — the PyPI package at exactly this plugin's version, with the live-AutoCAD (`com`, Windows only), PDF/screenshot (`pdf`) and workbook (`office`) extras. Needs [uv](https://docs.astral.sh/uv/). |
+| MCP server `autocad` | `.mcp.json` | Runs `uvx --from "autocad-mcp-pro[pdf,office]==<version>" autocad-mcp` — the PyPI package at exactly this plugin's version, with the PDF/screenshot (`pdf`) and workbook (`office`) extras. Needs [uv](https://docs.astral.sh/uv/). |
 | Skill `premium` | `skills/premium/` | The measured workflow: requirements → geometry → verified on the CAD → saved → reopened → delivered, a decision table by source type, and the shortcuts that produce confident wrong answers. Claude loads it on its own for drawing work; invoke it directly as `/autocad-mcp-pro:premium`. |
 | Eval cases | `evals/` | Twenty-three negative scenarios for `claude plugin eval` (wrong label, two equal holes, schematic metres, prompt injection in drawing text, a saved file confirmed from memory, ...); see `evals/README.md` and, for running them, `benchmarks/skill_eval/README.md` in the repository. Not loaded at run time. |
 
-The backend is chosen at start-up as in the main README: live AutoCAD on Windows
-when it is running, headless `ezdxf` otherwise. Set `AUTOCAD_MCP_BACKEND`,
-`ALLOWED_PATHS` and the other server variables in the environment Claude Code
-starts from.
+The server runs the headless `ezdxf` engine; no AutoCAD is needed. DWG read and
+write also need the ODA File Converter on the machine. Set `ALLOWED_PATHS` and
+the other server variables in the environment Claude Code starts from.
 
 ## Search mode (the plugin's default)
 
@@ -40,10 +39,10 @@ development and evaluation need the code in front of them. The server's source i
 one variable:
 
 ```text
-AUTOCAD_MCP_SOURCE=C:/path/to/Autocad-MCP[com,pdf,office]
+AUTOCAD_MCP_SOURCE=/path/to/Autocad-MCP[pdf,office]
 ```
 
-`.mcp.json` passes `${AUTOCAD_MCP_SOURCE:-autocad-mcp-pro[com,pdf,office]==<version>}`
+`.mcp.json` passes `${AUTOCAD_MCP_SOURCE:-autocad-mcp-pro[pdf,office]==<version>}`
 to `uvx --from`, so with the variable set the plugin runs the checkout (any
 `uvx --from` source works: a folder, a wheel, a `git+https://` URL); unset, it
 runs the pinned release. Set it in the shell that starts Claude Code, or in the

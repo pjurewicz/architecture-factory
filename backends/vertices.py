@@ -1,4 +1,4 @@
-"""Vertex lists for a lightweight polyline, validated once for both engines.
+"""Vertex lists for a lightweight polyline, validated once.
 
 ``entity_set_vertices``, ``entity_edit_geometry(points=, bulges=)`` and
 ``entity_create_polyline(bulges=)`` all take WCS ``[x, y]`` points and an

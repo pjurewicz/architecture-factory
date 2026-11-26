@@ -1,9 +1,9 @@
 # backends/block_specs.py
 """Typed primitive specs for ``block_define``, validated before any write.
 
-Both engines consume the same normalised specs, so a malformed request is
-refused identically on COM and ezdxf and nothing is written on either. Every
-error names the offending entry (``entities[i]`` / ``attdefs[i]``) and key.
+The backend consumes the normalised specs, so a malformed request is refused
+before anything is written. Every error names the offending entry
+(``entities[i]`` / ``attdefs[i]``) and key.
 """
 
 from __future__ import annotations
@@ -129,8 +129,7 @@ def _one_line(value, where: str) -> str:
 
     ezdxf's DXFAttr fixer (``fix_one_line_text``) silently strips line breaks
     and a trailing ``^`` on write, logged at DEBUG only, so the declared value
-    and the value read back would differ; COM writes the raw string, so the two
-    engines would also diverge. Refuse it here, before any write, using ezdxf's
+    and the value read back would differ. Refuse it here, before any write, using ezdxf's
     own ``is_valid_one_line_text`` rule plus the other C0 controls DXF text
     cannot carry.
     """
@@ -288,12 +287,11 @@ def validate_base_point(base_x, base_y) -> tuple[float, float]:
 def referenced_layers(entities: list[dict]) -> list[str]:
     """The distinct layers ``block_define``'s primitives reference, other than ``0``.
 
-    DXF and ActiveX layer tables are case-insensitive, so the set is keyed on
+    DXF and AutoCAD layer tables are case-insensitive, so the set is keyed on
     the folded name and keeps the first spelling seen: a request naming
     ``Alpha`` and ``ALPHA`` wants *one* layer. Deduping case-sensitively let
     ezdxf write ``ALPHA`` and then raise ``DXFTableEntryError`` on ``Alpha``
-    mid-call, and let COM report two layers created for one ``Layers.Add``
-    that took effect.
+    mid-call.
     """
     seen: dict[str, str] = {}
     for spec in entities:
@@ -309,7 +307,7 @@ def validate_attribute_values(attributes, where: str = "attributes") -> dict[str
 
     ``str(value)`` used to be applied to whatever arrived, so a JSON ``null``
     became the text ``None``, ``true`` became ``True`` and an object became its
-    Python repr — silently, on both engines. A string is taken as is (one line,
+    Python repr — silently. A string is taken as is (one line,
     the DXF rule ``_one_line`` enforces); an int or a finite float is written
     with ``str`` (``101`` → ``"101"``, ``2.5`` → ``"2.5"``); ``bool``, ``None``,
     lists and objects are refused by tag. ``None`` for the whole mapping means

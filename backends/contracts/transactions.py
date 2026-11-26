@@ -37,8 +37,7 @@ class TransactionContract(ABC):
 
         ``in_place`` replaces the active document's contents and is itself
         undoable; ``new_document`` opens the checkpoint as ``<stem>-cp<seq>``
-        and binds it. The live engine refuses ``in_place`` with capability
-        ``checkpoint_restore_in_place``.
+        and binds it.
         """
 
     def latest_checkpoint(self) -> str | None:
@@ -49,8 +48,8 @@ class TransactionContract(ABC):
         """After the ``drawing_new`` tool's bootstrap: S0 is the drawing it hands back.
 
         The headless engine re-anchors its pending S0 on the bootstrapped
-        drawing (the blank one never reached a caller). The live engine keeps
-        no S0, so the default does nothing.
+        drawing (the blank one never reached a caller). The default does
+        nothing.
         """
         return None
 

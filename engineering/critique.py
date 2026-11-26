@@ -64,7 +64,7 @@ async def _check_iso128(backend: AutoCADBackend, shared: dict | None = None) -> 
         # 0.0 = ezdxf's "use default" — not an ISO 128 violation.
         if lw <= 0:
             continue
-        # Layer lineweights come through as ezdxf/COM hundredths-of-a-mm
+        # Layer lineweights come through as DXF hundredths-of-a-mm
         # (e.g. 25 == 0.25mm) — they are NOT pre-normalised to mm, so accept
         # either the raw mm value or hundredths/100.
         if lw not in allowed and (lw / 100.0) not in allowed:
@@ -144,14 +144,12 @@ def _check_dimension_legibility(backend: AutoCADBackend, ledger=None) -> list[Is
     would report a 1.0 mm defect on a sheet the header letters at 2.5, and clear
     a sheet the header letters at 1.0 because the style still said 2.5.
 
-    Headless only by construction: a live AutoCAD document carries the
-    operator's own template, and second-guessing it from here would report
-    their house standard as a defect. Since 1.8-16 that is a
+    It needs the backend's ezdxf document: a backend without one gets a
     ``not_checked`` row (``engine_live_document_template``) in ``ledger``,
     not a silent ``[]`` that read as "checked, clean".
     """
     doc = getattr(backend, "_doc", None)
-    if doc is None:  # the live backend has no ezdxf document to read
+    if doc is None:  # no ezdxf document to read
         if ledger is not None:
             ledger.not_checked(
                 "iso128", DOCUMENT, "engine_live_document_template", lane=LEGIBILITY_LANE
@@ -493,7 +491,7 @@ async def _check_dim_overlap(backend: AutoCADBackend, shared: dict) -> list[Issu
 
     Filters by DXF entity TYPE (not layer) so dims land-anywhere — including the
     iso13567 M-DIMEN-T-N layer — are still considered; the snapshot carries DXF
-    names on both engines, so ActiveX's ROTATEDDIMENSION spelling no longer matters.
+    type names.
     """
     records, issues = await _records(backend, shared, "dim_overlap")
     return issues + await asyncio.to_thread(_dim_overlap_issues, records)
@@ -506,8 +504,7 @@ async def _check_gdt(backend: AutoCADBackend, shared: dict | None = None) -> lis
     ISO 1101 / ASME Y14.5: a position/orientation/runout FCF that cites datum A
     is meaningless unless datum A is actually established on the part. The base
     backend records referenced/defined datum letters as `draw_feature_control_frame`
-    and `draw_datum_feature` run, so this check needs no geometry parsing and is
-    identical on both engines.
+    and `draw_datum_feature` run, so this check needs no geometry parsing.
     """
     referenced = set(getattr(backend, "_gdt_datums_referenced", None) or set())
     defined = set(getattr(backend, "_gdt_datums_defined", None) or set())
@@ -593,9 +590,8 @@ async def _run_check(check, focus: str, backend: AutoCADBackend, shared: dict) -
     """One check; a failure becomes an ``error`` issue of that focus, never silence.
 
     A ``DocumentQuarantineError`` propagates: the document is untrusted and the
-    caller must be told so, not handed a finding about it. So does the live
-    engine's ``ActiveDocumentChangedError``: the check read nothing of the
-    bound document (``DOCUMENT_REFUSALS``).
+    caller must be told so, not handed a finding about it
+    (``DOCUMENT_REFUSALS``).
 
     Coverage (1.8-16): a check that raises writes ``not_checked(focus, *,
     check_failed)``; one that returns without writing a row for ``focus``

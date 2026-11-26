@@ -21,10 +21,10 @@ anything. It returns, each with its evidence and a confidence:
 
 Quote those fields; do not restate them as certainties.
 
-A `.dwg` on the headless engine: `drawing_open(path)` converts it to DXF
-through the ODA File Converter, else AutoCAD's `accoreconsole` (the result's
-`dwg_read` names the route); with neither it is refused with capability
-`dwg_read`, and every route failing is `dwg_conversion_failed`. Save the
+A `.dwg`: `drawing_open(path)` converts it to DXF through the ODA File
+Converter (the result's `dwg_read` names the route); without the converter it
+is refused with capability `dwg_read`, and a failed conversion is
+`dwg_conversion_failed`. Save the
 result with `drawing_save_as` to a `.dxf` - never onto the `.dwg`.
 
 ## 2. Checks that never write
@@ -52,8 +52,7 @@ not.
 
 ## 4. Editing it
 
-Bind to the document you mean (live AutoCAD: the bound document; an
-`active_document_changed` refusal means the operator switched drawings - stop
-and ask, do not retry on whatever is active now). Take a preview and apply
+Make sure the document you mean is the active one (`document_list`,
+`document_activate`). Take a preview and apply
 under `expected_revision=` ([mechanical-editing](mechanical-editing.md)). After
 the edit, say what you changed by handle, and run the same reads again.

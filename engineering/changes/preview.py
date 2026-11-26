@@ -18,12 +18,9 @@ are left out, because AutoCAD regenerates them on every export (measured on a
 live ACAD_TABLE): the extension dictionary's handle (its presence still
 counts) and the proxy graphics (``_content_tags``).
 
-**The same reader at preview and at apply.** Headless, the tags come from the
-in-memory document under the backend's lock (``_async(readonly=True)``); live,
-from ``Document.Export`` of the active document (the snapshot exporter, which
-keeps the live handles - ``scripts/smoke_understand_com.py`` moves an exported
-handle with ``entity_move``), read with ezdxf. An engine is only ever compared
-with itself.
+**The same reader at preview and at apply.** The tags come from the in-memory
+document under the backend's lock (``_async(readonly=True)``), so a preview is
+only ever compared with the same engine's apply.
 
 **A region precondition** is the sha256 of the current layout's name and the
 sorted ``(handle, fingerprint)`` pairs of every entity of that layout whose WCS
@@ -32,9 +29,8 @@ RAY, a reference to an empty block) is not in it.
 
 **Revision** is ``document_identity()["revision"]`` (Task 9): it moves when
 content changes through the server. Headless, a direct edit of the file that
-does not pass through the server leaves it where it was; live, the operator's
-edits to database objects move it too (backends/document_guard.py names what
-that counter misses). The fingerprints catch a direct edit either way.
+does not pass through the server leaves it where it was. The fingerprints
+catch a direct edit.
 
 **Interleaving.** An apply made of several locked calls (``cad_batch`` steps,
 ``drawing_refine`` repairs, ``pid_from_spec`` items) lets other calls run
@@ -93,7 +89,7 @@ _PROXY_GRAPHICS = frozenset({92, 160, 310})
 def _content_tags(tags):
     """``tags`` without what AutoCAD regenerates on every export.
 
-    MEASURED on AutoCAD 2026 (live smoke ``mech``, 2026-11-04): two
+    MEASURED on AutoCAD 2026 (2026-11-04): two
     ``Document.Export`` reads of one untouched ACAD_TABLE, nothing in between,
     differed in two places - the ``{ACAD_XDICTIONARY`` pointer (360 ``9C``,
     then ``A3``: the export hands the table a new extension dictionary) and the
@@ -220,8 +216,7 @@ async def region_fingerprint(backend, bbox: tuple[float, float, float, float]) -
 async def read_identity(backend) -> dict:
     """``backend.document_identity()``, awaited when the engine made it a coroutine.
 
-    An engine that counts outside edits lazily (the live one's
-    ``refresh_document_identity``) folds them in first."""
+    An engine that counts outside edits lazily folds them in first."""
     reader = getattr(backend, "document_identity", None)
     if reader is None:
         return {"document_id": None, "revision": None}

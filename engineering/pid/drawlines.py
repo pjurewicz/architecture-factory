@@ -29,10 +29,8 @@ if TYPE_CHECKING:
 TEXT_HEIGHT = 2.5
 LABEL_LAYER = "PROCESS-LINE-TEXT"
 _INSERT_TYPES = {"INSERT", "BLOCKREFERENCE"}
-# ezdxf reports a lightweight polyline as LWPOLYLINE; the COM engine derives the
-# type from the ActiveX ObjectName, and a live LWPOLYLINE is ``AcDbPolyline``
-# (measured on AutoCAD 2026 — see backends/com_backend.py), so it arrives as
-# POLYLINE, with the heavy kind as 2DPOLYLINE. Same set the graph reader keeps.
+# ezdxf reports a lightweight polyline as LWPOLYLINE; POLYLINE / 2DPOLYLINE are
+# AutoCAD's object-model names for it. Same set the graph reader keeps.
 _POLY_TYPES = {"LWPOLYLINE", "POLYLINE", "2DPOLYLINE"}
 _LINE_TYPES = {"LINE"}
 _PAGE = 1000
@@ -57,7 +55,7 @@ async def resolve_endpoint(backend: AutoCADBackend, ref: dict, name: str = "endp
         try:
             info = await backend.entity_get(handle)
         except RuntimeError as exc:
-            # Both engines say "Entity with handle 'X' not found." as a
+            # The backend says "Entity with handle 'X' not found." as a
             # RuntimeError, which reached the client as an "Internal error"
             # (backlog W3-T13-11). Any other failure is not a caller's mistake.
             if "not found" not in str(exc):
@@ -125,8 +123,8 @@ def _vertices(info) -> list[tuple[float, float]]:
 
 
 def _bulges(info, count: int) -> list[float]:
-    """Per-vertex bulges as the engine reports them (both engines put a
-    ``bulges`` list next to ``points``); straight when it reports none."""
+    """Per-vertex bulges as the engine reports them (a ``bulges`` list next
+    to ``points``); straight when it reports none."""
     raw = info.properties.get("bulges") or []
     out = []
     for value in raw[:count]:

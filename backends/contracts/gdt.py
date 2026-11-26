@@ -9,9 +9,8 @@ from __future__ import annotations
 
 
 class GdtContract:
-    # Composed from LINE + TEXT primitives so the exact same frame renders on
-    # both COM and ezdxf (ezdxf's native TOLERANCE entity renders blank through
-    # the matplotlib frontend). Deterministic layout math lives in engineering/
+    # Composed from LINE + TEXT primitives because ezdxf's native TOLERANCE
+    # entity renders blank through the matplotlib frontend. Deterministic layout math lives in engineering/
     # gdt.py; datum letters are tracked so the `gdt` critique focus can verify
     # every referenced datum is actually established on the part.
 

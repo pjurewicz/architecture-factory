@@ -50,10 +50,6 @@ an entity you touch changed. Passed together, both must hold.
 3. Tell the person what changed and ask whether the edit still applies.
 4. Apply with the new preview's `revision` and `preconditions`.
 
-On live AutoCAD, edits the operator makes by hand are not counted in the
-revision - there the fingerprints in `preconditions` are what catches them, so
-never guard a live edit with the revision alone.
-
 ## Retries
 
 If the apply itself timed out or was cancelled, its outcome may be

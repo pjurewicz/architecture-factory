@@ -111,15 +111,15 @@ COLUMN_SHARES: dict[str, float] = {
 PAGE_SIZE = 1000
 
 
-#: A block reference under either engine's type name: the DXF name headlessly,
-#: the ActiveX ObjectName (AcDbBlockReference) live.
+#: A block reference under the DXF name, and AutoCAD's object-model name
+#: (AcDbBlockReference) for rows read from other sources.
 INSERT_TYPES = ("INSERT", "BLOCKREFERENCE")
 
 
 async def all_entities(backend: AutoCADBackend, *, type_filter=None, layer=None):
     """Every entity of a type in the CURRENT space -- not the first 200 of them.
 
-    `entity_list`'s `limit` defaults to 200 on both engines, so a single call is
+    `entity_list`'s `limit` defaults to 200, so a single call is
     a silent truncation on any real drawing: a parts list that stops at the
     200th INSERT prints a wrong QTY, and a duplicate-balloon guard that only
     sees the first 200 CIRCLEs is blind on a drawing whose hole pattern fills
@@ -366,11 +366,8 @@ async def extract_records(backend: AutoCADBackend, *, layer=None, limit: int | N
     """
     if limit is not None and int(limit) <= 0:
         raise ValueError(f"bom_extract: limit must be a positive number of records; got {limit!r}")
-    # MEASURED on AutoCAD 2026 by scripts/smoke_mech_com.py: the live engine
-    # names a block reference by its ObjectName, BLOCKREFERENCE, and filters on
-    # that name, so a filter on the DXF name INSERT found nothing and the parts
-    # list came back empty on a sheet holding an ISO 4014 bolt. Both names are
-    # read, the way engineering/pid/graph.py already does.
+    # Both type names are read (INSERT, and AutoCAD's object-model name
+    # BLOCKREFERENCE), the way engineering/pid/graph.py does.
     inserts: list = []
     seen: set[str] = set()
     for type_name in INSERT_TYPES:
@@ -388,10 +385,9 @@ async def extract_records(backend: AutoCADBackend, *, layer=None, limit: int | N
             payload = {}
         if payload.get("kind") != "std_part":
             payload = {}
-        # Measured on both engines: `block_get_attributes` returns the flat
-        # ``{tag: value}`` mapping itself, not ``{"attributes": {...}}``
-        # (ezdxf_backend.py:6687 builds it from ``ent.attribs``, com_backend.py:5703
-        # from ``ref.GetAttributes()``). Reading a wrapper key here would have
+        # `block_get_attributes` returns the flat ``{tag: value}`` mapping
+        # itself, not ``{"attributes": {...}}`` (ezdxf_backend.py builds it
+        # from ``ent.attribs``). Reading a wrapper key here would have
         # made every attribute fallback silently empty.
         attributes = {}
         try:
@@ -439,11 +435,11 @@ async def draw_bom_table(
     upward-growing ISO 7573 list is drawn from an insertion one table height
     above the anchor, with the heading as the last (bottom) row.
 
-    `representation` is reported rather than assumed: the live engine draws a
-    real ACAD_TABLE, while the headless one returns a *composite* whose
+    `representation` is reported rather than assumed: the headless engine
+    returns a *composite* rather than a real ACAD_TABLE, whose
     ``handle`` is its first child rule (``tests/test_table_leader.py`` pins
     that contract). A caller that means to edit the table afterwards has to
-    know which of the two it got.
+    know what it got.
     """
     if not rows:
         raise ValueError("bom_table: there are no parts-list rows to draw")

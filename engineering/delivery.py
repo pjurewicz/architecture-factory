@@ -17,8 +17,8 @@ between them or a file changed after the export, never content the export
 itself loses. The requirements measured on the delivered file are the content
 check; ``parity.content_check`` names it, or is None when none was given.
 
-Exporting never re-points the document (v1.7.0, B23): the live engine writes
-through ``Document.Export``, the headless one writes a copy; the open document
+Exporting never re-points the document (v1.7.0, B23): the export writes a
+copy; the open document
 keeps its name, path and saved flag, and those go into the manifest. The
 validator's "saved" step checks the delivered DXF in this context.
 """
@@ -298,7 +298,7 @@ async def source_revision(
 ) -> tuple[Snapshot, dict[str, str]]:
     """A fresh serialisation of the open document, read back: the parity source.
 
-    Both engines write the document through ``drawing_export_dxf`` (which never
+    The document is written through ``drawing_export_dxf`` (which never
     re-points it) into a private folder and read that file. Not the model in
     memory: ezdxf leaves unset DXF defaults unset in memory and writes them out
     (an MTEXT without ``char_height`` reads 0.0 in memory and 2.5 after a write

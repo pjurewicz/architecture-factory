@@ -254,7 +254,9 @@ ERROR_TABLE: dict[str, KindSpec] = {
         "dependency", False, "The server ended mid-call; inspect the drawing before a retry."
     ),
     "dwg_conversion_failed": KindSpec(
-        "dependency", False, "The DWG converter failed; see attempts[].log, or use the COM engine."
+        "dependency",
+        False,
+        "The DWG converter failed; see attempts[].log, or save the drawing as DXF in AutoCAD.",
     ),
     "hand_edited_tagged_entity": KindSpec(
         "geometry", False, "Undo the hand edit, or pass overwrite=True to replace it."
@@ -309,7 +311,7 @@ def annotate(error: dict, state: str | None) -> dict:
 class EntityNotFoundError(RuntimeError):
     """A handle that names no live entity in the document.
 
-    A ``RuntimeError`` because that is what both engines raised for it before
+    A ``RuntimeError`` because that is what the backends raised for it before
     1.8.0: every ``except RuntimeError`` and the client's prose are unchanged.
     """
 

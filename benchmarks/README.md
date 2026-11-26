@@ -117,11 +117,9 @@ carry none for the v3 five. `--matrix v3` reproduces the v1.5 set exactly.
 
 Nothing in the task tidies up after the tools: the view engine draws the ISO
 128-23 centre lines of every circle it emits, so the sheet is clean because it
-was drawn clean. Building it found four defects that every headless test had
-missed — the headless diameter text on the wrong side of the chord, the
-validator reading a fastener designation (`M12x60`) as a fake dimension, and on
-the live seat a missing `MECH` layer and a parts list that could not see a
-`BLOCKREFERENCE`; each is fixed with a test. The competitor reports carry no
+was drawn clean. Building it found two headless defects — the diameter text on
+the wrong side of the chord and the validator reading a fastener designation
+(`M12x60`) as a fake dimension; each is fixed with a test. The competitor reports carry no
 result for it.
 
 ### Matrix v6 (v1.6) — the architectural plan
@@ -162,11 +160,9 @@ The competitor reports carry no result for them.
 | `damaged_dxf_refusal` | reliability | a truncated DXF and a non-DXF refused with the fault named, the open document kept (same id, revision, entities). 1.7.0 refuses; `recover` is B09, 1.7.1 | an open that silently returns an empty drawing |
 | `dimension_binding` | verify | best-cad's claim: four DIMENSIONs bound to the features at their defpoints; rows measured on geometry (42, 40, 21, Ø40 all pass), the "42" override over 40 and the DIMLFAC 2 over 21 are `dimension_mismatch` findings that block acceptance | a displayed value that believes the geometry |
 
-The v8 tasks stage their inputs inside the headless engine; on the live engine they report `not_run` (the live evidence is the COM harness, `scripts/live`).
-
 **No zero for a task nobody asked.** A rival lane reports a task it has no playbook for as `not_run` (a v2 task keeps the v1.4 verdict, `unsupported`), and a lane whose environment is absent — no cached checkout or venv at the pinned commit with `--no-fetch`, a clone or install that cannot run — as `environment_blocked`. Neither enters the score: `summary.score` is over attempted tasks and is `null` when nothing was attempted. `competitors.yaml` lists best-cad-mcp with `"adapter": null` (COM-only), so its lane is `not_run`. The v8 rival records live in [`results/published/lanes-v8/`](results/published/lanes-v8/); the v1.4 rival reports are not touched.
 
-**Run manifest.** Every report carries `manifest`: the server's commit and whether tracked files were modified (`dirty`), the sha256 of the files that generate the fixtures (`FIXTURE_SOURCES`), `EVALUATOR_VERSION` and the installed versions of ezdxf, fastmcp, mcp, numpy, openpyxl, matplotlib and pywin32.
+**Run manifest.** Every report carries `manifest`: the server's commit and whether tracked files were modified (`dirty`), the sha256 of the files that generate the fixtures (`FIXTURE_SOURCES`), `EVALUATOR_VERSION` and the installed versions of the dependencies it tracks (ezdxf, fastmcp, mcp, numpy, openpyxl, matplotlib, ...).
 
 ### Matrix v9 (v1.8.0) — call economy, dimension truth, security, durability, the named promises
 
@@ -180,7 +176,7 @@ set) and the manifest names `EVALUATOR_VERSION` `v9.0`. v9 holds 49 tasks, v8's
 |---|---|---|
 | `dimension_lie_detect` | qa | `tests/fixtures/lying_dims.py`: seven dimensions that each lie one way give exactly one `dimension_truth` finding each; DIMDEC 0 over 19.6 shows "20"; a redraw left stale by `rerender=False` is named and `drawing_refine` clears it |
 | `policy_read_only` | security | under `READ_ONLY`, a batch with one create step is refused before step 1 with the revision unchanged, and the same write sent through the search proxy's `call_tool` is `policy_refused` |
-| `lisp_read_tier` | security | three AutoLISP reads (`vla-get-Area`, `getvar`, a `mapcar` over a `lambda`) answer on the first try and `(command "_ERASE" ...)` is refused with its symbol, line and typed alternatives; live engine only (headless: `environment_blocked`) |
+| `lisp_read_tier` | security | three AutoLISP reads (`vla-get-Area`, `getvar`, a `mapcar` over a `lambda`) answer on the first try and `(command "_ERASE" ...)` is refused with its symbol, line and typed alternatives. It needs AutoCAD's AutoLISP, which this headless server does not have, so it is always `environment_blocked` |
 | `layer_cleanup_budget` | ergonomics | six misnamed layers and 300 overridden entities reach ISO names, ByLayer and no empty layer in at most 3 calls, with the `iso128` / `layer_color` / `property_override` critique empty; a stale `expect_count` is refused `stale_revision` with nothing changed |
 | `call_count_dimension_part` | ergonomics | a plate (outline, six holes, two arcs) dimensioned in at most 2 calls, every dimension bound with no `dimension_mismatch` and no duplicate, a second run drawing nothing; an ELLIPSE and a SPLINE in the selection are `omitted` with their reasons |
 | `undo_across_restart` | durability | draw, save, move, save, kill the server; a new process opens the file and one `drawing_undo` puts the line back before the move. Unsaved twin: the file is untouched and `lost_since_save.count` is 1 |
@@ -190,20 +186,19 @@ set) and the manifest names `EVALUATOR_VERSION` `v9.0`. v9 holds 49 tasks, v8's
 | `pid_routing_obstacles` | pid | a sheet whose `auto` lines cross two vessels, routed with `sheet.routing: "avoid"`: zero `pid_line_through_symbol`, zero dangling ends, crossings within the dry run's; a walled-in pump refused `no_route` naming the four vessels' tags |
 | `pid_project_offpage` | pid | three P&ID sheet files checked by `pid_project`: one orphan link, one direction mismatch, one cross-sheet duplicate tag and one line-number mismatch, each once with sheet and handle; a missing sheet file and 51 sheets refused by name |
 | `std_tables_b40` | standards | one size from every filled DIN 471/472, DIN 509, DIN 332-1 and ISO 3601-2 table drawn with the double entry's own dimensions, a size between two rows refused by name with nothing drawn. With no table filled - the 1.8.0 state, every table deferred to 1.8.1 - it is `not_run` naming the deferred tables, never a pass |
-| `dwg_headless_roundtrip` | reliability | a DWG opened on the headless engine through a converter (ODA, then `accoreconsole`) and saved as DXF with the layers, blocks and entity counts of its DXF twin; with no converter on the machine the open is refused `dwg_read` and the task is `environment_blocked` |
+| `dwg_headless_roundtrip` | reliability | a DWG opened on the headless engine through the ODA File Converter and saved as DXF with the layers, blocks and entity counts of its DXF twin; without ODA on the machine the open is refused `dwg_read` and the task is `environment_blocked` |
 | `replay_across_restart` | durability | through `fault_inject.py`: a real server runs `cad_batch(operation_id=...)`, saves and is killed; the next process answers the same id and steps `replayed: true` with nothing drawn, other steps `operation_conflict`. In-call twin: a server parked at the `journal.after_begin` barrier inside a `cad_batch` is killed there, and the next process answers that id `requires_reconcile` |
 | `interrupted_save_recover` | durability | a writer that dies half way through `atomic_write_dxf` (`os._exit` in a child, no `finally`) leaves the file byte for byte as it was and the next server reports `rolled_back`. In-call twin: a server parked at `save.before_replace` (tmp written, fsynced, verified) is killed; the next start reports `finished` and the file's sha is the one the marker named |
 | `damaged_dxf_recover` | reliability | a 50-line DXF cut before its last ENDSEC, three handles repeating an earlier entity's and four not hex: `drawing_open(recover=True)` reports the three conflicts as `fixes`, 47 entities read, every handle unique, the source's sha unchanged by the open and by the refused save onto it; the plain open is refused `damaged_drawing` naming `recover=True` |
 | `bylayer_truth` | qa | 22 lines at lineweight `"Default"` and three at `"ByLayer"` through the real server; the oracle is the saved DXF read with ezdxf (22 at -3, the rest -1). `property_override` reports one grouped `lineweight_not_bylayer` issue with those 22 handles; after `drawing_refine` the saved DXF holds -1 on every line |
-| `space_context` | reliability | a drawing saved with Layout1 active (two entities on it) is opened and a circle created: it lands in model space and the sheet still holds its two entities in the saved file. Twin: a trim under a UCS rotated 30° about a moved origin keeps the WCS endpoints a world-UCS trim keeps. The live half is `scripts/smoke_space_com.py`, which passed 13 / 13 on AutoCAD 2026 for 1.8.0 ([`results/live/1.8.0/space.json`](results/live/1.8.0/space.json)) |
+| `space_context` | reliability | a drawing saved with Layout1 active (two entities on it) is opened and a circle created: it lands in model space and the sheet still holds its two entities in the saved file. Twin: a trim under a UCS rotated 30° about a moved origin keeps the WCS endpoints a world-UCS trim keeps |
 
 `dimension_lie_detect`, `layer_cleanup_budget`, `call_count_dimension_part`,
 `undo_across_restart`, `atomic_batch_default`, `history_value_lookup`,
 `parametric_revise_keeps_handles`, `pid_routing_obstacles`,
 `pid_project_offpage`, `dwg_headless_roundtrip`, `replay_across_restart`,
 `interrupted_save_recover`, `damaged_dxf_recover`, `bylayer_truth` and
-`space_context` stage their inputs in the headless engine and are `not_run` on
-the live lane (`HEADLESS_ONLY_V9`). `KILL_POINTS` names, for
+`space_context` stage their inputs in the headless engine (`HEADLESS_ONLY_V9`). `KILL_POINTS` names, for
 `undo_across_restart`, `history_value_lookup`, `replay_across_restart` and
 `interrupted_save_recover`, where a real `python server.py` is killed with
 `Popen.kill()`; the run manifest records them with the state-folder policy.
@@ -226,11 +221,11 @@ python -m benchmarks.run_competitors --server lizaixi01-agentcad --matrix v9 --n
 Run on `78b9b1e` with a clean tree (`manifest.dirty: false`, evaluator `v9.0`):
 **47 / 47 attempted tasks pass**, score 100.0, coverage 100 %. Two of the 49 are
 not attempted and enter no score: `lisp_read_tier` is `environment_blocked`
-(AutoLISP runs only in AutoCAD; the headless lane records the policy's verdicts
-in its metrics) and `std_tables_b40` is `not_run`, naming the eight B40 tables
-deferred to 1.8.1. `dwg_headless_roundtrip` passed through AutoCAD 2026's
-`accoreconsole` on the run machine (route `accoreconsole`, about 2.9 s); a machine
-with neither ODA nor `accoreconsole` makes it `environment_blocked`. AgentCAD's
+(AutoLISP runs only in AutoCAD) and `std_tables_b40` is `not_run`, naming the
+eight B40 tables deferred to 1.8.1. On upstream's run machine
+`dwg_headless_roundtrip` passed through AutoCAD's `accoreconsole`, a route this
+fork has removed; here it converts through the ODA File Converter, and a machine
+without it makes the task `environment_blocked`. AgentCAD's
 lane is `not_run` on all 49 (no adapter; `RIVAL_GROUND` names the nine tasks on
 its ground). The reports live in
 [`results/published/lanes-v9/`](results/published/lanes-v9/); the v8 reference
@@ -453,39 +448,6 @@ asyncio.run(work())
 pr.disable()
 print(pstats.Stats(pr).total_calls)
 ```
-
-## Live COM performance lane (1.8-23)
-
-`perf_com.py` measures the live engine against a v1.7.0 checkout on a running
-AutoCAD, never in CI. Each side runs in its own child process with its own
-backends and server first on `sys.path`, through an in-process fastmcp client,
-on a document seeded with 5,000 lines; every repeated workload gets one untimed
-warm-up, and what a workload created is removed untimed so each runs at about
-5,000 entities. The workloads: `create_circle_singles`, `batch_create_200`,
-`delete_singles_200`, `delete_many_200`, `cad_batch_50`, `fillet_50_n5000` and
-`fillet_50_n10000`. Its targets were fixed before any run: the bulk tools at
-least 5× faster than v1.7.0's 200 single calls, the single
-`entity_create_circle` median at least 30 % lower, and `entity_fillet` at
-10,000 lines at most 1.2× its time at 5,000. The bulk-delete target is measured
-on the tool as 1.8.0 ships it, pre-check and transaction included.
-
-```bash
-python -m benchmarks.perf_com --base <a v1.7.0 checkout>   # writes results/live/perf_com.json
-python -m benchmarks.perf_com --pending   # the skeleton; no AutoCAD
-```
-
-[`results/live/perf_com.json`](results/live/perf_com.json) is the 1.8.0 run on
-AutoCAD 2026 (2026-11-05, current side `cc82532`, a v1.7.0 worktree as base),
-`status: "failed"`: three of the four targets are missed. `entity_batch_create`
-is 2.90× and `entity_delete_many` 3.78× faster than v1.7.0's 200 single calls
-(target 5×), and the single `entity_create_circle` median is 8.9 % lower
-(target 30 %). The fillet ratio is 55× (target at most 1.2×): its median at
-5,000 lines was 81 ms here and 6.0 s in a run an hour earlier, so that row is
-not stable on this seat (that earlier run's ratio was 1.19×; it was not kept
-because it named its v1.7.0 side "1.8.0", the bug `cc82532` fixes). v1.7.0
-overran `COM_CALL_TIMEOUT` once at 10,000 lines and failed 30 of its 50
-fillets there. ADR 0001 (`docs/adr/0001-native-worker.md`) names a recorded
-live `perf_com.json` as what would trigger its one-day worker spike.
 
 ## Token and call budgets (1.8.0)
 
@@ -793,7 +755,7 @@ Fixed (failed on v1.0.0, pass on v1.1.0):
 | `point_tangent_external` | Geometry | external-point tangent is perpendicular & on-circle |
 | `arc_has_length` | Query | ARC carries a `length` property |
 | `arc_select_by_length` | Query | `entity_select_smart` length_range selects arcs |
-| `ezdxf_bounding_box` | Query | `bounding_box` populated (COM/ezdxf parity) |
+| `ezdxf_bounding_box` | Query | `bounding_box` populated on the ezdxf backend |
 | `mtext_rotation_roundtrip` | Entities | MTEXT honors caller rotation |
 | `screenshot_png` | Render | headless render returns a valid PNG (no GUI-thread crash) |
 | `dim_overlap_critique_fires` | Quality gate | `dim_overlap` critique is live (was a no-op) |
@@ -814,8 +776,6 @@ not a cherry-picked list of failures; the baseline genuinely does basic CAD work
 - `center_linetype_applied` passes on both because it only checks the linetype
   **attribute** string (set on both); the v1.0.0 "renders as Continuous because the
   linetype was never loaded" defect is not observable through `EntityInfo`.
-- COM-backend behaviour is not covered here (no live AutoCAD); see the mocked-COM
-  suites in `tests/`.
 
 Model-by-model tool-call success rates remain future work; scale/throughput
 numbers live in the headless performance lane above.

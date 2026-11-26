@@ -1,8 +1,8 @@
 """Exact area and perimeter for DXF boundary geometry.
 
-Pure arithmetic: no ezdxf, no COM, no I/O. Both backends call the same functions,
-so the headless and live engines cannot drift apart on the numbers, and the tests
-exercise the real implementation rather than a stand-in.
+Pure arithmetic: no ezdxf, no I/O. The backend and the readers call the same
+functions, so they cannot drift apart on the numbers, and the tests exercise the
+real implementation rather than a stand-in.
 
 The thing that makes this exact rather than approximate is the **bulge**. A DXF
 polyline edge carries a bulge factor, and a non-zero bulge means that edge is a

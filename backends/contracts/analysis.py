@@ -21,12 +21,7 @@ class AnalysisContract(ABC):
 
     @capability(  # noqa: B027 — @capability supplies the body
         "boundary_trace",
-        reason=(
-            "ActiveX exposes no BOUNDARY member; the live path would have to drive the "
-            "-BOUNDARY command blind, which has not been verified against a live AutoCAD. "
-            "Use the headless backend (AUTOCAD_MCP_BACKEND=ezdxf), or run BOUNDARY in "
-            "AutoCAD directly."
-        ),
+        reason=("This backend does not trace boundaries; run BOUNDARY in AutoCAD directly."),
     )
     async def boundary_trace(
         self, x: float, y: float, layer: str | None = None, tolerance: float = 1e-9
@@ -49,9 +44,7 @@ class AnalysisContract(ABC):
     @capability(  # noqa: B027 — @capability supplies the body
         "boundary_trace",
         reason=(
-            "Chaining arbitrary entities into a loop needs the same edge graph BOUNDARY "
-            "does, which ActiveX does not expose. Use the headless backend "
-            "(AUTOCAD_MCP_BACKEND=ezdxf)."
+            "This backend does not chain entities into a loop; run BOUNDARY in AutoCAD directly."
         ),
     )
     async def boundary_from_entities(self, handles: list[str], tolerance: float = 1e-9) -> dict:
@@ -116,32 +109,22 @@ class AnalysisContract(ABC):
         A HATCH is measured as the area it *fills* — outer loops minus the
         islands inside them — and the headless engine adds ``hatch_style``
         (``normal``/``outer``/``ignore``) so the number can be read against the
-        drawing's own island setting. The live backend does not carry that key:
-        it reads ActiveX ``.Area``, which **does** apply the island style —
-        verified on a live AutoCAD 2026 (2026-08-06): a hatch of r20 with an
-        r10 island returns 942.478, which is pi*(400-100).
+        drawing's own island setting. AutoCAD's own ``.Area`` applies the island
+        style too (measured on AutoCAD 2026, 2026-08-06: a hatch of r20 with an
+        r10 island returns 942.478, which is pi*(400-100)).
 
-        ``perimeter`` is ``None`` where ActiveX exposes no length member for the
-        type, and ``perimeter_exact`` is then False. The member differs per
-        type and was measured rather than assumed: LWPOLYLINE ``.Length``,
-        CIRCLE ``.Circumference``, REGION ``.Perimeter``, HATCH none. A
-        3DSOLID has no ``.Area`` at all — only ``.Volume`` — and is refused by
-        name.
-        A missing perimeter is not a reason to discard an area that was read
+        ``perimeter`` is ``None`` where the type has no length to report, and
+        ``perimeter_exact`` is then False. A missing perimeter is not a reason to discard an area that was read
         successfully — doing exactly that is what made this method raise on
         every ACIS type it advertised.
 
-        ``exact`` and
-        ``flatten_tolerance`` are the accuracy disclosure: when one engine can
-        answer in closed form and the other has to flatten, the payload says so
-        rather than leaving two numbers to quietly disagree.
+        ``exact`` and ``flatten_tolerance`` are the accuracy disclosure: when
+        the answer is not closed-form but flattened, the payload says so.
 
         Two different refusals, and the difference matters. A type that bounds no
         area at all (LINE, TEXT, a 3D polyline) raises a plain ``RuntimeError``:
-        no engine can measure it, so tagging a capability would falsely suggest
-        switching backends helps. A type this *engine* cannot evaluate (ACIS
-        solids headlessly) raises ``UnsupportedCapabilityError``, which names the
-        engine that can.
+        nothing can measure it. A type this *engine* cannot evaluate (ACIS
+        solids, no headless kernel) raises ``UnsupportedCapabilityError``.
         """
         ...
 
@@ -156,12 +139,12 @@ class AnalysisContract(ABC):
 
     @abstractmethod
     async def selection_get(self) -> dict:
-        """Read the live viewport's implied ("pickfirst") selection set.
+        """Read the viewport's implied ("pickfirst") selection set.
 
-        COM-only / meaningful only with live AutoCAD. Returns a dict::
+        Meaningful only in a running AutoCAD. Returns a dict::
 
             {
-                "ok": bool,                # True on COM even for an empty pick
+                "ok": bool,
                 "count": int,
                 "handles": list[str],      # entity handles to act on
                 "entities": list[EntityInfo],  # _dc()-converted by the server

@@ -3,7 +3,8 @@
 Authored data, pinned by ``tests/test_sysvar_catalog.py``. Every entry says
 its type, range or enum, AutoCAD's default, a one-line meaning, where AutoCAD
 saves it (``drawing`` / ``registry`` / ``not_saved``), whether each engine can
-read *and write* it (``engines``), and the ``drawing_settings`` key that wraps
+read *and write* it (``engines``, a single ``ezdxf`` key since the live
+engine was removed), and the ``drawing_settings`` key that wraps
 it when one exists (``friendly_key``).
 
 ``engines["ezdxf"]`` is a measured claim, not a hope: it is ``True`` only when
@@ -20,13 +21,13 @@ header slot for them (CTAB, VIEWCTR, VIEWSIZE, ISOLINES, FACETRES); that
 refusal is a plain ``ValueError``.
 
 Angles are **radians** at the ``system_get_variable`` / ``system_set_variable``
-boundary on both engines - the unit ActiveX ``GetVariable`` / ``SetVariable``
-and AutoLISP ``getvar`` use (measured on AutoCAD 2026: ``SETVAR ANGBASE 90``
+boundary - the unit AutoCAD's own ``GetVariable`` / ``SetVariable`` and
+AutoLISP ``getvar`` use (measured on AutoCAD 2026: ``SETVAR ANGBASE 90``
 reads back 1.5707963267948966, and so does HPANG after ``SETVAR HPANG 45``).
 The DXF header stores ``$ANGBASE`` in degrees (group code 50; the same
 document saved by AutoCAD carries ``$ANGBASE = 90.0``), so the headless engine
-translates that one variable at its boundary and the two engines report the
-same number. ``drawing_settings`` speaks degrees for its friendly keys.
+translates that one variable at its boundary and reports the number AutoCAD
+would. ``drawing_settings`` speaks degrees for its friendly keys.
 
 Sources: the AutoCAD 2026 System Variables reference (type / saved-in /
 initial value columns), the DXF Reference HEADER and VPORT sections, and
@@ -64,13 +65,13 @@ class SysVar:
     default: Any
     meaning: str
     saved_in: str
-    engines: dict[str, bool] = field(default_factory=lambda: {"ezdxf": True, "com": True})
+    engines: dict[str, bool] = field(default_factory=lambda: {"ezdxf": True})
     friendly_key: str | None = None
     read_only: bool = False
 
 
-_BOTH = {"ezdxf": True, "com": True}
-_COM_ONLY = {"ezdxf": False, "com": True}
+_HEADLESS = {"ezdxf": True}
+_NO_HEADLESS_HOME = {"ezdxf": False}
 
 
 def _v(
@@ -87,7 +88,7 @@ def _v(
     read_only: bool = False,
 ) -> SysVar:
     if engines is None:
-        engines = _BOTH if saved_in == "drawing" else _COM_ONLY
+        engines = _HEADLESS if saved_in == "drawing" else _NO_HEADLESS_HOME
     return SysVar(
         name=name,
         type=type_,
@@ -556,7 +557,7 @@ _ENTRIES: tuple[SysVar, ...] = (
     _v(
         "ANGBASE",
         "float",
-        "direction of angle 0 relative to the current UCS, in radians on both engines (90 degrees = 1.5708; the DXF header stores degrees and the headless engine translates)",
+        "direction of angle 0 relative to the current UCS, in radians (90 degrees = 1.5708; the DXF header stores degrees and the headless engine translates)",
         default=0.0,
     ),
     _v("ANGDIR", "bool", "positive angle direction: 0 counter-clockwise, 1 clockwise", default=0),
@@ -567,7 +568,7 @@ _ENTRIES: tuple[SysVar, ...] = (
         "str",
         "name of the current tab (Model or a layout); headlessly use layout_list / layout_set_current",
         default="Model",
-        engines=_COM_ONLY,
+        engines=_NO_HEADLESS_HOME,
     ),
     _v(
         "UCSNAME",
@@ -581,7 +582,7 @@ _ENTRIES: tuple[SysVar, ...] = (
         "point",
         "centre of the current view (read-only; VPORT centre in a file)",
         default=(0.0, 0.0),
-        engines=_COM_ONLY,
+        engines=_NO_HEADLESS_HOME,
         read_only=True,
     ),
     _v(
@@ -589,7 +590,7 @@ _ENTRIES: tuple[SysVar, ...] = (
         "float",
         "height of the current view in drawing units (read-only)",
         default=100.0,
-        engines=_COM_ONLY,
+        engines=_NO_HEADLESS_HOME,
         read_only=True,
     ),
     _v("REGENMODE", "bool", "automatic regeneration on", default=1),
@@ -668,7 +669,7 @@ _ENTRIES: tuple[SysVar, ...] = (
     _v(
         "HPANG",
         "float",
-        "default hatch pattern angle in radians, as ActiveX and AutoLISP hold it (45 degrees = 0.7854)",
+        "default hatch pattern angle in radians, as AutoCAD and AutoLISP hold it (45 degrees = 0.7854)",
         default=0.0,
         saved_in="not_saved",
     ),
@@ -679,7 +680,7 @@ _ENTRIES: tuple[SysVar, ...] = (
         "contour lines per surface on 3D solids",
         range_=(0, 2047),
         default=4,
-        engines=_COM_ONLY,
+        engines=_NO_HEADLESS_HOME,
     ),
     _v(
         "FACETRES",
@@ -687,7 +688,7 @@ _ENTRIES: tuple[SysVar, ...] = (
         "smoothness of shaded and rendered curved solids",
         range_=(0.01, 10.0),
         default=0.5,
-        engines=_COM_ONLY,
+        engines=_NO_HEADLESS_HOME,
     ),
     _v("DISPSILH", "bool", "display silhouette edges of 3D solids in wireframe", default=0),
 )

@@ -27,8 +27,8 @@ class PageSetupContract(ABC):
         ``"pixels"``) is what one paper-space unit means at the plot scale;
         sizes and margins are millimetres whatever it says. ``center`` is a
         bool for an extents plot and ``None`` for a layout plot, where
-        centring is not applicable (AutoCAD greys it out; ActiveX refuses
-        ``CenterPlot = True`` under ``acLayout``). Raises ``ValueError`` for
+        centring is not applicable (AutoCAD greys it out and refuses
+        ``CenterPlot = True`` under a layout plot). Raises ``ValueError`` for
         an unknown layout.
         ``Model`` is never listed: model space is plotted through
         ``drawing_export_pdf(layout=None)`` and carries no sheet.
@@ -47,8 +47,7 @@ class PageSetupContract(ABC):
         ``{}``. The write resets ``plot_rotation`` to 0 (orientation rides on
         the media's width/height); headlessly, with no ``margins_mm`` asked
         for, the turned margins are re-written un-turned so the sheet keeps
-        the margins it had, and on the live engine (margins come from the
-        .pc3) the ones that moved show in ``changed``. ``setup["paper_units"]``
+        the margins it had. ``setup["paper_units"]``
         (``"mm"`` default, ``"inches"``, or ``None`` to keep the layout's
         units as AutoCAD's own Page Setup does) is written when given; a move
         rescales every paper-space unit by 25.4 at the plot scale and is named
@@ -63,8 +62,7 @@ class PageSetupContract(ABC):
     @abstractmethod
     async def plot_style_list(self) -> list[dict]:
         """``[{name, source: "catalog"|"installed", installed: bool|None}]`` —
-        the authored ctb catalogue plus, on a live engine, the files present
-        in the plot style search path. ``installed`` is ``None`` where no
+        the authored ctb catalogue. ``installed`` is ``None`` where no
         installation can be scanned."""
         ...
 
@@ -74,9 +72,8 @@ class PageSetupContract(ABC):
     ) -> dict:
         """Save the current drawing as a template.
 
-        ``.dxf`` writes on both engines; ``.dwt`` writes on the live engine
-        (``SaveAs(path, ac2018_Template)``) and raises
-        ``UnsupportedCapabilityError("dwt_write")`` headlessly. Returns
+        ``.dxf`` writes; ``.dwt`` raises
+        ``UnsupportedCapabilityError("dwt_write")``. Returns
         ``{ok, path, format: "dxf"|"dwt", backend, name, description_written}``.
         """
         ...

@@ -3,7 +3,7 @@
 Dimension, text and leader style presets live here (track E, group S); the
 system-variable catalogue, paper sizes, plot styles and templates are sibling
 modules added by their own groups and imported by path. Everything in this
-package is data plus validation — no I/O, no ezdxf, no COM — so the backends,
+package is data plus validation — no I/O, no ezdxf — so the backends,
 the tools and the provenance tests read one copy.
 """
 

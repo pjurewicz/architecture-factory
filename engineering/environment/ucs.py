@@ -1,6 +1,6 @@
-"""UCS axes, validated and normalised before either engine writes.
+"""UCS axes, validated and normalised before the backend writes.
 
-Tool coordinates stay WCS on both engines (the repository rule): a UCS is
+Tool coordinates stay WCS (the repository rule): a UCS is
 stored and made current for the operator's benefit, and nothing here starts
 interpreting inputs in it.
 """

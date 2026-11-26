@@ -506,9 +506,8 @@ def block_spec(name: str) -> dict:
 async def _ensure_layer(backend: AutoCADBackend, name: str) -> bool:
     """Create the INSERT's layer from its ``ARCH_LAYERS`` row when the drawing lacks it.
 
-    Live ActiveX refuses ``entity.Layer = "X"`` on a missing layer (the
-    repository rule in CLAUDE.md); the headless engine would create it
-    silently with no colour or lineweight. Returns whether it was created.
+    The headless engine would otherwise create a missing layer silently with
+    no colour or lineweight. Returns whether it was created.
     """
     if name.lower() in {layer.name.lower() for layer in await backend.layer_list()}:
         return False

@@ -19,11 +19,12 @@ stored as given and never measured.
 ``store_requirements`` writes the set into the drawing - an XRECORD named
 ``CURRENT`` inside the ``ACADMCP_REQUIREMENTS`` dictionary, JSON in
 255-character 1000-code chunks: the layer-states pattern
-(``engineering/environment/layer_states.py``). ActiveX can add only a
-dictionary to the named object dictionary (``IAcadDictionaries`` has ``Add``
-and no ``AddXRecord`` - read off the AutoCAD 2026 type library), so the record
-sits one level down on both engines. It is the server's own record; AutoCAD
-shows it nowhere.
+(``engineering/environment/layer_states.py``). The record sits one level down
+in its own dictionary, because AutoCAD's object model can add only a dictionary
+to the named object dictionary (``IAcadDictionaries`` has ``Add`` and no
+``AddXRecord`` - read off the AutoCAD 2026 type library), and the layout is
+kept so files written before stay readable. It is the server's own record;
+AutoCAD shows it nowhere.
 """
 
 from __future__ import annotations
@@ -543,15 +544,13 @@ def decode_requirements(chunks) -> RequirementSet:
     return rs
 
 
-# ── the stored record (both engines) ─────────────────────────────────────────
+# ── the stored record ────────────────────────────────────────────────────────
 
 
 async def store_requirements(backend, rs: RequirementSet) -> dict:
     """Write ``rs`` into the drawing as ``ACADMCP_REQUIREMENTS/CURRENT``, replacing it.
 
-    A content change: the headless revision moves through ``_mark_dirty``, the
-    live one through ``_bump_revision`` (not on an ``active_document_changed``
-    refusal, which writes nothing). Returns ``{ok, dictionary, record, items,
+    A content change: the revision moves through ``_mark_dirty``. Returns ``{ok, dictionary, record, items,
     legacy, digest, chunks, replaced, backend}``.
     """
     chunks = encode_requirements(rs)

@@ -74,7 +74,7 @@ Decided 2026-11-26. In order, each stage its own commit with the suite green:
    cherry-pick: a task only the live engine could run stays
    `environment_blocked`.
 6. Documentation: CLAUDE.md, README, the skill, the plugin, and the tool
-   docstrings that still describe the live engine.
+   docstrings that still describe the live engine. **Done.**
 7. The cherry-pick procedure, with the upstream commit reviewed up to.
 
 The package name and version scheme stay as they are.

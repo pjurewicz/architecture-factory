@@ -82,7 +82,7 @@ LABEL_OFFSET_FACTOR = 0.7  # gap between the arrow tail and the label
 
 # DECLARED, not transcribed: the largest gap (drawing units) left between a
 # curved boundary edge and the chords that stand in for it.
-# `entity_create_hatch` takes a vertex list on both engines, so an arc edge
+# `entity_create_hatch` takes a vertex list, so an arc edge
 # has to reach it as vertices; what must not happen - and did - is dropping
 # the curve and hatching the chord. MEASURED on the r=20 semicircular cut
 # face in `tests/test_mech_marks.py`: 0.01 spaces that arc into 50 chords and
@@ -558,9 +558,9 @@ async def draw_material_hatch(
     # MEASURED on AutoCAD 2026: `msp.AddHatch(...)` + `Evaluate()` puts the
     # AcDbHatch in model space, and the next statement - `entity.Layer = "HATCH"`
     # inside `_apply_entity_attrs` - raises `('Key not found')` on a drawing whose
-    # layer table is `['0']`, leaving that hatch orphaned on layer 0. ActiveX never
-    # creates the layer; `EzdxfBackend._apply_attrs` does, so without this the same
-    # call succeeds headless and half-writes live. `drawing_open` runs no bootstrap,
+    # layer table is `['0']`, leaving that hatch orphaned on layer 0. AutoCAD never
+    # creates the layer; `EzdxfBackend._apply_attrs` does, so the layer is ensured
+    # here, as AutoCAD would need it. `drawing_open` runs no bootstrap,
     # which is exactly when a cut face has no HATCH layer to land on.
     created = await ensure_annotation_layers(backend, [target])
     info = await backend.entity_create_hatch(

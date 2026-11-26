@@ -42,10 +42,9 @@ most ``FEATURE_CAP``): what ``drawing_history(query=)`` matches a feature id
 or kind against when the journal kept no arguments (``JOURNAL_ARGS=off`` /
 ``digest``, or a spec over the 4 KB cap).
 
-Live (``summary_from_result``): from the handles the call returned -
-``handle``, ``handles``, ``created`` - with ``complete: false``: ActiveX
-offers no handle seed to diff, and a deletion or a side effect (a dimension's
-block) is not in a returned handle.
+Without a mark (``summary_from_result``): from the handles the call returned -
+``handle``, ``handles``, ``created`` - with ``complete: false``: a deletion or
+a side effect (a dimension's block) is not in a returned handle.
 
 The mark and the summary run on the event loop thread, outside the document
 lock, between a call's middleware and its worker: under concurrent clients a
@@ -177,7 +176,7 @@ def merge_changes(parts: Iterable[dict | None]) -> dict | None:
 
 
 def summary_from_result(result: Any) -> dict | None:
-    """The live engine's summary: the handles a call returned (``complete: false``)."""
+    """The summary without a mark: the handles a call returned (``complete: false``)."""
     payload = getattr(result, "structured_content", result)
     if not isinstance(payload, dict) or payload.get("ok") is False:
         return None

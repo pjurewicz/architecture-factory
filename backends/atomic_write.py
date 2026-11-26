@@ -34,9 +34,6 @@ replace had happened), ``finished`` (the verified tmp is put in place now),
 ``rolled_back`` (the tmp was incomplete and is deleted; the target is the
 previous file) or ``orphan_tmp`` (a tmp of a dead process with no marker,
 deleted). The answer is reported as ``save_recovery``; there is no tool for it.
-
-The live engine does not come here: ``SaveAs`` is AutoCAD's own protocol and
-its export already writes into a private folder and renames.
 """
 
 from __future__ import annotations

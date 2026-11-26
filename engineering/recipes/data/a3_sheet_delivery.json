@@ -12,7 +12,7 @@
     "notes": [
       "The sheet is a new paper layout; the source file is never overwritten (the delivery exports a copy).",
       "The viewport sits inside the A3 frame above the title block (paper mm); view_center is the model point it shows and scale its plot scale.",
-      "The headless engine renders the PDF through matplotlib (the pdf extra); a live seat plots through AutoCAD."
+      "The headless engine renders the PDF through matplotlib (the pdf extra)."
     ]
   },
   "inputs": {

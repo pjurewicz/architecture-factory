@@ -11,12 +11,11 @@
     "profiles": ["full"],
     "notes": [
       "Every step reads; the revision checks prove the drawing was not modified. A disagreement between declared and inferred units is a finding with its numbers, never a correction.",
-      "On a live seat the readers snapshot the document through Document.Export, which never renames it.",
       "drawing_topology_check is not a step: it checks the layers drawing_understand classifies as piping or electrical and refuses a drawing with none. Run it after the audit with the layers the understand report names."
     ]
   },
   "inputs": {
-    "drawing": {"type": "string", "description": "The drawing to audit (DXF; a DWG only on a live seat)."}
+    "drawing": {"type": "string", "description": "The drawing to audit (DXF; a DWG is converted by drawing_open through the ODA File Converter)."}
   },
   "steps": [
     {

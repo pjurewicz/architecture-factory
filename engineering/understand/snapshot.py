@@ -1,7 +1,7 @@
 """One bulk read of a drawing into frozen records - the input of every track H reader.
 
-Reading a 35,000-entity P&ID one COM call at a time takes minutes; reading its
-DXF takes about a second. So every analysis in ``engineering/understand/`` runs
+Reading a 35,000-entity P&ID one entity query at a time takes minutes; reading
+its DXF takes about a second. So every analysis in ``engineering/understand/`` runs
 on a :class:`Snapshot`: the drawing read once, into small frozen
 :class:`EntityRecord` s, and never touched again.
 
@@ -12,30 +12,9 @@ Where the snapshot comes from:
   the variable).
 * **The headless engine's current document** - :func:`records_from_doc` on the
   in-memory ``ezdxf`` document, inside the backend's own lock.
-* **The live engine's current document** - ``Document.Export(<tmp>/snap, "DXF",
-  <selection set of all>)``, then :func:`read_snapshot` on the file, which is
-  deleted afterwards. Measured on AutoCAD 2026 (``25.1s (LMS Tech)``) on
-  2026-09-24, in a new scratch document closed afterwards:
 
-  - the extension argument must be ``"DXF"``; ``".dxf"`` fails with *Invalid
-    argument*; the file is written as ``snap.DXF`` (upper-case extension);
-  - the document keeps its name (``Export`` is not ``SaveAs``), and an unsaved
-    document exports;
-  - **model space, every paper-space layout and every block definition reach
-    the snapshot** - a LINE in Layout1 was read back in Layout1, and an unused
-    block definition was in the BLOCKS section;
-  - **the selection set does not narrow a DXF export**: an empty selection set
-    wrote the same model space, paper space and blocks as the set of all. The
-    set of all is passed anyway, because the ActiveX signature requires one.
-  - xrefs were not measured, so nothing is claimed for the live engine;
-    headless, ezdxf reads the host file only. Either way an xref's own
-    entities are not read in 1.6 - the host drawing is - and
-    ``drawing_understand``'s docstring says so.
-
-  A DWG path on the live engine is opened read-only, exported the same way and
-  closed without saving - unless AutoCAD already has that drawing open: then
-  its open document is exported as it stands and left open, because closing
-  it could throw away the operator's unsaved work.
+Xrefs: ezdxf reads the host file only, so an xref's own entities are not read -
+the host drawing is - and ``drawing_understand``'s docstring says so.
 
 Records hold what the readers need and nothing else: WCS points (OCS is
 translated here with ``backends/ocs.py``, so a mirrored ARC or LWPOLYLINE is
@@ -56,7 +35,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
-import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -151,7 +129,7 @@ class EntityRecord:
     #: Every ``ACADMCP_*`` application on the entity, as ``(app id, json)``.
     xdata: tuple[tuple[str, str], ...] = ()
     #: v1.8.0: the entity's own display properties as DXF stores them, so the
-    #: ``property_override`` focus reads one snapshot on both engines.
+    #: ``property_override`` focus reads one snapshot.
     #: Lineweight is group 370: -1 ByLayer (also when absent), -2 ByBlock,
     #: -3 Default (LWDEFAULT - not ByLayer), else hundredths of a mm.
     lineweight: int = -1
@@ -595,60 +573,12 @@ def read_snapshot(path: str, *, block_defs: bool = False) -> Snapshot:
     return _read(str(target), source=str(target), block_defs=block_defs)
 
 
-def _already_open(app, path: str):
-    """The document AutoCAD already has open at ``path``, or None. Opens nothing."""
-    wanted = os.path.normcase(os.path.abspath(path))
-    documents = app.Documents
-    for index in range(int(documents.Count)):
-        doc = documents.Item(index)
-        try:
-            full = str(doc.FullName or "")
-        except Exception:  # a document closing under us answers nothing; it is not ours
-            continue
-        if full and os.path.normcase(os.path.abspath(full)) == wanted:
-            return doc
-    return None
-
-
-def _close_and_hand_back(backend, app, opened) -> Exception | None:
-    """Close a document this job opened, then make the bound one active again.
-
-    COM thread. Both steps are attempted, whatever the other did: AutoCAD
-    activates whichever document it likes after a ``Close`` (B11), and a
-    ``Close`` that raised may have left the opened document active - either
-    way the session's bound document is re-activated in this same job, so the
-    next call is not refused for a switch the server made. Returns the first
-    failure (logged) instead of raising, so the caller decides whether it may
-    replace an error already in flight - it never does.
-    """
-    problem: Exception | None = None
-    try:
-        opened.Close(False)
-    except Exception as exc:  # noqa: BLE001 - returned below
-        log.warning("the snapshot's read-only document did not close: %s", exc)
-        problem = exc
-    reactivate = getattr(backend, "_reactivate_bound_sync", None)
-    if reactivate is not None:
-        try:
-            reactivate(app)
-        except Exception as exc:  # noqa: BLE001 - returned below
-            log.warning("the bound document could not be made active again: %s", exc)
-            problem = problem or exc
-    return problem
-
-
 async def take_snapshot(backend, path: str | None = None, *, block_defs: bool = False) -> Snapshot:
     """The snapshot of ``path``, or of the backend's current document.
 
-    ``path`` given: a ``.dxf`` is read directly (on either engine); a ``.dwg``
-    needs the live engine, which opens it read-only, exports it and closes it -
-    or, when AutoCAD already has it open, exports that document as it stands
-    (unsaved edits included) and leaves it open - and headlessly it is refused
-    with the ``dwg`` capability. ``path`` None: the
-    headless engine reads its in-memory document under its own lock; the live
-    engine exports the active document to a temporary DXF (see the module
-    docstring for what was measured) and deletes it afterwards. The snapshot of
-    a live document is not size-checked: it is already in AutoCAD's memory.
+    ``path`` given: a ``.dxf`` is read directly; a ``.dwg`` is refused with
+    the ``dwg`` capability (``drawing_open`` converts one). ``path`` None: the
+    in-memory document is read under the backend's own lock.
     """
     if path is not None:
         suffix = Path(path).suffix.lower()

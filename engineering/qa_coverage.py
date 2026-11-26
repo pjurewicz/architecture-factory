@@ -1,8 +1,8 @@
 """What a QA run checked, and what it did not (1.8-16).
 
 ``drawing_critique`` answered with a list of issues, so "nothing found" and
-"nothing looked" read the same: the live engine's dimension-legibility lane
-returned a silent ``[]``, a paper layout no check could judge said nothing,
+"nothing looked" read the same: a dimension-legibility lane that could not
+read the document returned a silent ``[]``, a paper layout no check could judge said nothing,
 and a P&ID focus on a mechanical sheet was as quiet as a P&ID focus on a
 clean P&ID. A silently skipped lane plus "0 issues" is a false success.
 

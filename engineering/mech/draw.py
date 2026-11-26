@@ -9,7 +9,7 @@ caller re-describing the part.
 
 It is not a contract member and neither are the tools above it - exactly like
 `gear_draw_*`, `keyway_draw_*` and `titleblock_apply_iso_a3`, it composes the
-generic members, so it is written once and works on both engines by
+generic members, so it is written once and works on any backend by
 construction.
 """
 
@@ -334,9 +334,8 @@ async def draw_prims(
 async def _ensure_layers(backend, names) -> tuple[str, ...]:
     """Create whichever target layers the drawing lacks, before the first entity.
 
-    MEASURED on AutoCAD 2026 by ``scripts/smoke_mech_com.py``: ``draw_part``
-    put its anchor POINT on ``MECH``, a layer no layer set creates, and
-    ActiveX answered ``entity.Layer = "MECH"`` with ``-0x7ffdfff7 ('Key not
+    MEASURED on AutoCAD 2026: ``draw_part`` put its anchor POINT on ``MECH``,
+    a layer no layer set creates, and AutoCAD's object model answered ``entity.Layer = "MECH"`` with ``-0x7ffdfff7 ('Key not
     found')`` - after every view had already been drawn. The headless engine
     creates a missing layer on assignment, so the same call passed every test.
     Group A measured the same refusal for annotation layers; this is the same
@@ -374,9 +373,7 @@ def _refuse_islands_without_edge_paths(backend, prims) -> None:
     """Refuse a hatch with islands on an engine that cannot attach them - before drawing.
 
     Islands go through `hatch_add_boundary` (capability ``hatch_edge_paths``).
-    Both shipped engines support it - the live one turns each typed edge into a
-    temporary LINE/ARC/ELLIPSE and appends it with ``AppendInnerLoop`` - but a
-    backend that declares it unsupported must say so before anything is drawn:
+    The shipped engine supports it, but a backend that declares it unsupported must say so before anything is drawn:
     finding out at the hatch would leave the rest of the view already on the
     sheet, while asking the capability map first leaves nothing behind.
     """

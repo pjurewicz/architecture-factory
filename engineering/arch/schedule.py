@@ -232,8 +232,8 @@ def schedule_rows(kind: str, plan: dict, *, lang: str = "en") -> tuple[dict, ...
 async def _ensure_layer(backend: AutoCADBackend, name: str) -> None:
     """Create the schedule layer from its `ARCH_LAYERS` row when the drawing lacks it.
 
-    Live ActiveX will not create a layer on assignment (the repository rule),
-    so the layer exists before the table does.
+    AutoCAD will not create a layer on assignment (the repository rule), so
+    the layer exists, with its row's properties, before the table does.
     """
     if name.casefold() in {layer.name.casefold() for layer in await backend.layer_list()}:
         return

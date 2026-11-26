@@ -136,7 +136,7 @@ def test_every_entry_is_complete_and_well_typed():
         assert var.type in SYSVAR_TYPES, name
         assert var.meaning.strip(), name
         assert var.saved_in in SAVED_IN, name
-        assert set(var.engines) == {"ezdxf", "com"}, name
+        assert set(var.engines) == {"ezdxf"}, name
         assert var.friendly_key is None or var.friendly_key in _SETTING_MAP, name
         if var.type == "enum":
             assert var.enum and all(isinstance(k, int) for k in var.enum), name
@@ -170,7 +170,7 @@ def test_describe_is_case_insensitive_and_complete():
     assert row["known"] is True and row["name"] == "LTSCALE"
     assert row["type"] == "float" and row["range"][0] > 0
     assert row["saved_in"] == "drawing"
-    assert row["engines"] == {"ezdxf": True, "com": True}
+    assert row["engines"] == {"ezdxf": True}
     assert row["friendly_key"] == "ltscale"
     assert describe_sysvar("$LIMMAX")["default"] == [420.0, 297.0]
 
@@ -283,7 +283,7 @@ async def test_osmode_is_registry_saved_and_the_headless_engine_says_so(backend)
     save. It is registry-saved in AutoCAD and refused headlessly like POLARANG;
     the read reports `None` instead of the template's memory."""
     row = describe_sysvar("OSMODE")
-    assert row["saved_in"] == "registry" and row["engines"] == {"ezdxf": False, "com": True}
+    assert row["saved_in"] == "registry" and row["engines"] == {"ezdxf": False}
     assert await backend.system_get_variable("OSMODE") is None
     with pytest.raises(UnsupportedCapabilityError) as excinfo:
         await backend.system_set_variable("OSMODE", 4134)

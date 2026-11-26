@@ -233,10 +233,10 @@ _UNSAVED_SYSVARS: frozenset[str] = frozenset(
 )
 
 #: Header variables the DXF file stores in degrees (group code 50) while the
-#: sysvar boundary speaks radians - the unit ActiveX `GetVariable` and AutoLISP
-#: `getvar` use, so both engines report the same number. Measured on AutoCAD
-#: 2026 (2026-09-17): `SETVAR ANGBASE 90` reads back 1.5707963267948966 over
-#: COM and the DXF AutoCAD saves carries `$ANGBASE = 90.0`.
+#: sysvar boundary speaks radians - the unit AutoCAD's `GetVariable` and
+#: AutoLISP `getvar` use, so the headless engine reports AutoCAD's number.
+#: Measured on AutoCAD 2026 (2026-09-17): `SETVAR ANGBASE 90` reads back
+#: 1.5707963267948966 and the DXF AutoCAD saves carries `$ANGBASE = 90.0`.
 _HEADER_DEGREE_SYSVARS: frozenset[str] = frozenset({"ANGBASE"})
 
 log = logging.getLogger(__name__)
@@ -817,8 +817,8 @@ def effective_dimvar(doc, attribute: str):
     """The value the next dimension will actually be rendered with.
 
     Header first, then the stored dimstyle attribute, then ezdxf's renderer
-    fallback — the order `_with_header_dimvars` produces below, and the order a
-    live seat uses (the header DIMVARS *are* the current settings; the dimstyle
+    fallback — the order `_with_header_dimvars` produces below, and the order
+    AutoCAD uses (the header DIMVARS *are* the current settings; the dimstyle
     table entry is only the base underneath them). `drawing_critique` has to
     resolve the same value, or it reports a defect the sheet does not have and
     clears one it does.
@@ -841,7 +841,7 @@ def _with_header_dimvars(doc, override: dict | None) -> dict | None:
     DIMTXT=5.0, DIMASZ=6.0, DIMDEC=1, DIMDSEP=44 and DIMZIN=0 the header read
     all five back, and the next dimension was byte-identical to the one before
     them — still 2.5 mm text, 2.5 arrows, "33.33". Folding them into the
-    override makes one call mean one thing on both engines.
+    override makes one call mean what AutoCAD would make it mean.
 
     v1.5.1 folded `$DIMSCALE` alone, which is why this is a table rather than a
     fifth copy of the same six lines.
@@ -876,8 +876,8 @@ def _with_header_dimvars(doc, override: dict | None) -> dict | None:
 
 # ── styles (track E): module helpers ─────────────────────────────────────────
 #
-# `$DIMSTYLE` names the style new dimensions are created with, exactly as on
-# a live seat. Two measured ezdxf facts shape everything below:
+# `$DIMSTYLE` names the style new dimensions are created with, exactly as in
+# AutoCAD. Two measured ezdxf facts shape everything below:
 #
 # * `ezdxf.new()` writes `$DIMSTYLE "ISO-25"` into a fresh header with no such
 #   table entry (only `Standard` exists). `_current_dimstyle_name` therefore
@@ -888,7 +888,7 @@ def _with_header_dimvars(doc, override: dict | None) -> dict | None:
 #   style's stored value onto the next dimension. Making a style current
 #   without loading its values into the header leaves the previous style's
 #   header winning: measured, ISO-25 (comma) after `drawing_new` (point)
-#   rendered "33.33". `_sync_header_to_dimstyle` is what a live seat's
+#   rendered "33.33". `_sync_header_to_dimstyle` is what AutoCAD's
 #   `-DIMSTYLE Restore` does, and it makes the fold empty.
 
 
@@ -993,7 +993,7 @@ def _write_dimstyle_values(style, values: dict[str, Any]) -> None:
     *stored* 0.0 and rounds every dimension to a whole unit, so it is
     discarded rather than stored (the `_normalise_dimstyle_rounding` lesson).
 
-    Arrowheads arrive in the canonical ``_OBLIQUE`` spelling (what ActiveX
+    Arrowheads arrive in the canonical ``_OBLIQUE`` spelling (what AutoCAD
     takes verbatim); ezdxf's writer wants ``OBLIQUE`` and raises at
     ``doc.write`` on the underscore form, so they go through
     ``ezdxf_arrowhead``. The caller has run ``_require_arrowhead_blocks``.
@@ -1013,7 +1013,7 @@ def _write_dimstyle_values(style, values: dict[str, Any]) -> None:
 
 
 def _sync_header_to_dimstyle(doc, style) -> None:
-    """Load the style into ``$DIM*`` — every whitelist variable, a live seat's Restore.
+    """Load the style into ``$DIM*`` — every whitelist variable, AutoCAD's Restore.
 
     ``-DIMSTYLE Restore`` replaces *all* the DIM* system variables with the
     style's settings; a DIMSTYLE entry that omits a code means its schema
@@ -1035,11 +1035,11 @@ def _sync_header_to_dimstyle(doc, style) -> None:
     The arrowheads cross a vocabulary boundary here. The DIMSTYLE entry holds
     ezdxf's writer spelling (``OBLIQUE``, see `_write_dimstyle_values`); the
     ``$DIMBLK`` / ``$DIMBLK1`` / ``$DIMBLK2`` header variables are DXF-facing
-    and spell a built-in with its underscore (``_OBLIQUE``, what a live seat
-    stores and what `system_get_variable("DIMBLK")` returns on COM). Copied
+    and spell a built-in with its underscore (``_OBLIQUE``, what AutoCAD
+    stores and returns for ``DIMBLK``). Copied
     raw, the saved file carried ``$DIMBLK "OBLIQUE"`` next to blocks named
     ``_OBLIQUE`` — a current-override naming a block that does not exist —
-    and the two engines answered the same read two ways. `reported_arrowhead`
+    and the read disagreed with AutoCAD's. `reported_arrowhead`
     is the same read-side rule `_dimstyle_value` applies.
     """
     from engineering.standards.dimstyles import DIM_VARIABLE_WHITELIST, reported_arrowhead
@@ -1429,8 +1429,7 @@ def _entity_info_dxf(ent, *, detail: bool = False) -> EntityInfo:
     visible = ent.dxf.get("invisible", False) is False
 
     props: dict = {}
-    # 1.8-05: an entity on a paper layout names its space (the live engine's
-    # creation results do the same); model space is the default, never said.
+    # 1.8-05: an entity on a paper layout names its space; model space is the default, never said.
     space = _paper_space_of(ent)
     if space is not None:
         props["space"] = space
@@ -1627,8 +1626,8 @@ def _entity_info_dxf(ent, *, detail: bool = False) -> EntityInfo:
         # above unexplained.
         props["plane_normal"] = ocs.plane_normal(extrusion)
 
-    # bounding_box parity with the COM backend (same {min,max} shape) so clients
-    # reading properties["bounding_box"] work on both engines (N5).
+    # bounding_box as {min, max}, the shape clients read from
+    # properties["bounding_box"] (N5).
     try:
         from ezdxf import bbox as _bbox
 
@@ -2011,7 +2010,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             features={
                 "drawing_2d": FeatureCapability(True, "native"),
                 "dxf": FeatureCapability(True, "native"),
-                "dwg": FeatureCapability(False, reason="no_dwg_writer_requires_live_autocad"),
+                "dwg": FeatureCapability(False, reason="no_dwg_writer_use_drawing_export_dwg"),
                 "pdf": render_capability,
                 "png": render_capability,
                 "transactions": FeatureCapability(True, "snapshot"),
@@ -2063,9 +2062,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     )
                 ),
                 "checkpoint_restore_in_place": FeatureCapability(True, "snapshot"),
-                "measure_area_acis": FeatureCapability(
-                    False, reason="acis_evaluation_requires_live_autocad"
-                ),
+                "measure_area_acis": FeatureCapability(False, reason="no_acis_evaluation"),
                 "explode_opaque_members": FeatureCapability(
                     False,
                     reason=(
@@ -2090,14 +2087,11 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 "refiner": FeatureCapability(True, "shared"),
                 "delivery": FeatureCapability(True, "shared"),
                 "paper_space": FeatureCapability(True, "native"),
-                "dwt_write": FeatureCapability(
-                    False, reason="dwt_is_a_dwg_container_requires_live_autocad"
-                ),
+                "dwt_write": FeatureCapability(False, reason="dwt_is_a_dwg_container"),
                 # Measured, not assumed: a sheet holding nothing but a viewport
                 # renders the model geometry that viewport looks at, at its
                 # scale and position, clipped to its window. v1.4 declared this
-                # COM-only and sent callers to the live backend for something
-                # the headless one already did.
+                # unsupported headlessly for something the engine already did.
                 "viewport_render": (
                     FeatureCapability(True, "rendered", reason="viewport_borders_not_drawn")
                     if render_available
@@ -2364,8 +2358,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             # say so rather than hand back whichever entry the key names.
             self._refuse_shared_path(wanted, self._docs[wanted])
             return wanted
-        # Paths compare by file identity (the inode when the file is on disk),
-        # as the live engine's ``_com_find_document`` resolves before comparing:
+        # Paths compare by file identity (the inode when the file is on disk):
         # a lowercase drive letter, a case variant, a hard link or a junction
         # names the same document.
         as_path = self._file_identity(wanted)
@@ -2882,7 +2875,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         The ezdxf ``Drawing`` is not thread-safe, so every backend method funnels
         through one lock. ``EZDXF_CALL_TIMEOUT`` (seconds, ``0`` disables)
         bounds the *whole* wait — queueing behind an in-flight call plus the
-        call itself — mirroring ``ComBackend._run``.
+        call itself.
 
         **The lease follows the worker thread (v1.7.0, B01).** Nothing can stop
         a worker thread, so whatever ends the *wait* — a deadline, a
@@ -3610,7 +3603,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 f"drawing_export_dwg: the {self.name} backend writes DWG only through the "
                 "ODA File Converter, which is not installed here. Install it from "
                 "https://www.opendesign.com/guestfiles/oda_file_converter and this call "
-                "starts working, or export from the com backend (a running AutoCAD seat). "
+                "starts working, or save it as DWG in AutoCAD. "
                 "drawing_export_dxf writes a DXF that AutoCAD opens unchanged.",
             )
 
@@ -3669,14 +3662,14 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         entities *and* the model content each viewport looks at are rendered,
         at the viewport's scale and position and clipped to its window.
 
-        This docstring used to say model projection was COM-only. It was
+        This docstring used to say model projection was live-only. It was
         measured and it is not: a sheet holding nothing but a viewport renders
         the geometry that viewport shows, and geometry outside the window is
         correctly left out. What is genuinely missing is the viewport *border*,
         which the headless renderer does not draw.
 
         ``layout=None`` and ``layout="Model"`` both mean model space, as the
-        tool advertises and as the COM engine plots. This used to route them
+        tool advertises and as AutoCAD plots. This used to route them
         through ``_msp()``, which follows the *current* tab, so with a sheet
         current the "Model" PDF was that sheet's paper-space content — a wrong
         page with no refusal. Measured: circle in model space, 390 x 270
@@ -5098,8 +5091,8 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             "margins_mm": [round(v, 3) for v in margins],
             # What one paper-space unit means at the plot scale (DXF group 72).
             "paper_units": paper_units_name(dxf.plot_paper_units),
-            # A layout plot has no centring (AutoCAD greys it out; ActiveX
-            # refuses CenterPlot=True under acLayout): None, not a bit nobody honours.
+            # A layout plot has no centring (AutoCAD greys it out and refuses
+            # CenterPlot=True under acLayout): None, not a bit nobody honours.
             "center": bool(flags & layout.PLOT_CENTERED) if center_applies(plot_type) else None,
         }
 
@@ -5350,8 +5343,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             dxf.scale_numerator, dxf.scale_denominator = numerator, denominator
             dxf.unit_factor = numerator / denominator
             # resolve_page_setup hands over None for a layout plot: the bit is
-            # cleared, never set — the state AutoCAD itself stores for acLayout,
-            # and the mirror of the live engine never writing CenterPlot there.
+            # cleared, never set — the state AutoCAD itself stores for acLayout.
             target.plot_centered(bool(resolved["center"]))
             # Limits follow the paper; viewports are deliberately left alone
             # (Paperspace.page_setup() would delete them).
@@ -5596,8 +5588,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             self._note_snapshot_base(self._undo_stack[-1])
             return {
                 "ok": True,
-                # 1.8-05 parity with the live engine: a snapshot restore is the
-                # previous state by construction, so the step is verified.
+                # 1.8-05: a snapshot restore is the previous state by construction, so the step is verified.
                 "verified": True,
                 "message": "Stepped back one operation.",
                 "undo_depth": len(self._undo_stack) - 1,
@@ -6137,7 +6128,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
 
         def _sync():
             msp = self._msp()
-            # ByLayer (256), as ActiveX AddHatch leaves it: ezdxf's add_hatch and
+            # ByLayer (256), as AutoCAD's AddHatch leaves it: ezdxf's add_hatch and
             # set_pattern_fill both default to an explicit ACI 7, which the
             # property_override focus would rightly report on every hatch.
             hatch = msp.add_hatch(color=256)
@@ -6714,8 +6705,8 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             cx = (x1f + x2f) / 2
             cy = (y1f + y2f) / 2
             radius = math.sqrt((x2f - x1f) ** 2 + (y2f - y1f) ** 2) / 2
-            # The text stands `leader_length` beyond the FIRST chord point, the
-            # ActiveX rule: AddDimDiametric(ChordPoint, FarChordPoint,
+            # The text stands `leader_length` beyond the FIRST chord point,
+            # AutoCAD's rule: AddDimDiametric(ChordPoint, FarChordPoint,
             # LeaderLength) measured on AutoCAD 2026 put a 50 mm diameter drawn
             # from (x, 170) to (x, 220) with its text at (x, 160). This engine
             # used to put it beyond the second point, so the same call annotated
@@ -7006,9 +6997,8 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         ``entity_delete`` deleted from ``_msp()``, the *current* space, so a
         handle on another layout died in ezdxf with ``ValueError:
         list.remove(x): x not in list`` (W1 review: the paper-space
-        construction line ``construction_left`` names). ActiveX
-        ``HandleToObject(h).Delete()`` deletes wherever the entity lives; this
-        is the same rule.
+        construction line ``construction_left`` names). AutoCAD deletes an
+        entity wherever it lives; this is the same rule.
         """
         layout = ent.get_layout()
         if layout is None:
@@ -7258,8 +7248,8 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
 
             def _candidates():
                 # The ATTRIBs of EVERY block reference - on a paper layout or
-                # nested in a block definition too, not only in model space:
-                # the live engine searches exactly this (TEXT_SEARCH_SCOPE).
+                # nested in a block definition too, not only in model space
+                # (TEXT_SEARCH_SCOPE).
                 for container in _containers():
                     for entity in container:
                         yield entity
@@ -8077,8 +8067,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         # Loads a single linetype. Lookup order:
         # 1. ezdxf.tools.standards (ISO: CENTER, DASHED, DASHDOT, PHANTOM, ...)
         # 2. AutoCAD fallback table (HIDDEN, BORDER and *2/X2 variants)
-        # The `file` parameter is accepted for API parity with COM but ignored
-        # — ezdxf does not ship a .lin parser.
+        # The `file` parameter is accepted but ignored — ezdxf does not ship a .lin parser.
         from ezdxf.tools import standards as ezdxf_standards
 
         del file
@@ -8100,7 +8089,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 f"Linetype '{name}' is not in ezdxf's standard set or the "
                 "AutoCAD fallback table. Available standards: CENTER*, DASHED*, "
                 "DASHDOT*, PHANTOM*, DOT*, DIVIDE*. Available fallbacks: "
-                "HIDDEN*, BORDER*. Custom .lin files require the COM backend."
+                "HIDDEN*, BORDER*. Load a custom .lin file in AutoCAD."
             )
 
         return await self._async(_sync)
@@ -8708,7 +8697,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         ``doc.audit()`` silently). ``overwrite`` replaces the *contents* of an
         existing definition rather than deleting it: existing INSERTs keep
         pointing at the name and show the new geometry (deleting a referenced
-        block is refused by both engines; replacing contents works on both).
+        block is refused; replacing contents works).
         """
         from ezdxf.enums import TextEntityAlignment
 
@@ -8766,7 +8755,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     "layer": spec["layer"],
                     "color": 0,
                     "linetype": "ByBlock",
-                    "lineweight": -2,  # ByBlock, as the live engine styles it
+                    "lineweight": -2,  # ByBlock
                 }
                 kind = spec["type"]
                 if kind == "line":
@@ -9346,12 +9335,12 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         return await self._async(_sync, readonly=True)
 
     async def selection_get(self) -> dict:
-        # COM-only: headless ezdxf has no viewport / pickfirst grip selection.
+        # Headless ezdxf has no viewport / pickfirst grip selection.
         # Return a not-supported result but keep the same shape (empty handles)
         # so callers that iterate the selection do not KeyError.
         return {
             "ok": False,
-            "error": "selection_get not supported in ezdxf backend (no live AutoCAD viewport)",
+            "error": "selection_get: a headless drawing has no pick-first selection",
             "count": 0,
             "handles": [],
             "entities": [],
@@ -10272,8 +10261,8 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
 
         return await self._async(_sync)
 
-    # ── premium meta-tools live on AutoCADBackend (base.py) and are shared by
-    # both backends. Only the XLINE primitive is backend-specific. ────────────
+    # ── premium meta-tools live on AutoCADBackend (base.py). Only the XLINE
+    # primitive is backend-specific. ──────────────────────────────────────────
     async def _delete_layer_entities(self, layer: str) -> dict:
         def _sync():
             doc = self._require_doc()

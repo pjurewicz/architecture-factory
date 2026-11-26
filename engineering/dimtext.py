@@ -20,8 +20,8 @@ What it applies, in AutoCAD's order:
 * ``DIMDEC`` (``DIMADEC`` for an angle) decimal places, then ``DIMZIN``
   (``DIMAZIN``) zero suppression: bit 4 leading, bit 8 trailing zeros. Bits
   0-3 only concern feet-and-inch units, which this formatter does not render.
-  **Live verification pending (spike S4):** the bit meaning follows the DXF
-  reference and ezdxf's renderer; a live seat has not confirmed it.
+  The bit meaning follows the DXF reference and ezdxf's renderer; AutoCAD has
+  not confirmed it.
 * ``DIMDSEP`` the decimal marker.
 * ``DIMPOST`` with ``<>`` standing for the value (``"<> mm"``); a DIMPOST
   without ``<>`` is a suffix (AutoCAD's rule; the headless redraw renders it
@@ -309,7 +309,7 @@ def has_digit(text: str | None) -> bool:
 def double_prefix(dimtype: int, override: str | None) -> bool:
     """A diameter (radius) dimension whose override puts its own Ø (R) right
     before ``<>``: the automatic prefix lands after it and the sheet shows ØØ
-    (RR). **S4 pending:** the live double sign is not measured yet."""
+    (RR). Not measured in AutoCAD."""
     if dimtype not in (3, 4) or not override or "<>" not in override:
         return False
     before = shown_plain(override.split("<>", 1)[0]) or ""

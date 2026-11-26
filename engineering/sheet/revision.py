@@ -13,8 +13,7 @@ The triangular revision tag and the revision cloud are drawing-office practice,
 not ISO geometry: the cloud marks the changed region and the triangle carries
 the revision code that the block's row explains. `entity_create_revcloud` draws
 the cloud, so a revision *with* clouds is refused up front on an engine that
-has no revcloud (the COM backend: `revcloud` is false there, no ActiveX member,
-command-line only) rather than half-written.
+declares no revcloud rather than half-written.
 
 Placement: the block defaults to the upper-right corner of the drawing frame
 and grows downwards, so it does not fight the ISO 7573 item list for the space
@@ -299,9 +298,9 @@ async def add_revision(
 
             raise UnsupportedCapabilityError(
                 "revcloud",
-                f"add_revision: the {backend.name} backend cannot draw revision clouds "
-                "(no ActiveX member; REVCLOUD is command-line only). Re-run without "
-                "`clouds` to record the row, or draw the sheet on the ezdxf engine.",
+                f"add_revision: the {backend.name} backend cannot draw revision clouds. "
+                "Re-run without `clouds` to record the row, or draw the clouds with "
+                "REVCLOUD in AutoCAD.",
             )
 
     previous = await enter_layout(backend, layout, caller="revision_add")

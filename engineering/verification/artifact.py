@@ -1,9 +1,8 @@
 """Saved-artifact verification: the requirements measured again on the file itself.
 
 Spec §5 Task 17 (B21). ``verify_artifact`` reads the saved file fresh - a DXF
-through ``ezdxf.readfile``, a DWG on the live engine through a private copy
-that AutoCAD opens read-only, exports and closes - and never the model in
-memory. Every requirement is measured again on that read.
+through ``ezdxf.readfile`` (a DWG is refused with the ``dwg`` capability) -
+and never the model in memory. Every requirement is measured again on that read.
 
 With the source document at hand (``backend``), each requirement's features
 are re-bound from the source binding, one feature at a time:
@@ -52,12 +51,6 @@ finding, ``comparison`` is None, a handle-naming requirement is ``unknown`` (a
 handle of another drawing names nothing) and only a handle-free one is resolved
 afresh on the file: the wrong drawing is never described as the source, and no
 file is accepted because of it.
-
-The DWG route copies the file first because a fresh read must not be the
-document AutoCAD already has open (``take_snapshot`` would export that one,
-unsaved edits included). Whether AutoCAD lets another process copy a DWG it
-holds open is the live measurement of Task 17's live step; a copy that fails
-is an ``ArtifactReadError`` naming the reason, never a silent fallback.
 """
 
 from __future__ import annotations
@@ -695,8 +688,7 @@ async def verify_artifact(
     """The acceptance report of ``rs`` measured on the saved file at ``path``.
 
     Refuses a missing file (FileNotFoundError), a suffix other than .dxf / .dwg
-    (ValueError), a DWG headlessly (``dwg`` capability) and a DWG the live
-    engine cannot copy (``ArtifactReadError``). An unreadable DXF is refused by
+    (ValueError) and a DWG (``dwg`` capability). An unreadable DXF is refused by
     ``read_snapshot`` with the reason. With ``backend`` the report carries
     ``provenance`` (None without): an open document that is not shown to be the
     file's source is a blocking ``artifact_source_mismatch``, never a comparison.

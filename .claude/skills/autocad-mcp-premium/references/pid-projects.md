@@ -37,8 +37,9 @@ sheet files without modifying any: off-page links matched across files
 (`matched` / `orphan` / `direction_mismatch` / `duplicate`), cross-sheet
 duplicate tags and line-number continuity. `action="index"` merges the
 instrument index, line list and equipment list with a `sheet` column. The last
-result is the `autocad://pid/project/last` resource. A `.dwg` sheet is read
-only on a live seat.
+result is the `autocad://pid/project/last` resource. A `.dwg` sheet is
+refused (capability `dwg`): convert it first (`drawing_open`, then
+`drawing_save_as` a `.dxf`) and list the `.dxf`.
 
 ## Reading a sheet
 

@@ -1,4 +1,4 @@
-"""XDATA value typing and limits, shared by both engines.
+"""XDATA value typing and limits.
 
 DXF XDATA is a list of (group code, value) pairs under a registered APPID.
 This module is the one place that decides how a JSON value becomes a group
@@ -6,9 +6,9 @@ code and enforces the two limits AutoCAD enforces silently: 255 characters
 per string and 16 KB per *entity* -- across every application on it, the ACAD
 app's own overrides (DSTYLE on a toleranced dimension) included, not just the
 app being written. ``encode_values`` refuses a single call that cannot fit;
-``check_entity_budget`` is the real gate, run by both engines against the
-entity's existing XDATA before anything is written, so the headless engine
-refuses exactly the write the live engine's ``SetXData`` would reject.
+``check_entity_budget`` is the real gate, run against the entity's existing
+XDATA before anything is written, so the headless engine refuses exactly the
+write AutoCAD's ``SetXData`` would reject.
 
 It also refuses the values neither engine can store: a line separator inside a
 string, and a non-finite or non-numeric "number". DXF is a text format of
@@ -205,7 +205,7 @@ def decode_values(tags) -> list:
 
 
 def split_tags_by_app(codes, values) -> dict[str, list[Tag]]:
-    """A flat ActiveX GetXData stream (1001 markers inline) → {app: raw tags}."""
+    """A flat XDATA stream (1001 markers inline, as AutoCAD's GetXData returns it) → {app: raw tags}."""
     out: dict[str, list[Tag]] = {}
     current: str | None = None
     for code, value in zip(codes, values, strict=True):
@@ -218,5 +218,5 @@ def split_tags_by_app(codes, values) -> dict[str, list[Tag]]:
 
 
 def split_by_app(codes, values) -> dict[str, list]:
-    """A flat ActiveX GetXData stream (1001 markers inline) → {app: values}."""
+    """A flat XDATA stream (1001 markers inline) → {app: values}."""
     return {app: decode_values(tags) for app, tags in split_tags_by_app(codes, values).items()}

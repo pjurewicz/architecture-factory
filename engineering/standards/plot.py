@@ -37,8 +37,8 @@ async def batch_plot(
 
     ``layouts=None`` plots every paper-space layout; ``Model`` is plotted only
     when named, and is passed to the engine by name so the model row is model
-    space whichever tab is current — both engines honour the name (COM plots
-    the Model tab; ezdxf renders ``doc.modelspace()``, not the current tab;
+    space whichever tab is current (ezdxf renders ``doc.modelspace()``, not
+    the current tab;
     ``tests/test_batch_plot.py`` proves it by content on the headless engine).
     A sheet the engine cannot plot, or reports
     plotted without a file, is a per-row ``ok: False`` with its ``error``; the
@@ -103,8 +103,7 @@ async def batch_plot(
         is_model = name.lower() == "model"
         # The layout is always named — "Model" included — so the engine plots
         # the tab this row is labelled with, never the one that happens to be
-        # current. A plot that fails inside the engine (COM raises RuntimeError
-        # for an AutoCAD error) or that reports ok without leaving a file is a
+        # current. A plot that fails inside the engine or that reports ok without leaving a file is a
         # failed row, not a lost batch: the sheets already plotted are kept.
         try:
             result = await backend.drawing_export_pdf(str(path), layout=name)

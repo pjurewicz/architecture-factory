@@ -1,8 +1,8 @@
 """Per-domain slices of the backend contract.
 
 One 1854-line ABC with 112 abstract methods made every contract change a
-whole-file edit, and made a half-finished change break both backends at
-instantiation at once. The seams here are the section markers that were
+whole-file edit, and made a half-finished change break the backend at
+instantiation. The seams here are the section markers that were
 already in the file, so the split moved code without re-deciding anything.
 """
 

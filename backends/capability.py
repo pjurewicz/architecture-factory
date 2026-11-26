@@ -2,10 +2,9 @@
 
 The backend contract is large (112 abstract methods before this file existed,
 and the plan adds ~39 more). Every one of them is an `@abstractmethod`, which
-means adding a single method to the contract makes **both** backends fail at
-instantiation until both are written — and two test modules construct
-`ComBackend` at import time, so the whole suite goes red on a half-finished
-edit. That is a real cost paid on every contract change.
+means adding a single method to the contract makes the backend fail at
+instantiation until it is written, so the whole suite goes red on a
+half-finished edit. That is a real cost paid on every contract change.
 
 The obvious fix is to give new methods a default body. The obvious default is
 wrong: returning ``{"ok": False, "capability": ...}`` from a method nobody
@@ -22,14 +21,14 @@ hand-written refusal. Three properties follow:
 * An unimplemented method refuses instead of pretending. It cannot silently
   succeed and it cannot silently do nothing.
 * The refusal is *declared*: `test_capability_contract.py` fails if a key used here is
-  missing from either backend's `CapabilityMap`, so `system_capabilities` can
+  missing from the backend's `CapabilityMap`, so `system_capabilities` can
   never disagree with what a call actually does. This is the part that keeps
   the escape hatch honest — without it, `@capability` would just be a way to
   ship undeclared holes.
 * Overriding is ordinary subclassing. A backend that implements the method
   simply defines it; nothing needs to be un-registered.
 
-`@abstractmethod` remains the default for anything both backends must have.
+`@abstractmethod` remains the default for anything the backend must have.
 Reach for `@capability` only when a method is genuinely optional — an engine
 boundary (no ACIS kernel headlessly) rather than an unfinished chore.
 """

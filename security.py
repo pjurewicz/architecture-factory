@@ -273,12 +273,11 @@ def validate_path(path: str, *, allow_write: bool = False, kinds=None) -> Path:
 # ---------------------------------------------------------------------------
 #
 # `_ensure_linetype_loaded` built `_-LINETYPE _LOAD {name} {file}` from a
-# caller's `linetype=` argument, and `ComBackend.linetype_load` added a
-# caller-supplied path. SendCommand takes a whole macro and treats a newline
-# and `;` as segment separators, so either string could append commands that
-# no command check ever saw. (v1.6 moved both loaders to the ActiveX
-# `Linetypes.Load` member, which takes the name as data; the guard stays,
-# because a name this rule refuses was never a loadable linetype either.)
+# caller's `linetype=` argument for AutoCAD's command line, which treats a
+# newline and `;` as segment separators, so the name could append commands
+# that no command check ever saw. That loader is gone with the live engine;
+# the guard stays, because a name this rule refuses was never a loadable
+# linetype either.
 #
 # The guard is the DXF symbol-name rule rather than a second blocklist. AutoCAD
 # already forbids these characters in a table name, so nothing this rejects was

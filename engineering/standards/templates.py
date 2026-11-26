@@ -2,8 +2,8 @@
 
 Built by ``scripts/build_templates.py`` through the server's own backend
 (layers, styles, settings, the ISO 5457 A3 frame where the sheet is A3, page
-setup) and saved as DXF; the ``.dwt`` twins are produced on a live AutoCAD by
-``scripts/smoke_settings_com.py --build-dwt`` and committed once.
+setup) and saved as DXF; the ``.dwt`` twins were produced once in AutoCAD
+and committed.
 """
 
 from __future__ import annotations
@@ -156,12 +156,7 @@ def template_rows() -> list[dict]:
 def resolve_template(name_or_path: str, engine: str) -> tuple[str, str]:
     """``(path, source)`` for a catalogue name or a template file path.
 
-    A catalogue name resolves to ``templates/<name>.dxf`` (headless) or
-    ``templates/<name>.dwt`` (live), falling back to the DXF with
-    ``source="bundled_dxf"`` when the ``.dwt`` twin is missing — the live
-    engine then converts that DXF into a real ``.dwt`` itself before
-    ``Documents.Add`` (``ComBackend.drawing_new``), because AutoCAD ignores a
-    DXF handed to ``Add`` and silently returns the default drawing. Anything
+    A catalogue name resolves to ``templates/<name>.dxf``. Anything
     with a path separator or a ``.dwt``/``.dxf`` suffix is a path
     (``source="path"``, not checked here). A bare word that is not in the
     catalogue is refused with the catalogue names.

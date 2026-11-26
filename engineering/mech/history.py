@@ -5,7 +5,7 @@ changes: {path: [old, new]}}`` - to the XRECORD named after the part's anchor
 handle inside the ``ACADMCP_MODEL_HISTORY`` dictionary: the storage pattern of
 ``engineering/verification/requirements.py`` (``ACADMCP_REQUIREMENTS``),
 JSON in 255-character 1000-code chunks, one level below the named object
-dictionary on both engines because ActiveX can add only a dictionary there.
+dictionary, because AutoCAD's object model can add only a dictionary there.
 The record travels with the file, so "what was the bore at revision 2?" is
 answered by the drawing itself, independently of the server's operation
 journal. The newest ``MAX_ENTRIES`` entries are kept; the oldest are dropped

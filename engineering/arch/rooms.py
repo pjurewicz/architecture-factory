@@ -109,22 +109,18 @@ WALL_LAYER_KEYWORDS = ("WALL", "DUVAR")
 #: Entity types that bound a region with a curve; the finder reads straight
 #: segments only, so these are reported as skipped, never approximated.
 CURVE_TYPES = frozenset({"ARC", "CIRCLE", "ELLIPSE", "SPLINE"})
-#: Polylines whose ``points`` are the vertices on both engines: the headless
-#: LWPOLYLINE, and the live AcDbPolyline / AcDbLWPolyline (reported POLYLINE /
-#: LWPOLYLINE). A headless POLYLINE is the old-style one - it arrives with no
+#: Polylines whose ``points`` are the vertices: LWPOLYLINE (POLYLINE is the
+#: name AutoCAD's object model gives the same entity). A headless POLYLINE is the old-style one - it arrives with no
 #: ``points`` at all, and is skipped by that test.
 LIGHT_POLYLINE_TYPES = frozenset({"LWPOLYLINE", "POLYLINE"})
-#: Old-style polylines whose ``points`` are NOT to be trusted: the live
-#: AcDb2dPolyline hands its Coordinates over as x, y, z triples, which the
-#: backend reads two at a time (measured on AutoCAD 2026: a 4000 x 5000 outline
-#: came back as [[200, 200], [0, 4200], [200, 0], ...]), so a room read off them
-#: is a wrong number, not a missing one. Skipped, by name.
+#: Old-style polylines, whose vertices do not reach this reader as ``points``.
+#: Skipped, by name.
 HEAVY_POLYLINE_TYPES = frozenset({"2DPOLYLINE", "3DPOLYLINE", "POLYFACEMESH", "POLYGONMESH"})
-#: Block references on both engines (headless INSERT, live AcDbBlockReference).
+#: Block references (INSERT; BLOCKREFERENCE is AutoCAD's object-model name).
 BLOCK_REFERENCE_TYPES = frozenset({"INSERT", "BLOCKREFERENCE", "MINSERTBLOCK"})
 #: Annotation and fills: they sit on wall layers (a poche hatch, a wall tag)
 #: without bounding anything, so they are passed over without a skipped entry.
-#: Every DIMENSION kind (the live engine names them ROTATEDDIMENSION, ...) is
+#: Every DIMENSION kind (AutoCAD's object model names them ROTATEDDIMENSION, ...) is
 #: matched by name below.
 NON_BOUNDARY_TYPES = frozenset(
     {
@@ -406,8 +402,8 @@ async def read_records(backend: AutoCADBackend) -> dict:
     ``rooms`` as model dataclasses - plus ``room_handles`` (room id -> the
     handle of the label that carries it). The current space is paged through
     once, not sampled and not once per layer: a record past the 200th entity is
-    still a record, and a live seat, which pays a cross-process call per entity
-    per scan, scans once rather than once for each of the twelve arch layers.
+    still a record, and the drawing is scanned once rather than once for each
+    of the twelve arch layers.
     Entities on the ``ARCH_ROLE_LAYER`` layers (any case) are read in layer-name
     order, drawing order within a layer. XDATA that is not ours or does not
     decode is skipped - this reader never guesses a record - and counted in
@@ -466,16 +462,15 @@ async def read_records(backend: AutoCADBackend) -> dict:
 async def read_segments(backend: AutoCADBackend, layers) -> tuple[list, list[dict]]:
     """Straight segments on ``layers`` as ``(p1, p2, layer)``, and what was skipped.
 
-    Read: LINE, and the lightweight polyline by its ``points`` (the live engine
-    names it POLYLINE, the headless one LWPOLYLINE). Everything else that can
+    Read: LINE, and the lightweight polyline (LWPOLYLINE) by its ``points``. Everything else that can
     bound a room is listed in the second return value with its handle, type and
     reason - never dropped, never guessed:
 
     * an ARC/CIRCLE/ELLIPSE/SPLINE or a bulged polyline edge is an arc, and the
       finder reads straight segments only - it is never flattened into chords;
-    * an old-style POLYLINE (``HEAVY_POLYLINE_TYPES`` live; a headless POLYLINE
+    * an old-style POLYLINE (``HEAVY_POLYLINE_TYPES``; a headless POLYLINE
       reports no vertices) is not read, because its vertices do not reach this
-      reader correctly on either engine;
+      reader;
     * a block reference is not exploded: walls inside a block are not read;
     * any other type is listed as not a line.
 

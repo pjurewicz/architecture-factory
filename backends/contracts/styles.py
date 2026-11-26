@@ -24,11 +24,6 @@ class StylesContract(ABC):
         (``engineering.standards.dimstyles.PRESET_VARIABLES``) with ``DIMDSEP``
         as the character. Headless every row carries them (the DXF's stored
         value, else the schema default AutoCAD applies to an omitted code).
-        On the live engine ActiveX has no per-style getters — ``AcadDimStyle``
-        exposes ``Name`` and ``CopyFrom`` only — so ``values`` is read for the
-        *current* style and the other rows carry ``values: None`` with
-        ``values_available: False`` rather than cycling the active style
-        behind the operator's back.
         """
         ...
 
@@ -43,8 +38,8 @@ class StylesContract(ABC):
         reported in ``textstyle_created``; anything else is refused by name.
         A name clash is refused (``dimstyle_modify`` changes an existing
         style). With ``set_current`` the style becomes ``$DIMSTYLE`` *and* its
-        values become the current ``DIM*`` settings — what a live seat does —
-        so the next dimension carries them on both engines.
+        values become the current ``DIM*`` settings — what AutoCAD does — so
+        the next dimension carries them.
         """
         ...
 
@@ -61,13 +56,11 @@ class StylesContract(ABC):
         listed by handle. A DIMENSION carries its rendered ``*D`` block and
         shows the old style until it is redrawn; since 1.8-15 ``rerender``
         (default True) redraws every one of them and lists it in
-        ``rerendered`` - headlessly by re-rendering, live by ``Update()`` on
-        each, confirmed by reading the ``*D`` text back (a handle whose text
-        did not change stays out of ``rerendered``). A text its author placed
+        ``rerendered`` by re-rendering it. A text its author placed
         keeps its position (``text_kept``) unless ``force``.
         ``rerender_required`` is True when something changed and a dimension
-        still shows the old style: ``rerender=False`` (the 1.7 behaviour), or a
-        live redraw the read-back did not confirm. Modifying the current style
+        still shows the old style (``rerender=False``, the 1.7 behaviour).
+        Modifying the current style
         also updates the ``DIM*`` current settings.
         """
         ...
@@ -78,8 +71,7 @@ class StylesContract(ABC):
 
         Returns ``{ok, current, previous, changed}``. Sets ``$DIMSTYLE`` and
         loads the style's stored variables into the current ``DIM*`` settings
-        (AutoCAD's ``-DIMSTYLE Restore``; on the live engine unsaved overrides
-        of the previous style are discarded, which is AutoCAD's own rule).
+        (AutoCAD's ``-DIMSTYLE Restore``).
         The dimension tools then create dimensions with it; the per-dimension
         override path (tolerances, fits, text override) is unchanged.
         """
@@ -114,20 +106,15 @@ class StylesContract(ABC):
     @abstractmethod
     async def textstyle_set_current(self, name: str) -> dict:
         """``$TEXTSTYLE``. Returns ``{ok, current, previous, changed}``; new
-        TEXT/MTEXT then carry the style on both engines."""
+        TEXT/MTEXT then carry the style."""
         ...
 
     @abstractmethod
     async def mleaderstyle_list(self) -> list[dict]:
         """``[{name, arrow_size, landing_gap, text_style, text_height, values_available}]``.
 
-        Both engines report the four values (``values_available: True``).
-        Headless they are read from the MLEADERSTYLE object (schema defaults
-        for an unset field); live from the ``AcadMLeaderStyle`` objects the
-        ``ACAD_MLEADERSTYLE`` dictionary holds (``ArrowSize`` / ``LandingGap``
-        / ``TextHeight`` in drawing units, ``TextStyle`` a name) — ActiveX
-        exposes no *collection* property for them, but the dictionary items
-        are full ``IAcadMLeaderStyle`` objects.
+        The four values are read from the MLEADERSTYLE object (schema defaults
+        for an unset field; ``values_available: True``).
         """
         ...
 
@@ -135,9 +122,7 @@ class StylesContract(ABC):
     async def mleaderstyle_create(self, name: str, values: dict) -> dict:
         """Create a multileader style from a resolved ``values`` dict
         (``engineering.standards.mleaderstyles.resolve_mleaderstyle``).
-        Both engines: ezdxf on ``doc.mleader_styles``; live through
-        ``Dictionaries.Item("ACAD_MLEADERSTYLE").AddObject(name,
-        "AcDbMLeaderStyle")`` and the object's property writes. Returns
+        Written to ezdxf's ``doc.mleader_styles``. Returns
         ``{ok, name, values, textstyle_created}``; the text style follows the
         ``dimstyle_create`` rule (exists or preset, else refused by name); a
         clash is refused — before anything is written."""

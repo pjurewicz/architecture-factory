@@ -3,8 +3,7 @@
 Every tool call gets an ``operation_id``: minted by ``AuditMiddleware`` into
 ``CURRENT_OPERATION`` (a call that re-enters the middleware - the search
 proxy's ``call_tool`` - reuses the id already set), one per step by
-``cad_batch`` (its steps skip the middleware), and carried into the COM
-executor explicitly because a thread pool copies no context. A record says
+``cad_batch`` (its steps skip the middleware). A record says
 what happened, honestly:
 
     committed       the call returned its result
@@ -80,7 +79,7 @@ MAX_OPERATION_ID_CHARS = 128
 MAX_LABEL_CHARS = 200
 
 #: The operation the running code belongs to. Set by AuditMiddleware (one per
-#: request), by cad_batch (one per step) and inside the COM job (explicitly).
+#: request) and by cad_batch (one per step).
 CURRENT_OPERATION: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "acadmcp_operation_id", default=None
 )

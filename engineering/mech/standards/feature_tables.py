@@ -4,7 +4,7 @@ The B40 tables (DIN 471, DIN 472, DIN 509-E/F, DIN 332-A/B, ISO 3601-2 radial
 static and axial) are filled only through the double entry of
 ``scripts/build_standards.py``. A table without rows is *deferred* - to
 :data:`~engineering.mech.standards.transcription.DEFERRED_RELEASE`, by name -
-and anything that exercises the tables (``scripts/smoke_mech_com.py``, the v9
+and anything that exercises the tables (the v9
 ``std_tables_b40`` task, the ``b40_between_rows_refused`` correctness check)
 skips it with that message instead of reporting a vacuous pass.
 

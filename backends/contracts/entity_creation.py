@@ -121,8 +121,7 @@ def inline_json_schema(schema: dict) -> dict:
 
 class EntityCreationContract(ABC):
     # ``xdata={app: values}`` (v1.7.0, B17): these six create members write
-    # XDATA in the create call itself - one lock, one undo step, no extra COM
-    # round trip per entity - validated by
+    # XDATA in the create call itself - one lock, one undo step - validated by
     # ``backends/xdata_specs.py::prepare_xdata`` before anything is created.
     # The mechanical generators tag every entity they draw this way.
 
@@ -228,9 +227,8 @@ class EntityCreationContract(ABC):
         layer: str = "TEXT",
         xdata: dict[str, list] | None = None,
     ) -> EntityInfo:
-        """``xdata`` (v1.8.0) is written in the create call: on the native
-        TABLE live, and on every child of the headless composite (its lines and
-        cell texts), so a reader finds all of the table by its tag rather than
+        """``xdata`` (v1.8.0) is written in the create call, on every child of
+        the composite (its lines and cell texts), so a reader finds all of the table by its tag rather than
         only the handle the result names."""
         ...
 
@@ -302,9 +300,7 @@ class EntityCreationContract(ABC):
     #
     # Concrete: the base implementation is the loop ``server.py`` ran up to
     # 1.8.0 - one ``entity_create_*`` / ``entity_delete`` per item - so the
-    # headless results are what they were, byte for byte. ``ComBackend``
-    # overrides both with ONE STA job (one guard, one refresh, per-item rows
-    # carrying a ``kind``). Neither is atomic: an item that fails leaves the
+    # headless results are what they were, byte for byte. Neither is atomic: an item that fails leaves the
     # earlier ones written; atomicity is ``cad_batch(transaction=True)``'s and,
     # for the delete tool, the server's transaction around this call.
 
@@ -436,8 +432,7 @@ class EntityCreationContract(ABC):
     ) -> dict:
         """Delete every handle in ``handles``. ``{deleted, errors}``.
 
-        ``errors`` rows are ``{handle, error}`` (the live engine adds
-        ``kind``). ``stop_on_error`` stops at the first failure - for a caller
+        ``errors`` rows are ``{handle, error}``. ``stop_on_error`` stops at the first failure - for a caller
         that rolls the whole call back anyway. ``progress(i, total)`` is
         awaited before each handle when given.
         """
@@ -507,11 +502,7 @@ class EntityCreationContract(ABC):
 
     @capability(  # noqa: B027 — @capability supplies the body
         "wipeout",
-        reason=(
-            "ActiveX has no wipeout constructor — ModelSpace.AddWipeout does not exist "
-            "(verified against AutoCAD 2026); WIPEOUT is a command only. Use the headless "
-            "backend (AUTOCAD_MCP_BACKEND=ezdxf), or run WIPEOUT in AutoCAD directly."
-        ),
+        reason=("This backend does not create wipeouts; run WIPEOUT in AutoCAD directly."),
     )
     async def entity_create_wipeout(
         self, points: list[list[float]], layer: str | None = None
@@ -525,11 +516,7 @@ class EntityCreationContract(ABC):
 
     @capability(  # noqa: B027 — @capability supplies the body
         "revcloud",
-        reason=(
-            "ActiveX exposes no revision-cloud member and driving the REVCLOUD command "
-            "blind against a live drawing is unverified. Use the headless backend "
-            "(AUTOCAD_MCP_BACKEND=ezdxf), or run REVCLOUD in AutoCAD directly."
-        ),
+        reason=("This backend does not create revision clouds; run REVCLOUD in AutoCAD directly."),
     )
     async def entity_create_revcloud(
         self,

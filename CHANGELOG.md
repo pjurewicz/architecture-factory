@@ -51,6 +51,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `HIDE_LIVE_ONLY_TOOLS` with its `policy: "headless_engine"` refusal: a
   call to a removed tool is an unknown tool. `policy_refused` now comes only
   from the tool policy, so it no longer carries `verbs` / `alternatives`.
+- `system_variable_describe`'s `engines` is `{ezdxf}` only: the `com` key is
+  gone from every `SYSVAR_CATALOG` row (a variable the headless engine cannot
+  hold reads `{"ezdxf": false}`); the field name and shape are unchanged.
 
 ### Added
 

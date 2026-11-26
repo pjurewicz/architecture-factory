@@ -1,4 +1,4 @@
-"""OCS (Object Coordinate System) to WCS translation, shared by both backends.
+"""OCS (Object Coordinate System) to WCS translation at the backend boundary.
 
 DXF does not store 2D geometry in world coordinates. CIRCLE, ARC, LWPOLYLINE,
 TEXT, INSERT and a dimension's text position live in a per-entity frame derived
@@ -11,11 +11,9 @@ through the renderer, in WCS) said otherwise.
 The rule this module exists to enforce: **everything crossing the MCP boundary is
 WCS.** OCS never leaves the backends.
 
-Both engines share this. ``ezdxf`` is a core dependency, not an extra, so the COM
-backend may import it too — and should, rather than hand-rolling the Arbitrary
-Axis Algorithm a second time. The functions take a raw extrusion/normal triple
-rather than an entity, because a COM object exposes ``.Normal`` where an ezdxf
-one exposes ``.dxf.extrusion``.
+The functions take a raw extrusion/normal triple rather than an entity, so a
+caller holding only the ``.dxf.extrusion`` value (or a snapshot record) can use
+them without an ezdxf entity at hand.
 
 Not every entity that *carries* extrusion is affected: ezdxf makes ``ocs()`` a
 pass-through for LINE, MTEXT, ELLIPSE, SPLINE and POINT, which are WCS-native.

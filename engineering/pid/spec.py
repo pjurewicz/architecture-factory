@@ -678,7 +678,7 @@ async def run_spec(
         }
     sheet = norm["sheet"]
     # Refused before drawing_plan writes anything: ezdxf would nest the
-    # transaction and COM refuses it - after the plan was already set
+    # transaction - after the plan was already set
     # (backlog W4-T17-09).
     status = await backend.system_status()
     if status.get("transaction_depth") or status.get("transaction_active"):
@@ -765,8 +765,7 @@ async def run_spec(
     except BaseException as exc:
         # ``Exception`` alone let a client cancellation (``CancelledError`` is
         # a ``BaseException``) leave the placed symbols in the drawing inside
-        # an open transaction — on COM with the undo mark still open, so every
-        # later ``pid_from_spec`` was refused until a manual rollback.
+        # an open transaction, so every later ``pid_from_spec`` was refused until a manual rollback.
         #
         # The rollback is shielded because the MCP SDK cancels a request by
         # cancelling an anyio scope, and anyio cancellation is level-triggered:
@@ -774,13 +773,11 @@ async def run_spec(
         # is still inside the cancelled scope. A bare ``await`` here would be
         # cancelled at its first suspension, before the rollback body ran —
         # measured through the real transport: five symbols left in an open
-        # transaction, and on COM the undo mark left open while the backend's
-        # flag already said "no transaction". A native ``Task.cancel()`` is
+        # transaction. A native ``Task.cancel()`` is
         # delivered once and clears, so it was never the case that mattered.
         #
         # Once the rollback body runs after a cancellation it can also *fail*
-        # (the COM hard timeout, ``_safe_send_command``'s own deadline, an
-        # ezdxf quarantine refusal). That failure must not replace the
+        # (an ezdxf quarantine refusal, a call timeout). That failure must not replace the
         # cancellation: the SDK has already answered the cancelled request,
         # and only a cancellation exception is suppressed by its handler — an
         # ordinary error makes it respond a second time, which trips

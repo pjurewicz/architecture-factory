@@ -3,14 +3,14 @@
 Sources: ISO 216 (A series), ASME/ANSI Y14.1 (A–E, metric millimetre values as
 AutoCAD's ``ANSI_*`` media measure, inch values as the media are *named*),
 the ctb files AutoCAD ships in its Plot Styles folder, and the standard-scale
-enum — one numbering, shared by the file and by ActiveX:
+enum — one numbering, shared by the file and by AutoCAD's object model:
 
 * DXF group code 75 (``standard_scale_type``) is the ObjectARX
   ``AcDbPlotSettings::StdScaleType`` enum: 0=fit, 1..15 the imperial
   architectural scales, 16=1:1, 17=1:2, 18=1:4, 19=1:5, 20=1:8, 21=1:10,
   22=1:16, 23=1:20, 24=1:30, 25=1:40, 26=1:50, 27=1:100, 28=2:1, 29=4:1,
   30=8:1, 31=10:1, 32=100:1, 33=1000:1 (``DXF_STD_SCALES``). Measured live
-  on AutoCAD 2026 (COM ``SaveAs(..., 61)`` after ``StandardScale = n``):
+  on AutoCAD 2026 (``SaveAs(..., 61)`` after ``StandardScale = n``):
   1:10 saves as 21, 1:50 as 26, 2:1 as 28, 10:1 as 31. ezdxf's
   ``STD_SCALES`` table (and the DXF Reference page it follows) has no 19=1:5
   and numbers everything above 18 one lower (20=1:10, 25=1:50, 30=10:1) —
@@ -26,30 +26,29 @@ enum — one numbering, shared by the file and by ActiveX:
   route (bit 16 cleared) AutoCAD honours 142/143 and leaves 75 and 147
   stale. The headless writer therefore writes 147 alongside 142/143 on
   every route.
-* ActiveX ``AcPlotScale`` (``Layout.StandardScale``, AutoCAD 2026 typelib)
+* AutoCAD's ``AcPlotScale`` (``Layout.StandardScale``, AutoCAD 2026 typelib)
   is the same numbering (ac1_1=16, ac1_2=17, ac1_10=21, ac1_20=23,
   ac1_50=26, ac1_100=27, ac2_1=28, ac10_1=31, acScaleToFit=0). The typelib
   declares ``ac1_5=19`` too, but AutoCAD 2026 refuses
   ``Layout.StandardScale = 19`` with "Invalid input" in every condition tried
   (PaperUnits mm and inches, UseStandardScale True and False; measured live
-  2026-09-17), so 1:5 is not in ``ACTIVEX_PLOT_SCALE`` and takes the custom
-  route on the live engine (``SetCustomScale(1, 5)`` reads back ``1:5``).
-  The headless writer mirrors that — 1:5 is not in ``DXF_STANDARD_SCALE_TYPE``
-  either, so both engines store the same 1:5 (custom, 142/143 = 1/5) — while
-  the reader knows code 19 for files AutoCAD wrote.
+  2026-09-17), so 1:5 is not in ``ACTIVEX_PLOT_SCALE`` and AutoCAD takes the
+  custom route (``SetCustomScale(1, 5)`` reads back ``1:5``). The headless
+  writer mirrors that — 1:5 is not in ``DXF_STANDARD_SCALE_TYPE`` either, so it
+  stores 1:5 as AutoCAD does (custom, 142/143 = 1/5) — while the reader knows
+  code 19 for files AutoCAD wrote.
 
-A scale without a code on an engine goes through the custom numerator /
-denominator on that engine, and the read-back reports the same label either way.
+A scale without a code goes through the custom numerator / denominator, and the
+read-back reports the same label either way.
 
-Centring belongs to an *extents* plot only. The ActiveX Reference (CenterPlot
+Centring belongs to an *extents* plot only. The AutoCAD ActiveX Reference (CenterPlot
 Property, acadauto.chm, AutoCAD 2026): "This property cannot be set to True on
 a layout object whose PlotType property is set to acLayout" — a layout plot is
 the whole sheet from its own origin, and the Page Setup dialog greys the box
 out. ``resolve_page_setup`` therefore resolves ``center`` to ``None`` (not
 applicable, never written, read back as ``None``) when ``plot_area`` is
-``layout``; the bool is kept only for ``extents``. Both engines follow the
-same resolved value, so the DXF never carries a centre bit AutoCAD would
-ignore and the live engine never issues the write AutoCAD refuses.
+``layout``; the bool is kept only for ``extents``, so the DXF never carries a
+centre bit AutoCAD would ignore.
 """
 
 from __future__ import annotations
@@ -230,8 +229,8 @@ _DXF_IMPERIAL_LABELS: dict[int, str] = {
 
 #: DXF group code 75 the headless *writer* uses per catalogue label. Labels
 #: missing here use the custom numerator/denominator: ``1:5`` (code 19 exists
-#: in the file enum, but the live engine cannot set it, so both engines store
-#: 1:5 the same custom way) and ``5:1`` (no code anywhere).
+#: in the file enum, but AutoCAD cannot set it, so 1:5 is stored the custom
+#: way, as AutoCAD stores it) and ``5:1`` (no code anywhere).
 DXF_STANDARD_SCALE_TYPE: dict[str, int] = {
     "fit": 0,
     "1:1": 16,
@@ -244,7 +243,8 @@ DXF_STANDARD_SCALE_TYPE: dict[str, int] = {
     "10:1": 31,
 }
 
-#: ActiveX ``AcPlotScale`` (AutoCAD 2026 typelib). Labels missing here use SetCustomScale.
+#: AutoCAD's ``AcPlotScale`` (AutoCAD 2026 typelib), reported as
+#: ``activex_standard_scale``. Labels missing here use SetCustomScale.
 #: No ``"1:5"``: the typelib's ``ac1_5 = 19`` is refused by AutoCAD 2026 (module docstring).
 ACTIVEX_PLOT_SCALE: dict[str, int] = {
     "fit": 0,
@@ -259,7 +259,7 @@ ACTIVEX_PLOT_SCALE: dict[str, int] = {
 }
 _ACTIVEX_SCALE_LABEL = {code: label for label, code in ACTIVEX_PLOT_SCALE.items()}
 
-#: Plot area → DXF/ActiveX plot type (``AcPlotType``: acExtents=1, acLayout=5).
+#: Plot area → DXF/AutoCAD plot type (``AcPlotType``: acExtents=1, acLayout=5).
 PLOT_AREAS: dict[str, int] = {"layout": 5, "extents": 1}
 #: ``AcPlotType.acLayout`` — the plot type under which centring does not apply.
 PLOT_TYPE_LAYOUT = 5
@@ -287,7 +287,7 @@ _CANONICAL_MEDIA_RE = re.compile(
 #: size (``ISO_full_bleed_A3_(…)``, ``ISO_expand_A3_(…)``). Only the ISO names
 #: were seen on a device (DWG To PDF.pc3 and AutoCAD PDF (High Quality
 #: Print).pc3 on AutoCAD 2026, 2026-11-05); the ANSI names follow the same
-#: pattern unmeasured, and the live engine refuses any name its device lacks.
+#: pattern unmeasured.
 BLEEDS: dict[str, str | None] = {"none": None, "full_bleed": "full_bleed", "expand": "expand"}
 
 
@@ -460,7 +460,7 @@ def dxf_scale_label(code, numerator, denominator) -> str:
 
 
 def activex_scale_label(code) -> str:
-    """Read-back for the live engine: the AcPlotScale label, else ``standard:<code>``."""
+    """The AcPlotScale label of ``code``, else ``standard:<code>``."""
     return _ACTIVEX_SCALE_LABEL.get(int(code), f"standard:{int(code)}")
 
 
@@ -469,9 +469,9 @@ def plot_style_known(name) -> bool:
 
 
 #: Plot paper units — the same codes in DXF group 72 (``plot_paper_units``) and
-#: ActiveX ``AcPlotPaperUnits`` (acInches=0, acMillimeters=1, acPixels=2). The
+#: AutoCAD's ``AcPlotPaperUnits`` (acInches=0, acMillimeters=1, acPixels=2). The
 #: paper size and margins are stored in millimetres whatever this says (ezdxf's
-#: acdb_plot_settings; GetPaperSize / GetPaperMargins measured live): the units
+#: acdb_plot_settings; GetPaperSize / GetPaperMargins measured on AutoCAD): the units
 #: govern what one paper-space unit *means* at the plot scale — under inches a
 #: 1:1 sheet holds 17 units across ANSI B, under millimetres 431.8.
 PAPER_UNITS: dict[str, int] = {"inches": 0, "mm": 1}
@@ -480,7 +480,7 @@ _PAPER_UNITS_ALIASES = {"in": "inches", "inch": "inches", "inches": "inches", "m
 
 
 def paper_units_name(code) -> str | None:
-    """Read-back for both engines: ``inches`` / ``mm`` / ``pixels``, ``None``
+    """Read-back: ``inches`` / ``mm`` / ``pixels``, ``None``
     for an unreadable value, ``code:<n>`` for one neither enum names."""
     if code is None:
         return None
@@ -525,8 +525,8 @@ def page_setup_warnings(changed: dict) -> list[str]:
     A paper-units move is a 25.4x rescale of every paper-space unit at the
     plot scale (a 16-unit frame on an inch sheet spans 406.4 mm of paper;
     after a move to millimetres, 16 mm) with ``ok: True`` and the scale
-    reported as applied — so it is named here, on both engines, with the
-    way back. Both engines build the same list from the same ``changed``.
+    reported as applied — so it is named here, with the way back, built from
+    ``changed``.
     """
     warnings: list[str] = []
     move = changed.get("paper_units")
@@ -551,7 +551,7 @@ def center_applies(plot_type) -> bool:
     """Whether "centre the plot" means anything under this ``AcPlotType``.
 
     False for ``acLayout`` (5): the sheet is plotted from its origin, AutoCAD
-    greys the option out and ActiveX refuses ``CenterPlot = True``. Read-backs
+    greys the option out and refuses ``CenterPlot = True``. Read-backs
     report ``center: None`` there instead of a stored flag nothing honours.
     """
     try:
@@ -572,7 +572,7 @@ def resolve_page_setup(
     paper_units: str | None = "mm",
     bleed: str = "none",
 ) -> dict:
-    """Validate a page setup request and resolve it to what both engines write.
+    """Validate a page setup request and resolve it to what the backend writes.
 
     Raises ``ValueError`` naming the offending field; nothing here touches a
     drawing. ``paper`` is a catalogue name (``ISO_A3``, ``A3``, ``ANSI_B``) or
@@ -592,7 +592,7 @@ def resolve_page_setup(
     ``"mm"`` (the default — this server draws in millimetres), ``"inches"``,
     or ``None`` to keep the layout's current units, which is what AutoCAD's
     own Page Setup does when a media is chosen. A write that moves the units
-    rescales every paper-space unit by 25.4; both engines report it in
+    rescales every paper-space unit by 25.4; the backend reports it in
     ``changed`` and ``warnings``.
     """
     word = _bleed_word(bleed)

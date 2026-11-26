@@ -34,8 +34,7 @@ true``; the refiner leaves every other code to a person (``manual_required``).
 One ``dim_render_stale`` is not repairable headlessly: an angular dimension
 whose block shows the reflex angle (``reflex_render``) - ezdxf's renderer
 draws it so again.
-The read is the run's all-spaces QA snapshot (``engineering/qa_scan.py``); on
-the live engine that is the ``Document.Export`` DXF, read by the same code.
+The read is the run's all-spaces QA snapshot (``engineering/qa_scan.py``).
 INSERTs are exploded for binding only when the drawing holds a DIMENSION.
 """
 
@@ -190,9 +189,8 @@ def dimension_issues(
 ) -> list[Issue]:
     """Every code of every DIMENSION record, in record order then ``CODES`` order.
 
-    ``engine`` is the backend's name: on ``com`` a reflex angle is AutoCAD's
-    to redraw (``dimension_rerender`` updates it from the arc point), so it
-    stays repairable; headless it is not (:func:`reflex_render`)."""
+    ``engine`` is the backend's name; headless a reflex angle is not
+    repairable (:func:`reflex_render`)."""
     from .verification.binding import DimensionIndex, bind_dimension
 
     index = DimensionIndex(observed, epsilon)

@@ -207,8 +207,8 @@ def _wire_backend(backend, operations):
 def _isolate_sessions(backend, operations):
     """A headless ``backend`` behind a per-session router (SESSION_ISOLATION).
 
-    A live AutoCAD is one application with one active document, so its
-    backend is shared as it is; only the headless engine can be built again.
+    Any other backend is shared as it is; only the headless engine can be
+    built again.
     """
     from backends.ezdxf_backend import EzdxfBackend
 
@@ -755,7 +755,7 @@ def _change_mark(backend, tool: str):
     """1.8-10: the backend's change mark before a mutating call (None otherwise).
 
     ``cad_batch`` is marked step by step inside it, so not here. A backend
-    without ``change_mark`` (the live engine) is summarised from the handles
+    without ``change_mark`` is summarised from the handles
     its result returns - ``"result"`` is the mark that says so.
     """
     if tool == "cad_batch" or backend is None or not _mutating_tool(tool):
@@ -1749,7 +1749,8 @@ async def _tool_groups() -> dict:
 #   safe        mutates, trivially reversible (settings, current layer, view)
 #   mutate      creates or edits geometry
 #   destructive deletes or overwrites geometry/files
-#   escape      raw AutoCAD command / LISP passthrough
+#   escape      raw command passthrough (none registered since the live engine
+#               was removed; a tool without a card is judged escape)
 CAD_TOOL_COSTS = ("read", "safe", "mutate", "destructive", "escape")
 
 
@@ -1965,7 +1966,7 @@ LEAN_TOOL_NAMES = frozenset(
 # everything not claimed by another pack and is always on. ~300 tools would
 # push the full catalog to ~80k idle tokens; a client that only drafts
 # mechanically should not pay for the P&ID surface, and a client that never
-# talks to a live seat should not pay for the environment surface. Styles and
+# manages documents or layer states should not pay for the environment surface. Styles and
 # page setup (SECTION 18/19) are drafting essentials and stay in core.
 TOOL_PACK_NAMES = ("core", "pid", "settings", "mech", "arch", "plant")
 PACK_TOOL_NAMES: dict[str, frozenset[str]] = {
@@ -2243,17 +2244,8 @@ async def drawing_new(
 ) -> dict:
     """Create a new drawing, optionally from a template.
 
-    A bundled name resolves to `templates/<name>.dxf` headlessly and
-    `templates/<name>.dwt` on the live engine (falling back to the DXF with
-    `source: "bundled_dxf"` when no `.dwt` twin is committed); a path is used
-    as given. The result carries `template: {name|path, path, source}`.
-
-    On the live engine only a genuine `.dwt` reaches `Documents.Add` —
-    measured on AutoCAD 2026, `Add(<file.dxf>)` silently returns the default
-    drawing — so a `.dxf` template (bundled or a path) is first converted
-    through AutoCAD into a cached `.dwt` and `template.dwt` names it
-    (`template.dwt_cached` says whether the conversion was reused). The
-    drawing then really carries the template's layers, tabs and page setup.
+    A bundled name resolves to `templates/<name>.dxf`; a path is used as
+    given and read as DXF. The result carries `template: {name|path, path, source}`.
 
     Refused before anything is replaced: a bare name that is not in the
     catalogue (the message lists the five), a template path that does not
@@ -2398,7 +2390,7 @@ async def drawing_save(
 ) -> dict:
     """Save the current drawing. Optionally specify a new path.
 
-    Headless, the write is atomic: a temporary file beside the target, checked,
+    The write is atomic: a temporary file beside the target, checked,
     then renamed over it - a killed save never leaves a half-written drawing.
     A document opened with recover=True is refused onto its damaged source
     (`recovered_source_protected`) unless overwrite_source=True.
@@ -2458,10 +2450,9 @@ async def drawing_export_dxf(
     """Export the current drawing as a DXF copy.
 
     The open document is never re-pointed: it keeps its name, path and saved flag
-    (drawing_save_as is the call that re-points). Live: `Document.Export`, renamed to
-    the name given; headless: a copy written by ezdxf. The result names the method
-    and the DXF version written. Refused: a name that is not .dxf (a .dwg headlessly
-    with capability `dwg`).
+    (drawing_save_as is the call that re-points); the copy is written by ezdxf. The
+    result names the method and the DXF version written. Refused: a name that is not
+    .dxf (a .dwg with capability `dwg`).
     """
     validated = validate_path(path, allow_write=True, kinds=KINDS_DXF)
     await ctx.info(f"Exporting DXF: {validated}")
@@ -2477,8 +2468,8 @@ async def drawing_export_pdf(
     path: Annotated[str, "Output .pdf file path"],
     layout: Annotated[
         str | None,
-        "Paper-space layout to plot (default: model space). COM plots the layout "
-        "natively incl. viewport content; ezdxf renders the layout's own entities.",
+        "Paper-space layout to plot (default: model space), model content shown "
+        "through its viewports.",
     ] = None,
     ctx: Context = None,
 ) -> dict:
@@ -2533,8 +2524,7 @@ async def drawing_close(
 ) -> dict:
     """Close the active document. If save is True (default), the drawing is
     saved to its current path before closing; an untitled document is closed
-    and `warning` says its changes were discarded (headless) or the call is
-    refused (live, where the alternative is a modal Save dialog). The
+    and `warning` says its changes were discarded. The
     active-document case of `document_close`; after the last document is
     closed, call drawing_new or drawing_open before any other tool."""
     await ctx.info(f"Closing drawing (save={save})")
@@ -2574,7 +2564,7 @@ async def drawing_undo(ctx: Context = None) -> dict:
 async def drawing_redo(ctx: Context = None) -> dict:
     """Reapply the operation you just undid.
 
-    Same history as `drawing_undo`: headless, a checkpoint undo is redone from
+    Same history as `drawing_undo`: a checkpoint undo is redone from
     the state it replaced (kept as a checkpoint), within the session. Anything
     drawn after an undo discards the redo
     branch — otherwise redo would restore a state that never existed, with
@@ -2786,7 +2776,7 @@ async def entity_create_table(
     layer: Annotated[str, "Target layer"] = "TEXT",
     ctx: Context = None,
 ) -> dict:
-    """Create a native COM table or an explicitly-labelled ezdxf composite table."""
+    """Create a table as an explicitly-labelled composite (lines and text)."""
     result = await _backend(ctx).entity_create_table(
         x, y, rows, headers, column_widths, row_height, text_height, title, layer
     )
@@ -2807,7 +2797,7 @@ async def leader_create_mleader(
     layer: Annotated[str, "Target layer"] = "DIM",
     ctx: Context = None,
 ) -> dict:
-    """Create a native COM MLeader or an explicitly-labelled ezdxf composite."""
+    """Create a multileader as an explicitly-labelled composite."""
     result = await _backend(ctx).leader_create_mleader(
         points, text, text_height, landing_gap, arrow_size, layer
     )
@@ -2923,7 +2913,7 @@ async def entity_create_block_ref(
 ) -> dict:
     """Insert a block reference (instance of an existing block definition).
 
-    Refused before any write, on both engines: a name that is not a block
+    Refused before any write: a name that is not a block
     definition in this drawing (`block 'X' is not defined` — check
     `block_list`), a layout block (`*Model_Space` / `*Paper_Space`, a
     reference cycle) and a non-string name. The same gate as `block_insert`;
@@ -3004,10 +2994,7 @@ async def hatch_add_boundary(
     Typed edges exist because a boundary that only accepts vertex lists
     silently straightens every curve it is given. Every edge is validated
     before any is written, so a malformed list refuses instead of leaving a
-    half-built path. Both engines: headlessly the edges become an edge path;
-    on a live seat each becomes a temporary LINE, true ARC or ELLIPSE appended
-    as an inner loop and then deleted (a chain of lines becomes one polyline).
-    A loop that does not close is refused by AutoCAD and nothing is added.
+    half-built path. The edges become one edge path.
     """
     return await _backend(ctx).hatch_add_boundary(handle, edges)
 
@@ -3753,7 +3740,7 @@ async def text_find_replace(
 ) -> dict:
     """Replace text in TEXT, MTEXT and block attributes (ATTRIB and ATTDEF).
 
-    Both engines search the same places (`searched_scope`): model space, every
+    It searches (`searched_scope`): model space, every
     paper layout, every named block definition - so the next insert does not
     reintroduce the old text - and the attributes of every block reference in
     any of them; an xref's block holds another file's text and is not searched.
@@ -3831,11 +3818,6 @@ async def entity_edit_geometry(
     An argument the entity's type does not take is refused by name, never ignored.
     A linear or aligned DIMENSION takes x1/y1/x2/y2 - its two measured points - and
     is redrawn, so its number follows them (1.8.0); any other dimension type is refused.
-
-    On the live engine, if AutoCAD will not take a vertex list of a different
-    length in place, the polyline is recreated with its layer, colour, linetype,
-    lineweight and XDATA and the result says so in ``properties.replaced``
-    ``[{old, new}]`` — use the new handle from then on.
     """
     await ctx.debug(f"Editing geometry of entity {handle}")
     result = await _backend(ctx).entity_edit_geometry(
@@ -4131,9 +4113,9 @@ async def entity_delete_many(
     """
     # 1.8-09 in full: every handle is checked first, in one read, and a missing
     # one refuses the call with each index in `missing` - nothing deleted. The
-    # deletes run inside a transaction; a failure rolls it back (headless: the
-    # snapshot; live: an UNDO back to the mark, `verified` by reading the
-    # handles again) and answers ok: false, errors, deleted: 0. A handle listed
+    # deletes run inside a transaction; a failure rolls it back to the snapshot
+    # (`verified` by reading the handles again) and answers ok: false, errors,
+    # deleted: 0. A handle listed
     # twice is deleted once (`duplicates_ignored`). The docstring stays short:
     # it is what the discovery index ranks.
     from engineering.changes.precheck import normalise, require_handles
@@ -4160,8 +4142,7 @@ async def entity_delete_many(
     total = len(unique)
     if not total:
         return {"ok": True, "deleted": 0, "errors": []}
-    # The transaction is the all-or-nothing; on the live engine its begin also
-    # takes the 1.8-08 checkpoint, so a second export is taken only without it.
+    # The transaction is the all-or-nothing.
     with anyio.CancelScope(shield=True):
         opened = await b.transaction_begin()
     in_transaction = isinstance(opened, dict) and bool(opened.get("ok"))
@@ -4169,7 +4150,7 @@ async def entity_delete_many(
     errors = []
     try:
         await anyio.lowlevel.checkpoint_if_cancelled()
-        # 1.8-23: one backend call - the headless loop, ONE STA job live.
+        # 1.8-23: one backend call.
         outcome = await b.entity_delete_many(
             unique, progress=ctx.report_progress, stop_on_error=in_transaction
         )
@@ -4208,9 +4189,8 @@ async def entity_delete_many(
             if rolled_back:
                 result["deleted"] = 0
                 # The handles read before the first delete, read again - the
-                # same evidence as cad_batch's: live exact and only once AutoCAD
-                # is idle (CMDACTIVE 0), headless presence. Unreadable or busy
-                # is `verified: None`, never a claim, and never raised over a
+                # same evidence as cad_batch's: presence. Unreadable is
+                # `verified: None`, never a claim, and never raised over a
                 # rollback that landed.
                 guarantee, _note = _batch_rollback_guarantee(b)
                 verified, evidence = await _batch_rollback_evidence(b, guarantee, True, before)
@@ -4227,7 +4207,7 @@ async def entity_delete_many(
 
 
 @cad_tool(
-    summary="Read what the user already picked in the AutoCAD viewport (COM backend).",
+    summary="Read a viewport pick-first selection; headless there is none (ok: false).",
     cost="read",
 )
 @mcp.tool(
@@ -4239,30 +4219,14 @@ async def selection_get(
     compact: ResultCompact = False,
     ctx: Context = None,
 ) -> dict:
-    """Read the entities the user pre-selected in the AutoCAD viewport (COM backend only).
+    """Read the entities pre-selected in a viewport (the "pickfirst" set).
 
-    Returns the implied "pickfirst" selection — the entities highlighted with
-    grips before invoking the AI — so work can be scoped to exactly those
-    entities instead of the whole drawing. Typical use::
+    The headless server has no viewport, so this always returns ok=False with
+    an empty `handles` list and an `error`; select with selection_filter /
+    selection_window / entity_select_smart instead. Typical use::
 
         sel = selection_get()
         dimension_auto(sel["handles"], style="chain")
-
-    Result keys:
-        ok        — True on the COM backend (even for an empty selection)
-        count     — number of selected entities
-        handles   — list of entity handles (hex strings) to act on
-        entities  — full per-entity info (type, layer, color, ...)
-        pickfirst — state of the PICKFIRST sysvar (None if unknown)
-        message   — guidance when nothing is selected
-
-    On the ezdxf headless backend there is no viewport, so this returns
-    ok=False with an empty handles list.
-
-    `fields` / `compact` shape the "entities" collection — this tool already
-    returns an object, so the columnar envelope lands *under* that key rather
-    than replacing the result. `handles` is unaffected, so a caller that only
-    wants handles can pass fields=["handle"] and still read `handles` directly.
     """
     result = await _backend(ctx).selection_get()
     if result.get("ok"):
@@ -4506,13 +4470,11 @@ async def layer_rename(
 ) -> dict:
     """AutoCAD's RENAME for a layer: the table entry and every reference to it.
 
-    Headless, every entity's layer in model space, every paper layout and every
-    block definition is rewritten (`entities`, `by_space`, `blocks_touched`), with
-    viewport frozen lists and the current layer; live, AutoCAD references a layer by
-    object id, so `AcadLayer.Name` renames it everywhere and no entity is rewritten
-    (`entities: null`). A layer state saved earlier keeps the old name. Refused by
-    name, before anything changes: `0`, `DEFPOINTS`, an xref-dependent layer, a
-    missing `old`, an existing `new` (use layer_merge), a case-only change.
+    Every entity's layer in model space, every paper layout and every block definition
+    is rewritten (`entities`, `by_space`, `blocks_touched`), with viewport frozen lists
+    and the current layer. A layer state saved earlier keeps the old name. Refused by
+    name, before anything changes: `0`, `DEFPOINTS`, an xref-dependent layer, a missing
+    `old`, an existing `new` (use layer_merge), a case-only change.
     """
     await ctx.info(f"Renaming layer {old!r} to {new!r}")
     return await _backend(ctx).layer_rename(old, new)
@@ -4538,9 +4500,7 @@ async def layer_merge(
     (attributes included); `by_space` counts per layout, `blocks_touched` names the
     edited definitions - and `note` says so, because an edited definition changes
     every INSERT of that block. The current layer moves to `target` when it was a
-    source; viewport freezes of a source are dropped with it. Live, a locked source
-    or target is unlocked for the move and the target relocked; a source AutoCAD
-    will not delete is listed in `layers_not_deleted` with its reason. Refused by
+    source; viewport freezes of a source are dropped with it. Refused by
     name, before anything changes: a missing source or target (layer_create the
     target first), `0` / `DEFPOINTS` / an xref-dependent layer as a source, the
     target among the sources.
@@ -4560,7 +4520,7 @@ async def linetype_list(ctx: Context = None) -> list[str]:
 
 
 @cad_tool(
-    summary="Load a linetype such as CENTER or HIDDEN, without the FILEDIA dialog trap.",
+    summary="Load a linetype such as CENTER or HIDDEN from the built-in tables.",
     cost="mutate",
 )
 @mcp.tool(
@@ -4571,20 +4531,16 @@ async def linetype_load(
     name: Annotated[str, "Linetype name to load (e.g. 'CENTER', 'DASHED', 'HIDDEN')"],
     file: Annotated[
         str | None,
-        "Optional .lin file. Defaults to acadiso.lin (metric) or acad.lin "
-        "(imperial), chosen from MEASUREMENT. Ignored by ezdxf backend.",
+        "Accepted and ignored: linetypes come from the built-in tables.",
     ] = None,
     ctx: Context = None,
 ) -> dict:
-    """Load a single linetype safely.
+    """Load a single linetype.
 
-    The raw command `_-LINETYPE _LOAD ...` deadlocks on the FILEDIA file-picker dialog and on the
-    -LINETYPE option-menu prompt (measured on AutoCAD 2026: it loads nothing
-    either way). This tool loads through the ActiveX `Linetypes.Load` member,
-    picks the right .lin file from MEASUREMENT, and verifies the linetype
-    actually loaded. Refuses a name that is not a valid symbol name, a file
-    outside the allowed paths, and reports a name the file does not carry
-    or a file AutoCAD cannot find as an error naming both.
+    From ezdxf's standard set (CENTER, DASHED, DASHDOT, PHANTOM, DOT, DIVIDE
+    and their variants) or the HIDDEN / BORDER fallback table; an already
+    loaded name answers `already_loaded`. A name in neither is an error
+    listing what is available.
     """
     return await _backend(ctx).linetype_load(name, file)
 
@@ -4638,7 +4594,7 @@ async def block_insert(
 ) -> dict:
     """Insert a block and optionally set attribute values.
 
-    Refused before any write, on both engines: an undefined or layout block
+    Refused before any write: an undefined or layout block
     name, and an attribute value that is not text — a string is written as
     is (one line), an int or finite float as its plain digits (`101` →
     `"101"`), while `null`, booleans, lists and objects are refused naming
@@ -4662,25 +4618,22 @@ async def block_explode(
     ctx: Context = None,
 ) -> dict:
     """Explode a block reference into its component entities, keeping its
-    attribute text (the Express Tools BURST rule, on both engines).
+    attribute text (the Express Tools BURST rule).
 
-    Every attached ATTRIB becomes a TEXT with the same value, placement,
-    height, rotation and layer (an invisible attribute becomes an invisible
-    TEXT; a multi-line attribute becomes an MTEXT carrying every line), and
-    a constant attribute (which has no ATTRIB) becomes a TEXT of its value
-    too; AutoCAD's plain EXPLODE would keep only the tag-name placeholders
-    and drop the values. Everything lands in the layout that owns the
-    reference (model space or its paper-space sheet), whichever tab is
-    current. Returns `inserted_handles` (the geometry), `attribute_texts`
-    (one TEXT or MTEXT handle per attribute), `exploded_handle` and
-    `backend`. Refused, with nothing written: a handle that is not a block
-    reference, a reference nested inside a block definition (explode the
-    outer reference instead), an external reference (bind it first), a
-    MINSERT grid, and -- headless only, capability `explode_opaque_members`
-    -- a block holding a member ezdxf cannot transform (an OLE2FRAME logo, a
-    VIEWPORT, a proxy entity without proxy graphics), named by member; the
-    live engine hands those to AutoCAD. Not undoable except through
-    `drawing_undo` / a transaction.
+    Every attached ATTRIB becomes a TEXT with the same value, placement, height,
+    rotation and layer (an invisible attribute becomes an invisible TEXT; a multi-line
+    attribute becomes an MTEXT carrying every line), and a constant attribute (which has
+    no ATTRIB) becomes a TEXT of its value too; AutoCAD's plain EXPLODE would keep only
+    the tag-name placeholders and drop the values. Everything lands in the layout that
+    owns the reference (model space or its paper-space sheet), whichever tab is current.
+    Returns `inserted_handles` (the geometry), `attribute_texts` (one TEXT or MTEXT
+    handle per attribute), `exploded_handle` and `backend`. Refused, with nothing
+    written: a handle that is not a block reference, a reference nested inside a block
+    definition (explode the outer reference instead), an external reference (bind it
+    first), a MINSERT grid, and (capability `explode_opaque_members`) a block holding a
+    member ezdxf cannot transform (an OLE2FRAME logo, a VIEWPORT, a proxy entity without
+    proxy graphics), named by member. Not undoable except through `drawing_undo` / a
+    transaction.
     """
     await ctx.warning(f"Exploding block reference {handle}")
     return await _backend(ctx).block_explode(handle)
@@ -4698,7 +4651,7 @@ async def block_get_attributes(
     """Get all attribute values from a block reference as {TAG: value} dict.
 
     A multi-line attribute reports its whole content with `\\P` between the
-    lines (AutoCAD's `TextString`), on both engines.
+    lines (AutoCAD's `TextString`).
     """
     return await _backend(ctx).block_get_attributes(handle)
 
@@ -4725,7 +4678,7 @@ async def block_set_attributes(
 
     A multi-line attribute takes `Line1\\PLine2` and keeps every line; the
     value written is the one `block_get_attributes` reads back and
-    `block_explode` bursts, on both engines.
+    `block_explode` bursts.
     """
     return await _backend(ctx).block_set_attributes(handle, attributes)
 
@@ -4747,7 +4700,7 @@ async def block_create_from_entities(
 ) -> dict:
     """Create a new block definition from existing entities in the drawing.
 
-    Works on both engines. The originals stay in model space — this defines a
+    The originals stay in model space — this defines a
     reusable block from them rather than consuming them the way AutoCAD's BLOCK
     command does; use `block_insert` to place copies, and delete the originals
     yourself if you want the command's behaviour.
@@ -4761,7 +4714,7 @@ async def block_create_from_entities(
 
 
 @cad_tool(
-    summary="Define a block from typed primitives and attribute definitions, on both engines.",
+    summary="Define a block from typed primitives and attribute definitions.",
     cost="mutate",
 )
 @mcp.tool(
@@ -5196,8 +5149,8 @@ async def analysis_layer_stats(ctx: Context = None) -> dict:
 
 #: What ``on_error`` accepts. ``auto`` is the default since 1.8.0 (plan
 #: 1.8-09, a breaking change from 1.7's ``stop``): a batch with at least one
-#: mutating step runs as ``rollback`` - a snapshot headless, a verified
-#: best-effort UNDO live - and a read-only batch as ``stop``, opening no
+#: mutating step runs as ``rollback`` - a document snapshot - and a
+#: read-only batch as ``stop``, opening no
 #: checkpoint. ``stop`` still keeps whatever ran (the 1.7 behaviour, by name).
 BATCH_ON_ERROR_MODES = ("stop", "continue", "rollback", "auto")
 
@@ -5235,11 +5188,8 @@ _BATCH_DOCUMENT_SWITCHES = frozenset(
 )
 
 #: Steps that drive a transaction themselves. on_error="auto" runs a batch with
-#: one of them as stop, the 1.7 default: the live engine does not nest - a
-#: second ``transaction_begin`` inside auto's checkpoint is declined ("A
-#: transaction is already active"), which would refuse and roll back a batch
-#: 1.7 ran - and a step that commits or rolls back would close auto's own
-#: checkpoint under it. An explicit "rollback" is still honoured as before.
+#: one of them as stop, the 1.7 default: a step that commits or rolls back
+#: would close auto's own checkpoint under it. An explicit "rollback" is still honoured as before.
 _BATCH_TRANSACTION_STEPS = frozenset(
     {"transaction_begin", "transaction_commit", "transaction_rollback"}
 )
@@ -6027,12 +5977,10 @@ async def cad_batch(
 
     ATOMICITY is reported, not assumed. The default on_error="auto" (since
     1.8.0; 1.7 defaulted to "stop") makes a batch with at least one mutating
-    step all or nothing: on the headless backend a run-time failure restores a
-    full document snapshot; on live AutoCAD it sends an UNDO, judged by the
-    before/after fingerprints once AutoCAD is idle (CMDACTIVE 0). A read-only
-    batch opens no checkpoint, and neither does one with a transaction_begin /
-    transaction_commit / transaction_rollback step: it runs as "stop" (live
-    AutoCAD does not nest a transaction). Read the `atomicity` block: `mode` is what ran,
+    step all or nothing: a run-time failure restores a full document
+    snapshot. A read-only batch opens no checkpoint, and neither does one with
+    a transaction_begin / transaction_commit / transaction_rollback step: it
+    runs as "stop". Read the `atomicity` block: `mode` is what ran,
     `default_applied` (auto only) whether auto's checkpoint was opened,
     `verified` whether the rollback was evidenced. Pass on_error="stop" to
     keep the steps that ran before a failure. Under an explicit
@@ -6042,8 +5990,7 @@ async def cad_batch(
     CHANGES: `changes` {added, deleted, counts, complete} sums the steps; a
     failed batch reports `partial_changes`.
 
-    NOT CALLABLE from a batch: the raw command/LISP escape hatches, and
-    cad_batch itself. Call those directly. A step the server's tool policy
+    NOT CALLABLE from a batch: cad_batch itself. A step the server's tool policy
     refuses (READ_ONLY, TOOL_ALLOWLIST / TOOL_DENYLIST, MAX_TOOL_COST) refuses
     the whole batch before any step runs, kind policy_refused.
 
@@ -6197,7 +6144,7 @@ async def cad_batch(
         elif own:
             auto_note = (
                 f"on_error='auto' with {own}: the batch drives its own transaction, so "
-                "auto opened none around it (live AutoCAD does not nest one) and it "
+                "auto opened none around it and it "
                 "halts at the first failure, as in 1.7. "
             )
         elif not mutating:
@@ -6322,8 +6269,7 @@ async def cad_batch(
         # B01: the begin runs shielded. Cancelled mid-await, its worker would
         # still finish (the lease follows the worker) and push a checkpoint
         # this call never learns about - left open, a later bare rollback
-        # restores the pre-batch snapshot, and on COM `_transaction_active`
-        # blocks every later batch. Shielded, the outcome is always known: a
+        # restores the pre-batch snapshot. Shielded, the outcome is always known: a
         # cancellation that arrived meanwhile is delivered by the checkpoint
         # at the top of the try below, whose handler rolls the begin back.
         try:
@@ -6345,8 +6291,7 @@ async def cad_batch(
             await anyio.lowlevel.checkpoint_if_cancelled()
             reason = (opened or {}).get("error", "transaction_begin declined")
         if not begun and requested == "auto":
-            # 1.8-09: auto's checkpoint was declined (live: a transaction the
-            # caller opened, or AutoCAD at a prompt - CMDACTIVE). The default
+            # 1.8-09: auto's checkpoint was declined. The default
             # does not refuse what 1.7 ran: it runs as stop, with no claim.
             mode, guarantee = "stop", "none"
             before = None
@@ -6611,8 +6556,7 @@ async def cad_batch(
                 after = await _batch_fingerprint(backend)
                 verified = None if (before is None or after is None) else before == after
                 if rolled_back:
-                    # 1.8-09: the pre-check's handle fingerprints, read again
-                    # (live: only once AutoCAD is idle).
+                    # 1.8-09: the pre-check's handle fingerprints, read again.
                     verified, evidence = await _batch_rollback_evidence(
                         backend, guarantee, verified, handles_before
                     )
@@ -6762,8 +6706,7 @@ async def entity_batch_create(
         raise InvalidArgsError(f"invalid_args: {'; '.join(problems[:10])} - nothing was drawn")
     total = len(entities)
     await ctx.info(f"Batch creating {total} entities")
-    # 1.8-23: one backend call - the contract's loop over entity_create_*
-    # headlessly, ONE STA job with one display refresh live.
+    # 1.8-23: one backend call - the contract's loop over entity_create_*.
     result = await b.entity_batch_create(entities, progress=ctx.report_progress)
     await ctx.report_progress(total, total)
     if not result["errors"]:
@@ -7086,8 +7029,7 @@ async def validation_check(
 async def view_screenshot(
     overlay_handles: Annotated[
         bool,
-        "Label each entity with its handle, so what you see maps to what you "
-        "can modify. Headless backend only.",
+        "Label each entity with its handle, so what you see maps to what you can modify.",
     ] = False,
     region: Annotated[
         list[float] | None,
@@ -7100,32 +7042,20 @@ async def view_screenshot(
     ] = 1568,
     ctx: Context = None,
 ):
-    """Capture a screenshot of the current drawing view.
+    """Capture a screenshot of the current drawing view, rendered via matplotlib.
 
-    COM backend: captures live AutoCAD window at current view.
-    ezdxf backend: renders via matplotlib to PNG.
-
-    With `region=[x0, y0, x1, y1]` only that window is drawn, on both engines:
-    headless it is the current space, live it is the bound document's
-    `Document.Export` snapshot drawn by the same renderer
-    (`source: "export_snapshot"`, seconds on a large drawing). Without a region
-    the headless engine frames the extents and the live one captures the
-    AutoCAD window (`source: "window"`). Beside the image comes a report:
+    With `region=[x0, y0, x1, y1]` only that window of the current space is
+    drawn; without one the extents are framed. Beside the image comes a report:
     `applied`, `framing`, `px` (read from the PNG), `region` (the window drawn —
     the requested one widened by under a pixel so x and y share one scale),
-    `px_per_unit` (drawing point (x, y) is pixel ((x - x0)·ppu, (y1 - y)·ppu));
-    a window capture reports `region`/`px_per_unit` null, plus `dpi` (the
-    window's DPI), `dpi_awareness`, `capture` (the bitmap in physical pixels,
-    before `max_px`) and `window_minimized` - the server makes itself DPI-aware,
-    so the whole window is captured at any display scaling. A zero-width region or
-    a `max_px` outside 64-4096 is refused by name.
+    `px_per_unit` (drawing point (x, y) is pixel ((x - x0)·ppu, (y1 - y)·ppu)).
+    A zero-width region or a `max_px` outside 64-4096 is refused by name.
 
     With `overlay_handles`, each entity is labelled with its handle at its own
     centre — every modify tool takes a handle, and without the labels there is
     nothing connecting "the circle at the top-left" to a hex string you can act
     on. Crowded drawings are capped and the image says how many of how many were
-    labelled. Live AutoCAD captures its own window, so there is no render to
-    label there; it refuses with `capability: "handle_overlay"`.
+    labelled.
 
     Returns an Image content block with the PNG data, then the report as JSON.
     """
@@ -7138,9 +7068,7 @@ async def view_screenshot(
     await ctx.report_progress(100, 100)
     return _view_image_result(
         report,
-        "Screenshot not available. "
-        "For COM backend: ensure AutoCAD window is visible. "
-        "For ezdxf backend: install matplotlib (pip install matplotlib).",
+        "Screenshot not available. Install matplotlib (pip install matplotlib).",
     )
 
 
@@ -7195,13 +7123,9 @@ async def view_zoom_and_screenshot(
 
     The most useful tool for visually inspecting drawing state.
 
-    The window is really applied on both engines: headless it is drawn as that
-    window (it used to be ignored), live AutoCAD zooms to it and the picture is
-    the bound document's export drawn at a stated scale
-    (`source: "export_snapshot"`). Without a window: extents (headless render;
-    live ZoomExtents + window capture). The report beside the image is the one
-    `view_screenshot` gives — `applied`, `px`, `region`, `px_per_unit`, and on a
-    live window capture `dpi`, `capture`, `window_minimized`. Give all
+    The window is drawn as that window at a stated scale; without one, the
+    extents. The report beside the image is the one `view_screenshot` gives —
+    `applied`, `px`, `region`, `px_per_unit`. Give all
     four corners or none: a partial window is refused, never silently widened
     to the extents.
     """
@@ -7241,13 +7165,8 @@ async def view_zoom_and_screenshot(
     tags={"transaction"},
 )
 async def transaction_begin(ctx: Context = None) -> dict:
-    """Begin a transaction (undo mark).
-
-    COM backend: Sets AutoCAD undo mark. All subsequent operations can be
-    rolled back to this point with transaction_rollback.
-
-    ezdxf backend: Saves a DXF snapshot. Rollback restores the full document
-    state to this point.
+    """Begin a transaction: saves a DXF snapshot that transaction_rollback
+    restores the full document state to.
 
     Always pair with transaction_commit or transaction_rollback.
     """
@@ -7261,11 +7180,7 @@ async def transaction_begin(ctx: Context = None) -> dict:
     tags={"transaction"},
 )
 async def transaction_commit(ctx: Context = None) -> dict:
-    """Commit the current transaction.
-
-    COM: Ends the undo mark (changes are permanent but still undoable via drawing_undo).
-    ezdxf: Discards the rollback snapshot (changes are kept).
-    """
+    """Commit the current transaction: discards the rollback snapshot (changes are kept)."""
     await ctx.info("Committing transaction")
     return await _backend(ctx).transaction_commit()
 
@@ -7281,9 +7196,8 @@ async def transaction_commit(ctx: Context = None) -> dict:
 async def transaction_rollback(ctx: Context = None) -> dict:
     """Rollback the current transaction to the point of transaction_begin.
 
-    COM: Undoes all operations back to the UNDO Mark transaction_begin set;
-    refused (`ok: false`) when no transaction is active.
-    ezdxf: Restores the document from the saved DXF snapshot.
+    Restores the document from the saved DXF snapshot; `ok: false` when no
+    transaction is active.
 
     WARNING: This is destructive – all changes since transaction_begin are lost.
     """
@@ -7317,8 +7231,7 @@ async def checkpoint_create(
     is not changed. Returns `{cp, seq, tool, rev, kb, label}`.
 
     Refused: `checkpoints` (unsupported) when there is no state folder
-    (JOURNAL_DURABLE=off, or a refused ACADMCP_STATE_DIR). Live: the document is
-    exported with Document.Export.
+    (JOURNAL_DURABLE=off, or a refused ACADMCP_STATE_DIR).
     """
     return await _backend(ctx).checkpoint_create(label)
 
@@ -7381,9 +7294,7 @@ async def checkpoint_restore(
 
     Refused by kind: `checkpoint_not_found` (no such id, seq or label - the
     message names the newest ones), `checkpoint_evicted` (the budget dropped its
-    bytes), `stale_revision` (expected_revision no longer holds), and on live
-    AutoCAD `mode="in_place"` with capability `checkpoint_restore_in_place`
-    (ActiveX cannot replace an open drawing's database - use new_document).
+    bytes), `stale_revision` (expected_revision no longer holds).
     """
     backend = _backend(ctx)
     if expected_revision is not None:
@@ -7455,7 +7366,7 @@ def _operations_view(journal, detail: str):
 
 
 @cad_tool(
-    summary="Check the connection: which engine is live and what document is open.",
+    summary="Check the connection: which engine runs and what document is open.",
     cost="read",
 )
 @mcp.tool(
@@ -7466,7 +7377,7 @@ async def system_status(
     metrics: Annotated[
         bool,
         "Add `metrics`: this connection's calls, by_tool, result_bytes, errors_by_kind, "
-        "p50/p95 ms (live: the per-job queue/guard/work/refresh/counter ms too).",
+        "p50/p95 ms.",
     ] = False,
     detail: Annotated[
         Literal["summary", "operations"],
@@ -7510,7 +7421,7 @@ async def system_status(
             "backend": "none",
             "connected": False,
             "error": ctx.lifespan_context.get("init_error"),
-            "hint": "Set AUTOCAD_MCP_BACKEND=ezdxf to use headless mode, or start AutoCAD for COM mode.",
+            "hint": "Set AUTOCAD_MCP_BACKEND=ezdxf (or auto) and restart the server.",
         }
         if tool_count is not None:
             out["tool_count"] = tool_count
@@ -7575,14 +7486,13 @@ async def system_set_variable(
 ) -> dict:
     """Set an AutoCAD system variable (e.g. DIMSCALE, LTSCALE, MEASUREMENT).
 
-    Refusals, before anything is written: a value outside the catalogued
-    range or enum of a known variable, or a write to a read-only variable
-    (DIMSTYLE, CANNOSCALEVALUE, DWGNAME, …), is refused with the catalogue's
-    message — `system_variable_describe(name)` shows the range. A variable the
-    catalogue does not know is passed through unchanged. The headless engine
-    additionally refuses registry-saved variables (`capability:
-    registry_sysvar`) because a file has nowhere to keep them, and names that
-    ezdxf has no header slot for (a `ValueError` naming the variable).
+    Refusals, before anything is written: a value outside the catalogued range or enum
+    of a known variable, or a write to a read-only variable (DIMSTYLE, CANNOSCALEVALUE,
+    DWGNAME, …), is refused with the catalogue's message —
+    `system_variable_describe(name)` shows the range. A variable the catalogue does not
+    know is passed through unchanged. Also refused: registry-saved variables
+    (`capability: registry_sysvar`) because a file has nowhere to keep them, and names
+    that ezdxf has no header slot for (a `ValueError` naming the variable).
     """
     from engineering.standards.sysvars import check_sysvar_value
 
@@ -7640,20 +7550,17 @@ async def drawing_settings(
     / `zero_suppression` shape the *dimension* — `text_size` is TEXTSIZE, the
     height of a standalone TEXT entity, and does not touch dimensions.
 
-    Refusals, per key, nothing else rolled back: an unknown key; a value outside
-    its range (grid/snap spacing > 0, polar_angle 0–360, precision 0–8, …); a
-    malformed `limits` or `annotation_scale`; `osmode` / `polar` / `polar_angle`
-    on the headless engine (`capability: registry_sysvar` — AutoCAD keeps them in
-    the registry, a file cannot, and a headless snapshot reports them as `None`);
-    `dimstyle` / `textstyle` when the backend has no styles contract. On the
-    live engine `annotation_scale` must name a scale in the drawing's scale list
-    (SCALELISTEDIT) and AutoCAD refuses the write on a
-    paper-space layout with no active viewport; the headless engine adds the
-    scale, seeding AutoCAD's default list first when the drawing has none,
-    and refuses it on an R12 file (no OBJECTS section, so the value would
-    vanish at save — save as R2000 or newer first; limits/grid/ortho survive).
-    Headlessly, grid/snap are stored on the active VPORT and the annotation
-    scale in the variable dictionary — the places AutoCAD reads them from.
+    Refusals, per key, nothing else rolled back: an unknown key; a value outside its
+    range (grid/snap spacing > 0, polar_angle 0–360, precision 0–8, …); a malformed
+    `limits` or `annotation_scale`; `osmode` / `polar` / `polar_angle` (`capability:
+    registry_sysvar` — AutoCAD keeps them in the registry, a file cannot, and a snapshot
+    reports them as `None`); `dimstyle` / `textstyle` when the backend has no styles
+    contract. An `annotation_scale` missing from the drawing's scale list is added,
+    seeding AutoCAD's default list first when the drawing has none, and refuses it on an
+    R12 file (no OBJECTS section, so the value would vanish at save — save as R2000 or
+    newer first; limits/grid/ortho survive). Grid/snap are stored on the active VPORT
+    and the annotation scale in the variable dictionary — the places AutoCAD reads them
+    from.
     """
     if settings:
         await ctx.info(f"Applying drawing settings: {', '.join(settings)}")
@@ -7690,7 +7597,7 @@ async def system_about(ctx: Context = None) -> dict:
     out = {
         "name": "AutoCAD MCP Pro",
         "version": __version__,
-        "description": "Production-grade AutoCAD MCP server with dual COM+ezdxf engine",
+        "description": "Production-grade headless AutoCAD MCP server (ezdxf engine)",
         "active_backend": backend_name,
         "tool_groups": await _tool_groups(),
         "capabilities": b.capabilities().to_dict()["features"] if b else {},
@@ -8058,7 +7965,7 @@ async def drawing_finalize(
     all run before the save.
 
     The validator and the critique share one read of the drawing - every entity of
-    every space, model and paper, with no cap (one DXF export on the live engine). A
+    every space, model and paper, with no cap. A
     drawing over MAX_QA_ENTITIES (default 2,000,000; 0 disables) is not read in part:
     the validator reports `scan_incomplete` and each entity check reports an issue with
     detail.code `scan_incomplete`, so the gate fails. A check that raises is an `error`
@@ -8067,8 +7974,7 @@ async def drawing_finalize(
     The payload's `qa_coverage` says what the critique did not check: {complete, records,
     spaces, reason, not_checked: [{focus, layout, reason, lane}], domain_absent: [focus]}
     (reasons: autocad://critique/focuses) - e.g. a paper layout without a model viewport is
-    `no_viewport_scale`, the live engine's dimension-legibility lane
-    `engine_live_document_template`.
+    `no_viewport_scale`.
 
     Fails (error kind validation_failed / critique_gate_failed / failed_acceptance) if any
     validator 'error' finding is present, or if critique reports an 'error' (or, with
@@ -8084,8 +7990,8 @@ async def drawing_finalize(
     (the full report), `drafting_quality` (the score, unchanged), `artifact_integrity`
     (the saved file's sha256 and `reverified`: every requirement measured again on the
     saved file, read fresh and re-bound by handle, feature tag, then geometry, with the
-    before / after comparison; a saved file that cannot be re-read - a .dwg AutoCAD
-    will not let us copy - fails the acceptance) and `coverage`, and a requirement
+    before / after comparison; a saved file that cannot be re-read fails the
+    acceptance) and `coverage`, and a requirement
     that does not pass,
     stale evidence or a dimension that disagrees with its geometry raises
     `failed_acceptance` - a high drafting score never offsets it. Requirements that do
@@ -8129,7 +8035,7 @@ async def drawing_finalize(
                 await ctx.warning(f"Screenshot export failed: {exc}")
 
     # One run context for the validator and the critique: the drawing is read
-    # once (one Document.Export on the live engine), every space, no cap.
+    # once, every space, no cap.
     qa_shared: dict = {}
     result = await DrawingValidator().run(backend, expected=expected or {}, shared=qa_shared)
     payload = result.to_dict()
@@ -8325,14 +8231,13 @@ async def drawing_deliver(
     ``failed_acceptance``. Failure intentionally keeps all generated artifacts for
     diagnosis.
 
-    The open document is never re-pointed or saved: the DXF is a copy (live:
-    ``Document.Export``), and the manifest records the document's id, revision, path
-    and saved flag, the DXF version, every sha256 and the build. Parity reads the
-    delivered DXF back and compares it with a fresh serialisation of the document over
-    every space: zero changed, added or removed entities, the same counts per space,
-    the same block definitions. Both sides are exports, so parity cannot see content
-    the export itself loses (`parity.scope` says so); with requirements,
-    `parity.content_check` is `acceptance`, the check that can.
+    The open document is never re-pointed or saved: the DXF is a copy, and the manifest
+    records the document's id, revision, path and saved flag, the DXF version, every
+    sha256 and the build. Parity reads the delivered DXF back and compares it with a
+    fresh serialisation of the document over every space: zero changed, added or removed
+    entities, the same counts per space, the same block definitions. Both sides are
+    exports, so parity cannot see content the export itself loses (`parity.scope` says
+    so); with requirements, `parity.content_check` is `acceptance`, the check that can.
 
     With ``requirements`` every requirement is measured on the delivered DXF, read
     fresh and re-bound from the document; the bundle gains ``acceptance.json`` and
@@ -8607,14 +8512,12 @@ async def drawing_critique(
     and dim_unbound (info: not checked, never a pass). Refusals and failures are issues, never
     silence: a check that raises returns an `error` issue of its focus with
     detail.code `check_failed`; a read that could not cover the drawing (more than
-    MAX_QA_ENTITIES entities, default 2,000,000; or a live export whose per-layout
-    counts differ from AutoCAD's) returns detail.code `scan_incomplete`. Neither code
+    MAX_QA_ENTITIES entities, default 2,000,000) returns detail.code `scan_incomplete`. Neither code
     is a focus name. A quarantined document is refused.
 
     Coverage: every check writes `checked` or `not_checked` rows; with report=True a
     lane that did not run is named with its reason (no_viewport_scale for a paper layout
-    with no model viewport, engine_live_document_template for the live engine's
-    dimension-legibility lane, domain_absent for a focus whose domain the drawing lacks).
+    with no model viewport, domain_absent for a focus whose domain the drawing lacks).
     """
     from engineering.qa_coverage import LEDGER_KEY, CoverageLedger, summarize
     from engineering.qa_scan import QA_SNAPSHOT_KEY
@@ -8952,7 +8855,7 @@ async def entity_select_smart(
 # ── SECTION 14: GD&T (ISO 1101 / ASME Y14.5) ────────────────────────────────
 # ---------------------------------------------------------------------------
 # 2D geometric tolerancing — feature control frames + datum features — composed
-# from LINE + TEXT so the same frame renders on COM and ezdxf. The datum-
+# from LINE + TEXT primitives. The datum-
 # consistency rule is enforced by the `gdt` critique focus at finalize time.
 
 
@@ -9003,7 +8906,7 @@ async def gd_frame(
 ) -> dict:
     """Draw an ISO 1101 feature control frame from LINE + TEXT primitives.
 
-    Renders identically on COM and ezdxf. Referenced datums are recorded so the
+    Referenced datums are recorded so the
     `gdt` critique focus flags any datum with no matching datum feature.
     """
     return await _backend(ctx).draw_feature_control_frame(
@@ -9084,9 +8987,7 @@ async def layout_set_current(
     """Activate a layout tab and make it where new geometry goes.
 
     Every document starts in model space (drawing_new, drawing_open and
-    document_activate reset it); only this tool moves the target. On a live
-    AutoCAD a tab the operator clicks afterwards does not move it - drawing on
-    a sheet takes this call, as headlessly. An entity created outside model
+    document_activate reset it); only this tool moves the target. An entity created outside model
     space reports `space` in its properties.
     """
     return await _backend(ctx).layout_set_current(name)
@@ -9736,9 +9637,7 @@ async def pid_from_spec(
     drawn port-to-port, inside one transaction: any bad item rolls the whole
     sheet back and the error names it (`lines[2].to`); so does an interruption
     (a client cancellation mid-run leaves no half-drawn sheet and no open
-    transaction on either engine — the live one goes back to the UNDO Mark
-    `transaction_begin` set, so it never waits at an AutoCAD prompt; should
-    that rollback itself fail, the failure is logged, the cancellation is what
+    transaction; should that rollback itself fail, the failure is logged, the cancellation is what
     the client sees, and the drawing must be checked before a retry).
 
     A non-finite coordinate, rotation, scale or stub is refused
@@ -9811,7 +9710,7 @@ async def pid_tag_parse(
 )
 async def pid_project(
     action: Annotated[str, "check | index"] = "check",
-    sheets: Annotated[list[str] | None, "Sheet files (.dxf; .dwg live only)"] = None,
+    sheets: Annotated[list[str] | None, "Sheet files (.dxf; a .dwg is refused)"] = None,
     manifest: Annotated[dict | None, "{project, sheets: [{path, number, title}]}"] = None,
     write: Annotated[str | None, "Write the result: .json, .csv or .xlsx"] = None,
     include_current: Annotated[bool, "Also read the active document"] = True,
@@ -9824,7 +9723,7 @@ async def pid_project(
     `duplicate_tags` (connectors never count), `line_continuity` of every
     matched pair. index: instrument index, line list and equipment list
     with a `sheet` column. Refused by name: over 50 sheets, a missing file,
-    a .dwg headless (`dwg`), .xlsx without openpyxl (`xlsx_write`).
+    a .dwg (capability `dwg`), .xlsx without openpyxl (`xlsx_write`).
     """
     from engineering.pid.project import run_project
 
@@ -9853,11 +9752,8 @@ async def dimstyle_list(ctx: Context = None) -> dict:
     (DIMTXT, DIMASZ, DIMEXE, DIMEXO, DIMGAP, DIMTAD, DIMTIH, DIMTOH, DIMDEC,
     DIMDSEP, DIMLUNIT, DIMZIN, DIMBLK, DIMTXSTY, DIMLWD, DIMLWE, DIMSCALE).
 
-    Headless, `values` is what the DXF stores (the schema default where an
-    entry omits a code). On the live engine ActiveX has no per-style getters,
-    so `values` is read for the *current* style only and the other rows carry
-    `values: null`, `values_available: false` — `dimstyle_set_current` a
-    style to read it. Never refuses on an open drawing.
+    `values` is what the DXF stores (the schema default where an
+    entry omits a code). Never refuses on an open drawing.
     """
     rows = await _backend(ctx).dimstyle_list()
     return {
@@ -9900,11 +9796,8 @@ async def dimstyle_create(
     user DIMBLK/DIMBLK1/DIMBLK2 naming a block the drawing does not define
     (built-in arrowheads need none); a DIMTXSTY that is neither an existing
     text style nor a bundled preset (ISOCP, ISOCPEUR, ARIAL, ROMANS — those
-    are created on both engines, `textstyle_created`; live, a preset whose
-    font file the seat lacks is refused the same way, nothing written). On
-    the live engine a write ActiveX still refuses after the style is added
-    is rolled back — previous style current, the half-made entry deleted.
-    With `set_current` the next dimension carries the style on both engines.
+    are created, `textstyle_created`). With `set_current` the next dimension
+    carries the style.
     """
     from engineering.standards.dimstyles import resolve_dimstyle
 
@@ -9935,17 +9828,12 @@ async def dimstyle_modify(
     `changed` names only the variables that actually moved — re-setting a
     value to itself is not a change. `dimensions_using_style` lists the
     dimensions already drawn with it, and since 1.8.0 they are redrawn
-    (`rerendered`; live: Update() on each, confirmed by reading the *D text
-    back - one that did not change is in `stale`). A text its author placed
-    keeps its position (`text_kept`) unless `force`. `rerender_required: true`
-    means a dimension still shows the old style: `rerender=False`, or a live
-    redraw the read-back did not confirm. Refuses a missing style, an empty `overrides`, a key
+    (`rerendered`). A text its author placed keeps its position (`text_kept`)
+    unless `force`. `rerender_required: true` means a dimension still shows
+    the old style (`rerender=False`). Refuses a missing style, an empty `overrides`, a key
     outside the whitelist, a value outside its range, a DIMTXSTY that does
     not exist, a user arrowhead block the drawing does not define — all
-    before any write. On the live engine, editing a non-current style makes
-    it current for the duration of the call and the previous style is
-    restored — also when a write fails midway (its unsaved overrides are
-    discarded, which is AutoCAD's own DIMSTYLE rule).
+    before any write.
     """
     await ctx.info(f"Modifying dimension style {name!r}")
     return await _backend(ctx).dimstyle_modify(name, overrides, rerender=rerender, force=force)
@@ -9961,8 +9849,8 @@ async def dimstyle_set_current(
     ctx: Context = None,
 ) -> dict:
     """Set `$DIMSTYLE` and load the style's variables as the current DIM*
-    settings — what a live seat's DIMSTYLE Restore does — so `dimension_*`
-    and `dimension_auto` draw with it on both engines. Per-dimension
+    settings — what AutoCAD's DIMSTYLE Restore does — so `dimension_*`
+    and `dimension_auto` draw with it. Per-dimension
     tolerances, fits and text overrides still apply on top. Refuses a style
     the drawing does not hold. Returns `previous` and `changed`.
     """
@@ -10009,16 +9897,9 @@ async def textstyle_create(
 ) -> dict:
     """Create a text style.
 
-    Headlessly a font nobody can find is *written* and reported
-    `font_resolved: false` (AutoCAD substitutes at open; the headless
-    renderer falls back), because a DXF stores only the name. The live
-    engine cannot do that: ActiveX refuses a font AutoCAD cannot open, so a
-    file that is neither on its support path nor in the Windows Fonts folder
-    is refused there before any write (the message names the folders and the
-    presets); a TrueType font is written by its typeface (`SetFont`, what the
-    STYLE dialog does — the record carries `arial.ttf`, never a machine
-    path), an SHX by the file name. Refuses, before any write on both
-    engines: a name that exists, an empty font, `width_factor <= 0`,
+    A font nobody can find is *written* and reported `font_resolved: false` (AutoCAD
+    substitutes at open; the renderer falls back), because a DXF stores only the name.
+    Refuses, before any write: a name that exists, an empty font, `width_factor <= 0`,
     `height < 0`, an oblique angle outside ±85°.
     """
     await ctx.info(f"Text style {name!r} with font {font!r}")
@@ -10037,7 +9918,7 @@ async def textstyle_set_current(
     ctx: Context = None,
 ) -> dict:
     """Set `$TEXTSTYLE`; `entity_create_text` / `entity_create_mtext` then
-    carry the style on both engines. Refuses a style the drawing does not
+    carry the style. Refuses a style the drawing does not
     hold. Returns `previous` and `changed`."""
     return await _backend(ctx).textstyle_set_current(name)
 
@@ -10051,18 +9932,15 @@ async def textstyle_set_current(
     tags={"style", "query"},
 )
 async def mleaderstyle_list(ctx: Context = None) -> dict:
-    """Every MLEADERSTYLE with its four values on both engines
-    (`values_available: true`). Headless they are read from the MLEADERSTYLE
-    object; live from the `AcadMLeaderStyle` objects the `ACAD_MLEADERSTYLE`
-    dictionary holds (ActiveX exposes no *collection* property for them, but
-    the dictionary items are full objects). `leader_create_mleader` can still
+    """Every MLEADERSTYLE with its four values (`values_available: true`),
+    read from the MLEADERSTYLE object. `leader_create_mleader` can still
     override any of them per leader."""
     rows = await _backend(ctx).mleaderstyle_list()
     return {"ok": True, "styles": rows, "count": len(rows)}
 
 
 @cad_tool(
-    summary="Create a multileader style from the ISO or ANSI preset, on both engines.",
+    summary="Create a multileader style from the ISO or ANSI preset.",
     cost="mutate",
 )
 @mcp.tool(
@@ -10081,14 +9959,11 @@ async def mleaderstyle_create(
 ) -> dict:
     """Create a multileader style: preset values first, then `overrides`.
 
-    Headless it lands on `doc.mleader_styles`; live it is added through the
-    `ACAD_MLEADERSTYLE` dictionary (`AddObject(name, "AcDbMLeaderStyle")`)
-    and the object's properties are written. Refuses, before any write: an
+    It lands on `doc.mleader_styles`. Refuses, before any write: an
     unknown preset; an override key outside the four; `arrow_size` /
     `text_height <= 0`, `landing_gap < 0`; a name that exists; a `text_style`
     that is neither present nor a bundled preset (ISOCP, ISOCPEUR, ARIAL,
-    ROMANS — those are created on both engines, `textstyle_created`; live, a
-    preset whose font file the seat lacks is refused, nothing written).
+    ROMANS — those are created, `textstyle_created`).
     """
     from engineering.standards.mleaderstyles import resolve_mleaderstyle
 
@@ -10155,13 +10030,12 @@ async def page_setup_list(
 ) -> dict:
     """The page setup stored on each paper-space layout.
 
-    `paper` is the catalogue name (ISO_A3, ANSI_B, …) when the stored size
-    matches one within 0.5 mm, otherwise the media name as stored; `size_mm`,
-    `orientation`, `plot_style` (ctb), `scale` ("fit", "1:50", or a custom
-    ratio), `plot_area`, `device`, `margins_mm` [top, bottom, left, right] and
-    `center` are read back from the LAYOUT object (headless) or the AutoCAD
-    Layout (live). Refuses an unknown layout name and `Model` (model space has
-    no sheet; plot it with `drawing_export_pdf(layout=None)`).
+    `paper` is the catalogue name (ISO_A3, ANSI_B, …) when the stored size matches one
+    within 0.5 mm, otherwise the media name as stored; `size_mm`, `orientation`,
+    `plot_style` (ctb), `scale` ("fit", "1:50", or a custom ratio), `plot_area`,
+    `device`, `margins_mm` [top, bottom, left, right] and `center` are read back from
+    the LAYOUT object. Refuses an unknown layout name and `Model` (model space has no
+    sheet; plot it with `drawing_export_pdf(layout=None)`).
     """
     try:
         rows = await _backend(ctx).page_setup_list(layout)
@@ -10201,7 +10075,7 @@ async def page_setup_apply(
     device: Annotated[str, "Plotter configuration (.pc3) or printer name."] = "DWG To PDF.pc3",
     margins_mm: Annotated[
         list[float] | None,
-        "[top, bottom, left, right] in mm. Headless only: AutoCAD takes margins from the .pc3.",
+        "[top, bottom, left, right] in mm.",
     ] = None,
     center: Annotated[bool, "Centre the plot on the paper."] = True,
     bleed: Annotated[
@@ -10211,7 +10085,7 @@ async def page_setup_apply(
     ] = "none",
     ctx: Context = None,
 ) -> dict:
-    """AutoCAD's PAGESETUP as one call, on both engines.
+    """AutoCAD's PAGESETUP as one call.
 
     Paper sizes are ISO 216 / ANSI Y14.1; the media is written in AutoCAD's own
     spelling (`ISO_A3_(420.00_x_297.00_MM)`). `changed` lists only the values
@@ -10229,18 +10103,14 @@ async def page_setup_apply(
     full-bleed and expand names were listed by `DWG To PDF.pc3` and
     `AutoCAD PDF (High Quality Print).pc3` on AutoCAD 2026 (measured
     2026-11-05); the ANSI ones (`ANSI_full_bleed_B_(…)`) follow the same
-    pattern unmeasured. The headless engine has no device and writes the name
-    as given; the live engine checks it against the device's
-    `GetCanonicalMediaNames()`.
+    pattern unmeasured. There is no device to check against: the name is
+    written as given.
 
     Refused before anything is written: an unknown paper, orientation, scale,
     plot_area or bleed, an orientation that contradicts a canonical media
     name, `bleed` beside a canonical media name ("paper already names the
     media"), an empty device or plot_style, margins that leave no printable
-    area, `Model`, an unknown layout. On the live engine `margins_mm` is
-    refused (the .pc3 owns them) and a media the device does not offer is
-    refused with the device's names for the same paper and its three closest
-    names.
+    area, `Model`, an unknown layout.
 
     The proof is the PDF: `batch_plot` reads each sheet's `/MediaBox` back.
     """
@@ -10277,11 +10147,8 @@ async def page_setup_apply(
 )
 async def plot_style_list(ctx: Context = None) -> dict:
     """The ctb files AutoCAD ships (`monochrome.ctb`, `acad.ctb`, `Grayscale.ctb`,
-    the Screening set, …) and, on the live engine, the files actually present
-    in `Preferences.Files.PrinterStyleSheetPath` (`source: "installed"`,
-    `installed: true/false` per row). Headlessly `installed` is `null`: there
-    is no installation to scan, and the catalogue is not evidence of one.
-    Never refuses; an unreadable Preferences object degrades to the catalogue.
+    the Screening set, …). `installed` is `null`: there is no installation to
+    scan, and the catalogue is not evidence of one. Never refuses.
     """
     backend = _backend(ctx)
     rows = await backend.plot_style_list()
@@ -10354,8 +10221,7 @@ async def drawing_template_list(ctx: Context = None) -> dict:
     name), `layer_set` (mech / pid / iso13567), `dimstyle` / `textstyle`
     (ISO-25 / ISOCP or ANSI / ROMANS), `scale`, `title_block` (the ISO 5457 A3
     frame, A3 sheets only), the `settings` applied, and `files.dxf` /
-    `files.dwt` with `present` flags — the `.dwt` twins exist only once built
-    on a live AutoCAD (`scripts/smoke_settings_com.py --build-dwt`). Never
+    `files.dwt` with `present` flags. Never
     refuses; it reads a catalogue.
     """
     from engineering.standards.templates import TEMPLATES_DIR, template_rows
@@ -10371,7 +10237,7 @@ async def drawing_template_list(ctx: Context = None) -> dict:
 
 
 @cad_tool(
-    summary="Save the current drawing as a template: .dwt on live AutoCAD, .dxf headlessly.",
+    summary="Save the current drawing as a .dxf template.",
     cost="mutate",
 )
 @mcp.tool(
@@ -10379,21 +10245,18 @@ async def drawing_template_list(ctx: Context = None) -> dict:
     tags={"pagesetup", "template", "drawing"},
 )
 async def drawing_template_save(
-    path: Annotated[str, "Destination .dwt (live AutoCAD) or .dxf (either engine)."],
+    path: Annotated[str, "Destination .dxf (a .dwt is refused, capability dwt_write)."],
     name: Annotated[str | None, "Template name for the report (default: the file stem)."] = None,
     description: Annotated[
-        str | None, "Template description → DWT summary Comments on the live engine."
+        str | None, "Template description (DXF cannot keep it: description_written false)."
     ] = None,
     ctx: Context = None,
 ) -> dict:
-    """AutoCAD's SAVEAS → Drawing Template, on both engines.
+    """AutoCAD's SAVEAS → Drawing Template, as a DXF.
 
-    Live AutoCAD writes a real `.dwt` (`SaveAs(path, ac2018_Template)`) and
-    puts `description` into the template's summary Comments; the active
-    document is rebound to the new file, as SAVEAS does. Headlessly a `.dxf`
-    template is written — `drawing_new(template=<path>)` opens it — and a
-    `.dwt` request is refused with capability `dwt_write` (the message names
-    the DXF route and the COM route); a description is reported
+    A `.dxf` template is written — `drawing_new(template=<path>)` opens it —
+    and a `.dwt` request is refused with capability `dwt_write` (the message
+    names the DXF route); a description is reported
     `description_written: false` because DXF has nowhere to keep it. Any other
     suffix, and any path outside the allowed directories, is refused before
     a byte is written.
@@ -10424,12 +10287,12 @@ async def drawing_template_save(
 async def document_list(ctx: Context = None) -> dict:
     """Every open document with `name`, `path`, `active`, `saved` and
     `entity_count`. Each row also carries the document's `document_id` and
-    content `revision` (None, live, for a document this session never bound).
+    content `revision`.
 
-    Headless, the server keeps its own registry: `drawing_new` / `drawing_open`
+    The server keeps its own registry: `drawing_new` / `drawing_open`
     add an entry (`untitled-N` or the file path) instead of replacing the only
     one, and `document_activate` chooses which one every later tool targets.
-    Live, this is AutoCAD's `Documents` collection. No refusals: an empty
+    No refusals: an empty
     backend answers with an empty list. Pack: settings · lean: no.
     """
     rows = await _backend(ctx).document_list()
@@ -10455,7 +10318,7 @@ async def document_activate(
 
     Matches the full path first, then the file name; an ambiguous name is
     refused with the candidates, an unknown one with the list of open
-    documents. Headless, a document quarantined after an abandoned call cannot
+    documents. A document quarantined after an abandoned call cannot
     be switched away from — `drawing_new`, `drawing_open` or closing it are
     the ways out. Pack: settings · lean: no.
     """
@@ -10483,8 +10346,7 @@ async def document_close(
 
     Refusals, all before anything is closed: unsaved changes with neither
     `save` nor `discard`; `save` on a document that has never been saved (no
-    path to write — live, `Close(True)` would open AutoCAD's Save dialog and
-    block the COM thread); `save` together with `discard`. Closing the last
+    path to write); `save` together with `discard`. Closing the last
     document leaves the backend with none open, which every tool already
     reports. `drawing_close` is the same operation for the active document
     with its 1.4 contract kept. Pack: settings · lean: no.
@@ -10513,7 +10375,7 @@ async def layer_state_save(
 
     These are the server's own portable layer states: JSON chunks in an XRECORD
     under the `ACADMCP_LAYERSTATES` dictionary. They live in the file and
-    travel with it, work on both engines, and do **not** appear in AutoCAD's
+    travel with it, and do **not** appear in AutoCAD's
     Layer States Manager (LAYERSTATE). Same name replaces (`replaced: true`).
     Refusals: an empty or control-character name, a non-string description.
     Pack: settings · lean: no.
@@ -10541,9 +10403,7 @@ async def layer_state_restore(
     created; `new_layers` (in the drawing, not in the state) are untouched;
     `applied` says how many layers and which properties moved. Refusals: an
     unknown state name (lists the saved ones), a property outside the eight
-    (names the index). Live, a layer AutoCAD refuses to change (freezing the
-    active layer, making a frozen layer current) lands in `warnings` instead
-    of failing the call; the state's current layer is thawed before it is
+    (names the index). The state's current layer is thawed before it is
     made current when `frozen` is being restored, so save → freeze → restore
     round-trips. Portable server states, not Layer States Manager entries.
     Pack: settings · lean: no.
@@ -10591,7 +10451,7 @@ async def view_named_save(
     name: Annotated[str, "View name, e.g. DETAIL-A"],
     center: Annotated[
         list[float] | None,
-        "[x, y] in WCS; default: the current view (live) or the drawing extents (headless)",
+        "[x, y] in WCS; default: the drawing extents",
     ] = None,
     height: Annotated[float | None, "View height in drawing units; default as for center"] = None,
     width: Annotated[
@@ -10601,7 +10461,7 @@ async def view_named_save(
 ) -> dict:
     """Store a VIEW table entry (AutoCAD's VIEW command). Same name replaces
     (`replaced: true`). Refusals: `height`/`width` ≤ 0 or non-finite, a
-    malformed `center`, and headless an empty drawing with no `center`/`height`
+    malformed `center`, and an empty drawing with no `center`/`height`
     (there are no extents to default to). Pack: settings · lean: no."""
     await ctx.info(f"Saving named view {name!r}")
     return await _backend(ctx).view_named_save(name, center, height, width)
@@ -10616,11 +10476,7 @@ async def view_named_restore(
     name: Annotated[str, "A name from view_named_list"],
     ctx: Context = None,
 ) -> dict:
-    """Live: zooms the active viewport to the saved window the way `-VIEW _R`
-    does — VIEWCTR becomes the saved centre and VIEWSIZE the saved height
-    (or width / display aspect when the window is wider than the display);
-    `applied: "zoom_window"` plus the read-back `viewctr` / `viewsize`.
-    Headless there is no display: the saved window is fitted into the
+    """There is no display: the saved window is fitted into the
     `*Active` VPORT — the view AutoCAD opens the file on — whose aspect ratio
     is left as the file carries it (AutoCAD reconciles a changed aspect by the
     viewport's lower-left corner, which shifts the centre); the result says
@@ -10651,11 +10507,11 @@ async def view_named_list(ctx: Context = None) -> dict:
 async def ucs_list(ctx: Context = None) -> dict:
     """The `world` row first, then every UCS table entry with origin and unit
     axes, `current` on the active one. `world` is current only when the frame
-    IS the WCS (WORLDUCS live, the `$UCS*` header headless) — an unnamed UCS
+    IS the WCS (the `$UCS*` header) — an unnamed UCS
     (`UCS Origin` / `3P` without saving) has an empty name too and is
     reported as a trailing row with `name: null` and its origin/axes, so
-    `current` is `null` then and never `world`. Tool coordinates stay WCS on
-    both engines whatever is current. No refusals. Pack: settings · lean: no."""
+    `current` is `null` then and never `world`. Tool coordinates stay WCS
+    whatever is current. No refusals. Pack: settings · lean: no."""
     rows = await _backend(ctx).ucs_list()
     active = next((r for r in rows if r["current"]), None)
     return {
@@ -10703,16 +10559,14 @@ async def ucs_restore(
     name: Annotated[str, "A name from ucs_list, or `world`"],
     ctx: Context = None,
 ) -> dict:
-    """Live: `ActiveUCS` for a named entry; `world` runs `UCS World`, which is
-    refused while AutoCAD has an active command (CMDACTIVE — press ESC).
-    Headless: the `$UCSNAME/$UCSORG/$UCSXDIR/$UCSYDIR` header variables.
+    """Writes the `$UCSNAME/$UCSORG/$UCSXDIR/$UCSYDIR` header variables.
     Refusal: an unknown name (lists the saved ones). Tool coordinates stay
     WCS. Pack: settings · lean: no."""
     return await _backend(ctx).ucs_restore(name)
 
 
 @cad_tool(
-    summary="Explain a system variable: type, range, default, where it is saved, which engine honours it.",
+    summary="Explain a system variable: type, range, default, where it is saved, whether it can be written.",
     cost="read",
 )
 @mcp.tool(
@@ -10731,15 +10585,15 @@ async def system_variable_describe(
     """What an AutoCAD system variable means, from an authored catalogue of 90.
 
     With `name`: `{known, name, type, range|enum, default, meaning, saved_in
-    (drawing|registry|not_saved), engines: {ezdxf, com}, friendly_key,
+    (drawing|registry|not_saved), engines: {ezdxf}, friendly_key,
     read_only}` plus `current` when the active backend can read it (omitted,
     with `current_unavailable`, when it cannot — no document open, or a
-    registry variable headlessly). An unknown name is never an error: `known:
+    registry variable). An unknown name is never an error: `known:
     false` and the nearest catalogue names come back. With `search`: every row
     whose name or meaning contains all the words. With neither: the index of
     names. `friendly_key` names the `drawing_settings` key that wraps the
     variable, which is the preferred way to set it; `engines.ezdxf: false`
-    means the headless engine refuses a write (registry-saved, or no header
+    means a write is refused (registry-saved, or no header
     slot in ezdxf).
     """
     from engineering.standards.sysvars import SYSVAR_CATALOG, describe_sysvar, search_sysvars
@@ -10774,11 +10628,10 @@ async def drawing_properties_get(ctx: Context = None) -> dict:
     """The DWGPROPS dialog as data: `summary` (title, subject, author, keywords,
     comments), `summary_available`, and `custom` ({key: value}).
 
-    On the live engine the summary comes from the document's SummaryInfo. The
-    headless engine cannot read that stream, so the five summary fields are
+    A DXF has no SummaryInfo stream, so the five summary fields are
     `null` with `summary_available: false` — not empty strings, which would
     claim the drawing has no title. Custom properties (`$CUSTOMPROPERTYTAG` /
-    `$CUSTOMPROPERTY` header pairs) are read on both engines.
+    `$CUSTOMPROPERTY` header pairs) are read.
     """
     return await _backend(ctx).drawing_properties_get()
 
@@ -10808,28 +10661,22 @@ async def drawing_properties_set(
     `summary_written`, `custom_written` and `custom_deleted` (a key that was
     never there is not reported deleted).
 
-    Refusals, before anything is written: a summary field on the headless
-    engine (`capability: dwgprops` — SummaryInfo lives in the DWG, a DXF has
-    no slot for it; custom properties still work headlessly), a non-string
-    value (`TypeError` naming the field or key — nothing is coerced with
-    `str()`), an empty custom key, a custom key to *write* that AutoCAD's
-    AddCustomInfo would reject mid-write (measured on AutoCAD 2026: leading or
-    trailing whitespace, or any of the thirteen characters
-    `" * , / : ; < = > ? \\ ` |` anywhere in the key; internal spaces, tabs
-    and unicode are fine — `ValueError` naming the key, on both engines; a
-    delete is exempt because RemoveCustomByKey never validates syntax, so a
-    key that reached the drawing another way stays removable), two keys in
-    one request that AutoCAD would call the same key (its key compare is a
-    simple per-character case compare: `Project`/`PROJECT` and `Grün`/`GRÜN`
-    are one key, `Straße`/`STRASSE` are two), a line break in a custom key or
-    value (it corrupts the DXF on save), and headlessly a document older than
-    R2004 (`ValueError` — ezdxf only writes the custom-property header pairs
-    for AC1018+, so they would vanish at save; save as R2004 or newer first).
-    A key is matched to the drawing by that same rule on both engines and
-    keeps its stored spelling when updated. On the live engine an exact
-    spelling is changed with SetCustomByKey; otherwise AutoCAD decides —
-    AddCustomInfo, and on its 'Duplicate key' SetCustomByKey; a delete is
-    RemoveCustomByKey, and its 'Key not found' is reported as not deleted.
+    Refusals, before anything is written: a summary field (`capability: dwgprops` —
+    SummaryInfo lives in the DWG, a DXF has no slot for it; custom properties still
+    work), a non-string value (`TypeError` naming the field or key — nothing is coerced
+    with `str()`), an empty custom key, a custom key to *write* that AutoCAD's
+    AddCustomInfo would reject mid-write (measured on AutoCAD 2026: leading or trailing
+    whitespace, or any of the thirteen characters `" * , / : ; < = > ? \\ ` |` anywhere
+    in the key; internal spaces, tabs and unicode are fine — `ValueError` naming the
+    key; a delete is exempt because RemoveCustomByKey never validates syntax, so a key
+    that reached the drawing another way stays removable), two keys in one request that
+    AutoCAD would call the same key (its key compare is a simple per-character case
+    compare: `Project`/`PROJECT` and `Grün`/`GRÜN` are one key, `Straße`/`STRASSE` are
+    two), a line break in a custom key or value (it corrupts the DXF on save), and a
+    document older than R2004 (`ValueError` — ezdxf only writes the custom-property
+    header pairs for AC1018+, so they would vanish at save; save as R2004 or newer
+    first). A key is matched to the drawing by that same rule and keeps its stored
+    spelling when updated.
     """
     summary = {
         "title": title,
@@ -11567,8 +11414,8 @@ async def std_feature_draw(
 # ---------------------------------------------------------------------------
 # ── SECTION 23: Mechanical Annotation (5 tools) ─────────────────────────────
 # ---------------------------------------------------------------------------
-# ISO annotation symbols composed from LINE / ARC / CIRCLE / LWPOLYLINE / TEXT,
-# so the same symbol lands on COM and ezdxf. The standards tables live in
+# ISO annotation symbols composed from LINE / ARC / CIRCLE / LWPOLYLINE / TEXT.
+# The standards tables live in
 # engineering/mech/annotate.py with their sources; a value outside a
 # transcribed table is refused there, before the first entity is written.
 
@@ -11885,11 +11732,8 @@ async def hatch_material(
     Refusals: an unknown material (named, with the full list, before anything
     is drawn), neither `boundary` nor `handles` (or both), a boundary with
     fewer than three points, and a non-positive `scale`. With `handles` the
-    loop is chained by `boundary_from_entities`, which the COM engine refuses
-    (capability `boundary_trace`) - pass `boundary` on a live seat, or run
-    headlessly. The HATCH layer is created first when the drawing lacks it:
-    ActiveX refuses an entity on an absent layer and would otherwise leave the
-    hatch orphaned on layer 0.
+    loop is chained by `boundary_from_entities`. The HATCH layer is created
+    first when the drawing lacks it.
 
     The payload states its own accuracy, as `analysis_measure_entity` does:
     `area` is the polygon actually hatched, `boundary_area` the exact area of
@@ -12134,9 +11978,8 @@ async def revision_add(
     drawing frame, growing downwards, so it does not collide with the ISO 7573
     parts list above the title block. Refusals, all before the first entity: a
     malformed code, a cloud region that is not [x0, y0, x1, y1], and any
-    request for clouds on a backend whose `revcloud` capability is false (the
-    COM engine — REVCLOUD has no ActiveX member) — that one carries
-    `capability: "revcloud"`.
+    request for clouds on a backend whose `revcloud` capability is false
+    (`capability: "revcloud"`).
     """
     from engineering.sheet.revision import add_revision
 
@@ -12234,7 +12077,7 @@ async def bom_extract(
     }
 
 
-@cad_tool(summary="Draw the parts list as a real TABLE above the title block.", cost="mutate")
+@cad_tool(summary="Draw the parts list as a table above the title block.", cost="mutate")
 @mcp.tool(
     annotations={"title": "Sheet: Draw Parts List", "destructiveHint": False},
     tags={"engineering", "sheet"},
@@ -12269,15 +12112,14 @@ async def bom_table(
     layout: Annotated[str, Field(default="")] = "",
     ctx: Context = None,
 ) -> dict:
-    """Draw the ISO 7573 item list as a real TABLE entity, 180 mm wide (the
+    """Draw the ISO 7573 item list as a table, 180 mm wide (the
     title-block width), growing upwards from directly above the title block.
 
     With `direction="up"` the heading row sits against the title block and item
     1 is the row above it, so the list extends upwards as parts are added —
     which is what ISO 7573 asks for on a drawing. Pass `rows` to draw a list
     you already have, or omit it and the tool runs `bom_extract` first.
-    `representation` reports what was drawn: `native` (a real ACAD_TABLE on the
-    live engine) or `composite` (rules and MTEXT headlessly, whose `handle` is
+    `representation` is `composite` (rules and MTEXT, whose `handle` is
     the first child). Refusals: no rows to draw, an unknown column, an unknown
     direction, a `layout` that does not exist.
     """
@@ -12391,7 +12233,7 @@ async def xref_attach(
     ] = "attach",
     ctx: Context = None,
 ) -> dict:
-    """Attach an external reference and insert it once. Both engines.
+    """Attach an external reference and insert it once.
 
     The block takes the referenced file's stem as its name. Refusals, all
     before anything is written: a `kind` that is not 'attach' or 'overlay', a
@@ -12422,14 +12264,10 @@ async def xref_manage(
 ) -> dict:
     """One operation on one external reference.
 
-    `list`, `detach` and `path` work on both engines. `reload` and `bind` need
-    a live AutoCAD seat's xref manager: headlessly they are refused with
-    `capability: "xref_live"` rather than pretended, and the refusal says which
-    engine does them. Other refusals: an action outside the five, an unknown
-    xref name, a 'path' action with no `new_path`. On the live engine a listed
-    row's `inserts` and `kind` are both null — ActiveX's block interface
-    carries neither a per-xref insert count nor an overlay indicator, and this
-    server does not invent them. Headlessly both are measured: `inserts`
+    `list`, `detach` and `path` work. `reload` and `bind` need AutoCAD's xref
+    manager: they are refused with `capability: "xref_live"` rather than
+    pretended. Other refusals: an action outside the five, an unknown
+    xref name, a 'path' action with no `new_path`. A listed row's `inserts`
     counts every insert in the drawing, model space and paper space alike, and
     `detach` removes exactly those.
     """
@@ -12458,7 +12296,7 @@ async def image_attach(
     rotation: Annotated[float, Field(default=0.0, description="Rotation in degrees.")] = 0.0,
     ctx: Context = None,
 ) -> dict:
-    """Attach a raster underlay at the file's own aspect ratio. Both engines.
+    """Attach a raster underlay at the file's own aspect ratio.
 
     `scale` is drawing units per pixel, so the placed size is the image's pixel
     size times `scale` and the payload reports both. Refusals, all before
@@ -12532,14 +12370,12 @@ async def drawing_export_dwg(
 ) -> dict:
     """Write a real DWG — not a DXF under a .dwg name.
 
-    On a live AutoCAD seat this is `Document.SaveAs` with the matching
-    AcSaveAsType, which (as AutoCAD's own SaveAs does) leaves the session bound
-    to the file it just wrote. Headlessly it needs the ODA File Converter; when
-    that is absent the call is refused with `capability: "dwg_write"` and the
-    refusal names the install route and `drawing_export_dxf`, which writes a
-    DXF AutoCAD opens unchanged. Check `system_capabilities` first: the ezdxf
-    flag is re-evaluated at call time, so installing the converter changes it
-    without a restart. An unknown version is refused by name with the six.
+    It needs the ODA File Converter; when that is absent the call is refused with
+    `capability: "dwg_write"` and the refusal names the install route and
+    `drawing_export_dxf`, which writes a DXF AutoCAD opens unchanged. Check
+    `system_capabilities` first: the flag is re-evaluated at call time, so installing
+    the converter changes it without a restart. An unknown version is refused by name
+    with the six.
     """
     validated = validate_path(path, allow_write=True, kinds=KINDS_DWG)
     await ctx.info(f"DWG export {version}: {validated}")
@@ -12879,7 +12715,7 @@ async def arch_room(
     """Label the room around (x, y) with its name, number and MEASURED area.
 
     The area is never typed: the tool reads the wall faces on the `wall` layer
-    of the arch set and other `A-WALL*` layers (LINE and lightweight polyline, both engines; anything else
+    of the arch set and other `A-WALL*` layers (LINE and lightweight polyline; anything else
     there is listed in `skipped`), finds the closed face
     the point lies in and writes that face's area - net of the wall thickness
     and of any column inside it - into the label and into an `ACADMCP_ARCH`
@@ -12981,7 +12817,7 @@ async def arch_schedule(
     ] = 50.0,
     ctx: Context = None,
 ) -> dict:
-    """Draw a door, window or room schedule as a real TABLE - a read of the drawing.
+    """Draw a door, window or room schedule as a table - a read of the drawing.
 
     The rows come from the `ACADMCP_ARCH` records on the drawing (what
     `arch_wall` / `arch_opening` / `arch_room` write), never from the caller:
@@ -12990,8 +12826,7 @@ async def arch_schedule(
     area, plus a total. An opening drawn without a tag gets the next free D1 /
     W1 (K1 / P1 in Turkish) in wall order; an explicit tag is kept. A value the
     model does not carry is an empty cell, never a default. `representation`
-    reports what was drawn: `native` (ACAD_TABLE, live) or `composite` (rules
-    and MTEXT, headless).
+    is `composite` (rules and MTEXT).
 
     Refused before anything is drawn: an unknown `kind` or `lang` (named with
     the list), nothing of that kind on the drawing, and more rows than one
@@ -13321,16 +13156,15 @@ async def drawing_understand(
         str | None,
         Field(
             default=None,
-            description="DXF file to read (a DWG only on a live seat); omitted: the current "
-            "document.",
+            description="DXF file to read (a DWG is refused, capability dwg); omitted: the "
+            "current document.",
         ),
     ] = None,
     ctx: Context = None,
 ) -> dict:
     """One report on a drawing somebody else made, every claim with its evidence
     and a confidence. Never modifies the drawing: a file is read as it is, and
-    the current document through a snapshot (headless: the document in memory;
-    live: a `Document.Export` DXF copy in a temporary folder, deleted after).
+    the current document through a snapshot of the document in memory.
     An xref's own entities are not read - the host drawing is.
 
     - `units`: `$INSUNITS` as declared against the unit the geometry implies
@@ -13355,7 +13189,7 @@ async def drawing_understand(
 
     Refused before anything is read: a `path` that does not exist, a DXF over
     `MAX_DXF_BYTES` (the refusal names the size and the variable), and a file
-    the engine cannot parse (a DWG headlessly: ezdxf reads DXF only).
+    the engine cannot parse (a DWG: ezdxf reads DXF only).
     """
     import asyncio
 
@@ -13467,9 +13301,9 @@ async def _diff_revision(backend, path: str | None, *, tol: float, role: str):
     read, its block signatures (None otherwise).
 
     A DXF path is read once, here, for both. The current document goes through
-    ``take_snapshot``; its block table is read only on the headless engine,
-    under the backend's own lock. Any other path (a DWG) goes through the
-    snapshot too, which opens it read-only on the live engine.
+    ``take_snapshot``; its block table is read under the backend's own lock.
+    Any other path (a DWG) goes through the snapshot too, which refuses it
+    with capability ``dwg``.
     """
     import asyncio
 
@@ -13552,8 +13386,7 @@ async def drawing_diff(
         str | None,
         Field(
             default=None,
-            description="The OLDER revision: a DXF path (a DWG only on the live engine, which "
-            "exports it read-only).",
+            description="The OLDER revision: a DXF path (a DWG is refused, capability dwg).",
         ),
     ] = None,
     new_path: Annotated[
@@ -13621,21 +13454,20 @@ async def drawing_diff(
     `move_tol`; what is left is added or removed. The report counts changes by
     layer and type, lists each changed entity with what changed (moved by, text
     from -> to, attribute from -> to, radius from -> to, ...), compares the
-    block definitions when both revisions are DXF files or the headless current
+    block definitions when both revisions are DXF files or the current
     document, and groups the changes into clusters.
 
     Read-only unless `markup=True`: then revision clouds are drawn around the
     model-space clusters on the current document, which must be the newer
     revision, and filed as one revision row - the only write this tool makes.
 
-    Refused before anything is read: `markup=True` with `new_path` (the clouds go
-    on the current document), `markup=True` without a valid `rev`, `markup=True`
-    on an engine without the revcloud capability (the live engine -
-    `capability: "revcloud"`), a path that does not exist, a DXF over
-    MAX_DXF_BYTES (the size and the variable named), a file that is not a
-    readable DXF, and a non-positive `tol` or `move_tol`; an unknown or evicted
-    checkpoint (checkpoint_not_found / checkpoint_evicted); a path and a
-    checkpoint for one side (invalid_args).
+    Refused before anything is read: `markup=True` with `new_path` (the clouds go on the
+    current document), `markup=True` without a valid `rev`, `markup=True` on an engine
+    without the revcloud capability (`capability: "revcloud"`), a path that does not
+    exist, a DXF over MAX_DXF_BYTES (the size and the variable named), a file that is
+    not a readable DXF, and a non-positive `tol` or `move_tol`; an unknown or evicted
+    checkpoint (checkpoint_not_found / checkpoint_evicted); a path and a checkpoint for
+    one side (invalid_args).
     """
     from backends.base import UnsupportedCapabilityError
     from engineering.errors import InvalidArgsError
@@ -13667,8 +13499,7 @@ async def drawing_diff(
             raise UnsupportedCapabilityError(
                 "revcloud",
                 f"drawing_diff(markup=True): the {backend.name} backend cannot draw revision "
-                "clouds (no ActiveX member; REVCLOUD is command-line only). Run the diff "
-                "without markup, or on the ezdxf engine.",
+                "clouds. Run the diff without markup.",
             )
     from engineering.history import checkpoint_revision
 
@@ -13871,7 +13702,7 @@ async def drawing_verify_requirements(
         str | None,
         Field(
             default=None,
-            description="A saved file of this drawing (.dxf; a .dwg only on a live seat) to "
+            description="A saved file of this drawing (.dxf; a .dwg is refused, capability dwg) to "
             "measure instead of the open document - read fresh, never the model in memory.",
         ),
     ] = None,
@@ -13912,8 +13743,7 @@ async def drawing_verify_requirements(
       nothing) or `use_stored=True`: measured on
       the current document. `evidence` records its id and content revision; a
       later revision makes the report stale.
-    - `artifact_path`: measured on that saved file, read fresh (a .dwg on a live seat
-      through a private copy), each feature re-bound from the current document - by
+    - `artifact_path`: measured on that saved .dxf, read fresh, each feature re-bound from the current document - by
       handle while handles are stable, then by feature tag, then by geometry, two
       candidates being `unknown` - with `rebinding` and the before / after
       `comparison` in the report. A count or absence is counted afresh on the
@@ -13937,8 +13767,8 @@ async def drawing_verify_requirements(
     strict / lenient; `manifest_path` together with `requirements`, `use_stored`
     or `artifact_path`; an `artifact_path` or `manifest_path` that does not
     exist; a manifest that is not a delivery manifest; a `report_path` not
-    ending in .json or .md (only .json in manifest mode); a DWG artifact on the
-    headless engine (capability `dwg`). A quarantined document is refused.
+    ending in .json or .md (only .json in manifest mode); a DWG artifact
+    (capability `dwg`). A quarantined document is refused.
     """
     from engineering.delivery import verify_manifest
     from engineering.verification.report import (
@@ -14056,7 +13886,7 @@ async def pipe_takeoff(
         str | None,
         Field(
             default=None,
-            description="The P&ID (DXF headlessly; DXF or DWG on a live seat). Omit to read "
+            description="The P&ID as DXF (a DWG is refused, capability dwg). Omit to read "
             "the current drawing as the P&ID.",
         ),
     ] = None,

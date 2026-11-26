@@ -8,11 +8,11 @@ conventions, and ``focus=None`` has to stay cheap for them.
 
 What the index reads, and why only that: every mechanical payload this server
 writes lands on a POINT (``mech_part_draw``'s part anchor, on layer ``MECH``),
-an INSERT (a standard part; BLOCKREFERENCE on the live engine) or a CIRCLE (a
+an INSERT (a standard part) or a CIRCLE (a
 balloon is a circle with a leader), so XDATA is read for those types only. The
 rest of the drawing comes from a paged ``entity_list`` -- every entity, not the
 first 200 -- whose ``EntityInfo`` already carries each entity's WCS
-``bounding_box`` on both engines.
+``bounding_box``.
 
 A part payload written by ``mech_part_draw`` lists every view it drew under
 ``views``, each with its WCS ``bbox`` and its ``frame_bbox`` (the same box in
@@ -67,9 +67,8 @@ MECH_FOCUSES = (
 )
 _KEY = "mech_index"
 
-#: The entity types that can carry an ACADMCP_MECH payload. The live engine
-#: names a type from its ActiveX ObjectName (``AcDb`` stripped, upper-cased), so
-#: an INSERT reads back as BLOCKREFERENCE there -- measured on AutoCAD 2026.
+#: The entity types that can carry an ACADMCP_MECH payload. BLOCKREFERENCE is
+#: AutoCAD's object-model name for an INSERT (measured on AutoCAD 2026).
 _XDATA_TYPES = ("POINT", "INSERT", "BLOCKREFERENCE", "CIRCLE")
 #: One ``entity_list`` page; the index pages until a short page.
 PAGE_SIZE = 1000
@@ -97,8 +96,8 @@ _DIM_TYPES = {
 
 
 def _is_dimension(ent) -> bool:
-    """A DIMENSION on either engine: ezdxf says ``DIMENSION``; the live engine
-    says ``ROTATEDDIMENSION`` / ``ALIGNEDDIMENSION`` / ``RADIALDIMENSION`` ...
+    """A DIMENSION: ezdxf says ``DIMENSION``; AutoCAD's object model says
+    ``ROTATEDDIMENSION`` / ``ALIGNEDDIMENSION`` / ``RADIALDIMENSION`` ...
     (the ObjectName, measured on AutoCAD 2026)."""
     kind = str(ent.type).upper()
     return kind in _DIM_TYPES or kind.endswith("DIMENSION")

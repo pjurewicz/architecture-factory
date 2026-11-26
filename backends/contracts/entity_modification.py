@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from backends.base import EntityInfo
 
-#: Where ``text_find_replace`` looks, on both engines: model space, every paper
+#: Where ``text_find_replace`` looks: model space, every paper
 #: layout, every block definition that is neither a layout block, an xref nor
 #: anonymous (``*D`` / ``*T`` / ``*U`` / ``*X``: renderings regenerated from a
 #: dimension, a table, a dynamic block or a hatch, so "block_definitions" means
@@ -128,7 +128,7 @@ class EntityModificationContract(ABC):
         (:data:`TEXT_SEARCH_SCOPE`) are reported rather than assumed: "no
         matches" and "that place was never searched" are different answers,
         and an editor that silently skips block attributes is the classic
-        version of this bug. Both engines search the same scope. DIMENSION text is deliberately out of scope — its ``text`` field
+        version of this bug. DIMENSION text is deliberately out of scope — its ``text`` field
         holds the ``<>`` override placeholder rather than the measurement, so
         editing it would either do nothing or break the association.
         """
@@ -157,7 +157,7 @@ class EntityModificationContract(ABC):
     ) -> dict:
         """Write ``set_`` onto every entity ``where`` matches in ``space``.
 
-        One locked call (one STA job live): select, compare the count with
+        One locked call: select, compare the count with
         ``expect_count`` - a mismatch raises ``StaleRevisionError`` before
         anything is written - then create a missing ``set_.layer``, load a
         missing linetype and write. ``{ok, space, matched, changed, unchanged,

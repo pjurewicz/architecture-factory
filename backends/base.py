@@ -143,7 +143,7 @@ class CapabilityMap:
 
 
 def normalize_lineweight(lw: float | int | None) -> int | None:
-    """Coerce a lineweight to ezdxf/COM hundredths-of-a-mm integers.
+    """Coerce a lineweight to AutoCAD/ezdxf hundredths-of-a-mm integers.
 
     AutoCAD and ezdxf store lineweights as integer hundredths (25 == 0.25 mm),
     plus the -1/-2/-3 sentinels (ByLayer/ByBlock/Default). Callers, however,

@@ -82,7 +82,7 @@ def validate_textstyle(
     width_factor: float = 1.0,
     oblique_deg: float = 0.0,
 ) -> dict:
-    """The typed request both engines write, or a ``ValueError``/``TypeError``
+    """The typed request the backend writes, or a ``ValueError``/``TypeError``
     naming the field. ``height`` 0 is AutoCAD's "prompt per text" and is legal;
     the width factor must be positive; the oblique angle is AutoCAD's ±85°;
     every number must be finite. The name obeys the DXF symbol-name rule

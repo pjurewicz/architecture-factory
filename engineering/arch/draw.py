@@ -1,8 +1,7 @@
 """The async layer of the architectural track - the only module here that touches a backend.
 
 Everything else under `engineering/arch/` is pure; this module turns its
-primitives into entities through the generic contract members (so it runs on
-both engines as written) and writes the plan onto the drawing:
+primitives into entities through the generic contract members and writes the plan onto the drawing:
 
 * each wall's ``ACADMCP_ARCH`` record on its first face line, each opening's
   on its door leaf or its window frame, each stair's on its first riser line;
@@ -77,8 +76,8 @@ WALL_LAYER_PREFIX = "A-WALL"
 async def ensure_arch_layers(backend, names) -> tuple[str, ...]:
     """Create the named layers the drawing lacks, with their ``ARCH_LAYERS`` row.
 
-    A live seat refuses ``entity.Layer = name`` on a missing layer (measured
-    by the mechanical track), so every draw path ensures its layers first.
+    AutoCAD refuses ``entity.Layer = name`` on a missing layer (measured on
+    AutoCAD 2026), so every draw path ensures its layers first.
     """
     rows = {row[0]: row for row in ARCH_LAYERS}
     existing = {layer.name.lower() for layer in await backend.layer_list()}

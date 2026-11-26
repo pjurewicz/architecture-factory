@@ -10,11 +10,7 @@ show.
 on a *private* ``EzdxfBackend`` that is registered without a path, so nothing
 it holds can ever be saved onto the sheet; the file's sha256 is taken before
 and after the parse, and a sheet whose bytes moved while it was read is
-refused by name. A ``.dwg`` sheet is read only on the live engine, through the
-snapshot route (``engineering.understand.snapshot._com_export``: opened
-read-only, exported to a temporary DXF, closed; a drawing the operator already
-has open is exported as it stands and left open); headlessly it is refused
-with the ``dwg`` capability. The active document is read through the session
+refused by name. A ``.dwg`` sheet is refused with the ``dwg`` capability. The active document is read through the session
 backend (``include_current``); when it is one of the listed files it replaces
 that file's reading, unsaved edits included, and the row says so
 (``source: "active_document"``). File graphs are cached by sha256 for the
@@ -631,8 +627,7 @@ async def run_project(
     rows: list[dict] = []
     if current_open:
         graph = await build_graph(backend, scope="all")
-        # Read after the graph: the live engine binds its document at the first
-        # call that touches one, so its path is known only now.
+        # Read after the graph, so the identity is the document just read.
         identity = backend.document_identity()
         replaced = next(
             (row for row in listed if _same_file(row["resolved"], identity.get("path"))), None

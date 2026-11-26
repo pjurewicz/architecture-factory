@@ -2,10 +2,8 @@
 
 Sized to match the dimension presets they sit beside (ISO-25: 2.5 mm arrows
 and lettering; ANSI: 3 mm), so a leader note and a dimension on the same
-sheet read at one size. Both engines author the style: ezdxf on
-``doc.mleader_styles``, ActiveX through the ``ACAD_MLEADERSTYLE`` dictionary's
-``AddObject(name, "AcDbMLeaderStyle")`` and the ``IAcadMLeaderStyle``
-properties (see ``backends/contracts/styles.py``).
+sheet read at one size. The backend authors the style on ezdxf's
+``doc.mleader_styles`` (see ``backends/contracts/styles.py``).
 """
 
 from __future__ import annotations
@@ -64,7 +62,7 @@ def resolve_mleaderstyle(preset: str, overrides: dict | None = None) -> dict[str
 def validate_mleaderstyle(values: Any) -> dict[str, Any]:
     """The four ``MLEADER_KEYS`` of ``values``, typed, or a refusal naming the key.
 
-    What both engines' ``mleaderstyle_create`` run before touching a table:
+    What ``mleaderstyle_create`` runs before touching a table:
     a missing key is ``ValueError`` (``resolve a preset first``), and each
     value is checked exactly as :func:`resolve_mleaderstyle` checks an
     override — so a hand-built dict is held to the preset's rules too.

@@ -98,7 +98,7 @@ class Settings:
         # naming the variable, before anything is drawn; 0 disables a budget.
         # MAX_SPEC_ITEMS bounds each list of a pid_from_spec / arch_plan_from_spec
         # document (measured 2026-10-24: 200 P&ID items place in 451 ms headless,
-        # so 2,000 is about 4.5 s there and far longer on a live seat).
+        # so 2,000 is about 4.5 s).
         # MAX_VESSEL_TRAYS bounds a column's trays (10,000 trays build in 3.2 ms;
         # the budget bounds the block definition, not the time).
         self.max_spec_items: int = int(os.environ.get("MAX_SPEC_ITEMS", "2000"))

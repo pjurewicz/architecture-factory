@@ -4,8 +4,7 @@ A room is the floor the walls enclose, so its area is a *face* of the planar
 graph the wall outlines draw - never the axis rectangle and never a number the
 caller types. This module finds those faces from plain segments, which is what
 lets `arch_room` measure a room and `arch_rooms_detect` read a foreign plan made
-of LINEs on both engines: the live engine has no `boundary_trace`, and it does
-not need one.
+of LINEs without `boundary_trace`.
 
 The algorithm, in the order it runs:
 

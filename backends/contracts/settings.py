@@ -22,8 +22,8 @@ from typing import Any
 class SettingsContract:
     # A user-facing wrapper over system_get_variable / system_set_variable that
     # maps memorable names ("units", "dimscale", …) to AutoCAD system variables.
-    # Concrete + backend-agnostic: both engines accept the bare sysvar name, so
-    # the same call reads/writes on live COM and headless ezdxf alike.
+    # Concrete + backend-agnostic: it speaks only the bare sysvar names
+    # system_get_variable / system_set_variable accept.
 
     async def drawing_settings(self, settings: dict | None = None) -> dict:
         """Read (no args) or apply (with args) common drawing settings.
@@ -50,8 +50,8 @@ class SettingsContract:
         ``dimstyle`` / ``textstyle`` when the backend has no styles contract.
 
         Note that a no-argument snapshot is one ``system_get_variable`` per key
-        (two for ``limits``). Free headless; a COM round trip each on a live
-        seat, and a write costs a read before and after it for ``changed``."""
+        (two for ``limits``), and a write costs a read before and after it
+        for ``changed``."""
         if not settings:
             snapshot: dict = {}
             for key, spec in _SETTING_MAP.items():
@@ -508,7 +508,7 @@ def _decode_setting(key: str, kind: str, raw: Any) -> Any:
 
 
 # ---------------------------------------------------------------------------
-# Document properties (DWGPROPS) — validation shared by both engines
+# Document properties (DWGPROPS) — validation
 # ---------------------------------------------------------------------------
 
 #: The SummaryInfo fields AutoCAD's DWGPROPS dialog shows on its Summary tab.
@@ -543,8 +543,7 @@ def custom_key_fold(key: str) -> str:
     to ``SS``), the final sigma ``ς``, the micro sign ``µ``, the Kelvin sign,
     the title-case digraph ``ǅ``, dotless ``ı`` and dotted ``İ`` — is kept as
     is. The result never changes length. This is what the headless engine and
-    the validator match on; the live engine lets AutoCAD decide (see
-    ``ComBackend.drawing_properties_set``).
+    the validator match on.
     """
     out: list[str] = []
     for c in key:
@@ -580,8 +579,8 @@ def _check_custom_text(key: str, text: str, what: str) -> None:
 
 
 def _check_custom_key_for_write(key: str) -> None:
-    """Mirror AutoCAD's ``AddCustomInfo`` key syntax so the live engine cannot
-    refuse mid-write. Measured on AutoCAD 2026: ``Invalid key`` for a key with
+    """Mirror AutoCAD's ``AddCustomInfo`` key syntax, so a file the headless
+    engine writes holds no key AutoCAD itself would refuse. Measured on AutoCAD 2026: ``Invalid key`` for a key with
     leading/trailing whitespace (space, tab, no-break space) or any of
     ``_CUSTOM_KEY_FORBIDDEN`` anywhere in it — raised after the summary fields
     and the earlier keys were already applied, while the headless engine
@@ -634,8 +633,8 @@ def validate_drawing_properties(
       key compare is a simple one-to-one case compare (``custom_key_fold``;
       measured: ``AddCustomInfo("PROJECT")`` over an existing ``Project``
       raises ``Duplicate key``, while ``Straße`` and ``STRASSE`` are two
-      keys), so the second would fail mid-write on the live engine and write
-      a second tag headlessly;
+      keys), so the second would be refused by AutoCAD and written as a
+      second tag headlessly;
     * a key or value containing a line break (LF or CR) — ezdxf emits custom
       properties unescaped, one header line per text, so the saved DXF is
       corrupt and the whole drawing fails to reopen (``DXFStructureError``),

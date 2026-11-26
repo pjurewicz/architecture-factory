@@ -5,7 +5,7 @@ handle that does not exist left the move applied - the second step failed at
 run time, after the first had written. Every handle a call names literally is
 known before anything runs, so it is checked then: one
 :func:`engineering.changes.preview.entity_fingerprints` read (the exact reader
-the previews use - in-memory headless, ``Document.Export`` live) over every
+the previews use - the in-memory document) over every
 literal handle, and a single missing one refuses the whole call with
 :class:`engineering.errors.UnknownHandleError` (kind ``unknown_handle``) naming
 each missing reference. Nothing is written, so neither engine has to undo
@@ -13,8 +13,7 @@ anything - the scenario is exact on both without relying on AutoCAD's UNDO.
 
 The read is also the "before" of a rollback's evidence: :func:`changed_since`
 reads the same handles again after a rollback and names those that differ.
-Exact on the live engine (both reads are exports of the live document); on the
-headless engine the rollback replaces the document with one read back from its
+The rollback replaces the document with one read back from its
 snapshot, whose tags are not bit-identical to the in-memory ones for every
 entity type (a TEXT's are not), so there the comparison is presence only.
 """

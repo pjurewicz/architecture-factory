@@ -25,8 +25,7 @@ definition, layer 0 included: the snapshot holds layout entities only. Any
 other layer is reported at ``info`` with ``in_scope: false``.
 
 The read is the run's all-spaces snapshot (``engineering/qa_scan.py``); the
-COM engine reaches the same reader through ``Document.Export``, where the
-DXF integers are the ActiveX ones (acLnWtByLayer -1, acLnWtByBlock -2,
+DXF integers are AutoCAD's own (acLnWtByLayer -1, acLnWtByBlock -2,
 acLnWtByLwDefault -3).
 """
 

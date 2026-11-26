@@ -2,7 +2,7 @@
 
 Composes only backend methods that already exist (``textstyle_*``,
 ``dimstyle_*``, ``system_get/set_variable``, ``drawing_apply_iso_layers``),
-so it runs on both engines and needs nothing from the settings facade. Units
+so it needs nothing from the settings facade. Units
 are the five system variables both standards share; the decimal separator is
 the preset's and arrives through the dimension style. ANSI layer naming is
 company-specific, so both standards use the ``mech`` layer set — only styles
@@ -65,10 +65,7 @@ async def apply_standard(
 
     Every system variable the call will write is read *before* the first
     style is created, so a read the engine refuses is a refusal with nothing
-    written. (The units loop used to run after both styles; on the live
-    engine its INSUNITS read went through a member the ActiveX Application
-    does not have, so the call failed with ISO-25 and ISOCP already created
-    and current.) That first read is only the gate: making a dimension style
+    written. That first read is only the gate: making a dimension style
     current restores every DIM* variable from the style (ezdxf syncs the
     header; AutoCAD 2026 measured ``ActiveDimStyle = ISO-25`` with a style
     DIMSCALE of 2.0 moving the document's DIMSCALE 1.0 -> 2.0), so each

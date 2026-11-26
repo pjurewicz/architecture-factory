@@ -22,8 +22,8 @@ if TYPE_CHECKING:
     from backends.base import AutoCADBackend, EntityInfo
 
 INSERT_TYPES = {"INSERT", "BLOCKREFERENCE"}
-# Same set ``drawlines`` keeps: ezdxf says LWPOLYLINE, the COM engine derives
-# POLYLINE (AcDbPolyline) / 2DPOLYLINE from the ActiveX ObjectName.
+# Same set ``drawlines`` keeps: ezdxf says LWPOLYLINE; POLYLINE / 2DPOLYLINE
+# are AutoCAD's own type names for the same entity.
 POLY_TYPES = {"LWPOLYLINE", "POLYLINE", "2DPOLYLINE"}
 LINE_TYPES = {"LINE"}
 TEXT_TYPES = {"TEXT", "MTEXT"}
@@ -160,8 +160,8 @@ class _Edge:
             "insulation": p.get("insulation"),
             "from": self.from_ref,
             "to": self.to_ref,
-            # Both engines measure the real geometry (ezdxf via the shared
-            # bulge-aware maths, COM via ActiveX `Length`); a chord walk over
+            # The engine measures the real geometry (the shared bulge-aware
+            # maths); a chord walk over
             # the vertices is 10.25 % short on a semicircular jump and says
             # nothing. The chord sum is kept only for an engine that reports
             # no length at all, and then the approximation is named.
@@ -223,10 +223,8 @@ class _Grid:
 def _vertices(info: EntityInfo) -> list[tuple[float, float]]:
     """The entity's vertices, or ``[]`` when the engine could not report them.
 
-    MEASURED on AutoCAD 2026 by scripts/smoke_mech_com.py: the live engine's
-    entity reader drops a LINE's ``start``/``end`` when AutoCAD refuses the
-    point read (``RPC_E_CALL_REJECTED`` while busy) and keeps the entity, so
-    a subscript here crashed ``drawing_critique(focus=None)`` on a sheet with
+    An entity row can arrive without a LINE's ``start``/``end`` (a reader that
+    could not read the points keeps the entity), and a subscript here crashed ``drawing_critique(focus=None)`` on a sheet with
     no P&ID on it. A line without coordinates cannot be an edge; it is left
     out rather than guessed at.
     """
@@ -304,13 +302,12 @@ def _bbox(info: EntityInfo):
 
     ``bounding_box`` takes the ATTRIBs with it, so a TAG lettered above a
     valve pushes the box past the body and a line ending on the body's real
-    edge on that side lies *inside* the box. Both engines report
+    edge on that side lies *inside* the box. The engine reports
     ``geometry_bbox`` (attributes excluded) for an INSERT that draws anything;
     the attribute-inclusive box is the fallback for a reader that lacks it.
 
-    An engine may mark ``geometry_bbox`` ``approximate`` (the COM engine does
-    for an INSERT rotated off a right angle whose members it cannot measure
-    exactly): the box then encloses the drawn geometry but may overshoot it,
+    An engine may mark ``geometry_bbox`` ``approximate`` (for an INSERT
+    rotated off a right angle whose members it cannot measure exactly): the box then encloses the drawn geometry but may overshoot it,
     and a line ending on the body's true edge would sit *inside* that box
     and dangle. The drawn geometry lies inside the attribute-inclusive box
     too, so the tighter wall of the two is taken on every side.

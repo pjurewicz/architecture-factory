@@ -20,7 +20,7 @@ two lines, NUL reads back as a comma) or a code point above ``0x7FFF``
 (``ezdxf`` writes it, AutoCAD refuses it as "not a single character") is
 refused here, before ``ord()`` runs in a backend.
 
-Pure data plus validation: no I/O, no ezdxf, no COM, so the backends, the
+Pure data plus validation: no I/O, no ezdxf, so the backends, the
 tools and the provenance tests all read one copy.
 """
 
@@ -133,7 +133,7 @@ _LINEWEIGHT_TEXT = (
 LINEWEIGHT_CODES: frozenset[int] = frozenset(int(code) for code in _LINEWEIGHT_TEXT.split())
 
 #: AutoCAD's nineteen named built-in arrowheads, spelled the way the DIMBLK
-#: documentation, the ``$DIMBLK`` header, ActiveX and a loaded ezdxf DIMSTYLE
+#: documentation, the ``$DIMBLK`` header, AutoCAD and a loaded ezdxf DIMSTYLE
 #: all spell them: the block name, underscore first. The twentieth, closed
 #: filled, has no block name and is ``""`` (the spec §4.1 default).
 #: ``tests/test_standards_presets.py`` pins this set equal to ezdxf's
@@ -217,7 +217,7 @@ def canonical_arrowhead(key: str, value: Any) -> str:
     filled default and come back as ``""``. A built-in is accepted with or
     without its underscore in any case (``oblique``, ``_Dot``) and comes back
     as its block name (``_OBLIQUE``, ``_DOT``) — AutoCAD's documented spelling,
-    what ActiveX takes verbatim and what ezdxf reports after a load. Anything
+    what AutoCAD takes verbatim and what ezdxf reports after a load. Anything
     else is a user block name and must obey the symbol-name rule; whether the
     block exists is the backend's question, asked against the open drawing.
     """
@@ -266,8 +266,7 @@ def ezdxf_arrowhead(canonical: str) -> str:
     ezdxf's ``ARROWS`` vocabulary drops the underscore (``_DOT`` → ``DOT``,
     ``""`` stays ``""``) and its export raises ``DXFValueError`` on ``_DOT``
     because no block of that name exists until it creates one from ``DOT``. A
-    user block is passed through unchanged. The COM engine needs no mapping:
-    AutoCAD takes the canonical spelling.
+    user block is passed through unchanged.
     """
     if canonical in ARROWHEAD_BLOCKS:
         return canonical[1:]

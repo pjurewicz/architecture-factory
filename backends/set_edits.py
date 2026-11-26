@@ -22,7 +22,7 @@ select every entity in the space; say ``{"type": "*"}`` to mean that):
   preview's region fingerprint uses); an entity with no finite box never
   matches;
 - ``block``: an INSERT's block name or a list, same wildcards (an anonymous
-  dynamic-block reference is matched by its ``*U`` name, on both engines).
+  dynamic-block reference is matched by its ``*U`` name).
 
 **set** - at least one of ``layer`` (created when missing and reported),
 ``color`` (0-256; a true colour is dropped with it), ``linetype`` (loaded
@@ -33,7 +33,7 @@ definitions are never searched by ``entity_modify_where``; ``layer_merge``
 and ``layer_rename`` reach into them because a layer's name lives there too.
 
 An entity on a locked layer is not written - AutoCAD's own rule, which the
-live engine cannot break and the headless one keeps for parity - and is
+headless engine keeps - and is
 reported in ``skipped_locked``, never counted as matched.
 
 Refusals are by name and before anything is written: a malformed ``where``
@@ -316,7 +316,7 @@ def changes_payload(*, modified: int = 0, **counts: int) -> dict:
     """The ``changes`` block every set edit carries (1.8-10's shape).
 
     These verbs add and delete no entity, so ``added`` / ``deleted`` are empty
-    and the set is ``complete`` on both engines; ``counts`` carries what moved
+    and the set is ``complete``; ``counts`` carries what moved
     (``modified`` entities, plus layer-table rows such as ``layers_deleted``).
     """
     return {

@@ -5,9 +5,7 @@ preferences, drawing properties and operator prompts (v1.6 track E).
 ``backends.base.AutoCADBackend`` is unchanged for callers.
 
 Ownership: group V owns this module. The ``# ── properties ──`` block is
-declared here and *implemented* by group C on both backends; the six
-``@capability`` members are implemented on the COM backend only and refuse on
-ezdxf with a key both capability maps declare.
+declared here and *implemented* by group C.
 """
 
 from __future__ import annotations
@@ -37,12 +35,11 @@ class EnvironmentContract(ABC):
 
         Unsaved and neither ``save`` nor ``discard`` → ``ValueError`` naming the
         document; ``save`` on a document that has never been saved →
-        ``ValueError`` (no path to write, and the live engine would open a
-        modal Save dialog). → ``{"ok", "closed", "saved": bool, "active": name|None}``.
+        ``ValueError`` (no path to write). → ``{"ok", "closed", "saved": bool, "active": name|None}``.
         """
         ...
 
-    # ── layer states (portable ACADMCP_LAYERSTATES XRECORDs, both engines) ──
+    # ── layer states (portable ACADMCP_LAYERSTATES XRECORDs) ──────────────
 
     @abstractmethod
     async def layer_state_save(self, name: str, description: str | None = None) -> dict:
@@ -74,10 +71,8 @@ class EnvironmentContract(ABC):
 
     @abstractmethod
     async def view_named_restore(self, name: str) -> dict:
-        """COM: ZOOM Window on the saved rectangle (``"applied": "zoom_window"``
-        plus the read-back ``viewctr`` / ``viewsize``); ezdxf: fits the window
-        into the ``*Active`` VPORT without touching its aspect ratio,
-        ``"applied": "header_only"`` plus ``vport_height`` / ``aspect_ratio``."""
+        """Fits the saved window into the ``*Active`` VPORT without touching
+        its aspect ratio: ``"applied": "header_only"`` plus ``vport_height`` / ``aspect_ratio``."""
         ...
 
     @abstractmethod
@@ -92,7 +87,7 @@ class EnvironmentContract(ABC):
         Exactly one row is current. An *unnamed* current UCS (``UCS Origin`` /
         ``3P`` without saving) is a trailing row with ``name: None`` carrying
         its frame — "world" is current only when the frame is the WCS
-        (WORLDUCS live, the ``$UCS*`` header headless), never because the
+        (the ``$UCS*`` header), never because the
         name is empty.
         """
         ...
@@ -107,7 +102,7 @@ class EnvironmentContract(ABC):
         """``"world"`` resets."""
         ...
 
-    # ── properties (declared here; implemented by group C on both engines) ───
+    # ── properties (declared here; implemented by group C) ──────────────────
 
     @abstractmethod
     async def drawing_properties_get(self) -> dict:

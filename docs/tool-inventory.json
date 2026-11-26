@@ -735,7 +735,7 @@
       "name": "block_define",
       "group": "blocks",
       "cost": "mutate",
-      "summary": "Define a block from typed primitives and attribute definitions, on both engines.",
+      "summary": "Define a block from typed primitives and attribute definitions.",
       "acad": [
         "BLOCK",
         "BEDIT",
@@ -924,7 +924,7 @@
       "name": "bom_table",
       "group": "sheet",
       "cost": "mutate",
-      "summary": "Draw the parts list as a real TABLE above the title block.",
+      "summary": "Draw the parts list as a table above the title block.",
       "acad": [
         "TABLE"
       ],
@@ -2242,7 +2242,7 @@
       "name": "drawing_template_save",
       "group": "page_setup",
       "cost": "mutate",
-      "summary": "Save the current drawing as a template: .dwt on live AutoCAD, .dxf headlessly.",
+      "summary": "Save the current drawing as a .dxf template.",
       "acad": [
         "SAVEAS"
       ],
@@ -4245,7 +4245,7 @@
       "name": "linetype_load",
       "group": "layers",
       "cost": "mutate",
-      "summary": "Load a linetype such as CENTER or HIDDEN, without the FILEDIA dialog trap.",
+      "summary": "Load a linetype such as CENTER or HIDDEN from the built-in tables.",
       "acad": [
         "LINETYPE",
         "LTYPE",
@@ -4464,7 +4464,7 @@
       "name": "mleaderstyle_create",
       "group": "styles",
       "cost": "mutate",
-      "summary": "Create a multileader style from the ISO or ANSI preset, on both engines.",
+      "summary": "Create a multileader style from the ISO or ANSI preset.",
       "acad": [
         "MLEADERSTYLE"
       ],
@@ -5004,7 +5004,7 @@
       "name": "selection_get",
       "group": "entity_query",
       "cost": "read",
-      "summary": "Read what the user already picked in the AutoCAD viewport (COM backend).",
+      "summary": "Read a viewport pick-first selection; headless there is none (ok: false).",
       "acad": [],
       "synonyms": [
         "current selection",
@@ -5310,7 +5310,7 @@
       "name": "system_status",
       "group": "system",
       "cost": "read",
-      "summary": "Check the connection: which engine is live and what document is open.",
+      "summary": "Check the connection: which engine runs and what document is open.",
       "acad": [],
       "synonyms": [
         "server status",
@@ -5330,7 +5330,7 @@
       "name": "system_variable_describe",
       "group": "environment",
       "cost": "read",
-      "summary": "Explain a system variable: type, range, default, where it is saved, which engine honours it.",
+      "summary": "Explain a system variable: type, range, default, where it is saved, whether it can be written.",
       "acad": [
         "SETVAR",
         "SYSVARMONITOR",

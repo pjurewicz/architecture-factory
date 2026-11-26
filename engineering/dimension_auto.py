@@ -3,7 +3,7 @@
 The pure half of ``PremiumContract.dimension_auto``: it turns the selected
 entities into a list of :class:`PlannedDim` - which dimension, drawn to which
 points, standing where - and the backend half draws each one through the
-existing ``dimension_*`` contracts, so both engines draw the same plan.
+existing ``dimension_*`` contracts.
 
 What each entity gets:
 
@@ -18,8 +18,8 @@ What each entity gets:
   bulged (arc) segment is not dimensioned and is listed in ``omitted`` with its
   segment index.
 * **CIRCLE** - a diameter. The first chord point faces away from the part
-  box's centre, so the text stands beyond it (the first-chord rule both engines
-  share), outside the part box by ``offset``.
+  box's centre, so the text stands beyond it (AutoCAD's first-chord rule),
+  outside the part box by ``offset``.
 * **ARC** - a radius, its chord point at the middle of the sweep, the text
   outside the part box the same way.
 * **overall** - the selection's width and height, one row further out than
@@ -150,8 +150,8 @@ def _pt(value) -> Point:
     return (float(value[0]), float(value[1]))
 
 
-#: Why each type is not dimensioned (the engines' spellings; COM reports
-#: AcDbPolyline as POLYLINE and every dimension class as ...DIMENSION).
+#: Why each type is not dimensioned (DXF names, plus AutoCAD's object-model
+#: spellings POLYLINE and ...DIMENSION, kept for rows read from other sources).
 _NOT_DIMENSIONED: dict[str, str] = {
     "ELLIPSE": (
         "an ellipse has no diameter or radius to dimension; dimension its axes with "
