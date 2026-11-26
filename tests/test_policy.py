@@ -309,6 +309,56 @@ async def test_denylist_refuses_directly_and_inside_a_batch(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_headless_hides_and_refuses_live_only_tools(monkeypatch):
+    server._apply_discovery_mode("off")
+    client = await _open(monkeypatch, hide_live_only_tools=True)
+    try:
+        listed = {tool.name for tool in await client.list_tools()}
+        direct = await client.call_tool(
+            "system_run_lisp", {"expression": "(+ 1 2)"}, raise_on_error=False
+        )
+        batch = await client.call_tool(
+            "cad_batch",
+            {"steps": [{"tool": "system_preferences_get", "args": {}}]},
+            raise_on_error=False,
+        )
+        status = await _status(client)
+    finally:
+        await client.__aexit__(None, None, None)
+    assert not listed & policy.LIVE_ONLY_TOOLS
+    # A tool that refuses only some options headlessly stays listed.
+    assert {"system_set_variable", "xref_manage", "drawing_export_dwg"} <= listed
+    assert direct.structured_content["kind"] == "policy_refused"
+    assert direct.structured_content["policy"] == "headless_engine"
+    assert batch.structured_content["kind"] == "policy_refused"
+    assert batch.structured_content["tool"] == "system_preferences_get"
+    assert status["policy"]["live_only_hidden"] == sorted(policy.LIVE_ONLY_TOOLS)
+
+
+@pytest.mark.asyncio
+async def test_live_only_tools_stay_when_the_setting_is_off(monkeypatch):
+    server._apply_discovery_mode("off")
+    client = await _open(monkeypatch, hide_live_only_tools=False)
+    try:
+        listed = {tool.name for tool in await client.list_tools()}
+    finally:
+        await client.__aexit__(None, None, None)
+    assert policy.LIVE_ONLY_TOOLS <= listed
+
+
+def test_live_only_tools_are_kept_where_com_can_run(monkeypatch):
+    _set(monkeypatch, hide_live_only_tools=True)
+    monkeypatch.setattr(policy.sys, "platform", "win32")
+    monkeypatch.setenv("AUTOCAD_MCP_BACKEND", "auto")
+    assert not policy.hide_live_only()
+    monkeypatch.setenv("AUTOCAD_MCP_BACKEND", "ezdxf")
+    assert policy.hide_live_only()
+    monkeypatch.setattr(policy.sys, "platform", "darwin")
+    monkeypatch.setenv("AUTOCAD_MCP_BACKEND", "auto")
+    assert policy.hide_live_only()
+
+
+@pytest.mark.asyncio
 async def test_max_tool_cost_safe_refuses_mutate_and_file_writes(monkeypatch, tmp_path):
     client = await _open(monkeypatch, max_tool_cost="safe")
     target = tmp_path / "copy.dwg"

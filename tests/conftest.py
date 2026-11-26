@@ -25,6 +25,20 @@ def pin_headless_backend(request, monkeypatch):
     monkeypatch.setenv("AUTOCAD_MCP_BACKEND", "ezdxf")
 
 
+@pytest.fixture(autouse=True)
+def show_live_only_tools(monkeypatch):
+    """Keep ``policy.LIVE_ONLY_TOOLS`` registered and callable in the suite.
+
+    The suite pins the headless engine, where a server hides those tools by
+    default (``HIDE_LIVE_ONLY_TOOLS``); many tests call them headlessly to
+    check their capability refusals. Tests of the hiding itself set
+    ``config.settings.hide_live_only_tools`` back to True.
+    """
+    import config
+
+    monkeypatch.setattr(config.settings, "hide_live_only_tools", False)
+
+
 @pytest.fixture(scope="session")
 def state_root():
     """A session folder for journal state, outside every repository checkout.

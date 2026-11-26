@@ -19,7 +19,7 @@ Live through COM on Windows, or headless through ezdxf anywhere — one typed co
 
 </div>
 
-> **v1.8 release snapshot:** 257 tools · 13 resources · 5 prompt templates · 7583 collected tests.
+> **v1.8 release snapshot:** 257 tools · 13 resources · 5 prompt templates · 7586 collected tests.
 > 257 is the **registered** count. Since 1.8.0 a default install lists six over `tools/list`
 > (`DISCOVERY_MODE=search`: `search_tools`, `describe_tool`, `call_tool` and the three
 > `DISCOVERY_PINNED` tools), and every tool the profile and packs allow stays callable by name;
@@ -405,7 +405,7 @@ A `.dwt` template is the same case (`dwt_write`): a `.dwt` is a DWG container, s
 Nothing loads a `.env` file — export these, or set them in your MCP client's `env` block.
 
 <details>
-<summary><b>All 46 environment variables</b></summary>
+<summary><b>All 47 environment variables</b></summary>
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -448,6 +448,7 @@ Nothing loads a `.env` file — export these, or set them in your MCP client's `
 | `READ_ONLY` | `false` | `true` runs only `read` tools and writes no file; anything else is refused `policy_refused` before it runs |
 | `TOOL_ALLOWLIST` | *(empty)* | Comma-separated tool names or globs (`entity_*`); only these are advertised and callable. An entry naming no tool is warned about at startup (`system_about.policy.unmatched`) |
 | `TOOL_DENYLIST` | *(empty)* | Comma-separated tool names or globs that are neither advertised nor callable |
+| `HIDE_LIVE_ONLY_TOOLS` | `true` | On a headless server (`AUTOCAD_MCP_BACKEND=ezdxf`, or any setting off Windows) the eight tools only a live AutoCAD can run - `system_run_lisp`, `system_run_command`, `system_launch`, `system_preferences_get` / `_set`, `user_pick_point`, `user_select`, `system_prompt_message` - are neither advertised nor callable (`policy_refused`, `policy: "headless_engine"`). `false` lists them again |
 | `MAX_TOOL_COST` | `escape` | The highest tool cost a call may carry: `read`, `safe`, `mutate`, `destructive` or `escape`. A file write is `mutate` whatever its tool is labelled |
 | `DANGEROUS_COMMANDS_ENABLED` | `false` | Allow blocked commands/LISP; reported as unsafe mode |
 | `LISP_POLICY` | `read` | How `system_run_lisp` checks an expression (live only): `read` runs the AutoLISP read tier and sends the rest to the 1.7 denylist, `denylist` is the 1.7 behaviour, `off` checks nothing. An unknown value falls back to `read` with a warning |
