@@ -45,6 +45,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Headless PDF / PNG renders now plot the sheet's ctb and the lineweight
+  hierarchy. ezdxf found no `monochrome.ctb` file and fell back silently to
+  object colours, and it stroked a lineweight in mm as points under a
+  one-pixel floor, so every lineweight from 0.13 to 0.70 mm came out 0.72 pt.
+  Lines are now stroked at their real width (0.50 mm = 1.417 pt; at least
+  0.13 mm in a PDF, one pixel in a PNG). The catalogue tables are drawn as
+  `CTB_RENDERING` says: monochrome makes every pen black, true colours
+  included, Grayscale maps to luminance, and the others keep object colour.
+  Any other name is loaded from a ctb file ezdxf can find. Wipeouts keep the
+  paper colour. `drawing_export_pdf` and the region render report
+  `plot_style {name, ink, exact}`. Model-space screenshots keep object
+  colours and now show the lineweights.
 - A client reopening its session's SSE stream (`GET /mcp`) after a proxy
   dropped the old one silently was refused `409 Conflict: Only one SSE stream
   is allowed per session` until it gave up and ended the session, losing its

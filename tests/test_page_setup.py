@@ -380,6 +380,49 @@ async def test_apply_iso_a3_landscape_and_the_pdf_mediabox_agrees(backend, tmp_p
     assert abs(width - 420.0) <= 0.5 and abs(height - 297.0) <= 0.5
 
 
+def _pdf_strokes(path) -> tuple[list[float], set[str]]:
+    """Stroke widths (pt) and stroke colours (``G`` / ``RG`` operands) of a PDF."""
+    widths, colours = [], set()
+    for stream in re.finditer(rb"stream\r?\n(.*?)\r?\nendstream", path.read_bytes(), re.S):
+        try:
+            text = zlib.decompress(stream.group(1)).decode("latin-1")
+        except zlib.error:
+            continue
+        widths += [float(w) for w in re.findall(r"([\d.]+)\s+w\b", text)]
+        colours |= set(re.findall(r"((?:[\d.]+\s+){3}RG|[\d.]+\s+G)\b", text))
+    return widths, {" ".join(c.split()) for c in colours}
+
+
+@pytest.mark.parametrize(("ctb", "expect_colour"), [("monochrome.ctb", False), ("acad.ctb", True)])
+async def test_a_sheet_plots_its_ctb_and_its_lineweights(backend, tmp_path, ctb, expect_colour):
+    """The plot style and the ISO 128 hierarchy reach the PDF.
+
+    Before: ezdxf found no ``monochrome.ctb`` file and fell back to object
+    colours, and a lineweight in mm was stroked as points under a one-pixel
+    floor, so 0.25, 0.35 and 0.50 mm were all 0.72 pt.
+    """
+    pytest.importorskip("matplotlib", reason="rendering needs the [pdf] extra")
+    await _sheet(backend)
+    await backend.page_setup_apply(
+        SHEET, resolve_page_setup("ISO_A3", "landscape", plot_style=ctb, scale="1:1")
+    )
+    lay = backend._doc.layouts.get(SHEET)
+    for y, (lw, aci) in enumerate([(25, 1), (35, 3), (50, 5)]):
+        attribs = {"lineweight": lw, "color": aci}
+        lay.add_line((50, 50 + 20 * y), (300, 50 + 20 * y), dxfattribs=attribs)
+    lay.add_line((50, 150), (300, 150), dxfattribs={"lineweight": 70}).rgb = (200, 30, 30)
+
+    pdf = tmp_path / "plot.pdf"
+    result = await backend.drawing_export_pdf(str(pdf), layout=SHEET)
+    ink = "object" if expect_colour else "monochrome"
+    assert result["plot_style"] == {"name": ctb, "ink": ink, "exact": True}
+    widths, colours = _pdf_strokes(pdf)
+    for mm in (0.25, 0.35, 0.50, 0.70):
+        assert any(abs(w - mm * 72 / 25.4) < 1e-3 for w in widths), (mm, sorted(set(widths)))
+    inked = colours - {"1 G"}  # white: the paper, not ink
+    assert (inked != {"0 G"}) is expect_colour, colours
+
+
 async def test_apply_full_bleed_a3_round_trips_and_the_pdf_mediabox_agrees(backend, tmp_path):
     """Issue #18 on the headless engine: the full-bleed name is written into
     the LAYOUT's plot settings, read back by page_setup_list, carried by the

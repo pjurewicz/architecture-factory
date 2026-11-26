@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import io
 import math
+import os
 from collections.abc import Callable, Sequence
 
 #: The long side of a model-facing image: larger images are downscaled by the
@@ -121,6 +122,61 @@ def _inside(point, region: Region) -> bool:
     return x0 <= point[0] <= x1 and y0 <= point[1] <= y1
 
 
+#: ezdxf hands matplotlib a lineweight in millimetres and matplotlib reads every
+#: linewidth as points. Unscaled, 0.50 mm was stroked 0.50 pt (0.18 mm), and the
+#: one-pixel floor (0.72 pt at 100 dpi) drew 0.13 to 0.70 mm at one width.
+MM_TO_PT = 72.0 / 25.4
+#: The thinnest pen a vector plot strokes: ISO 128's 0.13 mm. A raster keeps
+#: ezdxf's floor of one pixel.
+VECTOR_MIN_LINEWEIGHT_MM = 0.13
+
+
+def draw_layout(doc, layout, out, *, plot: bool, vector: bool = False) -> dict:
+    """Draw ``layout`` through the matplotlib backend ``out``, the way it plots.
+
+    Lineweights are drawn at their size in points (on a raster, at least one
+    pixel). With ``plot`` (a PDF, or any paper layout) the layout's plot style
+    table is applied: a catalogue table as ``CTB_RENDERING`` says, any other name
+    loaded from a ctb file ezdxf finds, else the object colours with
+    ``exact: false``. Model space rendered as a screenshot uses object colours, as
+    AutoCAD's screen does. Ink is mapped in the render context, so a wipeout or a
+    text mask keeps the paper colour. Returns ``{name, ink, exact}``.
+    """
+    import ezdxf
+    from ezdxf.addons import acadctb
+    from ezdxf.addons.drawing import Frontend, RenderContext
+    from ezdxf.addons.drawing.config import BackgroundPolicy, Configuration
+    from ezdxf.addons.drawing.pipeline import color_to_monochrome
+    from ezdxf.filemanagement import find_support_file
+
+    from engineering.standards.papers import CTB_RENDERING
+
+    name = str(layout.get_plot_style_filename() or "").strip()
+    plot = plot or not layout.is_modelspace
+    ctb = acadctb.new_ctb()  # every pen "use object": never a silent lookup
+    ink, exact = "object", True
+    if plot and name:
+        ink, exact = CTB_RENDERING.get(name.lower(), ("object", False))
+        found = find_support_file(name, ezdxf.options.support_dirs)
+        if name.lower() not in CTB_RENDERING and os.path.isfile(found):
+            ctb, ink, exact = acadctb.load(found), "file", True
+    mapping = {"monochrome": lambda c: "#000000", "grayscale": color_to_monochrome}.get(ink)
+
+    class _PlotContext(RenderContext):
+        def resolve_color(self, entity, *, resolved_layer=None):
+            color = super().resolve_color(entity, resolved_layer=resolved_layer)
+            return mapping(color[:7]) + color[7:] if mapping else color
+
+    config = Configuration(
+        lineweight_scaling=MM_TO_PT,
+        min_lineweight=VECTOR_MIN_LINEWEIGHT_MM * MM_TO_PT if vector else None,
+        # a monochrome or grey plot is ink on white paper, model space included
+        background_policy=BackgroundPolicy.WHITE if mapping else BackgroundPolicy.DEFAULT,
+    )
+    Frontend(_PlotContext(doc, ctb=ctb), out, config=config).draw_layout(layout, finalize=True)
+    return {"name": name or None, "ink": ink, "exact": exact}
+
+
 def render_layout(
     doc,
     layout,
@@ -136,14 +192,13 @@ def render_layout(
     Raises ``ImportError`` when matplotlib is missing; the caller decides how
     to say so. ``region`` must already be normalised (``normalize_region``).
     """
-    from ezdxf.addons.drawing import Frontend, RenderContext
     from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
 
     max_px = check_max_px(max_px)
     fig = _agg_figure()
     ax = fig.add_axes((0.0, 0.0, 1.0, 1.0))
     out = MatplotlibBackend(ax, adjust_figure=False)
-    Frontend(RenderContext(doc), out).draw_layout(layout, finalize=True)
+    plot_style = draw_layout(doc, layout, out, plot=False)
 
     if region is None:
         (ex0, ex1), (ey0, ey1) = ax.get_xlim(), ax.get_ylim()
@@ -218,6 +273,7 @@ def render_layout(
         "requested_region": None if region is None else [float(v) for v in region],
         "px_per_unit": got_w / (drawn[2] - drawn[0]),
         "space": str(getattr(layout, "name", "Model")),
+        "plot_style": plot_style,
         "labels": labels,
         "labelled": len(labels),
         "total": total,

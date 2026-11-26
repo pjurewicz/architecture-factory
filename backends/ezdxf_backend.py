@@ -80,7 +80,13 @@ from .quarantine import (
     quarantine_refusal,
     real_call_name,
 )
-from .region_render import DEFAULT_MAX_PX, check_max_px, normalize_region, render_layout
+from .region_render import (
+    DEFAULT_MAX_PX,
+    check_max_px,
+    draw_layout,
+    normalize_region,
+    render_layout,
+)
 from .vertices import (
     edit_geometry_route,
     prepare_bulges,
@@ -3689,7 +3695,6 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             else:
                 target = doc.modelspace()
             try:
-                from ezdxf.addons.drawing import Frontend, RenderContext
                 from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
 
                 # Track E: for a sheet, the figure *is* the paper. Sized from
@@ -3702,15 +3707,14 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     paper = self._paper_frame(target)
                 fig = _new_agg_figure(figsize=paper["figsize"] if paper else None)
                 ax = fig.add_axes([0, 0, 1, 1])
-                ctx = RenderContext(doc)
                 out = MatplotlibBackend(ax, adjust_figure=paper is None)
-                Frontend(ctx, out).draw_layout(target, finalize=True)
+                plot_style = draw_layout(doc, target, out, plot=True, vector=True)
                 if paper is not None:
                     ax.set_xlim(*paper["xlim"])
                     ax.set_ylim(*paper["ylim"])
                     ax.set_aspect("equal", adjustable="box")
                 fig.savefig(path, dpi=150)
-                result = {"ok": True, "path": path}
+                result = {"ok": True, "path": path, "plot_style": plot_style}
                 if paper is not None:
                     result["paper_mm"] = paper["size_mm"]
                     result["scale"] = paper["scale"]
@@ -9472,14 +9476,12 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             try:
                 doc = self._require_doc()
                 space = self._msp()
-                from ezdxf.addons.drawing import Frontend, RenderContext
                 from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
 
                 fig = _new_agg_figure(figsize=(16, 9), dpi=100)
                 ax = fig.add_axes([0, 0, 1, 1])
-                ctx = RenderContext(doc)
                 out = MatplotlibBackend(ax)
-                Frontend(ctx, out).draw_layout(space, finalize=True)
+                draw_layout(doc, space, out, plot=False)
 
                 labels: dict[str, list[float]] = {}
                 entities = list(space)

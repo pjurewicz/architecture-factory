@@ -61,6 +61,7 @@ __all__ = [
     "ACTIVEX_PLOT_SCALE",
     "BLEEDS",
     "CTB_CATALOG",
+    "CTB_RENDERING",
     "DXF_STANDARD_SCALE_TYPE",
     "DXF_STD_SCALES",
     "ORIENTATIONS",
@@ -135,6 +136,24 @@ CTB_CATALOG: tuple[str, ...] = (
     "Fill Patterns.ctb",
     "DWF Virtual Pens.ctb",
 )
+
+#: How the headless renderer draws each catalogue table: ``(ink, exact)``, keyed
+#: by the lower-cased name. ``ink`` is ``monochrome`` (every pen black),
+#: ``grayscale`` (the colour's luminance) or ``object`` (the object's own colour);
+#: every table here plots the object's lineweight. ``exact`` is false where the
+#: table does more than the renderer draws: screening, fill patterns, virtual
+#: pens, and Grayscale.ctb's own grey per pen (luminance is an approximation).
+CTB_RENDERING: dict[str, tuple[str, bool]] = {
+    "monochrome.ctb": ("monochrome", True),
+    "acad.ctb": ("object", True),
+    "grayscale.ctb": ("grayscale", False),
+    "screening 100%.ctb": ("object", True),
+    "screening 75%.ctb": ("object", False),
+    "screening 50%.ctb": ("object", False),
+    "screening 25%.ctb": ("object", False),
+    "fill patterns.ctb": ("object", False),
+    "dwf virtual pens.ctb": ("object", False),
+}
 
 #: Label → paper:drawing factor (``None`` = scaled to fit).
 SCALES: dict[str, float | None] = {
