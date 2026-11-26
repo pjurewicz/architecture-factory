@@ -638,6 +638,22 @@ async def test_entity_batch_create_advertises_and_enforces_one_item_schema(full_
         {"type": "circle", "cx": 0, "cy": 0, "radius": 1, "layer": "GEOMETRY"},
     ]
     assert not list(validator.iter_errors({"entities": good}))
+    newer = [
+        {"type": "rectangle", "x": 0, "y": 0, "width": 4, "height": 2},
+        {"type": "text", "text": "A", "x": 0, "y": 0, "align": "middle_center"},
+        {"type": "insert", "name": "VALVE", "x": 0, "y": 0, "attributes": {"TAG": "V-1"}},
+        {
+            "type": "dimension_linear",
+            "x1": 0,
+            "y1": 0,
+            "x2": 20,
+            "y2": 0,
+            "dim_x": 10,
+            "dim_y": -8,
+            "fit": "H7",
+        },
+    ]
+    assert not list(validator.iter_errors({"entities": newer}))
     # a rectangle takes corners, not a polyline's points; a typo'd key is not ignored
     for bad in ({"type": "rectangle", "points": [[0, 0], [1, 1]]}, {**good[1], "radiu": 2}):
         assert list(validator.iter_errors({"entities": [bad]})), bad

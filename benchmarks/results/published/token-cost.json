@@ -64,7 +64,7 @@
             "top": [
               "entity_fillet",
               "drawing_history",
-              "view_zoom_window"
+              "entity_create_circle"
             ]
           },
           {
@@ -120,15 +120,15 @@
             ]
           },
           {
-            "bytes_utf8": 566,
-            "chars": 566,
+            "bytes_utf8": 625,
+            "chars": 625,
             "cost": {
-              "cached_input_tokens_per_request": 17.2,
-              "session_cached": 713.8,
+              "cached_input_tokens_per_request": 19.0,
+              "session_cached": 788.5,
               "session_saving_ratio": 0.862,
-              "session_uncached": 5160,
+              "session_uncached": 5700,
               "turns": 30,
-              "uncached_input_tokens_per_request": 172,
+              "uncached_input_tokens_per_request": 190,
               "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
             },
             "hits": 5,
@@ -139,7 +139,7 @@
               "estimated": true,
               "format": "compact_text",
               "method": "ratio/v1",
-              "value": 172
+              "value": 190
             },
             "top": [
               "analysis_entity_stats",
@@ -554,15 +554,15 @@
         "note": "Stock BM25 on its default serializer, which re-emits each hit's full list_tools entry. Recorded to size the renderer's contribution, NOT as a baseline any claim should be made against.",
         "queries": [
           {
-            "bytes_utf8": 5642,
-            "chars": 5640,
+            "bytes_utf8": 5710,
+            "chars": 5708,
             "cost": {
-              "cached_input_tokens_per_request": 134.6,
-              "session_cached": 5585.9,
+              "cached_input_tokens_per_request": 136.2,
+              "session_cached": 5652.3,
               "session_saving_ratio": 0.862,
-              "session_uncached": 40380,
+              "session_uncached": 40860,
               "turns": 30,
-              "uncached_input_tokens_per_request": 1346,
+              "uncached_input_tokens_per_request": 1362,
               "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
             },
             "hits": 5,
@@ -573,7 +573,7 @@
               "estimated": true,
               "format": "json_schema",
               "method": "ratio/v1",
-              "value": 1346
+              "value": 1362
             },
             "top": [
               "entity_fillet",
@@ -805,7 +805,7 @@
         "transform": "fastmcp.server.transforms.search.BM25SearchTransform"
       }
     ],
-    "catalog_tools": 252,
+    "catalog_tools": 244,
     "limit": 5,
     "summary": {
       "comparable_queries": 8,
@@ -818,14 +818,14 @@
         "stock_bm25_default": 0.889
       },
       "mean_chars": {
-        "cad_search": 574.2,
+        "cad_search": 581.6,
         "stock_bm25_compact": 563.9,
-        "stock_bm25_default": 6700.5
+        "stock_bm25_default": 6709.0
       },
       "mean_tokens": {
-        "cad_search": 174.6,
+        "cad_search": 176.9,
         "stock_bm25_compact": 171.5,
-        "stock_bm25_default": 1599.1
+        "stock_bm25_default": 1601.1
       },
       "note": "Means cover only queries every arm answered; zero-hit answers are excluded from size means and reported in hit_rate instead. The compact serializer, not the ranker, is what makes a search answer small - stock BM25 with the same serializer lands within a few percent. Ours differs in finding the tool at all.",
       "queries": 9
@@ -835,24 +835,24 @@
     "ezdxf": "1.4.4",
     "fastmcp": "3.4.5",
     "implementation": "CPython",
-    "machine": "AMD64",
+    "machine": "x86_64",
     "package_version": "1.8.0",
-    "platform": "Windows-11-10.0.26300-SP0",
-    "python": "3.12.16"
+    "platform": "Linux-6.1.189+-x86_64-with-glibc2.41",
+    "python": "3.13.5"
   },
   "idle": [
     {
-      "advertised_tools": 253,
+      "advertised_tools": 245,
       "basis": "prompt_payload",
-      "bytes_utf8": 248085,
-      "chars": 247787,
+      "bytes_utf8": 253864,
+      "chars": 253590,
       "cost": {
-        "cached_input_tokens_per_request": 5913.8,
-        "session_cached": 245422.7,
+        "cached_input_tokens_per_request": 6052.3,
+        "session_cached": 251170.5,
         "session_saving_ratio": 0.862,
-        "session_uncached": 1774140,
+        "session_uncached": 1815690,
         "turns": 30,
-        "uncached_input_tokens_per_request": 59138,
+        "uncached_input_tokens_per_request": 60523,
         "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
       },
       "kind": "tools_list",
@@ -888,26 +888,26 @@
         },
         "note": "Minimum cacheable prefix by model tier. A prefix below the minimum does not cache and reports no error, so its cached column is unreachable in practice."
       },
-      "prompt_chars": 247787,
+      "prompt_chars": 253590,
       "tokens": {
         "chars_per_token": 4.19,
         "confidence": "carried-over-measurement",
         "estimated": true,
         "format": "json_schema",
         "method": "ratio/v1",
-        "value": 59138
+        "value": 60523
       },
       "variant": "default",
       "wire": {
-        "bytes_utf8": 328759,
-        "chars": 328460,
+        "bytes_utf8": 331969,
+        "chars": 331694,
         "cost": {
-          "cached_input_tokens_per_request": 7839.1,
-          "session_cached": 325322.7,
+          "cached_input_tokens_per_request": 7916.3,
+          "session_cached": 328526.5,
           "session_saving_ratio": 0.862,
-          "session_uncached": 2351730,
+          "session_uncached": 2374890,
           "turns": 30,
-          "uncached_input_tokens_per_request": 78391,
+          "uncached_input_tokens_per_request": 79163,
           "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
         },
         "tokens": {
@@ -916,23 +916,23 @@
           "estimated": true,
           "format": "json_schema",
           "method": "ratio/v1",
-          "value": 78391
+          "value": 79163
         }
       },
-      "wire_chars": 328460
+      "wire_chars": 331694
     },
     {
       "advertised_tools": 68,
       "basis": "prompt_payload",
-      "bytes_utf8": 67850,
-      "chars": 67803,
+      "bytes_utf8": 71615,
+      "chars": 71568,
       "cost": {
-        "cached_input_tokens_per_request": 1618.2,
-        "session_cached": 67155.3,
+        "cached_input_tokens_per_request": 1708.1,
+        "session_cached": 70886.1,
         "session_saving_ratio": 0.862,
-        "session_uncached": 485460,
+        "session_uncached": 512430,
         "turns": 30,
-        "uncached_input_tokens_per_request": 16182,
+        "uncached_input_tokens_per_request": 17081,
         "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
       },
       "kind": "tools_list",
@@ -968,26 +968,26 @@
         },
         "note": "Minimum cacheable prefix by model tier. A prefix below the minimum does not cache and reports no error, so its cached column is unreachable in practice."
       },
-      "prompt_chars": 67803,
+      "prompt_chars": 71568,
       "tokens": {
         "chars_per_token": 4.19,
         "confidence": "carried-over-measurement",
         "estimated": true,
         "format": "json_schema",
         "method": "ratio/v1",
-        "value": 16182
+        "value": 17081
       },
       "variant": "lean",
       "wire": {
-        "bytes_utf8": 88828,
-        "chars": 88780,
+        "bytes_utf8": 92593,
+        "chars": 92545,
         "cost": {
-          "cached_input_tokens_per_request": 2118.9,
-          "session_cached": 87934.4,
+          "cached_input_tokens_per_request": 2208.7,
+          "session_cached": 91661.1,
           "session_saving_ratio": 0.862,
-          "session_uncached": 635670,
+          "session_uncached": 662610,
           "turns": 30,
-          "uncached_input_tokens_per_request": 21189,
+          "uncached_input_tokens_per_request": 22087,
           "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
         },
         "tokens": {
@@ -996,23 +996,23 @@
           "estimated": true,
           "format": "json_schema",
           "method": "ratio/v1",
-          "value": 21189
+          "value": 22087
         }
       },
-      "wire_chars": 88780
+      "wire_chars": 92545
     },
     {
-      "advertised_tools": 192,
+      "advertised_tools": 190,
       "basis": "prompt_payload",
-      "bytes_utf8": 170811,
-      "chars": 170625,
+      "bytes_utf8": 177728,
+      "chars": 177544,
       "cost": {
-        "cached_input_tokens_per_request": 4072.2,
-        "session_cached": 168996.3,
+        "cached_input_tokens_per_request": 4237.3,
+        "session_cached": 175848.0,
         "session_saving_ratio": 0.862,
-        "session_uncached": 1221660,
+        "session_uncached": 1271190,
         "turns": 30,
-        "uncached_input_tokens_per_request": 40722,
+        "uncached_input_tokens_per_request": 42373,
         "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
       },
       "kind": "tools_list",
@@ -1048,26 +1048,26 @@
         },
         "note": "Minimum cacheable prefix by model tier. A prefix below the minimum does not cache and reports no error, so its cached column is unreachable in practice."
       },
-      "prompt_chars": 170625,
+      "prompt_chars": 177544,
       "tokens": {
         "chars_per_token": 4.19,
         "confidence": "carried-over-measurement",
         "estimated": true,
         "format": "json_schema",
         "method": "ratio/v1",
-        "value": 40722
+        "value": 42373
       },
       "variant": "packs_core",
       "wire": {
-        "bytes_utf8": 231345,
-        "chars": 231159,
+        "bytes_utf8": 237677,
+        "chars": 237493,
         "cost": {
-          "cached_input_tokens_per_request": 5516.9,
-          "session_cached": 228951.4,
+          "cached_input_tokens_per_request": 5668.1,
+          "session_cached": 235226.2,
           "session_saving_ratio": 0.862,
-          "session_uncached": 1655070,
+          "session_uncached": 1700430,
           "turns": 30,
-          "uncached_input_tokens_per_request": 55169,
+          "uncached_input_tokens_per_request": 56681,
           "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
         },
         "tokens": {
@@ -1076,23 +1076,23 @@
           "estimated": true,
           "format": "json_schema",
           "method": "ratio/v1",
-          "value": 55169
+          "value": 56681
         }
       },
-      "wire_chars": 231159
+      "wire_chars": 237493
     },
     {
-      "advertised_tools": 207,
+      "advertised_tools": 205,
       "basis": "prompt_payload",
-      "bytes_utf8": 196162,
-      "chars": 195953,
+      "bytes_utf8": 203079,
+      "chars": 202872,
       "cost": {
-        "cached_input_tokens_per_request": 4676.7,
-        "session_cached": 194083.0,
+        "cached_input_tokens_per_request": 4841.8,
+        "session_cached": 200934.7,
         "session_saving_ratio": 0.862,
-        "session_uncached": 1403010,
+        "session_uncached": 1452540,
         "turns": 30,
-        "uncached_input_tokens_per_request": 46767,
+        "uncached_input_tokens_per_request": 48418,
         "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
       },
       "kind": "tools_list",
@@ -1128,26 +1128,26 @@
         },
         "note": "Minimum cacheable prefix by model tier. A prefix below the minimum does not cache and reports no error, so its cached column is unreachable in practice."
       },
-      "prompt_chars": 195953,
+      "prompt_chars": 202872,
       "tokens": {
         "chars_per_token": 4.19,
         "confidence": "carried-over-measurement",
         "estimated": true,
         "format": "json_schema",
         "method": "ratio/v1",
-        "value": 46767
+        "value": 48418
       },
       "variant": "packs_core_mech",
       "wire": {
-        "bytes_utf8": 261769,
-        "chars": 261560,
+        "bytes_utf8": 268101,
+        "chars": 267894,
         "cost": {
-          "cached_input_tokens_per_request": 6242.5,
-          "session_cached": 259063.8,
+          "cached_input_tokens_per_request": 6393.7,
+          "session_cached": 265338.6,
           "session_saving_ratio": 0.862,
-          "session_uncached": 1872750,
+          "session_uncached": 1918110,
           "turns": 30,
-          "uncached_input_tokens_per_request": 62425,
+          "uncached_input_tokens_per_request": 63937,
           "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
         },
         "tokens": {
@@ -1156,23 +1156,23 @@
           "estimated": true,
           "format": "json_schema",
           "method": "ratio/v1",
-          "value": 62425
+          "value": 63937
         }
       },
-      "wire_chars": 261560
+      "wire_chars": 267894
     },
     {
-      "advertised_tools": 204,
+      "advertised_tools": 202,
       "basis": "prompt_payload",
-      "bytes_utf8": 188333,
-      "chars": 188137,
+      "bytes_utf8": 198337,
+      "chars": 198143,
       "cost": {
-        "cached_input_tokens_per_request": 4490.1,
-        "session_cached": 186339.2,
+        "cached_input_tokens_per_request": 4728.9,
+        "session_cached": 196249.4,
         "session_saving_ratio": 0.862,
-        "session_uncached": 1347030,
+        "session_uncached": 1418670,
         "turns": 30,
-        "uncached_input_tokens_per_request": 44901,
+        "uncached_input_tokens_per_request": 47289,
         "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
       },
       "kind": "tools_list",
@@ -1208,26 +1208,26 @@
         },
         "note": "Minimum cacheable prefix by model tier. A prefix below the minimum does not cache and reports no error, so its cached column is unreachable in practice."
       },
-      "prompt_chars": 188137,
+      "prompt_chars": 198143,
       "tokens": {
         "chars_per_token": 4.19,
         "confidence": "carried-over-measurement",
         "estimated": true,
         "format": "json_schema",
         "method": "ratio/v1",
-        "value": 44901
+        "value": 47289
       },
       "variant": "packs_core_arch",
       "wire": {
-        "bytes_utf8": 252809,
-        "chars": 252612,
+        "bytes_utf8": 262228,
+        "chars": 262033,
         "cost": {
-          "cached_input_tokens_per_request": 6028.9,
-          "session_cached": 250199.4,
+          "cached_input_tokens_per_request": 6253.8,
+          "session_cached": 259532.7,
           "session_saving_ratio": 0.862,
-          "session_uncached": 1808670,
+          "session_uncached": 1876140,
           "turns": 30,
-          "uncached_input_tokens_per_request": 60289,
+          "uncached_input_tokens_per_request": 62538,
           "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
         },
         "tokens": {
@@ -1236,10 +1236,10 @@
           "estimated": true,
           "format": "json_schema",
           "method": "ratio/v1",
-          "value": 60289
+          "value": 62538
         }
       },
-      "wire_chars": 252612
+      "wire_chars": 262033
     },
     {
       "advertised_tools": 3,
@@ -1545,8 +1545,8 @@
         "rows": 10
       },
       "system_status_1000_rows": {
-        "bytes_at_0_rows": 1280,
-        "bytes_at_1000_rows": 1298,
+        "bytes_at_0_rows": 1436,
+        "bytes_at_1000_rows": 1454,
         "journal_count": 1002,
         "measured": 18,
         "metric": "bytes"
@@ -1561,53 +1561,53 @@
       "TEXT": 60
     },
     "projection": {
-      "chars_per_entity": 283.8,
+      "chars_per_entity": 283.7,
       "config_max_list_limit": 5000,
       "extrapolated": true,
-      "extrapolated_chars_at_config_cap": 1419000,
-      "extrapolated_chars_at_schema_max": 283800,
+      "extrapolated_chars_at_config_cap": 1418500,
+      "extrapolated_chars_at_schema_max": 283700,
       "note": "entity_list declares limit as Field(ge=1, le=1000), so the MAX_LIST_LIMIT cap (default 5000) is unreachable through the tool's schema - the config-cap row is an extrapolation from measured chars/entity, not a payload anyone can actually elicit.",
       "schema_max_limit": 1000
     },
     "scenarios": [
       {
-        "bytes_utf8": 6995,
-        "chars": 6995,
-        "chars_per_entity": 279.8,
+        "bytes_utf8": 7000,
+        "chars": 7000,
+        "chars_per_entity": 280.0,
         "cost": {
-          "cached_input_tokens_per_request": 166.9,
-          "session_cached": 6926.4,
+          "cached_input_tokens_per_request": 167.1,
+          "session_cached": 6934.7,
           "session_saving_ratio": 0.862,
-          "session_uncached": 50070,
+          "session_uncached": 50130,
           "turns": 30,
-          "uncached_input_tokens_per_request": 1669,
+          "uncached_input_tokens_per_request": 1671,
           "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
         },
         "counterfactuals": {
           "floats_rounded_6dp": {
-            "bytes_utf8": 6685,
-            "chars": 6685,
+            "bytes_utf8": 6680,
+            "chars": 6680,
             "cost": {
-              "cached_input_tokens_per_request": 159.5,
-              "session_cached": 6619.2,
+              "cached_input_tokens_per_request": 159.4,
+              "session_cached": 6615.1,
               "session_saving_ratio": 0.862,
-              "session_uncached": 47850,
+              "session_uncached": 47820,
               "turns": 30,
-              "uncached_input_tokens_per_request": 1595,
+              "uncached_input_tokens_per_request": 1594,
               "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
             },
             "counterfactual": true,
             "label": "floats_rounded_6dp",
             "note": "Full-precision repr (14.142135623730951) versus 6 decimals - drawing units are mm, so the extra digits are noise.",
-            "saved_chars": 310,
-            "saved_pct": 4.4,
+            "saved_chars": 320,
+            "saved_pct": 4.6,
             "tokens": {
               "chars_per_token": 4.19,
               "confidence": "borrowed",
               "estimated": true,
               "format": "json_data",
               "method": "ratio/v1",
-              "value": 1595
+              "value": 1594
             }
           },
           "without_bounding_box": {
@@ -1625,8 +1625,8 @@
             "counterfactual": true,
             "label": "without_bounding_box",
             "note": "Every EntityInfo carries a nested properties.bounding_box; this is what dropping it would save.",
-            "saved_chars": 1709,
-            "saved_pct": 24.4,
+            "saved_chars": 1714,
+            "saved_pct": 24.5,
             "tokens": {
               "chars_per_token": 4.19,
               "confidence": "borrowed",
@@ -1641,56 +1641,56 @@
         "note": "chars/tokens price the text block - what a model client feeds the model. FastMCP also returns the same rows as structuredContent, so the transport carries the payload twice; wire_chars is that total.",
         "rows_returned": 25,
         "scenario": "entity_list(limit=25)",
-        "structured_chars": 7006,
-        "text_chars": 6995,
+        "structured_chars": 7011,
+        "text_chars": 7000,
         "tokens": {
           "chars_per_token": 4.19,
           "confidence": "borrowed",
           "estimated": true,
           "format": "json_data",
           "method": "ratio/v1",
-          "value": 1669
+          "value": 1671
         },
-        "wire_chars": 14001
+        "wire_chars": 14011
       },
       {
-        "bytes_utf8": 28206,
-        "chars": 28206,
-        "chars_per_entity": 282.1,
+        "bytes_utf8": 28197,
+        "chars": 28197,
+        "chars_per_entity": 282.0,
         "cost": {
-          "cached_input_tokens_per_request": 673.2,
-          "session_cached": 27937.8,
+          "cached_input_tokens_per_request": 673.0,
+          "session_cached": 27929.5,
           "session_saving_ratio": 0.862,
-          "session_uncached": 201960,
+          "session_uncached": 201900,
           "turns": 30,
-          "uncached_input_tokens_per_request": 6732,
+          "uncached_input_tokens_per_request": 6730,
           "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
         },
         "counterfactuals": {
           "floats_rounded_6dp": {
-            "bytes_utf8": 26989,
-            "chars": 26989,
+            "bytes_utf8": 26969,
+            "chars": 26969,
             "cost": {
-              "cached_input_tokens_per_request": 644.1,
-              "session_cached": 26730.2,
+              "cached_input_tokens_per_request": 643.7,
+              "session_cached": 26713.6,
               "session_saving_ratio": 0.862,
-              "session_uncached": 193230,
+              "session_uncached": 193110,
               "turns": 30,
-              "uncached_input_tokens_per_request": 6441,
+              "uncached_input_tokens_per_request": 6437,
               "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
             },
             "counterfactual": true,
             "label": "floats_rounded_6dp",
             "note": "Full-precision repr (14.142135623730951) versus 6 decimals - drawing units are mm, so the extra digits are noise.",
-            "saved_chars": 1217,
-            "saved_pct": 4.3,
+            "saved_chars": 1228,
+            "saved_pct": 4.4,
             "tokens": {
               "chars_per_token": 4.19,
               "confidence": "borrowed",
               "estimated": true,
               "format": "json_data",
               "method": "ratio/v1",
-              "value": 6441
+              "value": 6437
             }
           },
           "without_bounding_box": {
@@ -1708,7 +1708,7 @@
             "counterfactual": true,
             "label": "without_bounding_box",
             "note": "Every EntityInfo carries a nested properties.bounding_box; this is what dropping it would save.",
-            "saved_chars": 6947,
+            "saved_chars": 6938,
             "saved_pct": 24.6,
             "tokens": {
               "chars_per_token": 4.19,
@@ -1724,48 +1724,48 @@
         "note": "chars/tokens price the text block - what a model client feeds the model. FastMCP also returns the same rows as structuredContent, so the transport carries the payload twice; wire_chars is that total.",
         "rows_returned": 100,
         "scenario": "entity_list(limit=100)",
-        "structured_chars": 28217,
-        "text_chars": 28206,
+        "structured_chars": 28208,
+        "text_chars": 28197,
         "tokens": {
           "chars_per_token": 4.19,
           "confidence": "borrowed",
           "estimated": true,
           "format": "json_data",
           "method": "ratio/v1",
-          "value": 6732
+          "value": 6730
         },
-        "wire_chars": 56423
+        "wire_chars": 56405
       },
       {
-        "bytes_utf8": 85153,
-        "chars": 85153,
-        "chars_per_entity": 283.8,
+        "bytes_utf8": 85118,
+        "chars": 85118,
+        "chars_per_entity": 283.7,
         "cost": {
-          "cached_input_tokens_per_request": 2032.3,
-          "session_cached": 84340.5,
+          "cached_input_tokens_per_request": 2031.5,
+          "session_cached": 84307.2,
           "session_saving_ratio": 0.862,
-          "session_uncached": 609690,
+          "session_uncached": 609450,
           "turns": 30,
-          "uncached_input_tokens_per_request": 20323,
+          "uncached_input_tokens_per_request": 20315,
           "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
         },
         "counterfactuals": {
           "floats_rounded_6dp": {
-            "bytes_utf8": 81570,
-            "chars": 81570,
+            "bytes_utf8": 81510,
+            "chars": 81510,
             "cost": {
-              "cached_input_tokens_per_request": 1946.8,
-              "session_cached": 80792.2,
+              "cached_input_tokens_per_request": 1945.3,
+              "session_cached": 80730.0,
               "session_saving_ratio": 0.862,
-              "session_uncached": 584040,
+              "session_uncached": 583590,
               "turns": 30,
-              "uncached_input_tokens_per_request": 19468,
+              "uncached_input_tokens_per_request": 19453,
               "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
             },
             "counterfactual": true,
             "label": "floats_rounded_6dp",
             "note": "Full-precision repr (14.142135623730951) versus 6 decimals - drawing units are mm, so the extra digits are noise.",
-            "saved_chars": 3583,
+            "saved_chars": 3608,
             "saved_pct": 4.2,
             "tokens": {
               "chars_per_token": 4.19,
@@ -1773,7 +1773,7 @@
               "estimated": true,
               "format": "json_data",
               "method": "ratio/v1",
-              "value": 19468
+              "value": 19453
             }
           },
           "without_bounding_box": {
@@ -1791,7 +1791,7 @@
             "counterfactual": true,
             "label": "without_bounding_box",
             "note": "Every EntityInfo carries a nested properties.bounding_box; this is what dropping it would save.",
-            "saved_chars": 21049,
+            "saved_chars": 21014,
             "saved_pct": 24.7,
             "tokens": {
               "chars_per_token": 4.19,
@@ -1807,17 +1807,17 @@
         "note": "chars/tokens price the text block - what a model client feeds the model. FastMCP also returns the same rows as structuredContent, so the transport carries the payload twice; wire_chars is that total.",
         "rows_returned": 300,
         "scenario": "entity_list(limit=1000)",
-        "structured_chars": 85164,
-        "text_chars": 85153,
+        "structured_chars": 85129,
+        "text_chars": 85118,
         "tokens": {
           "chars_per_token": 4.19,
           "confidence": "borrowed",
           "estimated": true,
           "format": "json_data",
           "method": "ratio/v1",
-          "value": 20323
+          "value": 20315
         },
-        "wire_chars": 170317
+        "wire_chars": 170247
       }
     ]
   },
@@ -1833,8 +1833,8 @@
     "prefix": {
       "instructions_tokens": 199,
       "surface": "default (TOOL_PROFILE=full, DISCOVERY_MODE=off) + instructions",
-      "tokens": 59337,
-      "tools_tokens": 59138
+      "tokens": 60722,
+      "tools_tokens": 60523
     },
     "scenarios": [
       {
@@ -1885,9 +1885,9 @@
                 },
                 "note": "Minimum cacheable prefix by model tier. A prefix below the minimum does not cache and reports no error, so its cached column is unreachable in practice."
               },
-              "prefix_tokens": 59337,
-              "session_input_cached": 81534.9,
-              "session_input_uncached": 119818,
+              "prefix_tokens": 60722,
+              "session_input_cached": 83404.7,
+              "session_input_uncached": 122588,
               "turns": 2
             },
             "sizes": [
@@ -1948,9 +1948,9 @@
                 },
                 "note": "Minimum cacheable prefix by model tier. A prefix below the minimum does not cache and reports no error, so its cached column is unreachable in practice."
               },
-              "prefix_tokens": 59337,
-              "session_input_cached": 196555.8,
-              "session_input_uncached": 1263314,
+              "prefix_tokens": 60722,
+              "session_input_cached": 201057.1,
+              "session_input_uncached": 1292399,
               "turns": 21
             },
             "sizes": [
@@ -2092,9 +2092,9 @@
                 },
                 "note": "Minimum cacheable prefix by model tier. A prefix below the minimum does not cache and reports no error, so its cached column is unreachable in practice."
               },
-              "prefix_tokens": 59337,
-              "session_input_cached": 87455.3,
-              "session_input_uncached": 180091,
+              "prefix_tokens": 60722,
+              "session_input_cached": 89463.6,
+              "session_input_uncached": 184246,
               "turns": 3
             },
             "sizes": [
@@ -2159,9 +2159,9 @@
                 },
                 "note": "Minimum cacheable prefix by model tier. A prefix below the minimum does not cache and reports no error, so its cached column is unreachable in practice."
               },
-              "prefix_tokens": 59337,
-              "session_input_cached": 2634682.1,
-              "session_input_uncached": 25355473,
+              "prefix_tokens": 60722,
+              "session_input_cached": 2679486.8,
+              "session_input_uncached": 25787593,
               "turns": 312
             },
             "sizes": [
@@ -3467,9 +3467,9 @@
                 },
                 "note": "Minimum cacheable prefix by model tier. A prefix below the minimum does not cache and reports no error, so its cached column is unreachable in practice."
               },
-              "prefix_tokens": 59337,
-              "session_input_cached": 86199.0,
-              "session_input_uncached": 178235,
+              "prefix_tokens": 60722,
+              "session_input_cached": 88207.3,
+              "session_input_uncached": 182390,
               "turns": 3
             },
             "sizes": [
@@ -3500,7 +3500,7 @@
             "label": "naive: one tool per entity - the shape the rival observed an agent take with this server; not the least this server needs; reads every entity with entity_get, then one dimension per feature",
             "request_chars": 2049,
             "request_tokens": 492,
-            "result_chars": 8022,
+            "result_chars": 8023,
             "result_tokens": 1914,
             "session": {
               "history_tokens": 2406,
@@ -3536,9 +3536,9 @@
                 },
                 "note": "Minimum cacheable prefix by model tier. A prefix below the minimum does not cache and reports no error, so its cached column is unreachable in practice."
               },
-              "prefix_tokens": 59337,
-              "session_input_cached": 216752.4,
-              "session_input_uncached": 1457479,
+              "prefix_tokens": 60722,
+              "session_input_cached": 221669.1,
+              "session_input_uncached": 1490719,
               "turns": 24
             },
             "sizes": [
@@ -3624,7 +3624,7 @@
               ],
               [
                 117,
-                292
+                293
               ],
               [
                 117,
@@ -3655,10 +3655,10 @@
             "label": "drawing_understand: one read-only report",
             "request_chars": 44,
             "request_tokens": 11,
-            "result_chars": 15159,
-            "result_tokens": 3618,
+            "result_chars": 15119,
+            "result_tokens": 3608,
             "session": {
-              "history_tokens": 3629,
+              "history_tokens": 3619,
               "note": "per turn: the prefix plus every previous request and result. Cached: each span written once at 1.25x, read at 0.1x after.",
               "prefix_cache": {
                 "cacheable": {
@@ -3691,15 +3691,15 @@
                 },
                 "note": "Minimum cacheable prefix by model tier. A prefix below the minimum does not cache and reports no error, so its cached column is unreachable in practice."
               },
-              "prefix_tokens": 59337,
-              "session_input_cached": 84641.1,
-              "session_input_uncached": 122303,
+              "prefix_tokens": 60722,
+              "session_input_cached": 86498.5,
+              "session_input_uncached": 125063,
               "turns": 2
             },
             "sizes": [
               [
                 44,
-                15159
+                15119
               ]
             ],
             "status": "measured",
@@ -3716,10 +3716,10 @@
             "label": "naive: one tool per entity - the shape the rival observed an agent take with this server; not the least this server needs; layer_list, then entity_list paged 100 at a time",
             "request_chars": 278,
             "request_tokens": 68,
-            "result_chars": 86904,
-            "result_tokens": 20740,
+            "result_chars": 86315,
+            "result_tokens": 20600,
             "session": {
-              "history_tokens": 20808,
+              "history_tokens": 20668,
               "note": "per turn: the prefix plus every previous request and result. Cached: each span written once at 1.25x, read at 0.1x after.",
               "prefix_cache": {
                 "cacheable": {
@@ -3752,9 +3752,9 @@
                 },
                 "note": "Minimum cacheable prefix by model tier. A prefix below the minimum does not cache and reports no error, so its cached column is unreachable in practice."
               },
-              "prefix_tokens": 59337,
-              "session_input_cached": 134046.4,
-              "session_input_uncached": 418795,
+              "prefix_tokens": 60722,
+              "session_input_cached": 136268.7,
+              "session_input_uncached": 426702,
               "turns": 6
             },
             "sizes": [
@@ -3764,15 +3764,15 @@
               ],
               [
                 59,
-                28389
+                28234
               ],
               [
                 61,
-                28716
+                28509
               ],
               [
                 61,
-                28822
+                28595
               ],
               [
                 61,
@@ -3798,12 +3798,12 @@
             "calls": 2,
             "detail": "round 2 diameter 12.0 (want 12.0); latest round reopened: True",
             "label": "drawing_open (what a restarted server needs first) + drawing_history(handle=..., detail='args') (1.8-10)",
-            "request_chars": 238,
-            "request_tokens": 56,
-            "result_chars": 1277,
-            "result_tokens": 305,
+            "request_chars": 201,
+            "request_tokens": 48,
+            "result_chars": 1200,
+            "result_tokens": 286,
             "session": {
-              "history_tokens": 361,
+              "history_tokens": 334,
               "note": "per turn: the prefix plus every previous request and result. Cached: each span written once at 1.25x, read at 0.1x after.",
               "prefix_cache": {
                 "cacheable": {
@@ -3836,19 +3836,19 @@
                 },
                 "note": "Minimum cacheable prefix by model tier. A prefix below the minimum does not cache and reports no error, so its cached column is unreachable in practice."
               },
-              "prefix_tokens": 59337,
-              "session_input_cached": 86507.9,
-              "session_input_uncached": 178553,
+              "prefix_tokens": 60722,
+              "session_input_cached": 88479.9,
+              "session_input_uncached": 182655,
               "turns": 3
             },
             "sizes": [
               [
-                157,
-                603
+                120,
+                529
               ],
               [
                 81,
-                674
+                671
               ]
             ],
             "status": "measured",
@@ -3863,12 +3863,12 @@
             "calls": 3,
             "detail": "round 2 diameter 12.0 (want 12.0); latest round reopened: True",
             "label": "naive: one tool per entity - the shape the rival observed an agent take with this server; not the least this server needs; assumes the agent saved one file per round and reopens round 2's; without those files 1.7.0 cannot answer at all (the rival measured 0/3)",
-            "request_chars": 369,
-            "request_tokens": 88,
-            "result_chars": 1412,
-            "result_tokens": 337,
+            "request_chars": 295,
+            "request_tokens": 70,
+            "result_chars": 1264,
+            "result_tokens": 301,
             "session": {
-              "history_tokens": 425,
+              "history_tokens": 371,
               "note": "per turn: the prefix plus every previous request and result. Cached: each span written once at 1.25x, read at 0.1x after.",
               "prefix_cache": {
                 "cacheable": {
@@ -3901,23 +3901,23 @@
                 },
                 "note": "Minimum cacheable prefix by model tier. A prefix below the minimum does not cache and reports no error, so its cached column is unreachable in practice."
               },
-              "prefix_tokens": 59337,
-              "session_input_cached": 92545.8,
-              "session_input_uncached": 238194,
+              "prefix_tokens": 60722,
+              "session_input_cached": 94619.6,
+              "session_input_uncached": 243626,
               "turns": 4
             },
             "sizes": [
               [
-                155,
-                583
+                118,
+                509
               ],
               [
                 59,
                 230
               ],
               [
-                155,
-                599
+                118,
+                525
               ]
             ],
             "status": "measured",

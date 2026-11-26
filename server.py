@@ -82,7 +82,7 @@ from engineering.errors import (
     short_message,
     stale_of,
 )
-from engineering.fits import fit_lookup
+from engineering.fits import fit_to_tolerances
 from engineering.measure import is_self_intersecting, polygon_area_perimeter
 from security import (
     DIRECTORY,
@@ -2816,11 +2816,18 @@ async def entity_create_text(
     rotation: Annotated[float, "Rotation angle in degrees"] = 0.0,
     layer: Annotated[str | None, "Layer name"] = None,
     color: Annotated[int | None, "ACI color code"] = None,
+    align: Annotated[
+        str | None,
+        "Justification about (x, y): left (default), center, right, middle, or "
+        "top|middle|bottom _ left|center|right (e.g. middle_center)",
+    ] = None,
     ctx: Context = None,
 ) -> dict:
     """Create a single-line text entity (DTEXT/TEXT)."""
     await ctx.debug(f"Creating text: '{text[:30]}' at ({x},{y})")
-    result = await _backend(ctx).entity_create_text(text, x, y, height, rotation, layer, color)
+    result = await _backend(ctx).entity_create_text(
+        text, x, y, height, rotation, layer, color, align=align
+    )
     return _dc(result)
 
 
@@ -2840,12 +2847,16 @@ async def entity_create_mtext(
     rotation: Annotated[float, "Rotation in degrees, CCW from +X"] = 0.0,
     layer: Annotated[str | None, "Layer name"] = None,
     color: Annotated[int | None, "ACI color code"] = None,
+    align: Annotated[
+        str | None,
+        "Attachment point at (x, y): top|middle|bottom _ left|center|right (default top_left)",
+    ] = None,
     ctx: Context = None,
 ) -> dict:
     """Create a multi-line text entity (MTEXT) with word-wrap at the specified width."""
     await ctx.debug(f"Creating mtext at ({x},{y}) w={width}")
     result = await _backend(ctx).entity_create_mtext(
-        text, x, y, width, height, rotation, layer, color
+        text, x, y, width, height, rotation, layer, color, align=align
     )
     return _dc(result)
 
@@ -3151,26 +3162,11 @@ def _fit_to_tolerances(
     tol_mode: str,
     text_override: str | None,
 ) -> tuple[float | None, float | None, str, str | None]:
-    """Resolve an ISO 286 fit code (e.g. 'H7') into the tolerance contract.
-
-    Mutually exclusive with explicit tol_* values. Returns
-    (tol_upper, tol_lower, tol_mode, text_override) where tol_lower follows
-    the build_dim_override convention (positive = minus deviation).
-    """
-    if not fit:
-        return tol_upper, tol_lower, tol_mode, text_override
-    if tol_upper is not None or tol_lower is not None or (tol_mode or "none") != "none":
-        raise ToolError("Pass either fit=<ISO 286 code> or explicit tol_* values, not both.")
+    """``engineering.fits.fit_to_tolerances`` with its refusal as a ``ToolError``."""
     try:
-        deviation = fit_lookup(fit, nominal)
+        return fit_to_tolerances(fit, nominal, tol_upper, tol_lower, tol_mode, text_override)
     except ValueError as exc:
         raise ToolError(str(exc)) from exc
-    return (
-        deviation.upper_mm,
-        -deviation.lower_mm,
-        "deviation",
-        text_override or f"<> {deviation.code}",
-    )
 
 
 @cad_tool(
@@ -4882,7 +4878,7 @@ async def block_define(
         list[dict],
         "Primitives in block-local coordinates. type=line {x1,y1,x2,y2} | circle {cx,cy,r} | "
         "arc {cx,cy,r,start_deg,end_deg} | polyline {points,closed,bulges?} | "
-        "text {text,x,y,height,rotation_deg?,align?} | solid {points (3-4)}. Optional layer (default 0).",
+        "text {text,x,y,height,rotation_deg?,align? (left, center, right, middle, top_left ... bottom_right)} | solid {points (3-4)}. Optional layer (default 0).",
     ],
     attdefs: Annotated[
         list[dict] | None,
@@ -6866,10 +6862,10 @@ async def entity_batch_create(
             {
                 "type": "array",
                 "items": _inline_json_schema(_batch_create_adapter().json_schema()),
-                "description": "Entity definitions, one per item: 'type' and that "
-                "entity_create_* tool's arguments (a rectangle: x1, y1, x2, y2), plus an "
-                "optional 'lineweight' (hundredths of a mm, or 'ByLayer' = -1, 'ByBlock' = -2, "
-                "'Default' = -3 - not ByLayer).",
+                "description": "One item per entity: 'type' and that create's arguments, plus "
+                "an optional 'lineweight' (hundredths of a mm, or 'ByLayer' = -1, 'ByBlock' = -2, "
+                "'Default' = -3 - not ByLayer). A whole part: dimension_auto, not dimension_linear "
+                "per feature.",
             }
         ),
     ],
@@ -6878,7 +6874,7 @@ async def entity_batch_create(
     """Create multiple entities in a single call for better performance.
 
     Each entity dict must have a 'type' key and the parameters for that type.
-    Example: [{"type": "line", "x1": 0, "y1": 0, "x2": 100, "y2": 0}, {"type": "circle", "cx": 50, "cy": 50, "radius": 25}]
+    Example: [{"type": "line", "x1": 0, "y1": 0, "x2": 100, "y2": 0}, {"type": "text", "text": "A", "x": 50, "y": 50, "align": "middle_center"}]
 
     All or none: an unknown type refuses the call (invalid_args) before
     anything is drawn, and any failed entity removes the ones already

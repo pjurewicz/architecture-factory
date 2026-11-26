@@ -212,3 +212,13 @@ async def test_com_validates_before_touching_activex(com_backend):
     with pytest.raises(TypeError):
         await backend.block_define("PID_BAD", [{"type": "circle", "cx": 0}])
     assert document.Blocks.blocks == {}
+
+
+async def test_block_text_takes_every_shared_alignment(backend):
+    await backend.block_define(
+        "LBL",
+        [{"type": "text", "text": "M", "x": 3, "y": 4, "height": 1, "align": "top_right"}],
+        [],
+    )
+    (text,) = backend._doc.blocks.get("LBL").query("TEXT")
+    assert text.get_align_enum().name == "TOP_RIGHT" and tuple(text.dxf.align_point)[:2] == (3, 4)

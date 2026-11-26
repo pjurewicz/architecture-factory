@@ -11,11 +11,13 @@ from __future__ import annotations
 import math
 import re
 
+from backends.base import TEXT_ALIGN
 from engineering.validation import short_repr
 from security import illegal_symbol_name_chars
 
 ALLOWED_TYPES = ("line", "circle", "arc", "polyline", "text", "solid")
-TEXT_ALIGNMENTS = ("left", "center", "right", "middle_center")
+#: The TEXT justifications every create shares (``backends.base.TEXT_ALIGN``).
+TEXT_ALIGNMENTS = tuple(TEXT_ALIGN)
 #: Checked with ``fullmatch`` — ``$`` alone would accept a trailing newline, which
 #: ezdxf then strips on write, turning two "distinct" tags into one duplicate.
 ATTDEF_TAG_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,30}$")

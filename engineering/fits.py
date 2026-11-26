@@ -397,3 +397,30 @@ def fit_lookup(code: str, nominal_mm: float) -> FitDeviation:
         it_grade=grade,
         it_value_mm=round(it_um / 1000.0, 6),
     )
+
+
+def fit_to_tolerances(
+    fit: str | None,
+    nominal: float,
+    tol_upper: float | None,
+    tol_lower: float | None,
+    tol_mode: str,
+    text_override: str | None,
+) -> tuple[float | None, float | None, str, str | None]:
+    """Resolve an ISO 286 fit code (e.g. 'H7') into the dimension tolerance arguments.
+
+    Mutually exclusive with explicit tol_* values (``ValueError``). Returns
+    (tol_upper, tol_lower, tol_mode, text_override) where tol_lower follows
+    the build_dim_override convention (positive = minus deviation).
+    """
+    if not fit:
+        return tol_upper, tol_lower, tol_mode, text_override
+    if tol_upper is not None or tol_lower is not None or (tol_mode or "none") != "none":
+        raise ValueError("Pass either fit=<ISO 286 code> or explicit tol_* values, not both.")
+    deviation = fit_lookup(fit, nominal)
+    return (
+        deviation.upper_mm,
+        -deviation.lower_mm,
+        "deviation",
+        text_override or f"<> {deviation.code}",
+    )

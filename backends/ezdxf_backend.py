@@ -36,6 +36,8 @@ from engineering.errors import DimensionRenderError, EntityNotFoundError
 from . import dwg_read, lineage, ocs
 from .atomic_write import atomic_write_dxf, file_sha256, resolve_pending
 from .base import (
+    MTEXT_ALIGN,
+    TEXT_ALIGN,
     AutoCADBackend,
     BlockInfo,
     CapabilityMap,
@@ -47,6 +49,7 @@ from .base import (
     _unsupported,
     lineweight_name,
     parse_lineweight,
+    parse_text_align,
     shoelace_area,
 )
 from .change_sets import EzdxfChangeSets
@@ -5950,13 +5953,14 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         layer=None,
         color=None,
         xdata=None,
-        align="left",
+        align=None,
     ) -> EntityInfo:
         prepared = prepare_xdata(xdata)
-        if align not in ("left", "center"):
-            raise ValueError(f"align: {align!r}; alignments are left, center")
+        align = parse_text_align(align, "text")
 
         def _sync():
+            from ezdxf.enums import TextEntityAlignment
+
             msp = self._msp()
             ent = msp.add_text(
                 text,
@@ -5967,10 +5971,9 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     "insert": (float(x), float(y)),
                 },
             )
-            if align == "center":
-                from ezdxf.enums import TextEntityAlignment
-
-                ent.set_placement((float(x), float(y)), align=TextEntityAlignment.CENTER)
+            if align not in (None, "left"):
+                # insert and align_point both on (x, y), as AutoCAD's own TEXT does.
+                ent.set_placement((float(x), float(y)), align=TextEntityAlignment[align.upper()])
             self._apply_attrs(ent, layer, color)
             self._attach_xdata(ent, prepared)
             self._mark_dirty()
@@ -5988,7 +5991,10 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         rotation=0.0,
         layer=None,
         color=None,
+        align=None,
     ) -> EntityInfo:
+        align = parse_text_align(align, "mtext")
+
         def _sync():
             msp = self._msp()
             ent = msp.add_mtext(
@@ -6002,6 +6008,8 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             ent.dxf.insert = (float(x), float(y), 0.0)
             if rotation:
                 ent.dxf.rotation = float(rotation)  # NEW-mtext-1: honor caller rotation
+            if align is not None:
+                ent.dxf.attachment_point = MTEXT_ALIGN[align]
             self._apply_attrs(ent, layer, color)
             self._mark_dirty()
             return _entity_info_dxf(ent)
@@ -8796,12 +8804,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         atts = validate_attdef_specs(attdefs)
         base = (*validate_base_point(base_x, base_y), 0.0)
         wanted_layers = referenced_layers(ents)
-        align_map = {
-            "left": TextEntityAlignment.LEFT,
-            "center": TextEntityAlignment.CENTER,
-            "right": TextEntityAlignment.RIGHT,
-            "middle_center": TextEntityAlignment.MIDDLE_CENTER,
-        }
+        align_map = {name: TextEntityAlignment[name.upper()] for name in TEXT_ALIGN}
 
         def _sync():
             doc = self._require_doc()

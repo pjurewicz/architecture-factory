@@ -273,6 +273,44 @@ def lineweight_name(value) -> str | None:
     return f"{code / 100.0:.2f} mm"
 
 
+_ALIGN_GRID = (
+    "top_left",
+    "top_center",
+    "top_right",
+    "middle_left",
+    "middle_center",
+    "middle_right",
+    "bottom_left",
+    "bottom_center",
+    "bottom_right",
+)
+#: A TEXT's ``align`` -> ActiveX ``AcAlignment``; the ezdxf
+#: ``TextEntityAlignment`` member is the name upper-cased. ``aligned`` and
+#: ``fit`` need a second point and are not offered. The first four sit on the
+#: baseline (``left`` is the default).
+TEXT_ALIGN = {"left": 0, "center": 1, "right": 2, "middle": 4} | {
+    name: 6 + i for i, name in enumerate(_ALIGN_GRID)
+}
+#: An MTEXT's ``align`` -> its attachment point (DXF 71, ActiveX
+#: ``AcAttachmentPoint``); ``top_left`` is the default.
+MTEXT_ALIGN = {name: 1 + i for i, name in enumerate(_ALIGN_GRID)}
+
+
+def parse_text_align(value, kind: str = "text") -> str | None:
+    """``align`` as a ``TEXT_ALIGN`` (``kind="text"``) or ``MTEXT_ALIGN`` key, or None.
+
+    Case, ``-`` and spaces are forgiven (``"Middle-Center"``); anything else
+    raises ``ValueError`` naming the accepted values, before anything is drawn.
+    """
+    if value is None:
+        return None
+    table = MTEXT_ALIGN if kind == "mtext" else TEXT_ALIGN
+    key = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+    if key not in table:
+        raise ValueError(f"{kind} align must be one of {', '.join(table)}; got {value!r}")
+    return key
+
+
 # ---------------------------------------------------------------------------
 # Abstract backend
 # ---------------------------------------------------------------------------

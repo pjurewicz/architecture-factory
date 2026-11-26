@@ -34,8 +34,11 @@ def batch_create_adapter():
 
     from pydantic import ConfigDict, Field, TypeAdapter, create_model
 
+    from backends.base import AutoCADBackend  # insert / dimension_linear live on other contracts
+
     def params(target: str) -> dict:
-        creator = getattr(EntityCreationContract, f"entity_create_{target}")
+        method = EntityCreationContract.BATCH_CREATE_METHODS.get(target, f"entity_create_{target}")
+        creator = getattr(AutoCADBackend, method)
         hints = typing.get_type_hints(creator, localns={"EntityInfo": object})
         return {
             name: (hints[name], ... if p.default is p.empty else p.default)
@@ -45,10 +48,14 @@ def batch_create_adapter():
 
     lineweight = (int | float | str | None, None)  # parse_lineweight names the spellings
     shapes = {target: params(target) for target in EntityCreationContract.BATCH_CREATE_TYPES}
+    # batch_create_spec resolves an ISO 286 fit into the tol_* arguments
+    shapes["dimension_linear"]["fit"] = (str | None, None)
     for alias, target in EntityCreationContract.BATCH_CREATE_ALIASES.items():
-        # batch_create_spec rewrites x1, y1, x2, y2 into the target's points / closed
+        # batch_create_spec rewrites x1, y1, x2, y2 or x, y, width, height into the
+        # target's points / closed, and refuses a spec with neither set by name
         base = {k: v for k, v in shapes[target].items() if k not in ("points", "closed")}
-        shapes[alias] = {key: (float, ...) for key in ("x1", "y1", "x2", "y2")} | base
+        corners = ("x1", "y1", "x2", "y2", "x", "y", "width", "height")
+        shapes[alias] = {key: (float | None, None) for key in corners} | base
     models = [
         create_model(
             kind,
@@ -166,10 +173,10 @@ class EntityCreationContract(ABC):
         layer: str | None = None,
         color: int | None = None,
         xdata: dict[str, list] | None = None,
-        align: str = "left",
+        align: str | None = None,
     ) -> EntityInfo:
-        """``align`` (1.8.0): ``"left"`` puts the baseline's left end at (x, y),
-        ``"center"`` its middle (AutoCAD's Center justification)."""
+        """``align``: a ``backends.base.TEXT_ALIGN`` name (``left`` default); (x, y)
+        is the point the text aligns on."""
         ...
 
     @abstractmethod
@@ -183,7 +190,11 @@ class EntityCreationContract(ABC):
         rotation: float = 0.0,
         layer: str | None = None,
         color: int | None = None,
-    ) -> EntityInfo: ...
+        align: str | None = None,
+    ) -> EntityInfo:
+        """``align``: a ``backends.base.MTEXT_ALIGN`` attachment (``top_left``
+        default); (x, y) is that corner of the text box."""
+        ...
 
     @abstractmethod
     async def entity_create_table(
@@ -279,7 +290,8 @@ class EntityCreationContract(ABC):
     # earlier ones written; atomicity is ``cad_batch(transaction=True)``'s and,
     # for the delete tool, the server's transaction around this call.
 
-    #: ``entity_batch_create``'s ``type`` -> the ``entity_create_*`` it calls.
+    #: ``entity_batch_create``'s ``type`` -> the ``entity_create_*`` it calls,
+    #: or the member ``BATCH_CREATE_METHODS`` names.
     BATCH_CREATE_TYPES = (
         "line",
         "circle",
@@ -291,22 +303,65 @@ class EntityCreationContract(ABC):
         "hatch",
         "spline",
         "ellipse",
+        "insert",
+        "dimension_linear",
     )
 
+    #: Batch types whose create is not ``entity_create_<type>``.
+    BATCH_CREATE_METHODS = {"insert": "block_insert", "dimension_linear": "dimension_linear"}
+
     #: Batch types drawn by another type's create: ``rectangle`` is the closed
-    #: polyline ``entity_create_rectangle`` draws, from ``x1, y1, x2, y2``.
+    #: polyline ``entity_create_rectangle`` draws, from ``x1, y1, x2, y2`` or
+    #: ``x, y, width, height``.
     BATCH_CREATE_ALIASES = {"rectangle": "polyline"}
 
     @staticmethod
     def batch_create_spec(kind: str, spec: dict) -> dict:
-        """``spec`` as its create's arguments (an alias's rewritten)."""
+        """``spec`` as its create's arguments (an alias's or a ``fit`` rewritten)."""
+        if kind == "dimension_linear" and "fit" in spec:
+            import math
+
+            from engineering.fits import fit_to_tolerances
+
+            spec = dict(spec)
+            fit = spec.pop("fit")
+            try:
+                angle = math.radians(float(spec.get("rotation", 0.0)))
+                nominal = abs(
+                    (spec["x2"] - spec["x1"]) * math.cos(angle)
+                    + (spec["y2"] - spec["y1"]) * math.sin(angle)
+                )
+            except KeyError as exc:
+                raise ValueError(f"dimension_linear needs x1, y1, x2, y2 (missing {exc})") from None
+            keys = ("tol_upper", "tol_lower", "tol_mode", "text_override")
+            resolved = fit_to_tolerances(
+                fit,
+                nominal,
+                spec.get("tol_upper"),
+                spec.get("tol_lower"),
+                spec.get("tol_mode", "none"),
+                spec.get("text_override"),
+            )
+            spec.update(zip(keys, resolved, strict=True))
+            return spec
         if kind != "rectangle":
             return spec
         spec = dict(spec)
-        try:
-            x1, y1, x2, y2 = (spec.pop(key) for key in ("x1", "y1", "x2", "y2"))
-        except KeyError as exc:
-            raise ValueError(f"rectangle needs x1, y1, x2, y2 (missing {exc})") from None
+        if "width" in spec or "height" in spec:
+            try:
+                x1, y1, width, height = (spec.pop(key) for key in ("x", "y", "width", "height"))
+            except KeyError as exc:
+                raise ValueError(
+                    f"rectangle needs x1, y1, x2, y2 or x, y, width, height (missing {exc})"
+                ) from None
+            x2, y2 = x1 + width, y1 + height
+        else:
+            try:
+                x1, y1, x2, y2 = (spec.pop(key) for key in ("x1", "y1", "x2", "y2"))
+            except KeyError as exc:
+                raise ValueError(
+                    f"rectangle needs x1, y1, x2, y2 or x, y, width, height (missing {exc})"
+                ) from None
         spec["points"] = [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]
         spec["closed"] = True
         return spec
@@ -342,7 +397,9 @@ class EntityCreationContract(ABC):
             if target not in self.BATCH_CREATE_TYPES:
                 errors.append({"index": index, "error": f"Unknown type: {kind}"})
                 continue
-            creator = getattr(self, f"entity_create_{target}")
+            creator = getattr(
+                self, self.BATCH_CREATE_METHODS.get(target, f"entity_create_{target}")
+            )
             try:
                 # Parsed before the create, so a refused lineweight draws nothing.
                 weight = parse_lineweight(spec.pop("lineweight", None))

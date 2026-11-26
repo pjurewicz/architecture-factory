@@ -41,6 +41,8 @@ from security import sanitize_macro_argument, sanitize_symbol_name, validate_pat
 from . import lineage, message_filter, ocs
 from .atomic_write import atomic_write_dxf, file_sha256, resolve_pending
 from .base import (
+    MTEXT_ALIGN,
+    TEXT_ALIGN,
     AutoCADBackend,
     BlockInfo,
     CapabilityMap,
@@ -52,6 +54,7 @@ from .base import (
     deg2rad,
     lineweight_name,
     parse_lineweight,
+    parse_text_align,
     rad2deg,
     shoelace_area,
 )
@@ -7364,35 +7367,26 @@ class ComBackend(ComCheckpoints, AutoCADBackend):
         layer=None,
         color=None,
         xdata=None,
-        align="left",
+        align=None,
     ) -> EntityInfo:
         return await self._run(
             self._create_text_job(text, x, y, height, rotation, layer, color, xdata, align)
         )
 
     def _create_text_job(
-        self,
-        text,
-        x,
-        y,
-        height=2.5,
-        rotation=0.0,
-        layer=None,
-        color=None,
-        xdata=None,
-        align="left",
+        self, text, x, y, height=2.5, rotation=0.0, layer=None, color=None, xdata=None, align=None
     ):
         prepared = prepare_xdata(xdata)
-        if align not in ("left", "center"):
-            raise ValueError(f"align: {align!r}; alignments are left, center")
+        align = parse_text_align(align, "text")
 
         def _sync():
             mspace = _msp()
             txt = mspace.AddText(text, _apoint(x, y), float(height))
-            if align == "center":
-                txt.Alignment = 1  # acAlignmentCenter: TextAlignmentPoint is the anchor
-                txt.TextAlignmentPoint = _apoint(x, y)
             txt.Rotation = deg2rad(rotation)
+            if align not in (None, "left"):
+                # ActiveX moves the text onto TextAlignmentPoint once Alignment is set.
+                txt.Alignment = TEXT_ALIGN[align]
+                txt.TextAlignmentPoint = _apoint(x, y)
             _apply_entity_attrs(txt, layer, color, None)
             _attach_xdata(txt, prepared)
             _regen(txt)
@@ -7410,20 +7404,28 @@ class ComBackend(ComCheckpoints, AutoCADBackend):
         rotation=0.0,
         layer=None,
         color=None,
+        align=None,
     ) -> EntityInfo:
         return await self._run(
-            self._create_mtext_job(text, x, y, width, height, rotation, layer, color)
+            self._create_mtext_job(text, x, y, width, height, rotation, layer, color, align)
         )
 
     def _create_mtext_job(
-        self, text, x, y, width=100.0, height=2.5, rotation=0.0, layer=None, color=None
+        self, text, x, y, width=100.0, height=2.5, rotation=0.0, layer=None, color=None, align=None
     ):
+        align = parse_text_align(align, "mtext")
+
         def _sync():
             mspace = _msp()
             mt = mspace.AddMText(_apoint(x, y), float(width), text)
             mt.Height = float(height)
             if rotation:
                 mt.Rotation = deg2rad(rotation)  # NEW-mtext-1: honor caller rotation
+            if align is not None:
+                # AttachmentPoint keeps the body and relocates InsertionPoint
+                # (measured, see _add_mtext_from_capture): the anchor goes last.
+                mt.AttachmentPoint = MTEXT_ALIGN[align]
+                mt.InsertionPoint = _apoint(x, y)
             _apply_entity_attrs(mt, layer, color, None)
             _regen(mt)
             return _entity_info(mt)
@@ -7656,7 +7658,7 @@ class ComBackend(ComCheckpoints, AutoCADBackend):
     # ── bulk tools in one job (1.8-23) ─────────────────────────────────────────
 
     #: ``entity_batch_create``'s types -> the job builder of each (the same
-    #: ten the contract's loop maps to ``entity_create_*``).
+    #: twelve the contract's loop maps to its creates).
     _BATCH_JOBS = {
         "line": "_create_line_job",
         "circle": "_create_circle_job",
@@ -7668,6 +7670,8 @@ class ComBackend(ComCheckpoints, AutoCADBackend):
         "hatch": "_create_hatch_job",
         "spline": "_create_spline_job",
         "ellipse": "_create_ellipse_job",
+        "insert": "_block_insert_job",
+        "dimension_linear": "_dimension_linear_job",
     }
 
     async def entity_batch_create(self, specs, *, progress=None) -> dict:
@@ -7861,6 +7865,43 @@ class ComBackend(ComCheckpoints, AutoCADBackend):
         *,
         text_at=None,
     ) -> EntityInfo:
+        return await self._run(
+            self._dimension_linear_job(
+                x1,
+                y1,
+                x2,
+                y2,
+                dim_x,
+                dim_y,
+                rotation,
+                layer,
+                tol_upper,
+                tol_lower,
+                tol_mode,
+                text_override,
+                xdata,
+                text_at=text_at,
+            )
+        )
+
+    def _dimension_linear_job(
+        self,
+        x1,
+        y1,
+        x2,
+        y2,
+        dim_x,
+        dim_y,
+        rotation=0.0,
+        layer=None,
+        tol_upper=None,
+        tol_lower=None,
+        tol_mode="none",
+        text_override=None,
+        xdata=None,
+        *,
+        text_at=None,
+    ):
         prepared = prepare_xdata(xdata)
 
         def _sync():
@@ -7885,7 +7926,7 @@ class ComBackend(ComCheckpoints, AutoCADBackend):
             _regen(dim)
             return _entity_info(dim)
 
-        return await self._run(_sync)
+        return _job_named(_sync, "dimension_linear")
 
     async def dimension_aligned(
         self,
@@ -8898,6 +8939,21 @@ class ComBackend(ComCheckpoints, AutoCADBackend):
         attributes=None,
         layer=None,
     ) -> EntityInfo:
+        return await self._run(
+            self._block_insert_job(name, x, y, scale_x, scale_y, rotation, attributes, layer)
+        )
+
+    def _block_insert_job(
+        self,
+        name,
+        x,
+        y,
+        scale_x=1.0,
+        scale_y=1.0,
+        rotation=0.0,
+        attributes=None,
+        layer=None,
+    ):
         from backends.block_specs import validate_attribute_values
 
         values = validate_attribute_values(attributes)
@@ -8925,9 +8981,10 @@ class ComBackend(ComCheckpoints, AutoCADBackend):
                             attr.TextString = values[tag.upper()]
                 except Exception as exc:
                     log.debug("Block insert: GetAttributes or attribute setting failed: %s", exc)
+            _regen(ref)
             return _entity_info(ref)
 
-        return await self._run(_sync)
+        return _job_named(_sync, "block_insert")
 
     #: ActiveX twins of the headless ``_ATTRIB_TO_TEXT`` carry, written onto
     #: the TEXT in this order and *before* ``Rotation``: ``Normal`` is the
@@ -9500,8 +9557,7 @@ class ComBackend(ComCheckpoints, AutoCADBackend):
         atts = validate_attdef_specs(attdefs)
         base_xy = validate_base_point(base_x, base_y)
         wanted_layers = referenced_layers(ents)
-        # acAlignmentLeft / Center / Right / MiddleCenter
-        align_map = {"left": 0, "center": 1, "right": 2, "middle_center": 10}
+        align_map = TEXT_ALIGN  # name -> AcAlignment
 
         def _style(obj, layer: str) -> None:
             obj.Layer = layer
