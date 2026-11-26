@@ -301,7 +301,7 @@ def _parser(registry: dict[str, dict]) -> argparse.ArgumentParser:
         choices=sorted(registry),
         help="Adapter id from benchmarks/competitors.yaml",
     )
-    parser.add_argument("--backend", default="ezdxf", choices=["ezdxf", "com"])
+    parser.add_argument("--backend", default="ezdxf", choices=["ezdxf"])
     parser.add_argument("--task", action="append", help="Run only this task id (repeatable)")
     parser.add_argument("--artifact-dir", default="benchmarks/results/latest")
     parser.add_argument("--timeout", type=float, default=30.0)

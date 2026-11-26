@@ -75,7 +75,7 @@ class McpStdioAdapter(BenchmarkAdapter):
         if backend != "ezdxf":
             raise ValueError(
                 f"{type(self).__name__} only benchmarks the headless ezdxf lane; "
-                f"got backend={backend!r}. COM lanes run locally, not in CI."
+                f"got backend={backend!r}."
             )
         self.backend_name = backend
         self.artifact_dir = Path()

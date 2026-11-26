@@ -69,7 +69,10 @@ Decided 2026-11-26. In order, each stage its own commit with the suite green:
 4. One capability map instead of two. **Done** with stage 3 (the capability
    gate checks the ezdxf map alone).
 5. The live smokes, `scripts/live/`, the live claims in
-   `scripts/check_doc_numbers.py` and the COM-only benchmark tasks.
+   `scripts/check_doc_numbers.py` and the COM-only benchmark tasks. **Done.**
+   The task matrices stay as upstream has them, so benchmark commits still
+   cherry-pick: a task only the live engine could run stays
+   `environment_blocked`.
 6. Documentation: CLAUDE.md, README, the skill, the plugin, and the tool
    docstrings that still describe the live engine.
 7. The cherry-pick procedure, with the upstream commit reviewed up to.

@@ -126,13 +126,3 @@ def test_the_published_v9_reports_cover_the_matrix_without_a_vacuous_pass():
     rival = json.loads((lanes / "lizaixi01-agentcad.json").read_text(encoding="utf-8"))
     assert {item["status"] for item in rival["results"]} == {"not_run"}
     assert rival["summary"]["score"] is None
-
-
-@pytest.mark.asyncio
-async def test_the_kill_tasks_are_not_run_on_the_live_lane(tmp_path):
-    from benchmarks.adapters.autocad_mcp_pro import AutoCADMCPProAdapter
-
-    adapter = AutoCADMCPProAdapter(backend="com")  # no setup: answered before any engine
-    for task_id in ADDED_BY_1_8_25:
-        result = await adapter.run_task(task_by_id(task_id))
-        assert result.status == "not_run", task_id

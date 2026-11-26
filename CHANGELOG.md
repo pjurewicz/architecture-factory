@@ -23,6 +23,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `cad_not_running`. The capability map lost the keys of the removed tools
   (`solid_3d`, `lisp`, `live_application`, `preferences`,
   `interactive_prompt`).
+- The live-claim gate of `scripts/check_doc_numbers.py` (claims such as
+  "executed live once by `scripts/smoke_x_com.py`" held to
+  `benchmarks/results/live/`), the live result files and its tests; the
+  gate now checks the document numbers only. The benchmark matrices are
+  unchanged: `lisp_read_tier` stays `environment_blocked` without calling
+  the removed `system_run_lisp`, and `run_competitors --backend` accepts
+  `ezdxf` only.
 - The `accoreconsole` DWG route (`ACCORECONSOLE_PATH`,
   `ACCORECONSOLE_TIMEOUT_S`): `drawing_open` converts a `.dwg` through the ODA
   File Converter only, and refuses `dwg_read` without it.

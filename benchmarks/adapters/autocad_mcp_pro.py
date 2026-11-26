@@ -59,9 +59,8 @@ ROUNDTRIP_AREAS_MM2: dict[str, float] = {
 # ── v8 (v1.7.0) fixtures ──────────────────────────────────────────────────────
 
 #: The v8 tasks reach into the headless engine (its document, its lock, its
-#: files) to stage what an operator or a damaged file would do. On the live
-#: engine they report ``not_run``; the live evidence is the COM harness
-#: (``scripts/live``, spec §6 Task 21), never a zero here.
+#: files) to stage what an operator or a damaged file would do. (The live
+#: engine that could not run them was removed from this fork.)
 HEADLESS_ONLY: frozenset[str] = frozenset(task.task_id for task in NEW_TASKS_V8) | HEADLESS_ONLY_V9
 
 #: ``requirements_roundtrip``: a 120 x 80 plate, a Ø20 bore at (60, 40) and four
@@ -208,14 +207,6 @@ class AutoCADMCPProAdapter(BenchmarkAdapter):
         await self.backend.drawing_new()
 
     async def run_task(self, task: TaskSpec) -> TaskResult:
-        if self.backend_name != "ezdxf" and task.task_id in HEADLESS_ONLY:
-            return TaskResult(
-                task.task_id,
-                "not_run",
-                0.0,
-                "headless lane only in 1.7.0: the task stages its input inside the ezdxf "
-                "engine; the live evidence is the COM harness (scripts/live)",
-            )
         await self._reset()
         handler = getattr(self, f"_task_{task.task_id}", None)
         if handler is None:
@@ -2170,92 +2161,18 @@ class AutoCADMCPProAdapter(BenchmarkAdapter):
         )
 
     async def _task_lisp_read_tier(self):
-        """Three AutoLISP reads run on the first try; a LISP erase is refused (1.8-18).
+        """Three AutoLISP reads and a refused LISP erase (1.8-18, upstream).
 
-        Through the real server, on this adapter's engine: a circle of radius 5
-        is drawn; ``(vla-get-Area (vlax-ename->vla-object (handent H)))`` must
-        answer the area ``analysis_measure_entity`` reads (25 pi, fixed here),
-        ``(getvar "CLAYER")`` the value ``system_get_variable`` reads, and
-        ``(mapcar (function (lambda (x) (* x 2))) (list 1 2 3))`` ``(2 4 6)`` -
-        each on its first call. The broken-input twin ``(command "_ERASE" "_L"
-        "")`` must be refused ``policy_refused`` with symbol ``command`` at line
-        1, column 2, and ``entity_delete`` among the alternatives. The reads
-        need AutoCAD: on the headless lane the task is ``environment_blocked``
-        and its metrics carry only the policy's verdicts.
+        AutoLISP runs only inside AutoCAD, and ``system_run_lisp`` left this
+        fork with the live engine, so the task is ``environment_blocked`` -
+        never attempted, never a zero - as it was on upstream's headless lane.
         """
-        import math
-
-        circle = await self.backend.entity_create_circle(0.0, 0.0, 5.0)
-        reads = {
-            "area": f'(vla-get-Area (vlax-ename->vla-object (handent "{circle.handle}")))',
-            "clayer": '(getvar "CLAYER")',
-            "mapcar": "(mapcar (function (lambda (x) (* x 2))) (list 1 2 3))",
-        }
-        twin = '(command "_ERASE" "_L" "")'
-        async with self._served() as client:
-            answers = {
-                key: await client.call_tool(
-                    "system_run_lisp", {"expression": form}, raise_on_error=False
-                )
-                for key, form in reads.items()
-            }
-            refused = await client.call_tool(
-                "system_run_lisp", {"expression": twin}, raise_on_error=False
-            )
-            measured = (
-                await client.call_tool(
-                    "analysis_measure_entity", {"handle": circle.handle}, raise_on_error=False
-                )
-            ).structured_content or {}
-            clayer = (
-                await client.call_tool(
-                    "system_get_variable", {"name": "CLAYER"}, raise_on_error=False
-                )
-            ).structured_content or {}
-        twin_payload = refused.structured_content or {}
-        twin_ok = (
-            refused.is_error
-            and twin_payload.get("kind") == "policy_refused"
-            and twin_payload.get("policy") == "lisp_allowlist"
-            and twin_payload.get("symbol") == "command"
-            and (twin_payload.get("line"), twin_payload.get("column")) == (1, 2)
-            and "entity_delete"
-            in {row.get("tool") for row in twin_payload.get("alternatives") or []}
+        return TaskResult(
+            "lisp_read_tier",
+            "environment_blocked",
+            0.0,
+            "AutoLISP runs only in AutoCAD; system_run_lisp was removed with the live engine",
         )
-        policy_passed = {key: not result.is_error for key, result in answers.items()}
-        metrics = {
-            "policy_passed": policy_passed,
-            "twin": {k: twin_payload.get(k) for k in ("kind", "symbol", "line", "column")},
-        }
-        if self.backend_name == "ezdxf":
-            return TaskResult(
-                "lisp_read_tier",
-                "environment_blocked",
-                0.0,
-                "AutoLISP runs only in AutoCAD (COM); the headless engine has no LISP",
-                metrics={**metrics, "twin_ok": twin_ok},
-            )
-        values = {
-            key: (result.structured_content or {}).get("result") for key, result in answers.items()
-        }
-        area_expected = math.pi * 25.0
-
-        def _near(text, want) -> bool:
-            try:
-                return abs(float(text) - want) <= 1e-6 * max(1.0, abs(want))
-            except (TypeError, ValueError):
-                return False
-
-        clayer_value = clayer.get("value", clayer.get("result"))
-        passed = (
-            all(policy_passed.values())
-            and _near(values["area"], area_expected)
-            and _near(values["area"], float(measured.get("area") or 0.0))
-            and str(values["clayer"]) == str(clayer_value)
-            and values["mapcar"] == "(2 4 6)"
-            and twin_ok
-        )
-        return (passed, {**metrics, "values": values, "measured_area": measured.get("area")}, [])
 
     async def _task_call_count_dimension_part(self):
         """The rival's H5 in at most 2 calls (``dimension_auto`` v2, 1.8-13).
@@ -2530,13 +2447,12 @@ class AutoCADMCPProAdapter(BenchmarkAdapter):
         read with ezdxf directly. Through the real server: ``drawing_open`` on
         the DWG, ``drawing_save_as`` to a DXF, and that file must hold the
         twin's layers, block names and per-layout entity counts. The
-        broken-input twin runs first: with the converters switched off
-        (``ACCORECONSOLE_PATH=off``, the ODA probe answering no) the same open
+        broken-input twin runs first: with the converter switched off (the
+        ODA probe answering no) the same open
         is refused ``unsupported`` / capability ``dwg_read`` and the open
         document is unchanged. A machine with no converter at all is
         ``environment_blocked``, never a pass.
         """
-        import os
         import shutil
 
         import ezdxf
@@ -2557,9 +2473,7 @@ class AutoCADMCPProAdapter(BenchmarkAdapter):
         shutil.copyfile(templates / "iso_a3_mech.dwt", dwg)
         truth = counts(ezdxf.readfile(templates / "iso_a3_mech.dxf"))
 
-        saved_path = os.environ.get("ACCORECONSOLE_PATH")
         saved_probe = ezdxf_backend._odafc_available
-        os.environ["ACCORECONSOLE_PATH"] = "off"
         ezdxf_backend._odafc_available = lambda: False
         try:
             async with self._served() as client:
@@ -2570,10 +2484,6 @@ class AutoCADMCPProAdapter(BenchmarkAdapter):
                 after = (await client.call_tool("drawing_info", {})).structured_content
         finally:
             ezdxf_backend._odafc_available = saved_probe
-            if saved_path is None:
-                os.environ.pop("ACCORECONSOLE_PATH", None)
-            else:
-                os.environ["ACCORECONSOLE_PATH"] = saved_path
         twin = refused.structured_content or {}
         twin_ok = (
             refused.is_error
@@ -2593,7 +2503,7 @@ class AutoCADMCPProAdapter(BenchmarkAdapter):
                 "dwg_headless_roundtrip",
                 "environment_blocked",
                 0.0,
-                "no DWG converter on this machine (ODA File Converter or accoreconsole)",
+                "no DWG converter on this machine (ODA File Converter)",
                 metrics=metrics,
             )
         target = work / "roundtrip.dxf"

@@ -39,11 +39,3 @@ async def test_each_task_passes_headlessly_within_its_ceiling(task_id, tmp_path,
         await adapter.cleanup()
     assert result.status == "pass", result.metrics
     assert result.metrics["calls"] <= result.metrics["ceiling"]
-
-
-@pytest.mark.asyncio
-async def test_the_live_lane_reports_them_not_run():
-    adapter = AutoCADMCPProAdapter(backend="com")
-    for task_id in ECONOMY:
-        result = await adapter.run_task(task_by_id(task_id, "v9"))
-        assert result.status == "not_run"
