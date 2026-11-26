@@ -2046,6 +2046,7 @@ PACK_TOOL_NAMES: dict[str, frozenset[str]] = {
             "arch_catalogue_insert",
             "arch_dimension_chains",
             "arch_plan_from_spec",
+            "interior_tile_layout",
         }
     ),
     # SECTION 27 - the plant takeoffs: pipe and cable quantities whose topology
@@ -12362,7 +12363,7 @@ async def drawing_export_dwg(
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 25: Architecture (12 tools) ─────────────────────────────────────
+# ── SECTION 25: Architecture (13 tools) ─────────────────────────────────────
 # ---------------------------------------------------------------------------
 
 
@@ -12605,6 +12606,128 @@ async def arch_stair(
     await ctx.info(f"arch_stair: {kind} stair {stair_id}")
     try:
         return await add_stair(_backend(ctx), spec, lang=lang, scale=scale)
+    except ValueError as exc:
+        raise ToolError(str(exc)) from exc
+
+
+@cad_tool(
+    summary="Lay out floor tiles or panels over a floor outline, cut to it, with a takeoff.",
+    cost="mutate",
+)
+@mcp.tool(
+    annotations={"title": "Architecture: Tile Layout", "destructiveHint": False},
+    tags={"arch", "create"},
+)
+async def interior_tile_layout(
+    outline: Annotated[
+        list[list[float]],
+        Field(
+            description="Floor outline, WCS [[x, y], ...] (mm), a simple polygon, open or closed"
+        ),
+    ],
+    tile_length: Annotated[
+        float, Field(description="Tile / panel length along the lay direction (mm)")
+    ],
+    tile_width: Annotated[float, Field(description="Tile / panel width (mm)")],
+    pattern: Annotated[
+        str, Field(default="grid", description="grid | running_bond | herringbone")
+    ] = "grid",
+    joint: Annotated[
+        float, Field(default=3.0, description="Joint (grout) width, mm; 0 for panels")
+    ] = 3.0,
+    start_x: Annotated[
+        float | None,
+        Field(
+            default=None,
+            description="WCS X of a tile corner the layout starts from; default the outline's min X",
+        ),
+    ] = None,
+    start_y: Annotated[
+        float | None,
+        Field(default=None, description="WCS Y of that corner; default the outline's min Y"),
+    ] = None,
+    angle_deg: Annotated[
+        float,
+        Field(default=0.0, description="Lay direction, degrees CCW from +X (45 for a diagonal)"),
+    ] = 0.0,
+    bond: Annotated[
+        float,
+        Field(
+            default=0.5,
+            description="running_bond: row shift as a share of the length (0.5 half, 0.333 third)",
+        ),
+    ] = 0.5,
+    cutouts: Annotated[
+        list[dict] | None,
+        Field(
+            default=None,
+            description="Areas left untiled: [{points: [[x, y], ...], label}] - fitted furniture, shower tray, bath",
+        ),
+    ] = None,
+    waste_pct: Annotated[
+        float, Field(default=10.0, description="Waste allowance added to the tile count, %")
+    ] = 10.0,
+    dry_run: Annotated[
+        bool, Field(default=False, description="Compute the takeoff only; draw nothing")
+    ] = False,
+    offcut_reuse: Annotated[
+        bool,
+        Field(
+            default=True,
+            description="Pack cut pieces into offcuts of earlier cuts (false: every cut piece a whole tile)",
+        ),
+    ] = True,
+    kerf: Annotated[
+        float, Field(default=3.0, description="Material lost per saw cut, mm (offcut_reuse only)")
+    ] = 3.0,
+    ctx: Context = None,
+) -> dict:
+    """A tile or panel layout cut to a floor outline, drawn thin on `A-FLOR-E-N`, with its takeoff.
+
+    Tiles are laid from the start corner in the turned frame and every tile is
+    intersected exactly with the outline minus the cutouts: a piece holding the
+    whole tile is `full`, any other is `cut`, a tile missing the floor is not
+    drawn. Each piece is a closed polyline (a cutout inside one tile is a second
+    loop). The takeoff: `floor_area_m2` (outline minus cutouts), `full`, `cut`,
+    `tiles`, `order_tiles` = ceil(tiles x (1 + waste_pct/100)) and its area.
+    With `offcut_reuse` (default) cut pieces are packed into the offcuts of
+    earlier cuts - each piece's bounding rectangle in the tile's frame, no 90°
+    turn, `kerf` lost per cut - so `cut_tiles` can be below `cut`; a 45° cut's
+    triangle offcut is not matched, so diagonal layouts stay conservative.
+    `tiles_no_reuse` (every cut piece a whole tile) is always reported.
+    `smallest_cut_share` flags slivers - move the start point if it is small.
+    Units are mm (areas in m²).
+
+    Refused by name before anything is drawn: an unknown pattern, a
+    non-positive size, a negative joint or kerf, a bond outside (0, 1), herringbone with
+    a plank not longer than wide, a self-crossing or empty outline or cutout,
+    and a layout of more than 20000 tiles.
+    """
+    from engineering.arch.draw import draw_tile_layout
+
+    start = None
+    if start_x is not None or start_y is not None:
+        if start_x is None or start_y is None:
+            raise ToolError("start_x / start_y: give both or neither")
+        start = (start_x, start_y)
+    await ctx.info(f"interior_tile_layout: {pattern} {tile_length:g}x{tile_width:g}")
+    try:
+        return await draw_tile_layout(
+            _backend(ctx),
+            dry_run=dry_run,
+            outline=outline,
+            length=tile_length,
+            width=tile_width,
+            pattern=pattern,
+            joint=joint,
+            start=start,
+            angle_deg=angle_deg,
+            bond=bond,
+            cutouts=cutouts or (),
+            waste_pct=waste_pct,
+            offcut_reuse=offcut_reuse,
+            kerf=kerf,
+        )
     except ValueError as exc:
         raise ToolError(str(exc)) from exc
 

@@ -3,14 +3,14 @@
   "schema_version": 2,
   "package_version": "1.8.0",
   "totals": {
-    "tools": 243,
+    "tools": 244,
     "resources": 13,
     "prompts": 5,
     "groups": 27
   },
   "groups": {
     "analysis": 12,
-    "architecture": 12,
+    "architecture": 13,
     "batch": 3,
     "blocks": 9,
     "corner_ops": 4,
@@ -3641,6 +3641,37 @@
       ],
       "annotations": {
         "title": "Sheet: Attach Image",
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "interior_tile_layout",
+      "group": "architecture",
+      "cost": "mutate",
+      "summary": "Lay out floor tiles or panels over a floor outline, cut to it, with a takeoff.",
+      "acad": [],
+      "synonyms": [
+        "tile layout",
+        "floor tiles",
+        "lay tiles",
+        "tiling plan",
+        "herringbone floor",
+        "running bond",
+        "laminate panels",
+        "flooring takeoff",
+        "how many tiles",
+        "uklad plytek",
+        "posadzka",
+        "jodelka",
+        "fayans dosemesi",
+        "seramik yerlesimi"
+      ],
+      "tags": [
+        "arch",
+        "create"
+      ],
+      "annotations": {
+        "title": "Architecture: Tile Layout",
         "destructiveHint": false
       }
     },

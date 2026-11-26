@@ -38,11 +38,12 @@ EXPECTED_LAYERS = {
     "A-DIMEN-T-N": ("Continuous", 0.18),
     "A-SYMB-T-N": ("Continuous", 0.25),
     "A-OVHD-E-N": ("HIDDEN", 0.18),
+    "A-FLOR-E-N": ("Continuous", 0.13),
     "A-CONST-E-N": ("Continuous", 0.05),
 }
 
 
-def test_the_arch_set_is_the_thirteen_pinned_layers_plus_zero():
+def test_the_arch_set_is_the_fourteen_pinned_layers_plus_zero():
     rows = {name: (linetype, lw) for name, _aci, linetype, lw, _d in ARCH_LAYERS}
     assert rows.pop("0") == ("Continuous", 0.25)
     assert rows == EXPECTED_LAYERS
@@ -77,6 +78,7 @@ def test_every_role_maps_onto_a_layer_of_the_set():
         "dim": "A-DIMEN-T-N",
         "symbol": "A-SYMB-T-N",
         "overhead": "A-OVHD-E-N",
+        "floor": "A-FLOR-E-N",
     }
 
 

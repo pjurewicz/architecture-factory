@@ -603,3 +603,55 @@ async def draw_chains(
         "dimscale": factor,
         "backend": backend.name,
     }
+
+
+# -- floor tiles ----------------------------------------------------------------------
+
+
+async def draw_tile_layout(backend, *, dry_run: bool = False, **spec) -> dict:
+    """`engineering.arch.tiles.layout` drawn: one closed polyline per tile piece on the floor layer.
+
+    A full tile is its four corners; a cut piece is each closed loop of its
+    boundary (a cutout wholly inside one tile is a second loop). Refusals fire
+    before the first entity; ``dry_run`` computes the takeoff and draws nothing.
+    """
+    from engineering.arch.tiles import layout
+
+    result = layout(**spec)
+    layer = ARCH_ROLE_LAYER["floor"]
+    pieces = result["pieces"]
+    out = {
+        "ok": True,
+        "dry_run": bool(dry_run),
+        "layer": layer,
+        "start": list(result["origin"]),
+        "pattern": spec.get("pattern", "grid"),
+        "cutouts": result["cutout_labels"],
+        "takeoff": result["takeoff"],
+        "smallest_cut_share": (
+            round(min(p.area for p in pieces if not p.full) / (spec["length"] * spec["width"]), 4)
+            if any(not p.full for p in pieces)
+            else None
+        ),
+        "backend": backend.name,
+    }
+    if dry_run:
+        return out
+    await ensure_arch_layers(backend, [layer])
+    specs = [
+        {"type": "polyline", "points": [list(p) for p in loop], "closed": True, "layer": layer}
+        for piece in pieces
+        for loop in piece.loops
+    ]
+    drawn = await backend.entity_batch_create(specs)
+    if drawn["errors"]:
+        handles = [row["handle"] for row in drawn["entities"]]
+        if handles:
+            await backend.entity_delete_many(handles)
+        raise ValueError(
+            f"tile layout: {len(drawn['errors'])} piece(s) failed to draw: "
+            f"{drawn['errors'][:3]}; nothing was kept"
+        )
+    out["handles"] = [row["handle"] for row in drawn["entities"]]
+    out["count"] = len(out["handles"])
+    return out

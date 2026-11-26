@@ -2407,6 +2407,25 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "mobilya yerlestir",
         ),
     ),
+    "interior_tile_layout": ToolAliases(
+        acad=(),
+        synonyms=(
+            "tile layout",
+            "floor tiles",
+            "lay tiles",
+            "tiling plan",
+            "herringbone floor",
+            "running bond",
+            "laminate panels",
+            "flooring takeoff",
+            "how many tiles",
+            "uklad plytek",
+            "posadzka",
+            "jodelka",
+            "fayans dosemesi",
+            "seramik yerlesimi",
+        ),
+    ),
     "arch_grid": ToolAliases(
         acad=("COLUMNGRIDADD",),
         synonyms=(
