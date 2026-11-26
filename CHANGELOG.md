@@ -66,6 +66,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is allowed per session` until it gave up and ended the session, losing its
   unsaved drawings. The new stream now replaces the old one (the MCP SDK does
   not implement this reconnect).
+- Behind a reverse proxy, a call now and then answered a transient
+  `502 Bad Gateway`: uvicorn closes an idle connection after 5 s, shorter
+  than a proxy's upstream pool (nginx / ALB 60 s, cloudflared 90 s), so the
+  proxy reused a socket the server was closing. The HTTP transports now keep
+  an idle connection for `HTTP_KEEPALIVE_S` (default 120 s); a
+  `uvicorn_config` given to `mcp.run_async` still wins.
 - `entity_batch_create` listed `rectangle` among its types but answered
   `Unknown type: rectangle` in `errors[]`, and a `cad_batch` step with a
   non-empty `errors[]` still counted as `ok`, so a batch drew without its

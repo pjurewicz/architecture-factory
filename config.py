@@ -264,6 +264,13 @@ class Settings:
             os.environ.get("ALLOW_REMOTE_HTTP", "false").lower().strip() == "true"
         )
         self.mcp_auth_token: str = os.environ.get("MCP_AUTH_TOKEN", "").strip()
+        # Idle keep-alive of an HTTP connection. uvicorn's own 5 s is shorter
+        # than a reverse proxy's upstream pool (nginx / ALB 60 s, cloudflared
+        # 90 s), so the proxy sends a request on a socket uvicorn is closing and
+        # answers 502 Bad Gateway. Keep it above the proxy's idle timeout.
+        self.http_keepalive_s: float = max(
+            1.0, float(os.environ.get("HTTP_KEEPALIVE_S", "").strip() or "120")
+        )
 
         # 1.8-17 (policy.py): which tools a client may reach. The defaults are
         # 1.7's behaviour - every tool, every cost. READ_ONLY runs only `read`

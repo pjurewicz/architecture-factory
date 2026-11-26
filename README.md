@@ -27,7 +27,7 @@ Live through COM on Windows, or headless through ezdxf anywhere — one typed co
 
 </div>
 
-> **v1.8 release snapshot:** 257 tools · 13 resources · 5 prompt templates · 7616 collected tests.
+> **v1.8 release snapshot:** 257 tools · 13 resources · 5 prompt templates · 7617 collected tests.
 > 257 is the **registered** count. Since 1.8.0 a default install lists six over `tools/list`
 > (`DISCOVERY_MODE=search`: `search_tools`, `describe_tool`, `call_tool` and the three
 > `DISCOVERY_PINNED` tools), and every tool the profile and packs allow stays callable by name;
@@ -469,6 +469,7 @@ Nothing loads a `.env` file — export these, or set them in your MCP client's `
 | `MCP_AUTH_TOKEN_READONLY` | *(empty)* | A second bearer token with only `mcp:read`: its requests run under the `read` ceiling and see only read tools. Alone it also enables auth |
 | `HTTP_ALLOWED_ORIGINS` | *(empty)* | Origins an HTTP request may carry; any other Origin is refused 403. A browser-based MCP inspector needs its own origin listed (e.g. `http://localhost:6274`); `*` allows all |
 | `HTTP_ALLOWED_HOSTS` | *(empty)* | Host headers accepted besides the bound host:port and the loopback names; any other is refused 421. `*` allows all |
+| `HTTP_KEEPALIVE_S` | `120` | Seconds an idle HTTP connection stays open. Keep it above your reverse proxy's upstream idle timeout, or the proxy reuses a socket the server is closing and answers a transient 502 |
 | `MAX_HTTP_BODY_BYTES` | `8388608` | An HTTP request body over this (8 MiB) is refused 413, counted on chunked bodies too; `0` disables |
 
 </details>

@@ -15512,6 +15512,9 @@ async def _guarded_run_async(transport=None, *args, **kwargs):
         _validate_http_bind(host)
         # 1.8-17: the request guard's Host check compares against this bind.
         http_guard.set_bind(host, _effective_http_port(kwargs))
+        uvicorn_config = dict(kwargs.get("uvicorn_config") or {})
+        uvicorn_config.setdefault("timeout_keep_alive", config.settings.http_keepalive_s)
+        kwargs["uvicorn_config"] = uvicorn_config
     return await _orig_run_async(transport, *args, **kwargs)
 
 

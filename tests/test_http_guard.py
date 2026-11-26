@@ -263,3 +263,27 @@ def test_guarded_run_records_the_bind(monkeypatch):
 
     anyio.run(lambda: server._guarded_run_async(transport="http", host="127.0.0.1", port=8123))
     assert http_guard.bound() == ("127.0.0.1", 8123)
+
+
+def test_guarded_run_outlives_a_proxy_keepalive_pool(monkeypatch):
+    """uvicorn's 5 s keep-alive is shorter than a proxy's pool (nginx 60 s), which
+    then reuses a socket the server is closing and answers 502 Bad Gateway."""
+    captured = {}
+
+    async def fake_run(*args, **kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(server, "_orig_run_async", fake_run)
+    monkeypatch.setattr(http_guard, "_bound", None)
+    import anyio
+
+    anyio.run(lambda: server._guarded_run_async(transport="http", host="127.0.0.1", port=8123))
+    assert captured["uvicorn_config"]["timeout_keep_alive"] == 120
+
+    kept = {"timeout_keep_alive": 7, "backlog": 64}
+    anyio.run(
+        lambda: server._guarded_run_async(
+            transport="http", host="127.0.0.1", port=8123, uvicorn_config=kept
+        )
+    )
+    assert captured["uvicorn_config"] == {"timeout_keep_alive": 7, "backlog": 64}
