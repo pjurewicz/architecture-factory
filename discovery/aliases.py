@@ -2468,6 +2468,22 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "gorunus isareti",
         ),
     ),
+    "interior_wall_elevation": ToolAliases(
+        acad=(),
+        synonyms=(
+            "interior elevation",
+            "wall elevation",
+            "room elevation",
+            "kitchen elevation",
+            "bathroom elevation",
+            "tiling elevation",
+            "height dimensions of sockets and worktop",
+            "service connection axes",
+            "klad sciany",
+            "rozwiniecie scian",
+            "ic gorunus",
+        ),
+    ),
     # ── Architecture: the whole plan (SECTION 25, track F integration) ──────
     "arch_plan_from_spec": ToolAliases(
         acad=(),

@@ -600,6 +600,24 @@ async def draw_chains(
         scale=scale,
         polygons=polygons,
     )
+    handles, rows = await draw_dimension_intents(backend, intents, scale=scale)
+    return {
+        "count": len(handles),
+        "handles": handles,
+        "dimensions": rows,
+        "dimscale": float(scale),
+        "backend": backend.name,
+    }
+
+
+async def draw_dimension_intents(backend, intents, *, scale=50) -> tuple[list[str], list[dict]]:
+    """Linear ``DimIntent`` rows (``feature`` = ``"<side>:<row>"``) as real DIMENSIONs.
+
+    Drawn on the dimension layer at DIMSCALE = ``scale``, the drawing's own
+    DIMSCALE put back afterwards; the texts are placed by
+    ``chain_text_positions``. Shared by the plan chains and the interior
+    elevations. Returns the handles and one row per dimension.
+    """
     layer = ARCH_ROLE_LAYER["dim"]
     await ensure_arch_layers(backend, [layer])
     factor = float(scale)
@@ -660,13 +678,143 @@ async def draw_chains(
     finally:
         if abs(previous - factor) > 1e-9:
             await backend.system_set_variable("DIMSCALE", previous)
-    return {
-        "count": len(handles),
-        "handles": handles,
+    return handles, rows
+
+
+# -- interior elevations -------------------------------------------------------------
+
+
+async def draw_interior_elevation(
+    backend,
+    spec: dict,
+    *,
+    at,
+    lang: str = "en",
+    scale=20,
+    from_plan: dict | None = None,
+    dry_run: bool = False,
+) -> dict:
+    """An interior wall elevation (``engineering/arch/elevation.py``) in one transaction.
+
+    With ``from_plan`` (``{wall, segment, side, at, heights}``) the length and
+    the openings are read from the plan on the drawing; ``spec`` then must not
+    type them. ``spec.tiling`` lays tiles over the wall with the same engine
+    as ``interior_tile_layout`` and reports its takeoff. Everything is
+    validated before the transaction opens; ``dry_run`` returns the levels,
+    the dimension rows and the takeoff and draws nothing.
+    """
+    from engineering.arch import elevation as elev
+    from engineering.mech.draw import guarded_transaction
+    from engineering.mech.primitives import translate
+
+    spec = dict(spec or {})
+    ox, oy = (float(at[0]), float(at[1]))
+    source = "typed"
+    stretch = None
+    if from_plan is not None:
+        fp = elev._known(from_plan, "from_plan", ("wall", "segment", "side", "at", "heights"))
+        typed = sorted({"length", "openings"} & set(spec))
+        if typed:
+            raise ValueError(
+                f"spec.{typed[0]}: read from the plan when from_plan is given; do not type it"
+            )
+        wall_id = str(elev._required(fp, "wall", "from_plan"))
+        plan = await read_plan(backend)
+        walls = {w.id: w for w in plan["walls"]}
+        if wall_id not in walls:
+            raise ValueError(
+                f"from_plan.wall: {wall_id!r} is not drawn; the drawn walls are "
+                f"{', '.join(sorted(walls)) or 'none'}"
+            )
+        segment = fp.get("segment", 0)
+        if isinstance(segment, bool) or not isinstance(segment, int):
+            raise ValueError(f"from_plan.segment: expected a whole number, got {segment!r}")
+        geometry = wall_geometry_by_wall(plan["walls"], plan["openings"], poche=False)
+        stretch = elev.plan_wall_stretch(
+            walls[wall_id],
+            plan["openings"],
+            geometry[wall_id].faces,
+            segment=segment,
+            side=fp.get("side", "left"),
+            at=fp.get("at"),
+        )
+        spec["length"] = stretch["length"]
+        spec["openings"] = elev.plan_openings(stretch["openings"], fp.get("heights"))
+        source = "plan"
+    model = elev.parse_elevation(spec, lang=lang)
+    prims = translate(elev.elevation_prims(model, lang=lang, scale=scale), ox, oy)
+    intents = elev.shift_intents(elev.elevation_dimensions(model, scale=scale), ox, oy)
+    tiles = elev.tile_pieces(model.tiling) if model.tiling is not None else None
+    tile_layer = ARCH_ROLE_LAYER["elev_tile"]
+
+    async def job():
+        drawn = await draw_prims(backend, prims, role_layer=ARCH_ROLE_LAYER)
+        tile_handles: list[str] = []
+        if tiles is not None:
+            tile_handles = await draw_tile_pieces(
+                backend, tiles["pieces"], tile_layer, offset=(ox, oy), what="spec.tiling"
+            )
+        dims, rows = await draw_dimension_intents(backend, intents, scale=scale)
+        return drawn, tile_handles, dims, rows
+
+    if dry_run:
+        drawn, tile_handles, dims = {"handles": [], "counts": {}}, [], []
+        rows = [
+            {
+                "row": i.feature,
+                "from": list(i.p1),
+                "to": list(i.p2),
+                "value": abs(i.p2[0] - i.p1[0]) + abs(i.p2[1] - i.p1[1]),
+            }
+            for i in intents
+        ]
+    else:
+        drawn, tile_handles, dims, rows = await guarded_transaction(
+            backend, job, what="interior_wall_elevation", done="drawn"
+        )
+    result = {
+        "dry_run": bool(dry_run),
+        "ok": True,
+        "source": source,
+        "at": [ox, oy],
+        "length": model.length,
+        "height": model.height,
+        "scale": float(scale),
+        "levels": elev.elevation_levels(model),
+        "openings": [
+            {"id": o.id, "kind": o.kind, "x": o.x, "width": o.width, "sill": o.sill, "head": o.head}
+            for o in model.openings
+        ],
         "dimensions": rows,
-        "dimscale": factor,
+        "handles": drawn["handles"],
+        "dimension_handles": dims,
+        "counts": {**drawn["counts"], "dimension": len(dims), "tile_piece": len(tile_handles)},
+        "layers": sorted(
+            {
+                ARCH_ROLE_LAYER[r]
+                for r in ("elev_outline", "elev_fitting", "elev_text", "symbol", "dim")
+            }
+            | ({ARCH_ROLE_LAYER["elev_service"]} if model.services else set())
+            | ({tile_layer} if tiles is not None else set())
+        ),
         "backend": backend.name,
     }
+    if tiles is not None:
+        result["tiling"] = {
+            **tile_summary(tiles, model.tiling.layout, layer=tile_layer, handles=tile_handles),
+            "bottom": model.tiling.bottom,
+            "top": model.tiling.top,
+        }
+    if stretch is not None:
+        result["plan"] = {
+            "wall": from_plan["wall"],
+            "segment": from_plan.get("segment", 0),
+            "side": from_plan.get("side", "left"),
+            "face_from": stretch["s0"],
+            "face_to": stretch["s1"],
+            "mirrored": stretch["reverse"],
+        }
+    return result
 
 
 # -- floor tiles ----------------------------------------------------------------------
@@ -685,42 +833,74 @@ async def draw_tile_layout(backend, *, dry_run: bool = False, **spec) -> dict:
     result = layout(**spec)
     layer = ARCH_ROLE_LAYER["floor"]
     pieces = result["pieces"]
-    out = {
+    handles: list[str] = []
+    if not dry_run:
+        from engineering.mech.draw import guarded_transaction
+
+        async def job():
+            drawn = await draw_tile_pieces(backend, pieces, layer, what="tile layout")
+            # Floor patterns go to the back (DRAWORDER), so the wipeouts of
+            # furniture inserted before the layout still hide them.
+            if drawn:
+                await backend.draw_order(drawn, "send_to_back")
+            return drawn
+
+        handles = await guarded_transaction(backend, job, what="interior_tile_layout", done="drawn")
+    return {
         "ok": True,
         "dry_run": bool(dry_run),
-        "layer": layer,
-        "start": list(result["origin"]),
-        "pattern": spec.get("pattern", "grid"),
-        "cutouts": result["cutout_labels"],
-        "takeoff": result["takeoff"],
-        "smallest_cut_share": (
-            round(min(p.area for p in pieces if not p.full) / (spec["length"] * spec["width"]), 4)
-            if any(not p.full for p in pieces)
-            else None
-        ),
+        **tile_summary(result, spec, layer=layer, handles=handles),
         "backend": backend.name,
     }
-    if dry_run:
-        return out
+
+
+def tile_summary(result: dict, args: dict, *, layer: str, handles: list[str]) -> dict:
+    """The tile keys both tile tools answer with, drawn or dry run alike.
+
+    ``result`` is ``engineering.arch.tiles.layout``'s, ``args`` the arguments
+    it was called with; ``start`` is in the caller's frame (WCS for a floor,
+    elevation-local for a wall), ``cutouts`` names what the tiles stop at.
+    """
+    cut = [p for p in result["pieces"] if not p.full]
+    tile_area = float(args["length"]) * float(args["width"])
+    return {
+        "layer": layer,
+        "start": list(result["origin"]),
+        "pattern": args.get("pattern", "grid"),
+        "cutouts": result["cutout_labels"],
+        "takeoff": result["takeoff"],
+        "smallest_cut_share": round(min(p.area for p in cut) / tile_area, 4) if cut else None,
+        "handles": list(handles),
+        "count": len(handles),
+    }
+
+
+async def draw_tile_pieces(
+    backend, pieces, layer: str, *, offset=(0.0, 0.0), what: str
+) -> list[str]:
+    """Every loop of every tile piece as a closed polyline on ``layer``, in one batch.
+
+    Shared by the floor layout and the wall tiling of an interior elevation;
+    both call it inside a transaction, so a piece that fails raises and the
+    rollback takes back everything the call drew.
+    """
+    dx, dy = float(offset[0]), float(offset[1])
     await ensure_arch_layers(backend, [layer])
-    specs = [
-        {"type": "polyline", "points": [list(p) for p in loop], "closed": True, "layer": layer}
-        for piece in pieces
-        for loop in piece.loops
-    ]
-    drawn = await backend.entity_batch_create(specs)
-    if drawn["errors"]:
-        handles = [row["handle"] for row in drawn["entities"]]
-        if handles:
-            await backend.entity_delete_many(handles)
+    made = await backend.entity_batch_create(
+        [
+            {
+                "type": "polyline",
+                "points": [[x + dx, y + dy] for x, y in loop],
+                "closed": True,
+                "layer": layer,
+            }
+            for piece in pieces
+            for loop in piece.loops
+        ]
+    )
+    if made["errors"]:
         raise ValueError(
-            f"tile layout: {len(drawn['errors'])} piece(s) failed to draw: "
-            f"{drawn['errors'][:3]}; nothing was kept"
+            f"{what}: {len(made['errors'])} piece(s) failed to draw: "
+            f"{made['errors'][:3]}; nothing was drawn"
         )
-    out["handles"] = [row["handle"] for row in drawn["entities"]]
-    out["count"] = len(out["handles"])
-    # Floor patterns go to the back (DRAWORDER), so the wipeouts of furniture
-    # inserted before the layout still hide them.
-    if out["handles"]:
-        await backend.draw_order(out["handles"], "send_to_back")
-    return out
+    return [row["handle"] for row in made["entities"]]

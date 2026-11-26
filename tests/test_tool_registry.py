@@ -646,7 +646,7 @@ async def test_tool_group_sizes_are_unchanged():
     sizes = {label: len(names) for label, names in (await server._tool_groups()).items()}
     assert sizes == {
         "analysis": 12,
-        "architecture": 14,  # + interior_tile_layout, arch_room_separator
+        "architecture": 15,  # + interior_tile_layout, arch_room_separator, interior_wall_elevation
         "batch": 3,
         "blocks": 9,
         "corner_ops": 4,
@@ -673,4 +673,4 @@ async def test_tool_group_sizes_are_unchanged():
         "validation": 1,
         "view": 2,
     }
-    assert sum(sizes.values()) == 245
+    assert sum(sizes.values()) == 246

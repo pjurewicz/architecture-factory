@@ -40,11 +40,16 @@ EXPECTED_LAYERS = {
     "A-SYMB-T-N": ("Continuous", 0.25),
     "A-OVHD-E-N": ("HIDDEN", 0.18),
     "A-FLOR-E-N": ("Continuous", 0.13),
+    "A-ELEV-E-N": ("Continuous", 0.50),
+    "A-ELEV-FIT-E-N": ("Continuous", 0.25),
+    "A-ELEV-TILE-E-N": ("Continuous", 0.13),
+    "A-ELEV-SRV-E-N": ("CENTER", 0.18),
+    "A-ELEV-T-N": ("Continuous", 0.25),
     "A-CONST-E-N": ("Continuous", 0.05),
 }
 
 
-def test_the_arch_set_is_the_fourteen_pinned_layers_plus_zero():
+def test_the_arch_set_is_the_twenty_pinned_layers_plus_zero():
     rows = {name: (linetype, lw) for name, _aci, linetype, lw, _d in ARCH_LAYERS}
     assert rows.pop("0") == ("Continuous", 0.25)
     assert rows == EXPECTED_LAYERS
@@ -81,6 +86,11 @@ def test_every_role_maps_onto_a_layer_of_the_set():
         "symbol": "A-SYMB-T-N",
         "overhead": "A-OVHD-E-N",
         "floor": "A-FLOR-E-N",
+        "elev_outline": "A-ELEV-E-N",
+        "elev_fitting": "A-ELEV-FIT-E-N",
+        "elev_tile": "A-ELEV-TILE-E-N",
+        "elev_service": "A-ELEV-SRV-E-N",
+        "elev_text": "A-ELEV-T-N",
     }
 
 

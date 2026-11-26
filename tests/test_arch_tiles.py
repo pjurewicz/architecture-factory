@@ -110,7 +110,7 @@ async def test_the_tool_draws_one_closed_polyline_per_piece_on_the_floor_layer(c
     dry = (
         await client.call_tool("interior_tile_layout", args | {"dry_run": True})
     ).structured_content
-    assert "handles" not in dry and dry["takeoff"]["tiles"] == 70
+    assert dry["handles"] == [] and dry["count"] == 0 and dry["takeoff"]["tiles"] == 70
     drawn = (await client.call_tool("interior_tile_layout", args)).structured_content
     assert drawn["count"] == 70 and drawn["layer"] == "A-FLOR-E-N"
     listed = (
@@ -132,3 +132,24 @@ async def test_tiles_laid_after_the_furniture_go_behind_its_wipeout(backend):
     drawn = await draw_tile_layout(backend, outline=ROOM, length=600, width=300, joint=0)
     order = [e.dxf.handle for e in backend._doc.modelspace().entities_in_redraw_order()]
     assert order.index(bed["handle"]) > max(order.index(h) for h in drawn["handles"])
+
+
+@pytest.mark.asyncio
+async def test_a_layout_that_fails_half_way_leaves_nothing_drawn(monkeypatch):
+    """The layout is one transaction: pieces drawn before a failure are rolled back."""
+    from backends.ezdxf_backend import EzdxfBackend
+    from engineering.arch.draw import draw_tile_layout
+
+    backend = EzdxfBackend()
+    await backend.drawing_new()
+    before = {e.handle for e in await backend.entity_list(limit=100000)}
+    real = backend.entity_batch_create
+
+    async def half_then_fail(specs):
+        await real(specs[: len(specs) // 2])
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(backend, "entity_batch_create", half_then_fail)
+    with pytest.raises(RuntimeError, match="disk full"):
+        await draw_tile_layout(backend, outline=ROOM, length=600, width=300, joint=0)
+    assert {e.handle for e in await backend.entity_list(limit=100000)} == before

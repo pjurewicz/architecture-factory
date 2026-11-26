@@ -3,14 +3,14 @@
   "schema_version": 2,
   "package_version": "1.8.0",
   "totals": {
-    "tools": 245,
+    "tools": 246,
     "resources": 13,
     "prompts": 5,
     "groups": 27
   },
   "groups": {
     "analysis": 12,
-    "architecture": 14,
+    "architecture": 15,
     "batch": 3,
     "blocks": 9,
     "corner_ops": 4,
@@ -3696,6 +3696,34 @@
       ],
       "annotations": {
         "title": "Architecture: Tile Layout",
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "interior_wall_elevation",
+      "group": "architecture",
+      "cost": "mutate",
+      "summary": "Draw an interior wall elevation at 1:20 / 1:25: openings, levels, fittings, service axes, height dimensions.",
+      "acad": [],
+      "synonyms": [
+        "interior elevation",
+        "wall elevation",
+        "room elevation",
+        "kitchen elevation",
+        "bathroom elevation",
+        "tiling elevation",
+        "height dimensions of sockets and worktop",
+        "service connection axes",
+        "klad sciany",
+        "rozwiniecie scian",
+        "ic gorunus"
+      ],
+      "tags": [
+        "arch",
+        "create"
+      ],
+      "annotations": {
+        "title": "Architecture: Interior Wall Elevation",
         "destructiveHint": false
       }
     },

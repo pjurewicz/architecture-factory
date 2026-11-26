@@ -44,6 +44,23 @@ ARCH_LAYERS: list[tuple[str, int, str, float, str]] = [
         0.13,
         "Architecture / floor finish, tile and panel layout / new",
     ),
+    ("A-ELEV-E-N", 7, "Continuous", 0.50, "Architecture / interior elevation, wall outline / new"),
+    (
+        "A-ELEV-FIT-E-N",
+        5,
+        "Continuous",
+        0.25,
+        "Architecture / interior elevation, openings and fittings / new",
+    ),
+    (
+        "A-ELEV-TILE-E-N",
+        8,
+        "Continuous",
+        0.13,
+        "Architecture / interior elevation, wall tiling / new",
+    ),
+    ("A-ELEV-SRV-E-N", 1, "CENTER", 0.18, "Architecture / interior elevation, service axes / new"),
+    ("A-ELEV-T-N", 7, "Continuous", 0.25, "Architecture / interior elevation, labels / new"),
     ("A-CONST-E-N", 250, "Continuous", 0.05, "Architecture / construction (scratch)"),
 ]
 
@@ -64,6 +81,13 @@ ARCH_ROLE_LAYER: dict[str, str] = {
     "symbol": "A-SYMB-T-N",
     "overhead": "A-OVHD-E-N",
     "floor": "A-FLOR-E-N",
+    # interior elevations (``engineering/arch/elevation.py``): never an A-WALL
+    # layer, or the room finder would read an elevation's outline as walls
+    "elev_outline": "A-ELEV-E-N",
+    "elev_fitting": "A-ELEV-FIT-E-N",
+    "elev_tile": "A-ELEV-TILE-E-N",
+    "elev_service": "A-ELEV-SRV-E-N",
+    "elev_text": "A-ELEV-T-N",
 }
 
 #: The two roles ``engineering/layers.py::resolve_role_layer`` answers for.

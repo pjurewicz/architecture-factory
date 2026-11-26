@@ -2048,6 +2048,7 @@ PACK_TOOL_NAMES: dict[str, frozenset[str]] = {
             "arch_dimension_chains",
             "arch_plan_from_spec",
             "interior_tile_layout",
+            "interior_wall_elevation",
         }
     ),
     # SECTION 27 - the plant takeoffs: pipe and cable quantities whose topology
@@ -12372,7 +12373,7 @@ async def drawing_export_dwg(
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 25: Architecture (14 tools) ─────────────────────────────────────
+# ── SECTION 25: Architecture (15 tools) ─────────────────────────────────────
 # ---------------------------------------------------------------------------
 
 
@@ -12706,6 +12707,10 @@ async def interior_tile_layout(
     `tiles_no_reuse` (every cut piece a whole tile) is always reported.
     `smallest_cut_share` flags slivers - move the start point if it is small.
     Units are mm (areas in m²).
+
+    Drawn in one transaction, like `interior_wall_elevation`: a piece that fails
+    rolls every piece back, and a transaction already open is a refusal with
+    nothing drawn.
 
     Refused by name before anything is drawn: an unknown pattern, a
     non-positive size, a negative joint or kerf, a bond outside (0, 1), herringbone with
@@ -13291,6 +13296,107 @@ async def arch_symbol(
             _backend(ctx), kind, (x, y), lang=lang, scale=scale, **(params or {})
         )
     except (TypeError, ValueError) as exc:
+        raise ToolError(str(exc)) from exc
+
+
+# ── arch: interior elevations ──
+
+
+@cad_tool(
+    summary="Draw an interior wall elevation at 1:20 / 1:25: openings, levels, fittings, service axes, height dimensions.",
+    cost="mutate",
+)
+@mcp.tool(
+    annotations={"title": "Architecture: Interior Wall Elevation", "destructiveHint": False},
+    tags={"arch", "create"},
+)
+async def interior_wall_elevation(
+    x: Annotated[float, Field(description="WCS X of the elevation's floor-left corner")],
+    y: Annotated[float, Field(description="WCS Y of the elevation's floor-left corner")],
+    spec: Annotated[
+        dict,
+        Field(
+            description=(
+                "{length, height (floor to ceiling, mm), floor_level (m, default 0), title, "
+                "openings:[{id, kind:door|window, x, width, height, sill (windows), hinge:left|right}], "
+                "fittings:[{id, kind:skirting{top}|worktop{x,width,top,thickness}|base_cabinet|"
+                "wall_cabinet|mirror|panel{x,width,bottom,top}|socket|switch{x,y,size,gangs}, label}], "
+                "services:[{id, kind:cold_water|hot_water|waste|gas|power|data|heating|generic, x, y, "
+                "label}], tiling:{tile_length, tile_width, pattern, joint, bottom, top, cut_around:[fitting "
+                "ids], start_x, start_y, angle_deg, bond, waste_pct, offcut_reuse, kerf}} - x from the "
+                "wall's left end as seen, y up from the floor (mm)"
+            )
+        ),
+    ],
+    from_plan: Annotated[
+        dict | None,
+        Field(
+            default=None,
+            description=(
+                "Read length and openings from a drawn arch wall instead of typing them: "
+                "{wall, segment (default 0), side:left|right (the room side looking along the axis), "
+                "at (distance from the segment start picking the stretch between junctions), "
+                "heights:{<opening id>: {height, sill}}}"
+            ),
+        ),
+    ] = None,
+    lang: Annotated[str, Field(default="en", description="en | tr | pl")] = "en",
+    scale: Annotated[
+        float,
+        Field(default=20.0, gt=0, description="Plot-scale denominator: 20 = 1:20, 25 = 1:25"),
+    ] = 20.0,
+    dry_run: Annotated[
+        bool,
+        Field(
+            default=False, description="Levels, dimension rows and tile takeoff only; draw nothing"
+        ),
+    ] = False,
+    ctx: Context = None,
+) -> dict:
+    """One wall of a room seen from inside, drawn in one transaction.
+
+    The outline (floor, ceiling, wall ends) with floor and ceiling level marks;
+    doors and windows as frames; skirting interrupted at the openings, worktops,
+    cabinets, mirrors, sockets and switches; a centre-line cross at every service
+    connection. Dimensions are real DIMENSIONs: a chain on the right through every
+    height the elements define (skirting, worktop, cabinet bottoms and tops,
+    mirror, sills, heads, socket and service centres) plus floor to ceiling, and a
+    chain below through the jambs, socket and service axes plus the length. The
+    result lists every `level` with what sets it.
+
+    `spec.tiling` tiles the wall between `bottom` and `top` with the engine of
+    `interior_tile_layout` (same field names, same takeoff) on `A-ELEV-TILE-E-N`:
+    the tiles stop at every opening and at the worktops, cabinets and panels
+    (`cut_around` names others), a mirror, socket or switch sits on them.
+    The result's `tiling` has `interior_tile_layout`'s keys (`layer`, `start`, `pattern`,
+    `cutouts`, `takeoff`, `smallest_cut_share`, `handles`, `count`) plus `bottom` / `top`.
+
+    No height is assumed: every height comes from `spec` or the plan. With
+    `from_plan` the length is the clear face between junctions measured off the
+    wall engine, and the openings are the hosted ones, mirrored as the viewer
+    sees them; a plan opening without a height (or a window without a sill) is
+    refused by id until `heights` gives it.
+
+    Refused before anything is drawn, by path: an unknown field or kind, a
+    non-positive length or height, an element outside the wall or above the
+    ceiling, two openings over the same stretch, a fitting or service inside an
+    opening, a duplicate id, a typed length or openings with `from_plan`, an
+    undrawn wall, a segment, side or `at` that names no face.
+    """
+    from engineering.arch.draw import draw_interior_elevation
+
+    await ctx.info(f"interior_wall_elevation at ({x}, {y}) 1:{scale:g}")
+    try:
+        return await draw_interior_elevation(
+            _backend(ctx),
+            spec,
+            at=(x, y),
+            lang=lang,
+            scale=scale,
+            from_plan=from_plan,
+            dry_run=dry_run,
+        )
+    except ValueError as exc:
         raise ToolError(str(exc)) from exc
 
 

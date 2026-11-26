@@ -53,6 +53,9 @@ from engineering.mech.primitives import DimIntent
 
 SIDES: tuple[str, ...] = ("bottom", "top", "left", "right")
 ROWS: tuple[str, ...] = ("openings", "walls", "overall")
+#: How far out a row lies, for placing texts row by row: the plan's three rows
+#: and the interior elevation's (``engineering/arch/elevation.py``) inner rows.
+ROW_RANK: dict[str, int] = {"openings": 0, "levels": 0, "positions": 0, "walls": 1, "overall": 2}
 FIRST_OFFSET_PAPER_MM = 10.0
 STEP_PAPER_MM = 8.0
 #: Width of one character of dimension text, in text heights: an estimate a
@@ -367,7 +370,7 @@ def chain_text_positions(
                 put(i, rect)
             else:
                 later.append(i)
-        later.sort(key=lambda i: (ROWS.index(intents[i].feature.split(":")[1]), middle(i)))
+        later.sort(key=lambda i: (ROW_RANK[intents[i].feature.split(":")[1]], middle(i)))
         for i in later:
             mid = middle(i)
             first = box(i, mid, slots[0])
