@@ -144,6 +144,7 @@ only-include = [
     "security_lisp.py",
     "policy.py",
     "http_guard.py",
+    "preview.py",
     "version.py",
     "backends",
     "engineering",

@@ -3643,6 +3643,18 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
 
         return await self._async(_sync)
 
+    async def dxf_bytes(self) -> tuple[str, bytes]:
+        """The active document as DXF bytes and its name, nothing written to disk (preview.py)."""
+
+        def _sync():
+            doc = self._require_doc()
+            stream = io.StringIO()
+            doc.write(stream)
+            name = Path(self._docs[self._active_key].label).stem + ".dxf"
+            return name, stream.getvalue().encode(doc.output_encoding, errors="replace")
+
+        return await self._async(_sync, readonly=True)
+
     async def drawing_export_pdf(self, path: str, layout: str | None = None) -> dict:
         """Export to PDF via ezdxf's matplotlib backend.
 

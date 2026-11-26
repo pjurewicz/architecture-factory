@@ -82,6 +82,17 @@ class SessionBackends:
             entry.in_flight -= 1
             entry.last_used = time.monotonic()
 
+    def engines(self) -> list[tuple[str | None, Any, float]]:
+        """``(session, engine, last_used)`` per session, the default engine's session first.
+
+        The default engine is listed once with session None when no session holds it.
+        """
+        rows = [(key, e.backend, e.last_used) for key, e in self._sessions.items()]
+        rows.sort(key=lambda row: row[1] is not self._default)
+        if not any(row[1] is self._default for row in rows):
+            rows.insert(0, (None, self._default, 0.0))
+        return rows
+
     def session_count(self) -> int:
         return len(self._sessions)
 

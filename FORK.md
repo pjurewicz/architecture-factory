@@ -41,6 +41,7 @@ not want to diverge from.
 |---|---|---|
 | Live-only tools are hidden on a headless server: `system_run_lisp`, `system_run_command`, `system_launch`, `system_preferences_get` / `_set`, `user_pick_point`, `user_select`, `system_prompt_message`. They are left out of `tools/list` and search, and a call is refused `policy_refused` with `policy: "headless_engine"` | `HIDE_LIVE_ONLY_TOOLS` (default `true`) | They can only fail without AutoCAD and cost tokens |
 | Each MCP session of a headless server gets its own engine: its own open documents, active document, undo and transactions. The first session keeps the server's engine; stateless HTTP requests share it | `SESSION_ISOLATION` (default `true`), `SESSION_IDLE_TIMEOUT` (default `3600` s) | Upstream has one workspace per server, as AutoCAD has one active drawing: two agents drew into each other's documents without an error |
+| A read-only browser page at `/preview`: every session, its open documents, a render of its active document that refreshes as the agent draws, its recent operations, and PDF / DXF / DWG downloads. HTTP Basic auth with its own credentials, separate from the MCP token; off until a password is set | `PREVIEW_PASSWORD`, `PREVIEW_USER` (default `preview`) | A headless server has no AutoCAD window to watch |
 | Amp orb setup: ODA File Converter and the headless extras | `.agents/setup` | The server runs in Amp orbs |
 
 Not isolated between sessions: files on disk (two sessions saving to one path

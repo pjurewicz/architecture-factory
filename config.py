@@ -294,6 +294,11 @@ class Settings:
             0.0, float(os.environ.get("SESSION_IDLE_TIMEOUT", "3600"))
         )
 
+        # preview.py: HTTP Basic credentials of the /preview page; without a
+        # password the page is off (404).
+        self.preview_user: str = os.environ.get("PREVIEW_USER", "preview").strip() or "preview"
+        self.preview_password: str = os.environ.get("PREVIEW_PASSWORD", "")
+
         # 1.8-18 (security_lisp.py): how system_run_lisp checks an expression.
         # "read" (default) runs what passes the AutoLISP read tier and sends the
         # rest to the 1.7 denylist unchanged; "denylist" is 1.7's behaviour;

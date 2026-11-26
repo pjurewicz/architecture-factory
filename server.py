@@ -15373,6 +15373,11 @@ def _effective_http_port(kwargs: dict) -> int | None:
 
 mcp.run_async = _guarded_run_async
 
+# preview.py: the read-only /preview page of what each session is drawing.
+import preview  # noqa: E402
+
+preview.register(sys.modules[__name__])
+
 # 1.8-17 (spike S3): the HTTP request guard (Origin 403, Host 421, body 413),
 # prepended on every app builder - main(), mcp.run, `fastmcp run` and a direct
 # mcp.http_app() all reach it through this instance attribute, the SSE app
