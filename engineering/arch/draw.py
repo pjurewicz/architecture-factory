@@ -28,6 +28,7 @@ from engineering.arch.model import (
     APP_ID,
     Opening,
     Room,
+    RoomSeparator,
     Stair,
     Wall,
     WallPolygon,
@@ -53,7 +54,15 @@ HANDLES_APP = "ACADMCP_ARCH_H"
 
 #: The layers `read_plan` scans for records - never the poche or the dimensions.
 #: A cased opening has no leaf: its record sits on its head line, on the overhead layer.
-RECORD_ROLES: tuple[str, ...] = ("wall", "door", "window", "stair", "room", "overhead")
+RECORD_ROLES: tuple[str, ...] = (
+    "wall",
+    "door",
+    "window",
+    "stair",
+    "room",
+    "overhead",
+    "room_separator",
+)
 
 #: Model class -> the record kind, read off the object rather than the payload,
 #: so the reader does not depend on how a payload spells its own kind.
@@ -63,6 +72,7 @@ _KIND = {
     Stair: "stair",
     Room: "room",
     WallPolygon: "wall_polygon",
+    RoomSeparator: "room_separator",
 }
 
 #: Layers whose name starts with this are wall layers: a closed straight-edged
@@ -113,6 +123,7 @@ async def read_plan(backend) -> dict:
         "stairs": [],
         "rooms": [],
         "wall_polygons": [],
+        "room_separators": [],
         "carriers": {},
     }
     for role in RECORD_ROLES:
@@ -275,6 +286,59 @@ async def draw_wall_polygons(backend, polygons, *, poche: bool = True, scale=50)
             {"id": polygon.id, "record": drawn["handles"][0], "handles": list(drawn["handles"])}
         )
     return out
+
+
+def room_separator_prims(separator: RoomSeparator) -> tuple:
+    """The separation line as one open polyline: zero thickness, no poche."""
+    return (Poly(tuple(separator.points), False, "room_separator"),)
+
+
+async def draw_room_separators(backend, separators) -> list[dict]:
+    """Each separation line, with its record on the polyline."""
+    out: list[dict] = []
+    for separator in separators:
+        drawn = await draw_prims(
+            backend, room_separator_prims(separator), role_layer=ARCH_ROLE_LAYER
+        )
+        await _write_record(backend, drawn["handles"][0], separator, drawn["handles"])
+        out.append({"id": separator.id, "handle": drawn["handles"][0]})
+    return out
+
+
+async def add_room_separator(backend, separator: dict) -> dict:
+    """Draw one room separation line on a plan, with its record; ``id`` defaults to ``S<n>``.
+
+    It bounds rooms from then on (`arch_room`, `arch_rooms_detect`, the
+    critique). A label already standing without an area (``room_open``) is not
+    relabelled: delete it and label the room again to measure it. Returns
+    ``open_ends``, the free wall and separator ends left on the plan.
+    """
+    from engineering.arch.critique import open_ends  # lazy: critique imports the QA scan
+    from engineering.arch.model import room_separator_from_dict
+
+    if not isinstance(separator, dict):
+        raise ValueError(f"separator: expected a dict, got {type(separator).__name__}")
+    plan = await read_plan(backend)
+    taken = {sep.id for sep in plan["room_separators"]}
+    data = dict(separator)
+    if not data.get("id"):
+        number = len(taken) + 1
+        while f"S{number}" in taken:
+            number += 1
+        data["id"] = f"S{number}"
+    sep = room_separator_from_dict(data, "separator")
+    if sep.id in taken:
+        raise ValueError(f"separator.id: {sep.id!r} is already drawn; choose a new id")
+    (drawn,) = await draw_room_separators(backend, [sep])
+    return {
+        "ok": True,
+        "id": sep.id,
+        "handle": drawn["handle"],
+        "layer": ARCH_ROLE_LAYER["room_separator"],
+        "points": [[float(x), float(y)] for x, y in sep.points],
+        "open_ends": open_ends(plan["walls"], [*plan["room_separators"], sep]),
+        "backend": backend.name,
+    }
 
 
 def parse_wall_polygons(polygons, taken=()) -> list[WallPolygon]:

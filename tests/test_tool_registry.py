@@ -640,11 +640,13 @@ async def test_tool_group_sizes_are_unchanged():
     six live-only `environment` tools (22 -> 16), `system_run_command` /
     `system_run_lisp` (`system` 7 -> 5), the five `solids` (the group is gone)
     and `view_zoom_extents` / `view_zoom_window` (`view` 4 -> 2): 242 tools.
+    `arch_room_separator` (an open room's explicit boundary) joins
+    `architecture`; with `draw_order` and `interior_tile_layout`: 245 tools.
     """
     sizes = {label: len(names) for label, names in (await server._tool_groups()).items()}
     assert sizes == {
         "analysis": 12,
-        "architecture": 13,  # + interior_tile_layout
+        "architecture": 14,  # + interior_tile_layout, arch_room_separator
         "batch": 3,
         "blocks": 9,
         "corner_ops": 4,
@@ -671,4 +673,4 @@ async def test_tool_group_sizes_are_unchanged():
         "validation": 1,
         "view": 2,
     }
-    assert sum(sizes.values()) == 244
+    assert sum(sizes.values()) == 245

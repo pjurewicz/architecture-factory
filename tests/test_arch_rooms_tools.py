@@ -75,3 +75,20 @@ async def test_the_detector_is_advertised_read_only(full_catalog, client):
     tools = {tool.name: tool for tool in await client.list_tools()}
     assert tools["arch_rooms_detect"].annotations.readOnlyHint is True
     assert tools["arch_room"].annotations.destructiveHint is False
+
+
+async def test_a_room_separator_closes_an_open_plan_and_arch_room_measures_it(client):
+    """A U of 200 mm walls open on x = 0: refused with its free ends, closed by a
+    separator between the inner faces, then measured 5900 x 3800."""
+    u = {"id": "U", "axis": [[0, 0], [6000, 0], [6000, 4000], [0, 4000]], "thickness": 200}
+    await client.call_tool("arch_wall", {"walls": [u]})
+    refused = await client.call_tool(
+        "arch_room", {"name": "SALON", "x": 3000.0, "y": 2000.0}, raise_on_error=False
+    )
+    assert refused.is_error is True
+    assert "U.start at (0, 0) (faces (0, -100), (0, 100))" in refused.content[0].text
+    sep = await client.call_tool("arch_room_separator", {"points": [[0, 100], [0, 3900]]})
+    assert sep.structured_content["id"] == "S1"
+    assert sep.structured_content["open_ends"] == []
+    room = await client.call_tool("arch_room", {"name": "SALON", "x": 3000.0, "y": 2000.0})
+    assert room.structured_content["room"]["area"] == pytest.approx(5900.0 * 3800.0, abs=0.5)

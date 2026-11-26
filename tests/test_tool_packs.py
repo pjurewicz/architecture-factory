@@ -136,6 +136,7 @@ ARCH_TOOLS = {
     "arch_opening",
     "arch_stair",
     "arch_room",
+    "arch_room_separator",
     "arch_rooms_detect",
     "arch_schedule",
     "arch_grid",
@@ -207,7 +208,7 @@ def test_pack_registry_names_real_tools_and_only_them():
     assert server.PACK_TOOL_NAMES["plant"] == frozenset(PLANT_TOOLS)
     assert len(SETTINGS_TOOLS) == 16
     assert len(MECH_TOOLS) == 15  # + mech_part_revise (1.8-19)
-    assert len(ARCH_TOOLS) == 13  # + interior_tile_layout
+    assert len(ARCH_TOOLS) == 14  # + interior_tile_layout, arch_room_separator
     assert len(PLANT_TOOLS) == 2
     assert not (server.PACK_TOOL_NAMES["settings"] & server.PACK_TOOL_NAMES["pid"])
     assert not (server.PACK_TOOL_NAMES["mech"] & server.PACK_TOOL_NAMES["pid"])

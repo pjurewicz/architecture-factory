@@ -2038,6 +2038,7 @@ PACK_TOOL_NAMES: dict[str, frozenset[str]] = {
             "arch_opening",
             "arch_stair",
             "arch_room",
+            "arch_room_separator",
             "arch_rooms_detect",
             "arch_schedule",
             "arch_grid",
@@ -12363,7 +12364,7 @@ async def drawing_export_dwg(
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 25: Architecture (13 tools) ─────────────────────────────────────
+# ── SECTION 25: Architecture (14 tools) ─────────────────────────────────────
 # ---------------------------------------------------------------------------
 
 
@@ -12870,6 +12871,43 @@ async def arch_room(
         raise ToolError(str(exc)) from exc
 
 
+@cad_tool(summary="Draw a room separation line that bounds rooms like a wall face.", cost="mutate")
+@mcp.tool(
+    annotations={"title": "Architecture: Room Separator", "destructiveHint": False},
+    tags={"arch", "create"},
+)
+async def arch_room_separator(
+    points: Annotated[
+        list[list[float]],
+        Field(description="WCS [x, y] points of the line, at least 2, e.g. [[0, 100], [0, 3900]]."),
+    ],
+    separator_id: Annotated[
+        str | None,
+        Field(default=None, description="Record id; default is the first free S<n>."),
+    ] = None,
+    ctx: Context = None,
+) -> dict:
+    """Close an open room where you say it ends: a zero-thickness line on
+    `A-ROOM-E-N` with an `ACADMCP_ARCH` record, read as a room boundary by
+    `arch_room`, `arch_rooms_detect` and the critique. The engine never invents
+    this line; a `room_open` warning names the free wall ends to run it between.
+
+    Returns `open_ends`, the free wall and separator ends still on the plan. A
+    label already drawn without an area is not relabelled: delete it and label
+    the room again with `arch_room`. Refused: fewer than 2 points, a repeated
+    point, an id already drawn.
+    """
+    from engineering.arch.draw import add_room_separator
+
+    separator = {"points": points}
+    if separator_id:
+        separator["id"] = separator_id
+    try:
+        return await add_room_separator(_backend(ctx), separator)
+    except ValueError as exc:
+        raise ToolError(str(exc)) from exc
+
+
 @cad_tool(summary="Find the rooms of any plan and measure them; never modifies it.", cost="read")
 @mcp.tool(
     annotations={"title": "Architecture: Detect Rooms", "readOnlyHint": True},
@@ -13266,8 +13304,8 @@ async def arch_plan_from_spec(
             _arch_spec_schema()
             | {
                 "description": "The whole plan: walls (axis, thickness, justification, "
-                "material), openings hosted by wall id and offset, stairs, rooms (no area: "
-                "measured), chains and schedules."
+                "material), openings hosted by wall id and offset, stairs, room separators, "
+                "rooms (no area: measured; optional boundary), chains and schedules."
             }
         ),
     ],
@@ -13279,11 +13317,17 @@ async def arch_plan_from_spec(
 
     Every item is validated before the transaction opens, so a refusal leaves the
     drawing untouched and names its path (`walls[1].thickness: ...`,
-    `rooms[0].area: ...`). What only the drawing can refuse - a room point in no
-    closed face - rolls the transaction back, and so does a cancelled request (the
-    rollback runs under an anyio shield). The result carries each step's own
-    result, the wall engine's `omitted` list and the three `arch_*` critique
-    focuses run over the committed plan.
+    `rooms[0].area: ...`). What only the drawing can refuse - a room point inside a
+    wall body or in a room already labelled - rolls the transaction back, and so
+    does a cancelled request (the rollback runs under an anyio shield). A room point
+    in no closed face (an open living room) is labelled without an area or a room
+    record and reported in `warnings` (code `room_open`, with the free wall and
+    separator ends nearest to it in `open_ends`). The engine never invents a room
+    boundary: say where an open room ends with `room_separators` (zero-thickness
+    lines that bound rooms like a wall face) or a room's own `boundary` polygon;
+    either way the area is measured from it. The result carries each
+    step's own result, the wall engine's `omitted` list, `warnings` and the three
+    `arch_*` critique focuses run over the committed plan.
 
     Refused by name: an unknown key, no walls, an unknown language or material, a
     non-finite or non-positive number, an arc segment in a wall axis, an opening

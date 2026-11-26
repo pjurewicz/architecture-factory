@@ -45,6 +45,7 @@ from .model import (
     APP_ID,
     Opening,
     Room,
+    RoomSeparator,
     Stair,
     Wall,
     WallPolygon,
@@ -72,6 +73,7 @@ _BUCKETS = {
     Stair: "stairs",
     Room: "rooms",
     WallPolygon: "wall_polygons",
+    RoomSeparator: "room_separators",
 }
 
 
@@ -98,6 +100,7 @@ async def build_index(backend: AutoCADBackend) -> dict:
         "stairs": {},
         "rooms": {},
         "wall_polygons": {},
+        "room_separators": {},
         "faces": [],
     }
     order = {name.lower(): i for i, name in enumerate(sorted(set(ARCH_ROLE_LAYER.values())))}
@@ -180,38 +183,41 @@ def _ends(wall: Wall) -> list[tuple[str, tuple[float, float], int]]:
     return [("start", wall.axis[0], 0), ("end", wall.axis[-1], last)]
 
 
+def _nearest_body(point, wall: Wall, own: int, walls: Sequence[Wall]) -> tuple[float, str] | None:
+    """The nearest wall body to one of ``wall``'s ends: ``(distance, wall id)``.
+
+    Every other wall, and ``wall``'s own segments other than the one the end
+    belongs to (``own``) and that segment's neighbours - a wall that nearly
+    closes on itself leaks too.
+    """
+    best: tuple[float, str] | None = None
+    for other in walls:
+        band = _band(other)
+        for index, (a, b) in enumerate(axis_segments(other)):
+            if other.id == wall.id and abs(index - own) <= 1:
+                continue
+            distance = body_distance(point, a, b, band)
+            if best is None or distance < best[0]:
+                best = (distance, other.id)
+    return best
+
+
 def wall_gaps(
     walls: Sequence[Wall], *, gap: float = GAP_MM, tol: float = JOIN_TOL_MM
 ) -> list[dict]:
     """Free wall ends within ``gap`` of another wall that do not join it.
 
     An end joins a wall when it lies within ``tol`` of that wall's body (an L
-    corner's shared end, a T stem ending in the crossing wall). The walls an
-    end is measured against are every other wall, and its own wall's segments
-    other than the one it ends and that segment's neighbours - a wall that
-    nearly closes on itself leaks too. One row per pair of walls, the smallest
-    gap kept: ``{"walls": (a, b), "end": "W2.start", "other": "W1", "gap_mm", "at"}``.
+    corner's shared end, a T stem ending in the crossing wall); the walls an
+    end is measured against are `_nearest_body`'s. One row per pair of walls,
+    the smallest gap kept: ``{"walls": (a, b), "end": "W2.start", "other": "W1",
+    "gap_mm", "at"}``.
     """
     found: dict[frozenset, dict] = {}
     for wall in walls:
         for end, point, own in _ends(wall):
-            best: tuple[float, str] | None = None
-            joined = False
-            for other in walls:
-                band = _band(other)
-                segments = axis_segments(other)
-                for index, (a, b) in enumerate(segments):
-                    if other.id == wall.id and abs(index - own) <= 1:
-                        continue
-                    distance = body_distance(point, a, b, band)
-                    if distance <= tol:
-                        joined = True
-                        break
-                    if best is None or distance < best[0]:
-                        best = (distance, other.id)
-                if joined:
-                    break
-            if joined or best is None or best[0] > gap:
+            best = _nearest_body(point, wall, own, walls)
+            if best is None or best[0] <= tol or best[0] > gap:
                 continue
             pair = frozenset((wall.id, best[1]))
             row = {
@@ -224,6 +230,88 @@ def wall_gaps(
             if pair not in found or row["gap_mm"] < found[pair]["gap_mm"]:
                 found[pair] = row
     return sorted(found.values(), key=lambda row: row["walls"])
+
+
+def _separator_segments(separator: RoomSeparator) -> list[tuple]:
+    pts = separator.points
+    return [(pts[i], pts[i + 1]) for i in range(len(pts) - 1)]
+
+
+def _segment_distance(a, b, p, q) -> float:
+    """The shortest distance between segments ``ab`` and ``pq`` (0 when they cross)."""
+
+    def side(o, u, v) -> float:
+        return (u[0] - o[0]) * (v[1] - o[1]) - (u[1] - o[1]) * (v[0] - o[0])
+
+    d1, d2, d3, d4 = side(p, q, a), side(p, q, b), side(a, b, p), side(a, b, q)
+    if d1 * d2 < 0.0 and d3 * d4 < 0.0:
+        return 0.0
+    flat = (0.0, 0.0)
+    return min(
+        body_distance(a, p, q, flat) if math.dist(p, q) > EPS else math.dist(a, p),
+        body_distance(b, p, q, flat) if math.dist(p, q) > EPS else math.dist(b, p),
+        body_distance(p, a, b, flat) if math.dist(a, b) > EPS else math.dist(p, a),
+        body_distance(q, a, b, flat) if math.dist(a, b) > EPS else math.dist(q, a),
+    )
+
+
+def open_ends(
+    walls: Sequence[Wall],
+    separators: Sequence[RoomSeparator] = (),
+    *,
+    tol: float = JOIN_TOL_MM,
+) -> list[dict]:
+    """Every wall or separator end that joins nothing: where a room is open.
+
+    A wall end is free when no wall body (`_nearest_body`) lies within ``tol``
+    of it and no separator touches its end cap (the line between its two faces); a separator end when no wall body and no
+    other separator does. These are read off the records, not guessed: the
+    opening of an open room runs between free ends, and which two is the
+    drafter's call - a separator or a room ``boundary`` says it.
+
+    ``{"element", "end": "start"|"end", "at": [x, y]}``; a wall end adds
+    ``faces``, the two corners of its end cap (where its two faces stop), the
+    points a separator along either face would start from.
+    """
+    lines = [(sep.id, a, b) for sep in separators for a, b in _separator_segments(sep)]
+    rows: list[dict] = []
+    for wall in walls:
+        for end, point, own in _ends(wall):
+            best = _nearest_body(point, wall, own, walls)
+            if best is not None and best[0] <= tol:
+                continue
+            a, b = axis_segments(wall)[own]
+            length = math.dist(a, b)
+            nx, ny = -(b[1] - a[1]) / length, (b[0] - a[0]) / length
+            faces = [(point[0] + nx * d, point[1] + ny * d) for d in _band(wall)]
+            # a separator touching the end cap (face to face across the end) closes it
+            if any(_segment_distance(faces[0], faces[1], p, q) <= tol for _id, p, q in lines):
+                continue
+            rows.append(
+                {
+                    "element": wall.id,
+                    "end": end,
+                    "at": [float(point[0]), float(point[1])],
+                    "faces": [[float(fx), float(fy)] for fx, fy in faces],
+                }
+            )
+    for sep in separators:
+        for end, point in (("start", sep.points[0]), ("end", sep.points[-1])):
+            on_wall = any(
+                body_distance(point, a, b, _band(wall)) <= tol
+                for wall in walls
+                for a, b in axis_segments(wall)
+            )
+            on_other = any(
+                body_distance(point, a, b, (0.0, 0.0)) <= tol
+                for sid, a, b in lines
+                if sid != sep.id
+            )
+            if not on_wall and not on_other:
+                rows.append(
+                    {"element": sep.id, "end": end, "at": [float(point[0]), float(point[1])]}
+                )
+    return rows
 
 
 def opening_clashes(walls: Sequence[Wall], openings: Sequence[Opening]) -> list[dict]:

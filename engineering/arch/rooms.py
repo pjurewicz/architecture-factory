@@ -54,11 +54,13 @@ from engineering.arch.model import (
     APP_ID,
     Opening,
     Room,
+    RoomSeparator,
     Stair,
     Wall,
     WallPolygon,
     decode,
     from_payload,
+    point_in_outline,
     room_from_dict,
     segment_of,
     to_payload,
@@ -159,11 +161,14 @@ def _positive(value, where: str) -> float:
     return number
 
 
-def _label_lines(room: Room, lang: str, factor: float) -> list[tuple[str, float]]:
+def _label_lines(
+    room: Room, lang: str, factor: float, with_area: bool = True
+) -> list[tuple[str, float]]:
     lines = [(room.name, NAME_HEIGHT * factor)]
     if room.number:
         lines.append((str(room.number), TEXT_HEIGHT * factor))
-    lines.append((fmt_area_m2(room.area, lang), TEXT_HEIGHT * factor))
+    if with_area:
+        lines.append((fmt_area_m2(room.area, lang), TEXT_HEIGHT * factor))
     return lines
 
 
@@ -181,9 +186,16 @@ def _check_align(align: str) -> str:
 
 
 def room_label_prims(
-    room: Room, *, lang: str = "en", scale=50, align: str = "left", shrink: float = 1.0
+    room: Room,
+    *,
+    lang: str = "en",
+    scale=50,
+    align: str = "left",
+    shrink: float = 1.0,
+    with_area: bool = True,
 ) -> tuple[Text, ...]:
-    """Name, number (when there is one) and measured area, stacked down.
+    """Name, number (when there is one) and measured area, stacked down
+    (``with_area=False``: no area line, for a room with no closed face).
 
     Heights are paper millimetres times the plot-scale denominator (at 1:50 the
     3.5 mm name is 175 drawing units high), times ``shrink``. ``align="left"``:
@@ -195,7 +207,7 @@ def room_label_prims(
     _check_align(align)
     factor = _positive(scale, "scale") * _positive(shrink, "shrink")
     x, y = float(room.at[0]), float(room.at[1])
-    lines = _label_lines(room, lang, factor)
+    lines = _label_lines(room, lang, factor, with_area)
     baseline = y
     if align == "center":
         baseline = y + _block_height(lines) / 2.0 - lines[0][1]
@@ -371,18 +383,20 @@ def detect_rooms(
 
     ``segments`` are ``(p1, p2)`` or ``(p1, p2, layer)``. A face scores 1.0
     when every edge of it (holes included) is covered by a segment on
-    ``ARCH_ROLE_LAYER["wall"]``, and 0.6 otherwise - an untagged segment is a
+    ``ARCH_ROLE_LAYER["wall"]`` or ``["room_separator"]``, and 0.6 otherwise - an untagged segment is a
     plain line from somewhere else. The minimum of the inputs, never raised by
     agreement: one foreign edge is enough to make the face 0.6.
     """
     min_area = _positive(min_area, "min_area")
     min_width = _positive(min_width, "min_width")
-    wall = ARCH_ROLE_LAYER["wall"].casefold()
+    ours_layers = {ARCH_ROLE_LAYER["wall"].casefold(), ARCH_ROLE_LAYER["room_separator"].casefold()}
     rooms: list[dict] = []
     for face, tags in tagged_faces(segments, tol=tol):
         if face.area < min_area or mean_width(face) < min_width:
             continue
-        ours = all(any(isinstance(t, str) and t.casefold() == wall for t in edge) for edge in tags)
+        ours = all(
+            any(isinstance(t, str) and t.casefold() in ours_layers for t in edge) for edge in tags
+        )
         rooms.append(
             {
                 "loop": face.loop,
@@ -418,6 +432,7 @@ async def read_records(backend: AutoCADBackend, *, space=None) -> dict:
         "stairs": [],
         "rooms": [],
         "wall_polygons": [],
+        "room_separators": [],
     }
     room_handles: dict[str, str] = {}
     seen: set[tuple[str, str]] = set()
@@ -428,6 +443,7 @@ async def read_records(backend: AutoCADBackend, *, space=None) -> dict:
         Stair: "stairs",
         Room: "rooms",
         WallPolygon: "wall_polygons",
+        RoomSeparator: "room_separators",
     }
     arch_layers = {name.casefold(): name for name in ARCH_ROLE_LAYER.values()}
     ours = [
@@ -536,18 +552,22 @@ def _wcs_loop(loop) -> list[list[float]]:
 
 
 async def wall_layers(backend: AutoCADBackend) -> list[str]:
-    """The arch wall layer and every other layer named ``A-WALL*`` but the poche layer.
+    """The arch wall layer, every other layer named ``A-WALL*`` but the poche layer,
+    and the room separator layer (a separator bounds a room like a wall face).
 
     That is where a drafter puts what the wall engine does not draw - a bay, a
     column, a wall imported from another model - as plain closed polylines.
     """
     wall = ARCH_ROLE_LAYER["wall"]
     hatch = ARCH_ROLE_LAYER["wall_hatch"].casefold()
+    separator = ARCH_ROLE_LAYER["room_separator"]
     names = [wall]
     for layer in await backend.layer_list():
         name = layer.name
         folded = name.casefold()
         if folded.startswith("a-wall") and folded != hatch and folded != wall.casefold():
+            names.append(name)
+        elif folded == separator.casefold():
             names.append(name)
     return names
 
@@ -560,8 +580,15 @@ async def label_room(
     scale=50,
     align: str = "left",
     fit: bool = False,
+    open_room: bool = False,
 ) -> dict:
     """Label the room around ``room_dict["at"]`` with its name, number and measured area.
+
+    ``open_room=True`` (``arch_plan_from_spec``'s rooms): a point that lies in
+    no closed face - an open living room - is labelled with its name and number
+    only, without an area and without a room record (an unmeasured room must
+    not enter a schedule total), and the result carries ``area: None`` and a
+    ``warning`` with code ``room_open``. Every other refusal still refuses.
 
     Refused before anything is drawn: an ``area`` in the request (areas are
     measured, never typed), an unknown ``lang``, a non-positive ``scale``, an
@@ -600,6 +627,12 @@ async def label_room(
             f"(label {records['room_handles'][room.id]}); choose another id"
         )
 
+    x, y = float(room.at[0]), float(room.at[1])
+    if room.boundary is not None:
+        return await _label_bounded_room(
+            backend, room, records, lang=lang, scale=scale, align=align, fit=fit
+        )
+
     wall_layer = ARCH_ROLE_LAYER["wall"]
     layers = await wall_layers(backend)
     segments, skipped = await read_segments(backend, layers)
@@ -607,13 +640,20 @@ async def label_room(
     faces = planar_faces(
         [*segments, *((p1, p2, wall_layer) for p1, p2 in closures)], tol=DEFAULT_TOL
     )
-    x, y = float(room.at[0]), float(room.at[1])
     face = face_containing(faces, (x, y))
     if face is None:
-        raise ValueError(
-            f"room.at: ({x:g}, {y:g}) lies in no closed face of the {len(segments)} wall "
-            f"segment(s) on {', '.join(layers)}; close the walls around it first (arch_wall), or read "
-            "a plan drawn by other means with arch_rooms_detect"
+        ends = _open_ends_near(records, (x, y))
+        where = (
+            f"room.at: ({x:g}, {y:g}) lies in no closed face of the {len(segments)} "
+            f"segment(s) on {', '.join(layers)}"
+        )
+        if not open_room:
+            raise ValueError(
+                f"{where}; {_open_ends_text(ends)}close the walls around it first (arch_wall), "
+                "or read a plan drawn by other means with arch_rooms_detect"
+            )
+        return await _label_open_room(
+            backend, room, where, ends, lang=lang, scale=scale, align=align, layers=layers
         )
     polygon_ids = [p.id for p in records["wall_polygons"]]
     if is_wall_outline(face, [p.points for p in records["wall_polygons"]]):
@@ -629,18 +669,55 @@ async def label_room(
         )
     # One face is one room: a second record on it would be a second area in
     # every schedule total (a retried call after a timeout is the usual way in).
-    already = [r for r in records["rooms"] if face_containing(faces, r.at) is face]
-    if already:
-        held = ", ".join(
-            f"{r.id} {r.name!r} (label {records['room_handles'][r.id]})" for r in already
-        )
-        raise ValueError(
-            f"room.at: ({x:g}, {y:g}) lies in a room that is already labelled - {held}; "
-            "one face carries one room record, so its area is counted once. Delete that "
-            "label to relabel the room, or place this one in another room"
-        )
+    _refuse_labelled(
+        room,
+        records,
+        [
+            r
+            for r in records["rooms"]
+            if (
+                point_in_outline(room.at, r.boundary)
+                if r.boundary
+                else face_containing(faces, r.at) is face
+            )
+        ],
+    )
+    return {
+        **await _draw_label(
+            backend,
+            replace(room, area=face.area),
+            face,
+            lang=lang,
+            scale=scale,
+            align=align,
+            fit=fit,
+        ),
+        "area_source": "walls",
+        "wall_layers": layers,
+        "loop": _wcs_loop(face.loop),
+        "holes": [_wcs_loop(hole) for hole in face.holes],
+        "wall_segments": len(segments),
+        "closures": len(closures),
+        "skipped": skipped,
+        "omitted": list(omitted),
+    }
 
-    measured = replace(room, area=face.area)
+
+def _refuse_labelled(room: Room, records: dict, already: list) -> None:
+    if not already:
+        return
+    held = ", ".join(f"{r.id} {r.name!r} (label {records['room_handles'][r.id]})" for r in already)
+    raise ValueError(
+        f"room.at: ({room.at[0]:g}, {room.at[1]:g}) lies in a room that is already labelled - "
+        f"{held}; one face carries one room record, so its area is counted once. Delete that "
+        "label to relabel the room, or place this one in another room"
+    )
+
+
+async def _draw_label(
+    backend: AutoCADBackend, measured: Room, face: Face, *, lang, scale, align, fit
+) -> dict:
+    """The label of a measured room and its record on the name text."""
     from engineering.mech.draw import draw_prims  # lazy: mech.draw imports the arch layer set
 
     fitted = (
@@ -661,7 +738,7 @@ async def label_room(
             "id": measured.id,
             "name": measured.name,
             "number": measured.number,
-            "at": [x, y],
+            "at": [float(measured.at[0]), float(measured.at[1])],
             "area": measured.area,
             "area_m2": measured.area / 1.0e6,
             "area_text": fmt_area_m2(measured.area, lang),
@@ -671,13 +748,103 @@ async def label_room(
         "layer": ARCH_ROLE_LAYER["room"],
         "align": align,
         "fit": {**fitted, "name_height_mm": NAME_HEIGHT * fitted["factor"]} if fit else None,
+    }
+
+
+async def _label_bounded_room(
+    backend: AutoCADBackend, room: Room, records: dict, *, lang, scale, align, fit
+) -> dict:
+    """A room with its own ``boundary``: the area is that polygon's, the walls are not read.
+
+    One room per region still holds: refused when an existing room's label
+    point lies inside this boundary, or this label point inside an existing
+    room's boundary.
+    """
+    _refuse_labelled(
+        room,
+        records,
+        [
+            r
+            for r in records["rooms"]
+            if point_in_outline(r.at, room.boundary)
+            or (r.boundary and point_in_outline(room.at, r.boundary))
+        ],
+    )
+    loop = tuple(room.boundary)
+    area, _perimeter = polygon_area_perimeter([(px, py, 0.0) for px, py in loop], True)
+    face = Face(loop=loop, area=area, centroid=tuple(room.at))
+    return {
+        **await _draw_label(
+            backend, replace(room, area=area), face, lang=lang, scale=scale, align=align, fit=fit
+        ),
+        "area_source": "boundary",
+        "loop": _wcs_loop(loop),
+        "holes": [],
+    }
+
+
+def _open_ends_near(records: dict, point: Pt) -> list[dict]:
+    """`open_ends` of the drawing's walls and separators, nearest to ``point`` first."""
+    from engineering.arch.critique import open_ends  # lazy: critique imports the QA scan
+
+    ends = open_ends(records["walls"], records["room_separators"])
+    return sorted(ends, key=lambda row: math.dist(row["at"], point))
+
+
+def _open_ends_text(ends: list[dict]) -> str:
+    if not ends:
+        return ""
+    shown = "; ".join(
+        f"{row['element']}.{row['end']} at ({row['at'][0]:g}, {row['at'][1]:g})"
+        + (
+            " (faces " + ", ".join(f"({fx:g}, {fy:g})" for fx, fy in row["faces"]) + ")"
+            if row.get("faces")
+            else ""
+        )
+        for row in ends[:2]
+    )
+    return (
+        f"the nearest free end(s): {shown} - close the opening with a room_separator "
+        "between the ends that bound this room, or give the room a boundary; "
+    )
+
+
+async def _label_open_room(
+    backend: AutoCADBackend, room: Room, where: str, ends: list[dict], *, lang, scale, align, layers
+) -> dict:
+    """``label_room(open_room=True)`` for a point in no closed face: name and number, no area."""
+    from engineering.mech.draw import draw_prims  # lazy: mech.draw imports the arch layer set
+
+    drawn = await draw_prims(
+        backend,
+        room_label_prims(room, lang=lang, scale=scale, align=align, with_area=False),
+        role_layer=ARCH_ROLE_LAYER,
+    )
+    message = (
+        f"{where}; {room.id} {room.name!r} is labelled without an area and has no room "
+        f"record, so no schedule counts it; {_open_ends_text(ends)}or close the walls"
+    )
+    return {
+        "ok": True,
+        "room": {
+            "id": room.id,
+            "name": room.name,
+            "number": room.number,
+            "at": [float(room.at[0]), float(room.at[1])],
+            "area": None,
+            "area_m2": None,
+            "area_text": None,
+        },
+        "handle": drawn["handles"][0],
+        "handles": list(drawn["handles"]),
+        "layer": ARCH_ROLE_LAYER["room"],
+        "align": align,
+        "fit": None,
+        "area_source": None,
         "wall_layers": layers,
-        "loop": _wcs_loop(face.loop),
-        "holes": [_wcs_loop(hole) for hole in face.holes],
-        "wall_segments": len(segments),
-        "closures": len(closures),
-        "skipped": skipped,
-        "omitted": list(omitted),
+        "loop": None,
+        "holes": [],
+        "warning": {"code": "room_open", "id": room.id, "message": message, "open_ends": ends},
     }
 
 
@@ -692,7 +859,7 @@ async def rooms_detect(
     """Read the rooms of any plan: faces of the lines on ``layers``, measured, never drawn.
 
     ``layers=None`` reads every layer whose name contains WALL or DUVAR (any
-    case). A named layer the drawing does not have is refused with the list of
+    case), and the room separator layer. A named layer the drawing does not have is refused with the list of
     the ones it does. Our own opening records, when there are any, close door
     and window gaps exactly as `label_room` does; a foreign plan's gaps stay
     open, and two rooms joined by an open doorway read as one face.
@@ -711,6 +878,9 @@ async def rooms_detect(
         chosen = [
             name for name in available if any(key in name.upper() for key in WALL_LAYER_KEYWORDS)
         ]
+        separator = ARCH_ROLE_LAYER["room_separator"].casefold()
+        if chosen:  # separators bound rooms only where there are walls
+            chosen += [name for name in available if name.casefold() == separator]
         if not chosen:
             raise ValueError(
                 "layers: no layer name contains "

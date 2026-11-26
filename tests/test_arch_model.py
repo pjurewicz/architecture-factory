@@ -275,7 +275,7 @@ def test_a_room_reads_a_number_given_as_an_integer():
 
 def test_the_codec_is_the_mechanical_one_under_our_own_application_id():
     assert APP_ID == "ACADMCP_ARCH"
-    assert KINDS == ("wall", "opening", "stair", "room", "wall_polygon")
+    assert KINDS == ("wall", "opening", "stair", "room", "wall_polygon", "room_separator")
     rows = encode(to_payload(_wall()))
     assert rows[0] == (1001, "ACADMCP_ARCH")
     assert all(code == 1000 and len(value) <= 255 for code, value in rows[1:])

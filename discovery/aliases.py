@@ -2331,6 +2331,18 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "mahal adi",
         ),
     ),
+    "arch_room_separator": ToolAliases(
+        acad=(),
+        synonyms=(
+            "room separator",
+            "room separation line",
+            "close an open room",
+            "open plan room boundary",
+            "oda ayırıcı",
+            "oda ayirici",
+            "linia podziału pomieszczeń",
+        ),
+    ),
     "arch_rooms_detect": ToolAliases(
         acad=(),
         synonyms=(

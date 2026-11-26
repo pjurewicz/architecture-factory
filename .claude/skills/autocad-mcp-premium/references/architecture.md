@@ -34,7 +34,14 @@ A room's area is the planar face its label point lies in, measured off the
 walls just drawn (`arch_room`). No tool accepts an area from you;
 `arch_plan_from_spec` refuses a typed `area` by path. To read rooms from any
 plan - including one you did not draw - use `arch_rooms_detect` (read-only;
-confidence 1.0 for our walls, 0.6 for plain lines). Never shoelace vertices
+confidence 1.0 for our walls, 0.6 for plain lines).
+
+An open room (a living room open to its kitchen) has no closed face. Never
+guess where it ends: `arch_plan_from_spec` labels it without an area and warns
+`room_open` with the free wall ends in `open_ends` (`faces` are the end-cap
+corners). Close it with a `room_separators[]` line (or `arch_room_separator`)
+between those face points, or give the room its own `boundary` polygon; the
+area is then measured from it. Never shoelace vertices
 you read back; `analysis_measure_entity(handle)` measures real geometry and
 states its own accuracy.
 

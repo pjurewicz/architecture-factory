@@ -146,10 +146,87 @@ async def test_the_example_plan_draws_in_one_transaction_and_measures_its_rooms(
 
 
 @pytest.mark.asyncio
-async def test_a_room_outside_every_face_rolls_the_whole_plan_back(backend):
+async def test_a_room_outside_every_face_is_labelled_without_an_area(backend):
+    from engineering.arch.draw import read_plan
+
     spec = _spec()
     spec["rooms"][1]["at"] = [20000, 20000]
-    with pytest.raises(ValueError, match=r"^rooms\[1\]: "):
+    result = await draw_plan_from_spec(backend, spec)
+    open_room = result["rooms"][1]
+    assert open_room["room"]["area"] is None and open_room["loop"] is None
+    texts = [(await backend.entity_get(h)).properties for h in open_room["handles"]]
+    assert len(texts) == 2, "name and number, no area line"
+    assert [w["element"] for w in result["warnings"]] == ["rooms[1]"]
+    assert result["warnings"][0]["code"] == "room_open"
+    plan = await read_plan(backend)
+    assert [room.number for room in plan["rooms"]] == ["01"], "no record for the open room"
+    assert plan["rooms"][0].area == pytest.approx(ROOM_01, abs=0.5)
+
+
+#: A U of 200 mm walls on axis (0,0)-(6000,0)-(6000,4000)-(0,4000), open on x = 0:
+#: inner faces y = 100 / 3900 and x = 5900, end caps on x = 0.
+U_SPEC = {
+    "walls": [{"id": "U", "axis": [[0, 0], [6000, 0], [6000, 4000], [0, 4000]], "thickness": 200}],
+    "rooms": [{"id": "R1", "name": "SALON", "at": [3000, 2000]}],
+}
+
+
+@pytest.mark.asyncio
+async def test_an_open_room_reports_the_free_ends_of_its_opening(backend):
+    result = await draw_plan_from_spec(backend, copy.deepcopy(U_SPEC))
+    (warning,) = result["warnings"]
+    assert warning["code"] == "room_open"
+    ends = {(row["element"], row["end"]): row for row in warning["open_ends"]}
+    assert set(ends) == {("U", "start"), ("U", "end")}
+    assert ends["U", "start"]["at"] == [0.0, 0.0]
+    assert sorted(ends["U", "start"]["faces"]) == [[0.0, -100.0], [0.0, 100.0]]
+    assert sorted(ends["U", "end"]["faces"]) == [[0.0, 3900.0], [0.0, 4100.0]]
+
+
+@pytest.mark.asyncio
+async def test_a_room_separator_closes_the_open_room_and_its_area_is_measured(backend):
+    from engineering.arch.draw import read_plan
+    from engineering.arch.rooms import rooms_detect
+
+    spec = copy.deepcopy(U_SPEC)
+    spec["room_separators"] = [{"id": "S1", "points": [[0, 100], [0, 3900]]}]
+    result = await draw_plan_from_spec(backend, spec)
+    assert result["warnings"] == []
+    assert result["rooms"][0]["area_source"] == "walls"
+    plan = await read_plan(backend)
+    assert [s.id for s in plan["room_separators"]] == ["S1"]
+    assert plan["rooms"][0].area == pytest.approx(5900.0 * 3800.0, abs=0.5)
+    detected = await rooms_detect(backend)
+    assert [(r["area"], r["confidence"]) for r in detected["rooms"]] == [
+        (pytest.approx(5900.0 * 3800.0, abs=0.5), 1.0)
+    ], "arch_rooms_detect reads the separator as ours"
+
+
+@pytest.mark.asyncio
+async def test_a_room_boundary_gives_the_area_without_reading_the_walls(backend):
+    from engineering.arch.draw import read_plan
+
+    spec = copy.deepcopy(U_SPEC)
+    spec["rooms"][0]["boundary"] = [[1000, 100], [5900, 100], [5900, 3900], [1000, 3900]]
+    result = await draw_plan_from_spec(backend, spec)
+    assert result["warnings"] == [] and result["rooms"][0]["area_source"] == "boundary"
+    plan = await read_plan(backend)
+    assert plan["rooms"][0].area == pytest.approx(4900.0 * 3800.0, abs=0.5)
+    assert plan["rooms"][0].boundary[0] == (1000.0, 100.0), "the boundary travels with the record"
+
+
+def test_a_label_point_outside_its_own_boundary_is_refused_before_drawing():
+    spec = copy.deepcopy(U_SPEC)
+    spec["rooms"][0]["boundary"] = [[4000, 100], [5900, 100], [5900, 3900], [4000, 3900]]
+    with pytest.raises(ValueError, match=r"^rooms\[0\]\.at: .*outside the room's own boundary"):
+        validate_spec(spec)
+
+
+@pytest.mark.asyncio
+async def test_a_room_the_drawing_refuses_rolls_the_whole_plan_back(backend):
+    spec = _spec()
+    spec["rooms"][1]["at"] = list(spec["rooms"][0]["at"])  # the same face twice
+    with pytest.raises(ValueError, match=r"^rooms\[1\]: .*already labelled"):
         await draw_plan_from_spec(backend, spec)
     assert await _count(backend) == 0
     begun = await backend.transaction_begin()

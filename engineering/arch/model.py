@@ -6,6 +6,9 @@ point*) and a material. An opening is hosted in a wall by distance along that
 axis: ``offset`` runs from the axis start to the opening's near jamb, so
 ``offset + width`` is its far jamb. A room is a name at a point; its area is
 measured from the face the walls enclose and is never accepted from a caller.
+A room separator is a zero-thickness line that bounds rooms the way a wall
+face does (an open kitchen from its living room); a room may instead give its
+own ``boundary`` polygon, and its area is then that polygon's, measured.
 
 Validation happens before anything is written and names its path
 (``walls[2].thickness: must be greater than zero, got -200``), the repository
@@ -18,7 +21,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from dataclasses import MISSING, asdict, dataclass
+from dataclasses import MISSING, asdict, dataclass, replace
 from dataclasses import fields as dataclass_fields
 
 from engineering.measure import is_self_intersecting, polygon_area_perimeter
@@ -29,7 +32,7 @@ from .materials import WALL_HATCH_TABLE, WALL_MATERIALS, normalise_material
 Pt = tuple[float, float]
 
 APP_ID = "ACADMCP_ARCH"
-KINDS: tuple[str, ...] = ("wall", "opening", "stair", "room", "wall_polygon")
+KINDS: tuple[str, ...] = ("wall", "opening", "stair", "room", "wall_polygon", "room_separator")
 PAYLOAD_VERSION = _codec.PAYLOAD_VERSION
 
 JUSTIFICATIONS: tuple[str, ...] = ("center", "left", "right")
@@ -96,6 +99,19 @@ class WallPolygon:
 
 
 @dataclass(frozen=True)
+class RoomSeparator:
+    """A room separation line: zero thickness, no material, no opening.
+
+    The face finder reads it like a wall face, so it closes an open room (a
+    living room open to its kitchen) where the drafter says the room ends. It
+    is the explicit boundary the engine never invents.
+    """
+
+    id: str
+    points: tuple[Pt, ...]
+
+
+@dataclass(frozen=True)
 class Stair:
     id: str
     start: Pt
@@ -115,6 +131,8 @@ class Room:
     number: str | None
     at: Pt
     area: float = 0.0
+    #: An explicit outline: the area is this polygon's, not a wall face's.
+    boundary: tuple[Pt, ...] | None = None
 
 
 # -- field readers -------------------------------------------------------------
@@ -219,8 +237,9 @@ _STAIR_FIELDS = (
     "kind",
     "turn",
 )
-_ROOM_FIELDS = ("id", "name", "number", "at")
+_ROOM_FIELDS = ("id", "name", "number", "at", "boundary")
 _POLYGON_FIELDS = ("id", "points", "material")
+_SEPARATOR_FIELDS = ("id", "points")
 
 
 #: The closed values each builder's ``_choice`` checks, by field.
@@ -230,6 +249,7 @@ _CHOICES: dict[type, dict[str, Sequence[str]]] = {
     Stair: {"kind": STAIR_KINDS, "turn": TURNS},
     Room: {},
     WallPolygon: {},
+    RoomSeparator: {},
 }
 _POINT_SCHEMA = {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}
 
@@ -251,6 +271,7 @@ def item_schema(model: type) -> dict:
         Opening: _OPENING_FIELDS,
         Stair: _STAIR_FIELDS,
         WallPolygon: _POLYGON_FIELDS,
+        RoomSeparator: _SEPARATOR_FIELDS,
     }.get(model, _ROOM_FIELDS)
     hints = typing.get_type_hints(model)
     defaults = {f.name: f.default for f in dataclass_fields(model)}
@@ -335,30 +356,61 @@ def _material(value, where: str) -> str:
     return normalise_material(value)
 
 
-def wall_polygon_from_dict(d: dict, path: str = "wall_polygon") -> WallPolygon:
-    """A validated WallPolygon: 3+ points, no repeated point, no crossing edge, an area."""
-    _known(d, path, _POLYGON_FIELDS)
-    raw = _required(d, "points", path)
+def _points(raw, where: str) -> list[Pt]:
     if isinstance(raw, (str, bytes, dict)) or not isinstance(raw, (list, tuple)):
-        raise ValueError(f"{path}.points: expected a list of [x, y] points, got {raw!r}")
-    points = [_point(p, f"{path}.points[{i}]") for i, p in enumerate(raw)]
+        raise ValueError(f"{where}: expected a list of [x, y] points, got {raw!r}")
+    return [_point(p, f"{where}[{i}]") for i, p in enumerate(raw)]
+
+
+def _outline(raw, where: str) -> tuple[Pt, ...]:
+    """A simple straight-edged polygon: 3+ points, no repeated point, no crossing edge, an area."""
+    points = _points(raw, where)
     if len(points) > 3 and math.dist(points[0], points[-1]) <= EPS:
         points.pop()  # a closing point repeating the first one is the same outline
     if len(points) < 3:
-        raise ValueError(f"{path}.points: an outline needs at least 3 points, got {len(points)}")
+        raise ValueError(f"{where}: an outline needs at least 3 points, got {len(points)}")
     for i in range(len(points)):
         if math.dist(points[i - 1], points[i]) <= EPS:
-            raise ValueError(f"{path}.points[{i}]: repeats the point before it")
+            raise ValueError(f"{where}[{i}]: repeats the point before it")
     area, _perimeter = polygon_area_perimeter([(x, y, 0.0) for x, y in points], True)
     if area <= EPS:
-        raise ValueError(f"{path}.points: the outline encloses no area")
+        raise ValueError(f"{where}: the outline encloses no area")
     if is_self_intersecting(points):
-        raise ValueError(f"{path}.points: the outline crosses itself; give it as a simple polygon")
+        raise ValueError(f"{where}: the outline crosses itself; give it as a simple polygon")
+    return tuple(points)
+
+
+def point_in_outline(point: Pt, outline: Sequence[Pt]) -> bool:
+    """Even-odd ray cast: True strictly inside ``outline`` (a point on an edge may go either way)."""
+    x, y = float(point[0]), float(point[1])
+    inside = False
+    for i in range(len(outline)):
+        (x1, y1), (x2, y2) = outline[i - 1], outline[i]
+        if (y1 > y) != (y2 > y) and x < x1 + (y - y1) * (x2 - x1) / (y2 - y1):
+            inside = not inside
+    return inside
+
+
+def wall_polygon_from_dict(d: dict, path: str = "wall_polygon") -> WallPolygon:
+    """A validated WallPolygon: 3+ points, no repeated point, no crossing edge, an area."""
+    _known(d, path, _POLYGON_FIELDS)
     return WallPolygon(
         id=_text(_required(d, "id", path), f"{path}.id"),
-        points=tuple(points),
+        points=_outline(_required(d, "points", path), f"{path}.points"),
         material=_material(d.get("material") or "generic", f"{path}.material"),
     )
+
+
+def room_separator_from_dict(d: dict, path: str = "room_separator") -> RoomSeparator:
+    """A validated RoomSeparator: an open polyline of 2+ points, no zero-length segment."""
+    _known(d, path, _SEPARATOR_FIELDS)
+    points = _points(_required(d, "points", path), f"{path}.points")
+    if len(points) < 2:
+        raise ValueError(f"{path}.points: a separator needs at least 2 points, got {len(points)}")
+    for i in range(1, len(points)):
+        if math.dist(points[i - 1], points[i]) <= EPS:
+            raise ValueError(f"{path}.points[{i}]: repeats the point before it")
+    return RoomSeparator(id=_text(_required(d, "id", path), f"{path}.id"), points=tuple(points))
 
 
 def opening_from_dict(d: dict, path: str = "opening") -> Opening:
@@ -413,11 +465,21 @@ def room_from_dict(d: dict, path: str = "room") -> Room:
             "remove it"
         )
     _known(d, path, _ROOM_FIELDS)
+    at = _point(_required(d, "at", path), f"{path}.at")
+    boundary = d.get("boundary")
+    if boundary is not None:
+        boundary = _outline(boundary, f"{path}.boundary")
+        if not point_in_outline(at, boundary):
+            raise ValueError(
+                f"{path}.at: ({at[0]:g}, {at[1]:g}) lies outside the room's own boundary; "
+                "put the label point inside it"
+            )
     return Room(
         id=_text(_required(d, "id", path), f"{path}.id"),
         name=_text(_required(d, "name", path), f"{path}.name"),
         number=_text(d.get("number"), f"{path}.number", optional=True),
-        at=_point(_required(d, "at", path), f"{path}.at"),
+        at=at,
+        boundary=boundary,
     )
 
 
@@ -526,6 +588,7 @@ _BY_KIND = {
     Stair: "stair",
     Room: "room",
     WallPolygon: "wall_polygon",
+    RoomSeparator: "room_separator",
 }
 
 
@@ -573,10 +636,11 @@ def from_payload(payload: dict):
         return stair_from_dict(fields, where)
     if kind == "wall_polygon":
         return wall_polygon_from_dict(fields, where)
+    if kind == "room_separator":
+        return room_separator_from_dict(fields, where)
     if kind == "room":
         area = _number(fields.pop("area", 0.0), f"{where}.area", allow_zero=True)
-        room = room_from_dict(fields, where)
-        return Room(id=room.id, name=room.name, number=room.number, at=room.at, area=area)
+        return replace(room_from_dict(fields, where), area=area)
     raise ValueError(f"{APP_ID}: unknown payload kind {kind!r}; kinds are {', '.join(KINDS)}")
 
 

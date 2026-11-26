@@ -3,14 +3,14 @@
   "schema_version": 2,
   "package_version": "1.8.0",
   "totals": {
-    "tools": 244,
+    "tools": 245,
     "resources": 13,
     "prompts": 5,
     "groups": 27
   },
   "groups": {
     "analysis": 12,
-    "architecture": 13,
+    "architecture": 14,
     "batch": 3,
     "blocks": 9,
     "corner_ops": 4,
@@ -484,6 +484,30 @@
       ],
       "annotations": {
         "title": "Architecture: Label Room",
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "arch_room_separator",
+      "group": "architecture",
+      "cost": "mutate",
+      "summary": "Draw a room separation line that bounds rooms like a wall face.",
+      "acad": [],
+      "synonyms": [
+        "room separator",
+        "room separation line",
+        "close an open room",
+        "open plan room boundary",
+        "oda ayırıcı",
+        "oda ayirici",
+        "linia podziału pomieszczeń"
+      ],
+      "tags": [
+        "arch",
+        "create"
+      ],
+      "annotations": {
+        "title": "Architecture: Room Separator",
         "destructiveHint": false
       }
     },

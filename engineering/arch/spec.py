@@ -10,8 +10,14 @@ transaction opens, by path (``walls[2].thickness``, ``openings[1]: ...``): the
 model, the openings against their walls, the junctions (the wall engine is
 pure and is run once in memory for exactly this), every stair's plan symbol,
 the rooms (a typed ``area`` included), the chain sides and the schedule kinds.
-What only the drawing can refuse - a room point that lies in no closed face -
-refuses inside the transaction, and the transaction is rolled back.
+What only the drawing can refuse - a room point inside a wall body or in a room
+already labelled - refuses inside the transaction, and the transaction is
+rolled back. A room point in no closed face (an open living room) does not:
+it is labelled without an area or a room record, and ``warnings`` says so with
+the free wall / separator ends nearest to it (``open_ends``). The engine never
+invents the missing boundary: a ``room_separators`` line (zero thickness) or
+the room's own ``boundary`` polygon says where the room ends, and the area is
+then measured from it.
 
 The rollback is shielded for the reason ``engineering/pid/spec.py`` documents
 at length: the MCP SDK cancels a request by cancelling an anyio scope, anyio
@@ -38,6 +44,7 @@ from .lang import LANGS
 from .model import (
     opening_from_dict,
     room_from_dict,
+    room_separator_from_dict,
     stair_from_dict,
     validate_openings,
     wall_from_dict,
@@ -56,6 +63,7 @@ SPEC_KEYS = (
     "wall_polygons",
     "openings",
     "stairs",
+    "room_separators",
     "rooms",
     "chains",
     "schedules",
@@ -193,7 +201,7 @@ def spec_schema() -> dict:
     item from its builder (``item_schema``), so the advertised syntax is the
     accepted one. Ranges and cross-item rules stay with the validator.
     """
-    from .model import Opening, Room, Stair, Wall, WallPolygon, item_schema
+    from .model import Opening, Room, RoomSeparator, Stair, Wall, WallPolygon, item_schema
 
     point = {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}
     props = {
@@ -212,6 +220,7 @@ def spec_schema() -> dict:
         "wall_polygons": {"type": "array", "items": item_schema(WallPolygon)},
         "openings": {"type": "array", "items": item_schema(Opening)},
         "stairs": {"type": "array", "items": item_schema(Stair)},
+        "room_separators": {"type": "array", "items": item_schema(RoomSeparator)},
         "rooms": {"type": "array", "items": _room_item_schema(item_schema(Room))},
         "chains": {
             "type": ["object", "boolean", "null"],
@@ -246,7 +255,7 @@ def validate_spec(spec: dict) -> dict:
     """The whole document checked and normalised - nothing is drawn here.
 
     Returns ``{"sheet", "lang", "scale", "poche", "walls", "openings",
-    "stairs", "rooms", "chains", "schedules"}`` with model objects in place of
+    "stairs", "room_separators", "rooms", "chains", "schedules"}`` with model objects in place of
     dicts (rooms stay requests: ``{"room": dict, "align", "fit"}``, because
     ``label_room`` takes the request, not a Room).
     """
@@ -301,6 +310,15 @@ def validate_spec(spec: dict) -> dict:
         except ValueError as exc:
             raise ValueError(f"stairs[{i}]: {exc}") from exc
         stairs.append(stair)
+
+    separators = []
+    seen_separators: set[str] = set()
+    for i, item in enumerate(_list(spec, "room_separators")):
+        separator = room_separator_from_dict(item, f"room_separators[{i}]")
+        if separator.id in seen_separators:
+            raise ValueError(f"room_separators[{i}].id: {separator.id!r} is used twice")
+        seen_separators.add(separator.id)
+        separators.append(separator)
 
     rooms = []
     seen_rooms: set[str] = set()
@@ -363,6 +381,7 @@ def validate_spec(spec: dict) -> dict:
         "openings": openings,
         "omitted": list(geometry.omitted),
         "stairs": stairs,
+        "room_separators": separators,
         "rooms": rooms,
         "chains": sides,
         "schedules": schedules,
@@ -372,8 +391,8 @@ def validate_spec(spec: dict) -> dict:
 async def draw_plan_from_spec(backend: AutoCADBackend, spec: dict) -> dict:
     """Validate, then draw the whole plan inside one transaction.
 
-    Returns ``{"walls", "openings", "stairs", "rooms", "chains", "schedules",
-    "omitted", "drawn", "critique", "backend"}``: the wall and opening ids that
+    Returns ``{"walls", "openings", "stairs", "room_separators", "rooms", "chains", "schedules",
+    "omitted", "drawn", "critique", "warnings", "backend"}``: the wall and opening ids that
     were drawn (an opening the wall engine could not cut is in ``omitted``, not
     in ``openings``), each drawing step's own result (``drawn`` is
     ``draw_walls``'), and the three ``arch_*`` critique focuses run over the
@@ -403,10 +422,12 @@ async def draw_plan_from_spec(backend: AutoCADBackend, spec: dict) -> dict:
         "walls": None,
         "wall_polygons": [],
         "stairs": [],
+        "room_separators": [],
         "rooms": [],
         "chains": None,
         "schedules": [],
     }
+    warnings: list[dict] = []
     try:
         await backend.drawing_apply_iso_layers("arch")
         result["walls"] = await _draw.draw_walls(
@@ -422,6 +443,9 @@ async def draw_plan_from_spec(backend: AutoCADBackend, spec: dict) -> dict:
                 )
             except ValueError as exc:
                 raise ValueError(f"stairs[{i}]: {exc}") from exc
+        result["room_separators"] = await _draw.draw_room_separators(
+            backend, norm["room_separators"]
+        )
         for i, room in enumerate(norm["rooms"]):
             try:
                 result["rooms"].append(
@@ -432,10 +456,14 @@ async def draw_plan_from_spec(backend: AutoCADBackend, spec: dict) -> dict:
                         scale=scale,
                         align=room["align"],
                         fit=room["fit"],
+                        open_room=True,
                     )
                 )
             except ValueError as exc:
                 raise ValueError(f"rooms[{i}]: {exc}") from exc
+            warning = result["rooms"][-1].get("warning")
+            if warning:
+                warnings.append({"element": f"rooms[{i}]", **warning})
         if norm["chains"] is not None:
             result["chains"] = await _draw.draw_chains(
                 backend,
@@ -482,11 +510,13 @@ async def draw_plan_from_spec(backend: AutoCADBackend, spec: dict) -> dict:
         "wall_polygons": [polygon.id for polygon in norm["wall_polygons"]],
         "openings": [o.id for o in norm["openings"] if o.id not in skipped],
         "stairs": result["stairs"],
+        "room_separators": result["room_separators"],
         "rooms": result["rooms"],
         "chains": result["chains"],
         "schedules": result["schedules"],
         "omitted": omitted,
         "drawn": drawn,
         "critique": critique,
+        "warnings": warnings,
         "backend": backend.name,
     }
