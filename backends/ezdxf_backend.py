@@ -8457,9 +8457,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             if ent.dxftype() == "MTEXT":
                 return ent.get_rotation() % 360.0
             ocs = ent.ocs()
-            if not Vec3(ocs.uz).isclose(Vec3(0, 0, 1)) and not Vec3(ocs.uz).isclose(
-                Vec3(0, 0, -1)
-            ):
+            if not Vec3(ocs.uz).isclose(Vec3(0, 0, 1)) and not Vec3(ocs.uz).isclose(Vec3(0, 0, -1)):
                 return None
             return ocs.to_wcs(Vec3.from_deg_angle(ent.dxf.get("rotation", 0.0))).angle_deg % 360
 
