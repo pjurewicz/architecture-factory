@@ -18,11 +18,10 @@ import time
 import pytest
 import pytest_asyncio
 from fastmcp import Client
-from fastmcp.exceptions import McpError, ToolError
+from fastmcp.exceptions import McpError
 
 import server
 from backends import ezdxf_backend
-from backends.document_guard import ActiveDocumentChangedError
 from backends.operations import CURRENT_OPERATION
 
 _LINE = {"x1": 0, "y1": 0, "x2": 10, "y2": 0}
@@ -264,8 +263,8 @@ async def test_the_search_proxy_reuses_the_operation_it_runs_under(monkeypatch):
 
 def test_the_batch_taxonomy_declares_every_kind_1_7_emits():
     # 1.8-02 extends the closed set (engineering/errors.py); the 1.7 kinds stay
-    # first, in their order.
-    assert server.BATCH_ERROR_KINDS[:17] == (
+    # first, in their order (``active_document_changed`` left with the COM engine).
+    assert server.BATCH_ERROR_KINDS[:16] == (
         "denied",
         "malformed_step",
         "unknown_tool",
@@ -277,22 +276,9 @@ def test_the_batch_taxonomy_declares_every_kind_1_7_emits():
         "quarantined",
         "busy",
         "stale_revision",
-        "active_document_changed",
         "scan_incomplete",
         "unknown_commit",
         "timed_out",
         "cancelled",
         "operation_conflict",
     )
-
-
-def test_a_document_switch_is_its_own_kind_in_a_batch_row():
-    cause = ActiveDocumentChangedError(
-        {"document_id": "a" * 32, "name": "First.dwg", "path": None},
-        {"document_id": None, "name": "Second.dwg", "path": None},
-    )
-    wrapped = ToolError("Error calling tool 'entity_create_line': switched")
-    wrapped.__cause__ = cause
-    row = server._classify_batch_error(wrapped)
-    assert row["kind"] == "active_document_changed"
-    assert row["bound"]["name"] == "First.dwg" and row["active"]["name"] == "Second.dwg"

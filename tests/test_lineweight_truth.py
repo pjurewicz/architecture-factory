@@ -10,7 +10,7 @@ the server could see the difference. These tests hold:
 * one parser (``backends.base.parse_lineweight``) takes an integer or the
   names ``ByLayer`` / ``ByBlock`` / ``Default`` on every lineweight input, and
   refuses ByLayer / ByBlock on a layer by name, before anything is written;
-* ``lineweight="ByLayer"`` lands as DXF -1 on both engines (COM faked);
+* ``lineweight="ByLayer"`` lands as DXF -1;
 * entity rows say which lineweight the entity carries (``lineweight_name``).
 """
 
@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import json
 import re
-import types
 
 import pytest
 import pytest_asyncio
@@ -264,97 +263,3 @@ async def test_entity_rows_carry_the_lineweight_name(headless):
     await headless.entity_set_properties(line.handle, lineweight=30)
     (row,) = await headless.entity_list()
     assert row.lineweight_name == "0.30 mm"
-
-
-# -- live engine, faked --------------------------------------------------------
-
-
-class _FakeLayers:
-    def __init__(self):
-        self.added: list[str] = []
-        self.items: dict[str, types.SimpleNamespace] = {}
-
-    def Add(self, name):  # noqa: N802 - ActiveX spelling
-        self.added.append(name)
-        layer = types.SimpleNamespace(
-            Name=name,
-            color=7,
-            Linetype="Continuous",
-            Lineweight=-3,
-            LayerOn=True,
-            Freeze=False,
-            Lock=False,
-        )
-        self.items[name] = layer
-        return layer
-
-    def Item(self, name):  # noqa: N802
-        return self.items[name]
-
-
-@pytest.fixture
-def com(monkeypatch):
-    pytest.importorskip("win32com.client", reason="pywin32 not installed")
-    from backends import com_backend as module
-
-    entity = types.SimpleNamespace(Handle="A1", Lineweight=-3)
-    layers = _FakeLayers()
-    document = types.SimpleNamespace(
-        Name="Part.dwg",
-        FullName="C:/work/Part.dwg",
-        Layers=layers,
-        ActiveLayer=types.SimpleNamespace(Name="0"),
-        HandleToObject=lambda handle: entity,
-    )
-    monkeypatch.setattr(module, "_acad_doc", lambda: document)
-    backend = module.ComBackend()
-
-    async def _run_inline(func, *args, **kwargs):
-        return func(*args, **kwargs)
-
-    monkeypatch.setattr(backend, "_run", _run_inline)
-    return backend, document, entity
-
-
-@pytest.mark.asyncio
-async def test_com_entity_bylayer_name_lands_as_minus_one(com):
-    backend, _document, entity = com
-    await backend.entity_set_properties("A1", lineweight="ByLayer")
-    assert entity.Lineweight == -1
-    await backend.entity_set_properties("A1", lineweight="Default")
-    assert entity.Lineweight == -3
-
-
-def test_com_entity_rows_carry_the_lineweight_name():
-    pytest.importorskip("win32com.client", reason="pywin32 not installed")
-    from backends import com_backend as module
-
-    entity = types.SimpleNamespace(
-        ObjectName="AcDbLine",
-        StartPoint=(0.0, 0.0, 0.0),
-        EndPoint=(10.0, 0.0, 0.0),
-        Length=10.0,
-        Handle="A1",
-        Layer="GEOMETRY",
-        color=256,
-        Linetype="ByLayer",
-        Visible=True,
-        Lineweight=-3,
-    )
-    assert module._entity_info(entity).lineweight_name == "Default"
-    entity.Lineweight = -1
-    assert module._entity_info(entity).lineweight_name == "ByLayer"
-
-
-@pytest.mark.asyncio
-async def test_com_layer_refuses_bylayer_before_any_com_call(com):
-    backend, document, _entity = com
-    with pytest.raises(InvalidLineweightError):
-        await backend.layer_create("LW-REFUSED", lineweight="ByLayer")
-    assert document.Layers.added == []
-    info = await backend.layer_create("LW-OK", lineweight="Default")
-    assert document.Layers.items["LW-OK"].Lineweight == -3
-    assert info.lineweight == -3
-    with pytest.raises(InvalidLineweightError):
-        await backend.layer_modify("LW-OK", lineweight="ByBlock")
-    assert document.Layers.items["LW-OK"].Lineweight == -3

@@ -251,21 +251,14 @@ async def test_without_a_state_folder_checkpoints_refuse_by_capability(backend, 
     assert backend.capabilities().features["checkpoints"].supported is False
 
 
-async def test_the_in_place_capability_is_declared_on_both_engines():
-    from backends.com_backend import ComBackend
-
+async def test_the_in_place_capability_is_declared():
     headless = EzdxfBackend().capabilities().to_dict()["features"]
-    live = ComBackend().capabilities().to_dict()["features"]
     assert headless["checkpoint_restore_in_place"] == {
         "supported": True,
         "mode": "snapshot",
         "reason": None,
     }
-    assert live["checkpoint_restore_in_place"]["supported"] is False
-    assert live["checkpoint_restore_in_place"]["reason"] == (
-        "activex_cannot_replace_database_contents;use_new_document"
-    )
-    assert "checkpoints" in headless and "checkpoints" in live
+    assert "checkpoints" in headless
 
 
 async def test_new_document_mode_opens_the_checkpoint_as_its_own_document(backend, tmp_path):

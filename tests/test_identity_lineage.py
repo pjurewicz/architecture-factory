@@ -12,13 +12,11 @@ B09: ``drawing_open(path)`` still refuses a damaged DXF (now naming
 ``recover=True``) and keeps the open document; ``recover=True`` reads it with
 ``ezdxf.recover`` and reports what came back, starts a new lineage with
 ``recovered_from`` and will not save over the source without
-``overwrite_source=True``. The live engine does the same repair into a
-private temp DXF before ``Documents.Open``.
+``overwrite_source=True``.
 """
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import ezdxf
@@ -26,11 +24,8 @@ import pytest
 from fastmcp import Client
 
 import server
-from backends import com_backend as cb
 from backends.dxf_recover import DrawingParseError, RecoveredSourceError
 from backends.ezdxf_backend import EzdxfBackend
-from backends.quarantine import DaemonExecutor
-from tests.test_bound_document_com import _Seat
 from tests.test_journal_durable import StdioServer, _env
 
 
@@ -263,61 +258,3 @@ async def test_the_tool_refusal_names_recover_and_recover_runs_through_the_serve
         assert blocked.is_error and "overwrite_source" in blocked.content[0].text
         saved = await client.call_tool("drawing_save", {"overwrite_source": True})
         assert saved.structured_content["ok"] is True
-
-
-# ── the live engine (fake COM) ───────────────────────────────────────────────
-
-
-@pytest.fixture
-def seat(monkeypatch):
-    fake = _Seat()
-    monkeypatch.setattr(cb, "_acad_app", lambda: fake)
-    return fake
-
-
-@pytest.fixture
-def com(seat):
-    backend = cb.ComBackend()
-    backend._executor = DaemonExecutor(max_workers=1, name="test-sta")  # no CoInitialize
-    backend._connected = True
-    yield backend
-    backend._executor.shutdown(wait=False)
-    backend._executor = None
-
-
-@pytest.mark.asyncio
-async def test_live_recover_opens_a_private_repaired_copy(com, seat, tmp_path):
-    damaged, _ = _damaged(tmp_path)
-    opened = await com.drawing_open(str(damaged), recover=True)
-    full_name = Path(opened["path"])
-    assert full_name.parent != tmp_path and full_name.suffix == ".dxf"
-    assert len(ezdxf.readfile(full_name).modelspace()) == 50
-    assert opened["recovered"]["entities_read"] == 50
-    assert opened["recovered_from"] == str(damaged)
-    assert seat.ActiveDocument.FullName == str(full_name)
-    with pytest.raises(RecoveredSourceError):
-        await com.drawing_save(str(damaged))
-    with pytest.raises(RecoveredSourceError):
-        await com.drawing_save_as(str(damaged), "dxf")
-    assert seat.ActiveDocument.FullName == str(full_name), "nothing was saved"
-    saved = await com.drawing_save(str(damaged), overwrite_source=True)
-    assert saved["ok"] is True and seat.ActiveDocument.FullName == str(damaged)
-
-
-@pytest.mark.asyncio
-async def test_live_open_reports_an_external_change_by_fullname_and_sha(com, seat, tmp_path):
-    path = tmp_path / "plan.dxf"
-    ezdxf.new("R2010").saveas(path)
-    first = await com.drawing_open(str(path))
-    assert first["external_change"] is False and first["lineage"]["continued"] is False
-    lineage_id = first["lineage"]["lineage_id"]
-    again = await com.drawing_open(str(path))
-    assert again["external_change"] is False and again["lineage"]["lineage_id"] == lineage_id
-
-    foreign = ezdxf.readfile(path)
-    foreign.modelspace().add_line((0, 0), (1, 1))
-    foreign.saveas(path)
-    changed = await com.drawing_open(str(path))
-    assert changed["external_change"] is True
-    assert changed["lineage"] == {"lineage_id": lineage_id, "continued": True}
-    assert os.path.isfile(path)

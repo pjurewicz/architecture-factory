@@ -33,8 +33,6 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from .document_guard import ActiveDocumentChangedError
-
 __all__ = [
     "DOCUMENT_REFUSALS",
     "AbandonedCall",
@@ -482,14 +480,10 @@ class DocumentBusyError(DocumentQuarantineError):
 
 #: The refusals every QA reader (validator, critique, ``qa_snapshot``,
 #: delivery) lets through instead of turning them into a finding: a
-#: quarantined or busy document (above) and, on the live engine, a switched
-#: active document (``backends.document_guard``). Each says this session's
-#: document was not read; a ``check_failed`` finding would lose the kind and
-#: the payload the client acts on.
-DOCUMENT_REFUSALS: tuple[type[RuntimeError], ...] = (
-    DocumentQuarantineError,
-    ActiveDocumentChangedError,
-)
+#: quarantined or busy document (above). It says this session's document was
+#: not read; a ``check_failed`` finding would lose the kind and the payload the
+#: client acts on.
+DOCUMENT_REFUSALS: tuple[type[RuntimeError], ...] = (DocumentQuarantineError,)
 
 
 def detached_read_refusal(record: DetachedRead) -> DocumentBusyError:

@@ -36,10 +36,9 @@ async def test_ezdxf_capabilities_are_machine_readable(backend):
     # Paper-space layouts/viewports are native on both backends. Viewport
     # model projection was declared COM-only in v1.4 and is not — measured in
     # tests/test_viewport_ops.py, which renders a sheet holding nothing but a
-    # viewport. 3D ACIS solids do remain impossible headlessly.
+    # viewport.
     assert caps["features"]["paper_space"]["supported"] is True
     assert caps["features"]["viewport_render"]["supported"] is True
-    assert caps["features"]["solid_3d"]["supported"] is False
 
 
 @pytest.mark.asyncio

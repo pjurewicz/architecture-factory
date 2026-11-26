@@ -58,9 +58,6 @@ import logging
 import math
 import os
 import re
-import shutil
-import tempfile
-import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -640,56 +637,6 @@ def _close_and_hand_back(backend, app, opened) -> Exception | None:
     return problem
 
 
-def _com_export(backend, path: str | None) -> tuple[str, str, str]:
-    """(snapshot file, its temporary folder, source) - runs on the COM thread."""
-    from backends import com_backend as com
-
-    app = com._acad_app()
-    opened = None
-    if path is None:
-        doc = com._acad_doc()
-    else:
-        # A drawing the operator already has open is exported as it stands and
-        # left open: opening it again and closing "it" unsaved could close their
-        # copy with its unsaved work. Only a document opened here is closed here.
-        doc = _already_open(app, str(path))
-        if doc is None:
-            opened = app.Documents.Open(str(path), True)  # read-only
-            doc = opened
-    folder = tempfile.mkdtemp(prefix="acadmcp_snap_")
-    exported = False
-    try:
-        name = str(backend._wait_out_rejected_call(lambda: doc.Name))
-        selection = doc.SelectionSets.Add(f"_SNAP_{uuid.uuid4().hex[:8]}")
-        try:
-            selection.Select(com._AC_SELECTION_SET_ALL)
-            # "DXF", never ".dxf": the dotted spelling is refused with
-            # "Invalid argument" (measured, AutoCAD 2026).
-            doc.Export(os.path.join(folder, _SNAP_BASE), "DXF", selection)
-        finally:
-            try:
-                selection.Delete()
-            except Exception:  # a selection set left behind is harmless; the export is not
-                pass
-        exported = True
-    except Exception:
-        shutil.rmtree(folder, ignore_errors=True)
-        raise
-    finally:
-        if opened is not None:
-            problem = _close_and_hand_back(backend, app, opened)
-            if problem is not None and exported:
-                # The export's own error, when there is one, is the one raised;
-                # otherwise the close / hand-back failure is, never silence.
-                shutil.rmtree(folder, ignore_errors=True)
-                raise problem
-    written = sorted(Path(folder).glob(f"{_SNAP_BASE}.*"))
-    if not written:
-        shutil.rmtree(folder, ignore_errors=True)
-        raise RuntimeError(f"AutoCAD reported the export of {name} done but wrote no file")
-    return str(written[0]), folder, f"live:{name}"
-
-
 async def take_snapshot(backend, path: str | None = None, *, block_defs: bool = False) -> Snapshot:
     """The snapshot of ``path``, or of the backend's current document.
 
@@ -711,21 +658,12 @@ async def take_snapshot(backend, path: str | None = None, *, block_defs: bool = 
             raise ValueError(f"{path}: a snapshot reads a .dxf or a .dwg, not {suffix or 'this'}")
         if not Path(path).is_file():
             raise FileNotFoundError(f"{path}: no such file")
-        if backend.name != "com":
-            raise UnsupportedCapabilityError(
-                "dwg",
-                f"{path} is a DWG, which the headless engine cannot read. Export it to "
-                "DXF (DXFOUT or SAVEAS in AutoCAD) and pass the .dxf, or run the server "
-                "on the live engine (AUTOCAD_MCP_BACKEND=com).",
-            )
-    if backend.name == "com":
-        written, folder, source = await backend._run(_com_export, backend, path)
-        if path is not None:
-            await backend._ensure_document_state()
-        try:
-            return await asyncio.to_thread(_read, written, source=source, block_defs=block_defs)
-        finally:
-            shutil.rmtree(folder, ignore_errors=True)
+        raise UnsupportedCapabilityError(
+            "dwg",
+            f"{path} is a DWG, which the headless engine cannot read. Export it to "
+            "DXF (DXFOUT or SAVEAS in AutoCAD) and pass the .dxf, or open it with "
+            "drawing_open, which converts it through the ODA File Converter.",
+        )
     source = backend._doc_path or "memory:untitled"
     # A pure read of the drawing: an overrun detaches it instead of
     # quarantining a document it cannot have changed (W1 review follow-up).

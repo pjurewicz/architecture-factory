@@ -27,7 +27,6 @@ import types
 import pytest
 
 import config
-from backends.com_backend import ComBackend
 from backends.ezdxf_backend import EzdxfBackend
 from backends.quarantine import DocumentQuarantineError
 
@@ -52,7 +51,7 @@ async def test_save_as_dwg_refuses_with_capability_tagged_shape(backend, tmp_pat
     lowered = message.lower()
     assert "dwg" in lowered
     assert ".dxf" in lowered  # points at the headless alternative
-    assert "com" in lowered  # ...and at the live backend
+    assert "drawing_export_dwg" in lowered  # ...and at the ODA route
     assert not target.exists(), "refusal must not leave a mislabelled file behind"
 
 
@@ -99,15 +98,6 @@ async def test_capability_map_reports_the_dwg_boundary(backend):
     assert features["dxf"]["supported"] is True
     assert features["dwg"]["supported"] is False
     assert features["dwg"]["reason"]
-
-
-async def test_both_backends_declare_the_same_capability_keys():
-    """A capability only helps clients if both maps answer the same question."""
-    ezdxf_keys = set(EzdxfBackend().capabilities().features)
-    com_keys = set(ComBackend().capabilities().features)
-    assert ezdxf_keys == com_keys
-    assert "dwg" in com_keys
-    assert ComBackend().capabilities().features["dwg"].supported is True
 
 
 # ── T0.6 — per-call timeout / anti-deadlock ─────────────────────────────────
@@ -346,13 +336,9 @@ async def test_audit_errors_are_readable_messages_not_object_reprs(backend, tmp_
         assert "ErrorEntry object at" not in err["message"]
 
 
-async def test_audit_detail_capability_is_declared_per_backend():
+async def test_audit_detail_capability_is_declared():
     """A client must be able to tell "nothing was wrong" from "we cannot see"."""
     assert EzdxfBackend().capabilities().features["audit_detail"].supported is True
-
-    com_audit = ComBackend().capabilities().features["audit_detail"]
-    assert com_audit.supported is False
-    assert com_audit.reason == "audit_result_not_readable_over_com"
 
 
 async def test_audit_discloses_an_entity_it_deleted(backend):

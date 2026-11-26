@@ -2,17 +2,11 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
 
-from backends.com_backend import ComBackend
 from engineering.pid.drawlines import draw_line, existing_pid_lines, resolve_endpoint
 from engineering.pid.insert import place_symbol
 from engineering.pid.xdata import (
-    APP_NAME,
-    encode_payload,
-    line_payload,
     read_payload,
     write_payload,
 )
@@ -215,88 +209,6 @@ async def test_stretched_symbol_is_refused_not_resolved_off_the_geometry(backend
         await draw_line(
             backend, {"handle": stretched.handle, "port": "discharge"}, {"x": 0, "y": 0}
         )
-
-
-# ── the COM engine names a lightweight polyline ``AcDbPolyline`` ─────────────
-
-
-class _ComEntity:
-    """An ActiveX entity with only the members it is given."""
-
-    def __init__(self, object_name, **members):
-        self.ObjectName = object_name
-        for name, value in members.items():
-            setattr(self, name, value)
-
-    def __getattr__(self, name):
-        raise AttributeError(name)
-
-
-def _com_pid_polyline(handle, coords, payload):
-    tags = encode_payload(payload)
-    codes = [1001] + [1000] * len(tags)
-    values = [APP_NAME] + tags
-    return _ComEntity(
-        "AcDbPolyline",
-        Handle=handle,
-        Layer="PROCESS-PIPING-MAIN",
-        color=256,
-        Linetype="ByLayer",
-        Visible=True,
-        Closed=False,
-        Length=1.0,
-        Coordinates=tuple(coords),
-        Normal=(0.0, 0.0, 1.0),
-        Elevation=0.0,
-        GetBoundingBox=lambda: ((0.0, 0.0, 0.0), (1.0, 1.0, 0.0)),
-        GetXData=lambda app: (codes, values),
-    )
-
-
-def _fake_com(monkeypatch, entities):
-    backend = ComBackend()
-
-    async def run_inline(func, *args, **kwargs):
-        return func(*args, **kwargs)
-
-    monkeypatch.setattr(backend, "_run", run_inline)
-    by_handle = {ent.Handle: ent for ent in entities}
-    space = SimpleNamespace(Count=len(entities), Item=lambda i: entities[i])
-    doc = SimpleNamespace(HandleToObject=lambda handle: by_handle[handle])
-    monkeypatch.setattr("backends.com_backend._msp", lambda: space)
-    monkeypatch.setattr("backends.com_backend._acad_doc", lambda: doc)
-    return backend
-
-
-@pytest.mark.asyncio
-async def test_existing_lines_are_seen_on_the_com_engine(monkeypatch):
-    """A live LWPOLYLINE's ObjectName is ``AcDbPolyline`` (measured on AutoCAD
-    2026), which the COM engine reports as type POLYLINE. A reader that filters
-    on LWPOLYLINE sees nothing there: every number restarts at seq 1, crossings
-    stay 0 and port reuse is never reported."""
-    payload = line_payload(
-        "process_major",
-        "100-P-7",
-        "100",
-        "P",
-        None,
-        None,
-        7,
-        {"handle": "2A", "port": "discharge"},
-        None,
-    )
-    poly = _com_pid_polyline("3E", (100.0, 106.0, 100.0, 128.0, 207.0, 128.0), payload)
-    other_layer = _com_pid_polyline("3F", (0.0, 0.0, 1.0, 1.0), payload)
-    other_layer.Layer = "GEOMETRY"
-    backend = _fake_com(monkeypatch, [poly, other_layer])
-
-    assert (await backend.entity_get("3E")).type == "POLYLINE"
-    lines = await existing_pid_lines(backend)
-
-    assert [ln["handle"] for ln in lines] == ["3E"]
-    assert lines[0]["vertices"] == [(100.0, 106.0), (100.0, 128.0), (207.0, 128.0)]
-    assert lines[0]["payload"]["seq"] == 7
-    assert lines[0]["payload"]["from"] == {"handle": "2A", "port": "discharge"}
 
 
 # ── Track A hardening (track E wave 0, Task 6) ───────────────────────────────
@@ -529,18 +441,6 @@ async def test_crossings_count_a_line_through_a_jump_apex(backend, extrusion):
         backend, {"x": sign * 60, "y": 2}, {"x": sign * 60, "y": 20}, line_class="utility"
     )
     assert beside["crossings"] == 0, "clear of the jump and above the straight run"
-
-
-@pytest.mark.asyncio
-async def test_com_existing_lines_carry_bulges(monkeypatch):
-    payload = line_payload("process_major", "100-P-7", "100", "P", None, None, 7, None, None)
-    poly = _com_pid_polyline("3E", (0.0, 0.0, 100.0, 0.0), payload)
-    poly.Length = 157.0796  # a semicircle: longer than the 100 mm chord walk
-    poly.GetBulge = lambda index: -1.0 if index == 0 else 0.0
-    backend = _fake_com(monkeypatch, [poly])
-    lines = await existing_pid_lines(backend)
-    assert lines[0]["vertices"] == [(0.0, 0.0), (100.0, 0.0)]
-    assert lines[0]["bulges"] == [-1.0, 0.0]
 
 
 # ── backlog W3-T13-05 / -11 (1.7.0 triage, Task 8) ───────────────────────────

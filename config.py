@@ -5,44 +5,11 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-#: ProgID the live backend attaches to when ``CAD_PROGID`` is unset. The only
-#: CAD this project is developed and tested against.
-DEFAULT_CAD_PROGID = "AutoCAD.Application"
-
 #: Default ``MAX_DXF_BYTES``: 512 MB.
 DEFAULT_MAX_DXF_BYTES = 512 * 1024 * 1024
 
 #: Default ``MAX_HTTP_BODY_BYTES``: 8 MiB (1.8-17).
 DEFAULT_MAX_HTTP_BODY_BYTES = 8 * 1024 * 1024
-
-#: Default ``ACCORECONSOLE_TIMEOUT_S`` (K1): a conversion measured 1-2 s here.
-DEFAULT_ACCORECONSOLE_TIMEOUT_S = 60.0
-
-#: ``COM_REFRESH_MODE`` values (1.8-23); the first is the default.
-COM_REFRESH_MODES: tuple[str, ...] = ("auto", "regen")
-
-#: ``CAD_LAUNCH`` values (#19); the first is the default. ``auto`` attaches to a
-#: running CAD application and starts one when none runs (1.7 behaviour);
-#: ``never`` only attaches.
-CAD_LAUNCH_MODES: tuple[str, ...] = ("auto", "never")
-
-
-def parse_cad_launch(raw: str | None) -> str:
-    """A ``CAD_LAUNCH`` value; an unknown one is refused by name.
-
-    Refused, not fallen back with a warning like ``COM_REFRESH_MODE``: the
-    fallback would be ``auto``, so a misspelt ``never`` would start the very
-    application the operator set it to keep closed.
-    """
-    value = str(raw or "").strip().lower()
-    if not value:
-        return CAD_LAUNCH_MODES[0]
-    if value not in CAD_LAUNCH_MODES:
-        raise ValueError(
-            f"CAD_LAUNCH={raw!r} is not a launch mode. Valid values: "
-            f"{', '.join(CAD_LAUNCH_MODES)} (default {CAD_LAUNCH_MODES[0]!r})."
-        )
-    return value
 
 
 class Settings:
@@ -67,66 +34,8 @@ class Settings:
         """
         return os.environ.get("AUTOCAD_MCP_BACKEND", "auto").lower().strip()
 
-    @property
-    def cad_progid(self) -> str:
-        """COM ProgID the live backend attaches to.
-
-        Read live and deliberately read-only for the same reasons as
-        ``backend``: late binding keeps ``monkeypatch.setenv`` working, and the
-        missing setter makes a wrong spelling fail loudly rather than look like
-        a guard that does nothing.
-
-        Stripped but **not** lowercased — the value is echoed back in error
-        messages and ``system_status``, where ``gstarcad.application`` reads
-        like a typo we introduced. Never validated against what is actually
-        registered on the machine: an unrecognised ProgID is not "invalid", it
-        is unverifiable by us, and only AutoCAD is tested.
-        """
-        return os.environ.get("CAD_PROGID", "").strip() or DEFAULT_CAD_PROGID
-
-    @property
-    def cad_launch(self) -> str:
-        """``CAD_LAUNCH`` (#19): ``auto`` (default) or ``never``.
-
-        Whether the live backend may start the CAD application when
-        ``GetActiveObject`` finds none running: ``never`` attaches only, and
-        both the first call and ``system_launch`` answer ``cad_not_running``
-        instead. Read live and read-only, like ``cad_progid``; an unknown value
-        is refused by name (at startup by ``__init__``, and on every read).
-        """
-        return parse_cad_launch(os.environ.get("CAD_LAUNCH"))
-
-    @property
-    def accoreconsole_path(self) -> str:
-        """``ACCORECONSOLE_PATH`` as set, stripped ("" when unset; K1, 1.8.0).
-
-        The headless engine's second DWG reader (``backends/dwg_read.py``):
-        unset means AutoCAD 2026's installed ``accoreconsole.exe`` when it
-        exists, ``off`` disables the route. Read live, like ``backend``.
-        """
-        return os.environ.get("ACCORECONSOLE_PATH", "").strip()
-
-    @property
-    def accoreconsole_timeout_s(self) -> float:
-        """``ACCORECONSOLE_TIMEOUT_S`` (default 60): one DWG -> DXF conversion's
-        deadline; an overrun kills the process tree. Read live."""
-        raw = os.environ.get("ACCORECONSOLE_TIMEOUT_S", "").strip()
-        try:
-            value = float(raw) if raw else DEFAULT_ACCORECONSOLE_TIMEOUT_S
-        except ValueError:
-            raise ValueError(
-                f"ACCORECONSOLE_TIMEOUT_S={raw!r}: expected a number of seconds "
-                f"(default {DEFAULT_ACCORECONSOLE_TIMEOUT_S:g})"
-            ) from None
-        if value <= 0:
-            raise ValueError(f"ACCORECONSOLE_TIMEOUT_S={raw!r}: must be more than 0 seconds")
-        return value
-
     def __init__(self):
         self.log_level: str = os.environ.get("LOG_LEVEL", "INFO").upper().strip()
-
-        # #19: a misspelt CAD_LAUNCH stops the server at startup, by name.
-        parse_cad_launch(os.environ.get("CAD_LAUNCH"))
 
         raw_paths = os.environ.get("ALLOWED_PATHS", "").strip()
         self.allowed_paths: list[Path] = []
@@ -161,53 +70,10 @@ class Settings:
         # Hard cap on list/select limit params to keep tool responses bounded.
         self.max_list_limit: int = int(os.environ.get("MAX_LIST_LIMIT", "5000"))
 
-        # Per-call COM timeout. AutoCAD hangs (modal dialogs, long Regen) would
-        # otherwise block the single-thread STA executor forever.
-        self.com_call_timeout: float = float(os.environ.get("COM_CALL_TIMEOUT", "60"))
-
-        # Issue #20: a live entity_get on a DIMENSION or HATCH reads its fields
-        # from a Document.Export of the whole drawing. That export is reused for
-        # this many seconds while the bound document, its revision and the
-        # operator-edit count stand still; the age bounds what the revision does
-        # not count (view changes, SetVariable, an edit during a server call,
-        # everything without Visual LISP). 0 = one export per read, as 1.8.0
-        # did; a negative value reads as 0.
-        self.com_snapshot_ttl: float = max(0.0, float(os.environ.get("COM_SNAPSHOT_TTL", "5")))
-
-        # 1.8-05: how long a command sent to AutoCAD's command line (a raw
-        # system_run_command, drawing_undo / drawing_redo, a corner op, the
-        # transaction mark) may stay active before it is cancelled with ESC x3
-        # and reported as command_incomplete with AutoCAD's LASTPROMPT. Well
-        # inside COM_CALL_TIMEOUT, so the STA job always comes back.
-        self.command_deadline_s: float = max(0.1, float(os.environ.get("COMMAND_DEADLINE_S", "8")))
-
-        # 1.8-23: the live engine refreshes the display once per COM job, not
-        # once per entity. A job that asked for at most COM_REFRESH_UPDATE_MAX
-        # refreshes, each naming its entity, calls Update() on the last one;
-        # a larger job (or one whose refresh names no entity) does one
-        # Regen(acActiveViewport). The default 1 is the safe reading while
-        # spike S4 (does Update() of the last entity paint the earlier ones?)
-        # is unmeasured: a single create is one Update(), anything more is one
-        # Regen. COM_REFRESH_MODE=regen is the plan's fallback for a graphics
-        # configuration where Update() does not paint: one Regen per job.
-        self.com_refresh_update_max: int = max(
-            0, int(os.environ.get("COM_REFRESH_UPDATE_MAX", "1"))
-        )
-        self.com_refresh_mode: str = os.environ.get("COM_REFRESH_MODE", "auto").strip().lower()
-        if self.com_refresh_mode not in COM_REFRESH_MODES:
-            import logging
-
-            logging.getLogger("autocad_mcp.config").warning(
-                "Unknown COM_REFRESH_MODE %r - falling back to 'auto'. Valid values: %s.",
-                self.com_refresh_mode,
-                ", ".join(COM_REFRESH_MODES),
-            )
-            self.com_refresh_mode = "auto"
-
         # Per-call timeout for the headless ezdxf backend. Every ezdxf method
         # runs under one document lock, so a single hung call (pathological DXF,
         # a render that never returns) would otherwise hold that lock forever
-        # and deadlock every later tool call. Higher than com_call_timeout
+        # and deadlock every later tool call. Generous
         # because matplotlib PDF/PNG rendering of a large drawing is legitimately
         # slow. Set to 0 to disable the check.
         self.ezdxf_call_timeout: float = float(os.environ.get("EZDXF_CALL_TIMEOUT", "120"))

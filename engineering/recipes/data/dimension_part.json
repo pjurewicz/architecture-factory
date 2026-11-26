@@ -5,7 +5,7 @@
   "title": "Dimension a part in one call and prove it is complete",
   "summary": "Dimension every edge, hole and arc of a part with one dimension_auto call on its layer, check the dimensions do not overlap, and prove a second run would draw nothing - never one dimension_* call per feature.",
   "preconditions": {
-    "backends": ["ezdxf", "com"],
+    "backends": ["ezdxf"],
     "capabilities": [],
     "packs": ["core"],
     "profiles": ["full"],

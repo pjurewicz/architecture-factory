@@ -218,83 +218,6 @@ async def _is_clean(depth, entities, before) -> bool:
     return await depth() == 0 and await entities() == before
 
 
-async def test_a_cancellation_with_a_com_call_in_flight_still_closes_the_undo_mark(
-    monkeypatch,
-):
-    """COM shape: real ``ComBackend._run``, a real single-thread executor and the
-    real ``transaction_rollback``; only the ActiveX document is a recorder.
-
-    With a COM call blocking the worker when the scope is cancelled, the
-    unshielded rollback's ``_run`` was cancelled while queued behind it — so
-    ``EndUndoMark`` / ``_UNDO _B`` never reached AutoCAD — yet its ``finally``
-    cleared ``_transaction_active``: ``system_status`` said "no transaction"
-    while the undo mark was open, and the next ``transaction_begin`` nested a
-    second ``StartUndoMark``.
-
-    The order pinned here is the one measured on the live AutoCAD 2026: the
-    UNDO *Mark* goes in before the undo group, so ``_UNDO _B`` lands at the
-    transaction's start instead of prompting "This will undo everything".
-    """
-    import asyncio
-    import time
-    import types
-    from concurrent.futures import ThreadPoolExecutor
-
-    import anyio
-
-    from backends import com_backend as module
-    from engineering.pid import spec as spec_module
-
-    sent: list[str] = []
-    doc = types.SimpleNamespace(
-        Name="Drawing1.dwg",
-        FullName="",
-        GetVariable=lambda name: 0,  # CMDACTIVE clear
-        SendCommand=lambda cmd: sent.append(cmd.strip()),
-        StartUndoMark=lambda: sent.append("StartUndoMark"),
-        EndUndoMark=lambda: sent.append("EndUndoMark"),
-    )
-    app = types.SimpleNamespace(Documents=types.SimpleNamespace(Count=1), ActiveDocument=doc)
-    monkeypatch.setattr(module, "_acad_app", lambda: app)  # _ensure_document_state
-    monkeypatch.setattr(module, "_acad_doc", lambda: doc)  # begin / rollback
-    monkeypatch.setattr(
-        module.ComBackend,
-        "_safe_send_command",
-        staticmethod(lambda doc, cmd, deadline_s=8.0: sent.append(cmd) or []),
-    )
-    backend = module.ComBackend()
-    backend._executor = ThreadPoolExecutor(max_workers=1)  # no CoInitialize: nothing is COM here
-    try:
-        placed = 0
-
-        async def fake_place(backend, section, item):
-            nonlocal placed
-            placed += 1
-            return {"handle": f"H{placed}"}
-
-        in_flight = asyncio.Event()
-
-        async def slow_draw_line(backend, *args, **kwargs):
-            in_flight.set()
-            await backend._run(time.sleep, 0.5)  # the worker is inside a COM call
-
-        monkeypatch.setattr(spec_module, "_place", fake_place)
-        monkeypatch.setattr(spec_module, "draw_line", slow_draw_line)
-
-        async with anyio.create_task_group() as tg:
-            tg.start_soon(run_spec, backend, EXAMPLE_SPEC)
-            await in_flight.wait()
-            tg.cancel_scope.cancel()
-
-        assert sent == ["_.UNDO _M", "StartUndoMark", "EndUndoMark", "_.UNDO _B"], sent
-        assert backend._transaction_active is False
-        # The mark really is closed, so the next transaction is a fresh one.
-        assert (await backend.transaction_begin())["ok"] is True
-        assert sent[-2:] == ["_.UNDO _M", "StartUndoMark"]
-    finally:
-        backend._executor.shutdown(wait=True)
-
-
 # ── a rollback that fails after a cancellation must not kill the session ─────
 
 
@@ -315,8 +238,7 @@ async def test_a_rollback_failure_after_a_cancellation_is_logged_not_raised(
     backend, monkeypatch, caplog
 ):
     """Now that the shielded rollback body runs after a real cancellation it
-    can fail (the COM hard timeout, ``_safe_send_command``'s deadline, an ezdxf
-    quarantine refusal). That failure must not replace the cancellation: the
+    can fail (an ezdxf quarantine refusal, for one). That failure must not replace the cancellation: the
     SDK has already answered the cancelled request and suppresses only a
     cancellation exception — an ordinary error makes it respond a second time
     and ``assert not self._completed`` kills the whole session."""

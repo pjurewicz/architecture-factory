@@ -5,7 +5,7 @@
   "title": "A3 sheet: frame, title block, page setup, plot, deliver",
   "summary": "Put a model-space drawing on an ISO A3 paper layout with an ISO 5457 frame and an ISO 7200 title block, plot it, prove the PDF is A3 from its own MediaBox, and deliver the bundle.",
   "preconditions": {
-    "backends": ["ezdxf", "com"],
+    "backends": ["ezdxf"],
     "capabilities": ["paper_space", "viewport_render", "pdf", "delivery"],
     "packs": ["core"],
     "profiles": ["full"],

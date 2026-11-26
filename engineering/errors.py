@@ -53,9 +53,6 @@ __all__ = [
     "FILE_KINDS",
     "GATE_KINDS",
     "ROUTING_KINDS",
-    "ApplicationBusyError",
-    "CadNotRunningError",
-    "CommandIncompleteError",
     "DimensionRenderError",
     "EntityNotFoundError",
     "GateFailure",
@@ -74,7 +71,6 @@ __all__ = [
     "classify",
     "compact_message",
     "describe",
-    "document_changed_of",
     "gate_failure_payload",
     "quarantine_of",
     "refusal_kind",
@@ -110,7 +106,6 @@ BATCH_KINDS_1_7 = (
     "quarantined",
     "busy",
     "stale_revision",
-    "active_document_changed",
     "scan_incomplete",
     "unknown_commit",
     "timed_out",
@@ -163,8 +158,6 @@ ERROR_KINDS = BATCH_KINDS_1_7 + (
     "path_refused",
     "policy_refused",
     "file_not_found",
-    "application_busy",
-    "command_incomplete",
     "internal",
     "requires_reconcile",
     *GATE_KINDS,
@@ -173,8 +166,6 @@ ERROR_KINDS = BATCH_KINDS_1_7 + (
     *REVISE_KINDS,
     *ROUTING_KINDS,
     *CHECKPOINT_KINDS,
-    # #19: CAD_LAUNCH=never and no CAD application running (CadNotRunningError).
-    "cad_not_running",
 )
 
 
@@ -210,9 +201,6 @@ ERROR_TABLE: dict[str, KindSpec] = {
     "stale_revision": KindSpec(
         "spec", False, "The drawing moved; take a new preview and apply that."
     ),
-    "active_document_changed": KindSpec(
-        "dependency", True, "Switch AutoCAD back, or document_activate the other drawing."
-    ),
     "scan_incomplete": KindSpec("validation", False, "The read was partial; see the reason."),
     "unknown_commit": KindSpec(
         "dependency", False, "It may have landed; inspect the drawing before a retry."
@@ -234,12 +222,6 @@ ERROR_TABLE: dict[str, KindSpec] = {
         "policy", False, "The server's tool policy refused the call; nothing ran."
     ),
     "file_not_found": KindSpec("file", False, "No file at that path."),
-    "application_busy": KindSpec(
-        "dependency", True, "AutoCAD is at a prompt or dialog; press ESC, then retry."
-    ),
-    "command_incomplete": KindSpec(
-        "dependency", False, "The command stopped at a prompt; see last_prompt."
-    ),
     "internal": KindSpec("internal", False, "A server bug; report it with the operation_id."),
     "validation_failed": KindSpec(
         "validation", False, "Fix the blocking findings and finalize again."
@@ -292,11 +274,6 @@ ERROR_TABLE: dict[str, KindSpec] = {
     "checkpoint_evicted": KindSpec(
         "file", False, "Evicted by the CHECKPOINT_* budget; pick a kept one from checkpoint_list."
     ),
-    "cad_not_running": KindSpec(
-        "dependency",
-        True,
-        "Open AutoCAD (or set CAD_LAUNCH=auto to let the server start it) and retry.",
-    ),
 }
 
 #: Record states in which nothing was written (``backends/operations.py``).
@@ -343,37 +320,6 @@ class EntityNotFoundError(RuntimeError):
         super().__init__(message or f"Entity with handle '{handle}' not found.")
 
 
-class ApplicationBusyError(RuntimeError):
-    """AutoCAD refused the call (``RPC_E_CALL_REJECTED``) before the job had
-    touched the document: nothing was written, the same call may be sent again."""
-
-    kind = "application_busy"
-
-
-class CadNotRunningError(RuntimeError):
-    """No CAD application is running and ``CAD_LAUNCH=never`` forbids starting
-    one (#19): ``GetActiveObject`` failed and ``Dispatch`` was never called, so
-    nothing was started and nothing was written. A ``RuntimeError``, like the
-    connect error it replaces under that setting.
-
-    ``detail`` is the ``GetActiveObject`` failure. It is carried in the message
-    and raised ``from None``: the envelope's message is the deepest cause on
-    the chain, and a chained ``com_error`` put a bare, localised HRESULT tuple
-    on the wire instead of this text (measured live, 2026-11-05)."""
-
-    kind = "cad_not_running"
-
-    def __init__(self, progid: str, detail: str | None = None):
-        self.progid = str(progid)
-        self.detail = None if detail is None else str(detail)
-        suffix = f" (GetActiveObject: {self.detail})" if self.detail else ""
-        super().__init__(
-            f"{self.progid} is not running, and CAD_LAUNCH=never lets this server attach "
-            "only. Nothing was started or written. Open it and retry (or set "
-            f"CAD_LAUNCH=auto to let the server start it).{suffix}"
-        )
-
-
 class DimensionRenderError(RuntimeError):
     """A DIMENSION the headless renderer cannot redraw (1.8-15): the redraw is
     all or nothing and the edit that asked for it is put back, so nothing was
@@ -381,29 +327,6 @@ class DimensionRenderError(RuntimeError):
     and the renderer's own reason."""
 
     kind = "refused"
-
-
-class CommandIncompleteError(RuntimeError):
-    """A command sent to AutoCAD's command line was still at a prompt when its
-    deadline ran out (1.8-05): ``last_prompt`` is AutoCAD's own ``LASTPROMPT``,
-    read before the ESCs that cancelled it, verbatim (it is localised).
-
-    A ``RuntimeError`` with the 1.7 sentence ("did not finish within ..."), so
-    ``except RuntimeError`` and a prose-only client are unchanged. Not
-    retryable: the command was sent, so part of it may have landed.
-    """
-
-    kind = "command_incomplete"
-
-    def __init__(self, command: str, last_prompt: str | None, deadline_s: float):
-        self.command = str(command)
-        self.last_prompt = None if last_prompt is None else str(last_prompt)
-        self.deadline_s = float(deadline_s)
-        stopped = "" if self.last_prompt is None else f" It stopped at: {self.last_prompt!r}."
-        super().__init__(
-            f"AutoCAD command did not finish within {self.deadline_s:.1f}s: "
-            f"{self.command!r}.{stopped} ESC was sent three times to cancel it."
-        )
 
 
 class GateFailure(ToolError):
@@ -760,16 +683,6 @@ def refusal_kind(exc: BaseException) -> str:
     return "quarantined"
 
 
-def document_changed_of(exc: BaseException) -> dict | None:
-    """The ``ActiveDocumentChangedError`` payload on the chain, or None (B11)."""
-    from backends.document_guard import ActiveDocumentChangedError
-
-    for error in cause_chain(exc):
-        if isinstance(error, ActiveDocumentChangedError):
-            return error.to_dict()
-    return None
-
-
 def stale_of(exc: BaseException) -> dict | None:
     """The ``StaleRevisionError.to_dict()`` refusal on the chain, or None."""
     from engineering.changes.preview import StaleRevisionError
@@ -829,7 +742,7 @@ def classify(exc: BaseException) -> dict:
     The same function types a direct call (the refusal middleware) and a
     ``cad_batch`` step, so both routes give one kind. ``message`` is the short
     form; the extras are the kind's own fields (``capability``, ``quarantine``,
-    ``bound`` / ``active``, the stale revisions,
+    the stale revisions,
     a gate's ``score`` / ``blocking``).
     """
     from fastmcp.exceptions import NotFoundError
@@ -837,17 +750,6 @@ def classify(exc: BaseException) -> dict:
     from pydantic import ValidationError as PydanticValidationError
 
     message = short_message(exc)
-    changed = document_changed_of(exc)
-    if changed is not None:
-        # B11: refused before anything was written; every later step is refused
-        # the same way until the operator switches back or document_activate.
-        return {
-            "kind": "active_document_changed",
-            "bound": changed["bound"],
-            "active": changed["active"],
-            "application_changed": changed.get("application_changed", False),
-            "message": message,
-        }
     capability = capability_of(exc)
     if capability:
         return {"kind": "unsupported", "capability": capability, "message": message}
@@ -885,8 +787,6 @@ def classify(exc: BaseException) -> dict:
         return {"kind": "unknown_handle", **unknown.to_fields(), "message": message}
     for typed in (
         PathRefusedError,
-        ApplicationBusyError,
-        CadNotRunningError,
         EntityNotFoundError,
         InvalidArgsError,
         DimensionRenderError,
@@ -913,14 +813,6 @@ def classify(exc: BaseException) -> dict:
     if found is not None:
         # 1.8-08: by type; the instance's own kind (not_found vs evicted).
         return {"kind": str(found.kind), "message": compact_message(str(found))}
-    incomplete = _first_of(exc, CommandIncompleteError)
-    if incomplete is not None:
-        return {
-            "kind": "command_incomplete",
-            "command": incomplete.command,
-            "last_prompt": incomplete.last_prompt,
-            "message": message,
-        }
     routing = _routing_error_of(exc)
     if routing is not None:
         # 1.8-20: the obstacle-aware router; by type, the outermost on the

@@ -3,9 +3,7 @@
 The rival's layer clean-up took 11 calls; ours took 124, because the verbs did
 not exist and ``entity_batch_modify`` wants one row per entity. This module
 holds the engine-neutral half of the three verbs - the argument grammar and
-the headless matching and reassignment - so the two backends share one
-reading of ``where`` and ``set`` and neither ``ezdxf_backend.py`` nor
-``com_backend.py`` grows a second copy.
+the headless matching and reassignment.
 
 **where** - every key optional, at least one required (an empty filter would
 select every entity in the space; say ``{"type": "*"}`` to mean that):
@@ -69,7 +67,6 @@ __all__ = [
     "parse_space",
     "parse_where",
     "region_meets",
-    "wcmatch_any",
 ]
 
 #: How many handles a result lists before it says ``truncated``.
@@ -116,22 +113,6 @@ def _glob_regex(patterns: Iterable[str]) -> re.Pattern:
 def glob_matches(patterns: tuple[str, ...], value: str) -> bool:
     """True when ``value`` matches one of ``patterns`` (``*`` / ``?``, any case)."""
     return _glob_regex(patterns).match(str(value or "")) is not None
-
-
-#: Characters AutoCAD's ``wcmatch`` grammar treats as special; everything but
-#: ``*`` and ``?`` is escaped so a filter means what the headless glob means.
-_WCMATCH_ESCAPE = frozenset("#@.~[]-,`")
-
-
-def wcmatch_any(patterns: tuple[str, ...]) -> str:
-    """``patterns`` as one ``ssget`` filter string: comma-joined alternatives,
-    ``*`` and ``?`` kept as wildcards, every other special escaped with a
-    backtick - so ``A-WALL`` does not read as a range and ``A.B`` matches only
-    itself (the escape ``com_backend._wcmatch_literal`` measured)."""
-    return ",".join(
-        "".join("`" + char if char in _WCMATCH_ESCAPE else char for char in pattern)
-        for pattern in patterns
-    )
 
 
 # ── where / set / space ────────────────────────────────────────────────────
@@ -521,180 +502,6 @@ def block_note(blocks: list[str]) -> str | None:
         return None
     shown = ", ".join(blocks[:10]) + (f" (+{len(blocks) - 10} more)" if len(blocks) > 10 else "")
     return BLOCK_NOTE.format(names=shown)
-
-
-# ── the live engine (duck-typed ActiveX objects; com_backend supplies the
-# selection-set call, which builds the VARIANT filter arrays) ──────────────
-
-
-def com_filter(query: Where, scope: str) -> tuple[list[int], list]:
-    """The ``ssget "X"`` filter for ``query`` in ``scope``: ``(codes, values)``.
-
-    Group 0 (type), 8 (layer), 2 (block name, with 0 INSERT when no type was
-    named), 62 (colour, only for 1-255: a ByLayer or ByBlock entity carries
-    no group 62 to filter on, so 0 / 256 are checked per entity) and 410
-    (the layout: ``Model`` or ``~Model``). Linetype, lineweight and region are
-    checked per entity, on the members that answer them.
-    """
-    codes: list[int] = []
-    values: list = []
-    if query.types is not None:
-        codes.append(0)
-        values.append(wcmatch_any(query.types))
-    elif query.blocks is not None:
-        codes.append(0)
-        values.append("INSERT")
-    if query.layers is not None:
-        codes.append(8)
-        values.append(wcmatch_any(query.layers))
-    if query.blocks is not None:
-        codes.append(2)
-        values.append(wcmatch_any(query.blocks))
-    if query.color is not None and 1 <= query.color <= 255:
-        codes.append(62)
-        values.append(int(query.color))
-    if scope == "model":
-        codes.append(410)
-        values.append("Model")
-    elif scope == "paper":
-        codes.append(410)
-        values.append("~Model")
-    return codes, values
-
-
-def com_box(entity):
-    """``GetBoundingBox`` as ``(x0, y0, x1, y1)``; None for an unbounded entity."""
-    try:
-        low, high = entity.GetBoundingBox()
-        return (float(low[0]), float(low[1]), float(high[0]), float(high[1]))
-    except Exception:  # an XLINE / RAY has no box: it never meets a region
-        return None
-
-
-def com_locked_layers(doc) -> set[str]:
-    out = set()
-    for index in range(doc.Layers.Count):
-        layer = doc.Layers.Item(index)
-        if bool(layer.Lock):
-            out.add(str(layer.Name).lower())
-    return out
-
-
-def com_layer_names(doc) -> list[str]:
-    return [str(doc.Layers.Item(i).Name) for i in range(doc.Layers.Count)]
-
-
-def com_select(doc, query: Where, scope: str, select_all) -> tuple[list, dict]:
-    """``(entities, skipped_locked)`` on the live engine, sorted by handle.
-
-    ``select_all(doc, codes, values)`` returns the filtered selection's
-    members (com_backend's ``SelectionSet.Select(acSelectionSetAll, ...)``,
-    deleted again before it returns)."""
-    codes, values = com_filter(query, scope)
-    locked = com_locked_layers(doc)
-    found = []
-    skipped: dict[str, int] = {}
-    for entity in select_all(doc, codes, values):
-        if query.color in (0, 256) and int(entity.color) != query.color:
-            continue
-        if query.linetypes is not None and not glob_matches(query.linetypes, entity.Linetype):
-            continue
-        if query.lineweight is not None and int(entity.Lineweight) != query.lineweight:
-            continue
-        if query.region is not None and not region_meets(com_box(entity), query.region):
-            continue
-        layer = str(entity.Layer)
-        if layer.lower() in locked:
-            skipped[layer] = skipped.get(layer, 0) + 1
-            continue
-        found.append(entity)
-    found.sort(key=lambda e: int(str(e.Handle), 16))
-    return found, skipped
-
-
-def com_differs(entity, spec: SetSpec) -> bool:
-    if spec.layer is not None and str(entity.Layer) != spec.layer:
-        return True
-    if spec.color is not None and int(entity.color) != spec.color:
-        return True
-    if spec.linetype is not None and str(entity.Linetype).lower() != spec.linetype.lower():
-        return True
-    if spec.lineweight is not None and int(entity.Lineweight) != spec.lineweight:
-        return True
-    return spec.visible is not None and bool(entity.Visible) != spec.visible
-
-
-def com_write(entity, spec: SetSpec) -> None:
-    if spec.layer is not None:
-        entity.Layer = spec.layer
-    if spec.color is not None:
-        entity.color = spec.color
-    if spec.linetype is not None:
-        entity.Linetype = spec.linetype
-    if spec.lineweight is not None:
-        entity.Lineweight = spec.lineweight
-    if spec.visible is not None:
-        entity.Visible = spec.visible
-
-
-def _com_attributes(entity) -> list:
-    try:
-        if str(entity.ObjectName) != "AcDbBlockReference" or not entity.HasAttributes:
-            return []
-        return list(entity.GetAttributes())
-    except Exception:  # noqa: BLE001 - a reference without readable attributes has none to move
-        return []
-
-
-def com_reassign(doc, keys: set[str], goal: str, select_all) -> tuple[int, dict, list[str]]:
-    """Move every entity on a layer in ``keys`` onto ``goal``, live.
-
-    Layouts through one filtered selection (group 8), their INSERTs'
-    attributes through a second (0 INSERT, 66 1), then a walk of every block
-    definition that is neither a layout nor an xref (anonymous ones included:
-    an entity left inside ``*D`` on a deleted layer would keep it alive).
-    ``(reassigned, by_space, blocks_touched)``."""
-    spaces = {}
-    for index in range(doc.Layouts.Count):
-        layout = doc.Layouts.Item(index)
-        spaces[layout.Block.ObjectID] = str(layout.Name)
-    by_space: dict[str, int] = {}
-    blocks: set[str] = set()
-    count = 0
-
-    def _space(entity) -> str:
-        try:
-            return spaces.get(entity.OwnerID, "(unowned)")
-        except Exception:  # noqa: BLE001 - the tally is evidence, never a failure
-            return "(unowned)"
-
-    names = wcmatch_any(tuple(sorted(keys)))
-    for entity in select_all(doc, [8], [names]):
-        entity.Layer = goal
-        where = _space(entity)
-        by_space[where] = by_space.get(where, 0) + 1
-        count += 1
-    for insert in select_all(doc, [0, 66], ["INSERT", 1]):
-        for attribute in _com_attributes(insert):
-            if str(attribute.Layer).lower() in keys:
-                attribute.Layer = goal
-                where = _space(insert)
-                by_space[where] = by_space.get(where, 0) + 1
-                count += 1
-    for index in range(doc.Blocks.Count):
-        block = doc.Blocks.Item(index)
-        if bool(block.IsLayout) or bool(block.IsXRef):
-            continue
-        for position in range(block.Count):
-            entity = block.Item(position)
-            members = [entity, *_com_attributes(entity)]
-            for member in members:
-                if str(member.Layer).lower() in keys:
-                    member.Layer = goal
-                    blocks.add(str(block.Name))
-                    by_space["(block definitions)"] = by_space.get("(block definitions)", 0) + 1
-                    count += 1
-    return count, by_space, sorted(blocks)
 
 
 def merge_target(target) -> str:

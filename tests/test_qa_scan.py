@@ -1,19 +1,13 @@
 """engineering/qa_scan.py: one complete, all-spaces read per QA run.
 
 Every expected count below is the number of entities the test itself placed.
-The live-engine paths run against a fake whose members are the ones measured
-on AutoCAD 2026 on 2026-10-24 (``Layouts.Count``, ``Layouts.Item(i)``,
-``Layout.Name``, ``Layout.TabOrder``, ``Layout.Block.Count``) - per layout,
-``Block.Count`` equalled the exported DXF's entity count, VIEWPORTs included.
 """
 
 from __future__ import annotations
 
 import asyncio
 import threading
-from pathlib import Path
 
-import ezdxf
 import pytest
 
 import config
@@ -176,111 +170,6 @@ async def test_readonly_is_passed_and_marked_on_the_function():
     assert with_flag.seen == [(True, True)]
 
 
-# -- the live engine: the export is compared with AutoCAD's own counts ----------------
-
-
-class _Block:
-    def __init__(self, count):
-        self.Count = count
-
-
-class _Layout:
-    def __init__(self, name, tab, count):
-        self.Name = name
-        self.TabOrder = tab
-        self.Block = _Block(count)
-
-
-class _Layouts:
-    def __init__(self, rows):
-        self._rows = rows
-        self.Count = len(rows)
-
-    def Item(self, index):
-        return self._rows[index]
-
-
-class _Doc:
-    def __init__(self, rows):
-        # Collection order is not tab order on AutoCAD (measured: Layout1,
-        # Layout2, Model) - the reader sorts by TabOrder.
-        self.Layouts = _Layouts(rows)
-
-
-class _FakeCom:
-    name = "com"
-
-    async def _run(self, func, *args, **kwargs):
-        return func(*args, **kwargs)
-
-    def _wait_out_rejected_call(self, read):
-        return read()
-
-
-def _export_with(tmp_path: Path, model: int, paper: int):
-    def _export(_backend, path):
-        assert path is None
-        folder = tmp_path / "snapfolder"
-        folder.mkdir(exist_ok=True)
-        doc = ezdxf.new()
-        for i in range(model):
-            doc.modelspace().add_line((0, i), (1, i))
-        for i in range(paper):
-            doc.layouts.get("Layout1").add_line((0, i), (1, i))
-        target = folder / "snap.DXF"
-        doc.saveas(target)
-        return str(target), str(folder), "live:Fake.dwg"
-
-    return _export
-
-
-async def test_live_counts_that_match_the_export_are_a_complete_scan(tmp_path, monkeypatch):
-    import backends.com_backend as com
-
-    doc = _Doc([_Layout("Layout1", 1, 1), _Layout("Model", 0, 2)])
-    monkeypatch.setattr(com, "_acad_doc", lambda: doc)
-    monkeypatch.setattr(qa_scan, "_com_export", _export_with(tmp_path, model=2, paper=1))
-    snap, coverage = await qa_snapshot(_FakeCom(), {})
-
-    assert coverage.complete is True and coverage.records == 3
-    assert snap.source == "live:Fake.dwg"
-    assert not (tmp_path / "snapfolder").exists()  # the temporary export is deleted
-
-
-async def test_an_export_short_of_the_live_counts_is_incomplete(tmp_path, monkeypatch):
-    import backends.com_backend as com
-
-    doc = _Doc([_Layout("Layout1", 1, 1), _Layout("Model", 0, 3)])
-    monkeypatch.setattr(com, "_acad_doc", lambda: doc)
-    monkeypatch.setattr(qa_scan, "_com_export", _export_with(tmp_path, model=2, paper=1))
-    snap, coverage = await qa_snapshot(_FakeCom(), {})
-
-    assert snap is not None and len(snap.records) == 3
-    assert coverage.complete is False
-    assert coverage.reason == (
-        "the DXF export does not match the live drawing "
-        "(Model: AutoCAD holds 3, the export carried 2)"
-    )
-
-
-async def test_over_the_ceiling_the_live_drawing_is_never_exported(tmp_path, monkeypatch):
-    import backends.com_backend as com
-
-    doc = _Doc([_Layout("Layout1", 1, 1), _Layout("Model", 0, 2)])
-    monkeypatch.setattr(com, "_acad_doc", lambda: doc)
-
-    def never(*_a, **_k):
-        raise AssertionError("exported past MAX_QA_ENTITIES")
-
-    monkeypatch.setattr(qa_scan, "_com_export", never)
-    monkeypatch.setattr(config.settings, "max_qa_entities", 2)
-    snap, coverage = await qa_snapshot(_FakeCom(), {})
-
-    assert snap is None and coverage.complete is False
-    assert coverage.spaces == ("Model", "Layout1")
-    assert "3 entities (Model 2, Layout1 1)" in coverage.reason
-
-
 # -- every layout without switching (backlog W3-T14-09) -------------------------------
 
 
@@ -322,36 +211,6 @@ async def test_the_pid_graph_scope_all_leaves_the_paper_binding_alone(backend):
     assert backend._doc.layouts.active_layout().name == "Layout1"
     assert (await backend.layout_list())["current"] == "Model"
     assert backend._dirty is False
-
-
-async def test_a_live_entity_that_cannot_be_read_refuses_the_whole_read(monkeypatch):
-    import backends.com_backend as com
-
-    class _Items:
-        def __init__(self, items):
-            self._items = items
-            self.Count = len(items)
-
-        def Item(self, index):
-            return self._items[index]
-
-    class _LiveLayout:
-        def __init__(self, name, tab, items):
-            self.Name = name
-            self.TabOrder = tab
-            self.Block = _Items(items)
-
-    doc = _Doc([_LiveLayout("Model", 0, ["good", "bad"])])
-    monkeypatch.setattr(com, "_acad_doc", lambda: doc)
-
-    def entity_info(item):
-        if item == "bad":
-            raise RuntimeError("RPC_E_CALL_REJECTED")
-        return item
-
-    monkeypatch.setattr(com, "_entity_info", entity_info)
-    with pytest.raises(RuntimeError, match=r"1 entities could not be read \(Model\[1\]"):
-        await entity_infos_all_spaces(_FakeCom())
 
 
 async def test_qa_snapshot_runs_the_read_off_the_event_loop(backend):

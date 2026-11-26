@@ -5,10 +5,9 @@ All operations are synchronous but wrapped in asyncio.to_thread for
 non-blocking use in the FastMCP async context.
 
 DXF only: ezdxf has no DWG writer, so every save path that would put DXF bytes
-behind a ``.dwg`` name refuses instead (capability ``dwg``). Real DWG I/O needs
-the live COM backend; ``drawing_open`` reads a DWG by converting it to DXF
-first, through the ODA File Converter or AutoCAD's accoreconsole (capability
-``dwg_read``, ``backends/dwg_read.py``, K1).
+behind a ``.dwg`` name refuses instead (capability ``dwg``); ``drawing_open``
+reads a DWG by converting it to DXF first, through the ODA File Converter
+(capability ``dwg_read``, ``backends/dwg_read.py``, K1).
 """
 
 from __future__ import annotations
@@ -298,9 +297,8 @@ except ImportError:
 _DWG_WRITE_REFUSAL = (
     "{operation}: the headless ezdxf backend cannot write DWG. ezdxf has no DWG "
     "writer, and writing DXF bytes to '{path}' would produce a file AutoCAD "
-    "refuses or misreads. Save with a .dxf extension instead, or switch to the "
-    "live COM backend (AUTOCAD_MCP_BACKEND=com, needs Windows + AutoCAD) for "
-    "real DWG output."
+    "refuses or misreads. Save with a .dxf extension instead, or use "
+    "drawing_export_dwg with the ODA File Converter installed for real DWG output."
 )
 
 
@@ -311,8 +309,7 @@ _DWG_WRITE_REFUSAL = (
 _DWT_WRITE_REFUSAL = (
     "drawing_template_save: the headless ezdxf backend cannot write DWT — a .dwt is a DWG "
     "container, and ezdxf has no DWG writer. Save the template as .dxf instead "
-    "(drawing_new(template='{stem}.dxf') opens it headlessly), or switch to the live COM "
-    "backend (AUTOCAD_MCP_BACKEND=com, needs Windows + AutoCAD) for a real .dwt."
+    "(drawing_new(template='{stem}.dxf') opens it headlessly)."
 )
 
 
@@ -468,7 +465,7 @@ def _measure_dxf_entity(ent, tolerance: float) -> dict:
     bounds no area on any engine, so that is a plain ``RuntimeError`` — a
     capability tag would tell the user to switch backends for something no
     backend can do. An ACIS type is a real headless-engine boundary and refuses
-    with ``UnsupportedCapabilityError``, naming the live backend.
+    with ``UnsupportedCapabilityError``.
     """
     ent_type = ent.dxftype()
     handle = ent.dxf.get("handle", "?")
@@ -491,8 +488,7 @@ def _measure_dxf_entity(ent, tolerance: float) -> dict:
             "measure_area_acis",
             f"entity_measure: {handle} is a {ent_type}. Its area lives in ACIS "
             "solid data, which the headless ezdxf backend cannot evaluate — ezdxf "
-            "stores SAT/SAB opaquely and cannot generate it. Switch to the live "
-            "COM backend (AUTOCAD_MCP_BACKEND=com, needs Windows + AutoCAD).",
+            "stores SAT/SAB opaquely and cannot generate it. Measure it in AutoCAD.",
         )
 
     if ent_type == "CIRCLE":
@@ -2107,10 +2103,6 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     if render_available
                     else FeatureCapability(False, reason="optional_dependency_missing:matplotlib")
                 ),
-                "solid_3d": FeatureCapability(
-                    False, reason="acis_generation_requires_live_autocad"
-                ),
-                "lisp": FeatureCapability(False, reason="live_com_only"),
                 "registry_sysvar": FeatureCapability(
                     False, reason="registry_saved_variables_have_no_home_in_a_file"
                 ),
@@ -2134,20 +2126,6 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 "ucs": FeatureCapability(
                     True, "stored_not_interpreted", reason="tool_coordinates_stay_wcs"
                 ),
-                # Track E keys. `@capability` registers its key at import, and
-                # tests/test_capability_contract.py checks both maps from that
-                # moment on — so every key the contract module uses is declared
-                # here in the task that creates the module, not when the COM
-                # implementation lands (Task 23).
-                "live_application": FeatureCapability(
-                    False, reason="headless_engine_has_no_application_to_launch_or_attach"
-                ),
-                "preferences": FeatureCapability(
-                    False, reason="preferences_live_in_the_running_application_not_in_a_file"
-                ),
-                "interactive_prompt": FeatureCapability(
-                    False, reason="no_operator_to_prompt_headlessly"
-                ),
                 # Track G keys. `dwg_write` is a runtime re-evaluation, not a
                 # hardcoded False: installing the converter must change the
                 # answer without editing this map, exactly as `viewport_render`
@@ -2167,8 +2145,8 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     False,
                     reason="reload_and_bind_need_a_live_seat;list_detach_path_are_headless",
                 ),
-                # K1 (1.8.0): drawing_open converts a DWG to DXF - the ODA File
-                # Converter first, then accoreconsole - re-evaluated per call.
+                # K1 (1.8.0): drawing_open converts a DWG to DXF through the
+                # ODA File Converter - re-evaluated per call.
                 "dwg_read": dwg_read.capability(_odafc_available()),
                 "xlsx_write": (
                     FeatureCapability(True, "openpyxl")
@@ -3201,10 +3179,9 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         ``overwrite_source=True``.
 
         K1: a ``.dwg`` path is converted to DXF first (``backends/dwg_read.py``:
-        the ODA File Converter, then accoreconsole) and the result carries
-        ``dwg_read: {route, seconds, ...}`` - the console's exit code and its
-        log's last lines on that route. No converter is a ``dwg_read``
-        capability refusal; every route failing is ``dwg_conversion_failed``.
+        the ODA File Converter) and the result carries ``dwg_read: {route,
+        seconds, dxf_version}``. No converter is a ``dwg_read`` capability
+        refusal; a failed conversion is ``dwg_conversion_failed``.
         The document keeps the ``.dwg`` path, so a save onto it is still refused
         (``dwg``) - save it as a ``.dxf``.
         """
@@ -3230,7 +3207,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             if recover:
                 doc, recovered = recover_dxf(path)
             elif _is_dwg_path(path):
-                doc, converted = dwg_read.read_dwg(path, odafc=_odafc_available(), read=read_dxf)
+                doc, converted = dwg_read.read_dwg(path, odafc=_odafc_available())
             else:
                 doc = read_dxf(path)
             sha = file_sha256(path)
@@ -3498,8 +3475,8 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             raise UnsupportedCapabilityError(
                 "xref_live",
                 f"xref_manage(action={action!r}): the {self.name} backend has no live xref "
-                "manager. list, detach and path work headlessly; reload and bind need the "
-                "com backend (a running AutoCAD seat).",
+                "manager. list, detach and path work headlessly; reload and bind need "
+                "AutoCAD itself (XREF Reload / Bind).",
             )
         if action == "path" and not (new_path or "").strip():
             raise ValueError("xref_manage(action='path') needs new_path")
@@ -5783,8 +5760,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             "3 ms for 10 entities but 130 ms and 658 KB at 5000, paid on every "
             "mutating call. Set EZDXF_UNDO_DEPTH to the number of steps you want "
             "(e.g. 10) to switch it on, or use transaction_begin/rollback for a "
-            "single explicit checkpoint. The live COM backend uses AutoCAD's own "
-            "undo and needs no setting.",
+            "single explicit checkpoint.",
         )
 
     # ── entity creation ───────────────────────────────────────────────────────
@@ -8429,9 +8405,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 f"block_explode: entity {handle} references block {name!r} whose "
                 f"members {', '.join(skipped)} cannot be exploded by the headless "
                 "ezdxf backend (it cannot transform them; exploding would delete "
-                "them). Nothing was written. Switch to the live COM backend "
-                "(AUTOCAD_MCP_BACKEND=com, needs Windows + AutoCAD), which hands "
-                "the explode to AutoCAD.",
+                "them). Nothing was written. Explode it in AutoCAD.",
             )
         return members
 
@@ -9726,7 +9700,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     "registry_sysvar",
                     f"system_set_variable: {key} is saved in the AutoCAD registry (or not "
                     "saved at all), never in the drawing, so the headless ezdxf backend has "
-                    "nowhere to keep it. Set it on the live COM backend.",
+                    "nowhere to keep it. Set it in AutoCAD.",
                 )
             if key in _VPORT_SYSVARS:
                 attr, shape = _VPORT_SYSVARS[key]
@@ -10522,8 +10496,8 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 "dwgprops",
                 "drawing_properties_set: the summary fields (title, subject, author, keywords, "
                 "comments) live in the DWG SummaryInfo, which the headless ezdxf backend cannot "
-                f"write (asked for {sorted(written)}). Custom properties work on both engines; "
-                "set the summary on the live COM backend.",
+                f"write (asked for {sorted(written)}). Custom properties work; "
+                "set the summary in AutoCAD.",
             )
 
         def _sync():

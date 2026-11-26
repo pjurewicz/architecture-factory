@@ -5,7 +5,7 @@
   "title": "Dimensioned part: draw, verify, deliver",
   "summary": "A machine part drawn from its part model, every source requirement measured on the CAD geometry, then delivered with an acceptance report the delivery cannot pass without, and the delivered bundle re-hashed.",
   "preconditions": {
-    "backends": ["ezdxf", "com"],
+    "backends": ["ezdxf"],
     "capabilities": ["delivery", "dxf", "pdf", "png"],
     "packs": ["core", "mech"],
     "profiles": ["full"],

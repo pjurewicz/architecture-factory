@@ -1,8 +1,6 @@
-"""block_define: a definition with ATTDEFs from typed specs, on both engines."""
+"""block_define: a definition with ATTDEFs from typed specs."""
 
 from __future__ import annotations
-
-import types
 
 import pytest
 
@@ -112,106 +110,6 @@ async def test_solid_uses_bowtie_order(backend):
     solid = next(e for e in backend._doc.blocks.get("PID_SOLID") if e.dxftype() == "SOLID")
     assert tuple(solid.dxf.vtx2)[:2] == (0.0, 1.0)
     assert tuple(solid.dxf.vtx3)[:2] == (1.0, 1.0)
-
-
-# ── live engine, against a fake ActiveX surface ──────────────────────────────
-
-
-class _Recorder:
-    """Records every method call made on it, returns a styled child."""
-
-    def __init__(self, name):
-        self.Name = name
-        self.calls: list[tuple[str, tuple]] = []
-        self.children: list[types.SimpleNamespace] = []
-        self.Count = 0
-
-    def __getattr__(self, attr):
-        if attr.startswith("Add"):
-
-            def _call(*args):
-                self.calls.append((attr, args))
-                child = types.SimpleNamespace()
-                self.children.append(child)
-                return child
-
-            return _call
-        raise AttributeError(attr)
-
-
-class _FakeBlocks:
-    def __init__(self):
-        self.blocks: dict[str, _Recorder] = {}
-
-    def Add(self, base_point, name):
-        self.blocks[name] = _Recorder(name)
-        self.blocks[name].base_point = tuple(base_point.value)
-        return self.blocks[name]
-
-    def Item(self, name):
-        if name not in self.blocks:
-            raise RuntimeError(f"no block {name}")
-        return self.blocks[name]
-
-
-@pytest.fixture
-def com_backend(monkeypatch):
-    pytest.importorskip("win32com.client", reason="pywin32 not installed")
-    from backends import com_backend as module
-
-    document = types.SimpleNamespace(Blocks=_FakeBlocks())
-    monkeypatch.setattr(module, "_acad_doc", lambda: document)
-    monkeypatch.setattr(module, "_regen", lambda: None)
-    backend = module.ComBackend()
-
-    async def _run_inline(func, *args, **kwargs):
-        return func(*args, **kwargs)
-
-    monkeypatch.setattr(backend, "_run", _run_inline)
-    return backend, document
-
-
-async def test_com_issues_one_activex_call_per_primitive_and_attdef(com_backend):
-    backend, document = com_backend
-    result = await backend.block_define("PID_VALVE_TEST", VALVE, ATTDEFS, 1.0, 2.0)
-    assert result["ok"] is True and result["backend"] == "com" and result["replaced"] is False
-    block = document.Blocks.blocks["PID_VALVE_TEST"]
-    assert block.base_point == (1.0, 2.0, 0.0)
-    names = [name for name, _ in block.calls]
-    assert names == [
-        "AddLightWeightPolyline",
-        "AddLightWeightPolyline",
-        "AddCircle",
-        "AddArc",
-        "AddLine",
-        "AddText",
-        "AddSolid",
-        "AddAttribute",
-        "AddAttribute",
-    ]
-    tag_call = block.calls[7][1]
-    link_call = block.calls[8][1]
-    assert tag_call[0] == 2.5 and tag_call[1] == 0 and tag_call[4] == "TAG"
-    assert link_call[1] == 1, "invisible ATTDEF uses acAttributeModeInvisible"
-    assert link_call[5] == "L-1"
-    # W2-T3-06: every member and ATTDEF ByBlock, lineweight included
-    # (acLnWtByBlock = -2, measured accepted on AutoCAD 2026).
-    for child in block.children:
-        assert (child.color, child.Linetype, child.Lineweight) == (0, "ByBlock", -2)
-
-
-async def test_com_refuses_a_clash_without_overwrite(com_backend):
-    backend, document = com_backend
-    await backend.block_define("PID_X", VALVE[:1])
-    with pytest.raises(ValueError, match="overwrite"):
-        await backend.block_define("PID_X", VALVE[:1])
-
-
-async def test_com_validates_before_touching_activex(com_backend):
-    backend, document = com_backend
-    with pytest.raises(TypeError):
-        await backend.block_define("PID_BAD", [{"type": "circle", "cx": 0}])
-    assert document.Blocks.blocks == {}
 
 
 async def test_block_text_takes_every_shared_alignment(backend):

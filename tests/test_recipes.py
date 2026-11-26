@@ -30,7 +30,6 @@ from fastmcp import Client
 
 import config
 import server
-from backends.com_backend import ComBackend
 from backends.ezdxf_backend import EzdxfBackend
 from discovery.aliases import aliases_for
 from engineering.recipes import (
@@ -335,7 +334,6 @@ async def test_every_tool_is_visible_with_exactly_the_declared_packs_and_profile
 def test_every_capability_is_declared_and_supported_on_each_named_backend():
     maps = {
         "ezdxf": EzdxfBackend().capabilities().to_dict()["features"],
-        "com": ComBackend().capabilities().to_dict()["features"],
     }
     for recipe in list_recipes():
         pre = recipe["preconditions"]

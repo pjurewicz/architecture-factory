@@ -33,8 +33,8 @@ the happy path is the easy half:
     classifier must recover the real cause from the ``__cause__`` chain and
     never from the message text.
   * **Atomicity honesty.** ezdxf rolls back by restoring a full DXF snapshot;
-    COM ends an undo group and fires ``_UNDO _B`` at AutoCAD without ever
-    confirming it landed. The payload must say which one it got, and must not
+    an undo-mark backend ends an undo group and fires ``_UNDO _B`` at AutoCAD
+    without ever confirming it landed. The payload must say which one it got, and must not
     claim a rollback it did not verify.
   * **dry_run.** Validates against each tool's real JSON Schema without
     executing a single step.
@@ -1206,19 +1206,19 @@ async def test_a_live_rollback_with_an_unreadable_cmdactive_is_not_claimed_verif
 
 
 async def _declining_begin(monkeypatch):
-    """Give the headless engine the live engine's rule for a second begin
-    (backends/com_backend.py: {"ok": False, "error": "A transaction is
-    already active"}) instead of nesting."""
+    """Give the headless engine a declining rule for a second begin
+    ({"ok": False, "error": "A transaction is already active"}) instead of
+    nesting."""
     from backends.ezdxf_backend import EzdxfBackend
 
     real = EzdxfBackend.transaction_begin
 
-    async def begin_like_com(self):
+    async def begin_declining(self):
         if self.transaction_depth() > 0:
             return {"ok": False, "error": "A transaction is already active"}
         return await real(self)
 
-    monkeypatch.setattr(EzdxfBackend, "transaction_begin", begin_like_com)
+    monkeypatch.setattr(EzdxfBackend, "transaction_begin", begin_declining)
 
 
 async def test_auto_runs_a_batch_with_its_own_transaction_as_stop(client, monkeypatch):
@@ -1308,7 +1308,7 @@ async def test_a_snapshot_backend_is_reported_as_a_snapshot_guarantee():
 
 
 async def test_an_undo_mark_backend_is_never_called_atomic():
-    """COM ends the undo group and fires ``_UNDO _B`` without confirming it landed."""
+    """An undo mark ends the undo group and fires ``_UNDO _B`` without confirming it landed."""
     guarantee, note = server._batch_rollback_guarantee(_Caps("undo_mark"))
     assert guarantee == "best_effort_undo"
     lowered = note.lower()
@@ -1362,9 +1362,9 @@ async def test_rollback_reports_the_guarantee_it_actually_got(client):
 async def test_rollback_refuses_when_the_backend_declines_the_checkpoint(client, monkeypatch):
     """A checkpoint we did not open is not one we can roll back to.
 
-    This is the live COM path: ``ComBackend.transaction_begin`` *returns*
+    A backend whose ``transaction_begin`` *returns*
     ``{"ok": False, "error": "A transaction is already active"}`` rather than
-    raising, so a batch that took the return value on faith would run every
+    raising: a batch that took the return value on faith would run every
     step and then report a rollback it never had. Simulated on the headless
     backend, whose own transaction stack happily nests.
     """

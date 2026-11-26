@@ -5,7 +5,7 @@
   "title": "Foreign drawing audit",
   "summary": "Read a drawing somebody else made without changing it: declared against inferred units, robust extents and the outliers that stretch them, clusters, layer disciplines, topology defects and every drafting check, each claim with its evidence.",
   "preconditions": {
-    "backends": ["ezdxf", "com"],
+    "backends": ["ezdxf"],
     "capabilities": ["dxf"],
     "packs": ["core"],
     "profiles": ["full"],

@@ -103,4 +103,3 @@ async def test_capability_map_reports_paper_space_and_solids(backend):
     # Not False: the headless renderer does project model content through
     # viewports. See tests/test_viewport_ops.py for the measurement.
     assert features["viewport_render"]["supported"] is True
-    assert features["solid_3d"]["supported"] is False

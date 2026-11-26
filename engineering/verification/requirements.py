@@ -555,20 +555,7 @@ async def store_requirements(backend, rs: RequirementSet) -> dict:
     legacy, digest, chunks, replaced, backend}``.
     """
     chunks = encode_requirements(rs)
-    if getattr(backend, "name", None) == "com":
-        from backends.document_guard import ActiveDocumentChangedError
-
-        refused = False
-        try:
-            replaced = await backend._run(_com_store, chunks)
-        except ActiveDocumentChangedError:
-            refused = True
-            raise
-        finally:
-            if not refused:
-                backend._bump_revision()
-    else:
-        replaced = await backend._async(_ezdxf_store, backend, chunks)
+    replaced = await backend._async(_ezdxf_store, backend, chunks)
     return {
         "ok": True,
         "dictionary": DICT_NAME,
@@ -584,10 +571,7 @@ async def store_requirements(backend, rs: RequirementSet) -> dict:
 
 async def load_requirements(backend) -> RequirementSet | None:
     """The stored set, or None when the drawing carries no ``ACADMCP_REQUIREMENTS`` record."""
-    if getattr(backend, "name", None) == "com":
-        chunks = await backend._run(_com_chunks)
-    else:
-        chunks = await backend._async(_ezdxf_chunks, backend, readonly=True)
+    chunks = await backend._async(_ezdxf_chunks, backend, readonly=True)
     return None if chunks is None else decode_requirements(chunks)
 
 
@@ -611,48 +595,3 @@ def _ezdxf_chunks(backend) -> list[str] | None:
     if RECORD_NAME not in holder:
         return None
     return [str(tag.value) for tag in holder.get(RECORD_NAME).tags if tag.code == 1000]
-
-
-def _com_holder(doc, *, create: bool):
-    from backends import com_backend as com
-
-    try:
-        return com._com_unnarrow(doc.Dictionaries.Item(DICT_NAME))
-    except Exception:  # absent: Dictionaries.Item raises for an unknown key
-        if not create:
-            return None
-    return com._com_unnarrow(doc.Dictionaries.Add(DICT_NAME))
-
-
-def _com_record(holder):
-    from backends.com_backend import ComBackend
-
-    if holder is None:
-        return None
-    for key, obj in ComBackend._com_dict_entries(holder):
-        if key == RECORD_NAME:
-            return obj
-    return None
-
-
-def _com_store(chunks: list[str]) -> bool:
-    """COM thread: write the chunks into the bound document's record."""
-    from backends import com_backend as com
-
-    doc = com._acad_doc()
-    holder = _com_holder(doc, create=True)
-    record = _com_record(holder)
-    replaced = record is not None
-    if record is None:
-        record = holder.AddXRecord(RECORD_NAME)
-    record.SetXRecordData(com._ai([1000] * len(chunks)), com._avar(chunks))
-    return replaced
-
-
-def _com_chunks() -> list[str] | None:
-    """COM thread: the record's chunks, or None."""
-    from backends import com_backend as com
-    from backends.com_backend import ComBackend
-
-    record = _com_record(_com_holder(com._acad_doc(), create=False))
-    return None if record is None else ComBackend._com_xrecord_chunks(record)

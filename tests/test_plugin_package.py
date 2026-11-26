@@ -207,7 +207,7 @@ def test_mcp_json_runs_the_pinned_package_with_its_extras() -> None:
     assert server["command"] == "uvx"
     args = " ".join(server["args"])
     version = _pyproject_version()
-    assert f"autocad-mcp-pro[com,pdf,office]=={version}" in args
+    assert f"autocad-mcp-pro[pdf,office]=={version}" in args
     assert server["args"][-1] == "autocad-mcp"
 
 

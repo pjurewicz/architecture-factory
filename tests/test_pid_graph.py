@@ -588,79 +588,6 @@ async def test_a_mirrored_arc_is_tested_on_the_side_the_drawing_holds(backend):
     assert (on_arc, "from") not in {(d["edge"], d["end"]) for d in graph["dangling"]}
 
 
-def test_com_polyline_bulges_follow_points_into_wcs():
-    """ActiveX ``GetBulge`` answers in the same OCS as ``Coordinates``. Once
-    the points are reflected into WCS the arc's sense reverses with them, so
-    the bulge sign flips — the same polyline as the test above, as AutoCAD
-    would hand it over after MIRROR."""
-    from types import SimpleNamespace
-
-    from backends.com_backend import _entity_info
-    from engineering.pid.graph import _point_segment_distance
-
-    ent = SimpleNamespace(
-        ObjectName="AcDbPolyline",
-        Coordinates=(20.0, 0.0, 0.0, 0.0, -10.0, 0.0, -30.0, 0.0),
-        Normal=(0.0, 0.0, -1.0),
-        Elevation=0.0,
-        Handle="2F",
-        Layer="PROCESS-PIPING-MAIN",
-        color=256,
-        Linetype="ByLayer",
-        Visible=True,
-        Closed=False,
-        Length=40 + 5 * math.pi,
-        GetBoundingBox=lambda: ((-20.0, 0.0, 0.0), (30.0, 5.0, 0.0)),
-        GetBulge=lambda i: [0.0, 1.0, 0.0, 0.0][i],
-    )
-    props = _entity_info(ent).properties
-    assert props["points"] == [[-20.0, 0.0], [0.0, 0.0], [10.0, 0.0], [30.0, 0.0]]
-    assert props["bulges"] == [0.0, -1.0, 0.0, 0.0]
-    a, b, bulge = props["points"][1], props["points"][2], props["bulges"][1]
-    assert _point_segment_distance((5.0, 5.0), a, b, bulge) == pytest.approx(0.0)
-    assert _point_segment_distance((5.0, -5.0), a, b, bulge) == pytest.approx(math.hypot(5, 5))
-
-
-def test_com_polyline_bulges_are_read_only_when_length_says_an_arc_exists():
-    """The COM engine pays one round trip per vertex for GetBulge, so it asks
-    only when ActiveX ``Length`` exceeds the chord walk — an arc is always
-    longer than its chord, so equality proves every bulge is zero."""
-    from types import SimpleNamespace
-
-    from backends.com_backend import _entity_info
-
-    def fake(coords, length, bulges):
-        calls = []
-
-        def get_bulge(i):
-            calls.append(i)
-            return bulges[i]
-
-        ent = SimpleNamespace(
-            ObjectName="AcDbPolyline",
-            Coordinates=coords,
-            Normal=(0.0, 0.0, 1.0),
-            Elevation=0.0,
-            Handle="2F",
-            Layer="0",
-            color=256,
-            Linetype="ByLayer",
-            Visible=True,
-            Closed=False,
-            Length=length,
-            GetBoundingBox=lambda: ((0.0, 0.0, 0.0), (1.0, 1.0, 0.0)),
-            GetBulge=get_bulge,
-        )
-        return ent, calls
-
-    straight, calls = fake((0.0, 0.0, 10.0, 0.0, 10.0, 10.0), 20.0, [0.0, 0.0, 0.0])
-    assert _entity_info(straight).properties["bulges"] == [0.0, 0.0, 0.0]
-    assert calls == []
-    curved, calls = fake((0.0, 0.0, 10.0, 0.0, 10.0, 10.0), 10 + 5 * math.pi, [0.0, 1.0, 0.0])
-    assert _entity_info(curved).properties["bulges"] == [0.0, 1.0, 0.0]
-    assert calls == [0, 1, 2]
-
-
 def test_an_approximate_geometry_bbox_is_tightened_by_the_attribute_inclusive_box():
     """The COM engine marks a rotated INSERT's box ``approximate`` when a
     member could only be carried by its corners: the box then overshoots the
@@ -900,41 +827,9 @@ async def test_a_stretched_bubble_keeps_the_smaller_radius_and_says_so(backend):
     assert graph["stats"]["confidence_min"] == 0.6
 
 
-def test_com_block_reference_reports_mirrored_from_its_normal():
-    from types import SimpleNamespace
-
-    from backends.com_backend import _entity_info
-
-    def refuse(_name):
-        raise RuntimeError("no block table in this fake")
-
-    def blockref(**extra):
-        return SimpleNamespace(
-            ObjectName="AcDbBlockReference",
-            Name="PID_X",
-            InsertionPoint=(50.0, 20.0, 0.0),
-            XScaleFactor=1.0,
-            YScaleFactor=1.0,
-            Rotation=0.0,
-            Handle="B1",
-            Layer="0",
-            color=256,
-            Linetype="ByLayer",
-            Visible=True,
-            Document=SimpleNamespace(Blocks=SimpleNamespace(Item=refuse)),
-            GetBoundingBox=lambda: ((45.0, 15.0, 0.0), (55.0, 25.0, 0.0)),
-            **extra,
-        )
-
-    assert _entity_info(blockref(Normal=(0.0, 0.0, -1.0))).properties["mirrored"] is True
-    assert _entity_info(blockref(Normal=(0.0, 0.0, 1.0))).properties["mirrored"] is False
-    assert _entity_info(blockref()).properties["mirrored"] is False
-
-
 def test_a_line_the_engine_could_not_read_is_not_an_edge():
-    """The live reader keeps a LINE whose point read AutoCAD refused, without
-    ``start``/``end`` (measured by scripts/smoke_mech_com.py on AutoCAD 2026);
-    the graph must leave it out instead of raising KeyError mid-critique."""
+    """A LINE row without ``start``/``end`` (its points could not be read)
+    must be left out of the graph instead of raising KeyError mid-critique."""
     from backends.base import EntityInfo
     from engineering.pid.graph import _vertices
 

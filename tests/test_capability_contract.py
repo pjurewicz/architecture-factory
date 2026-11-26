@@ -3,9 +3,7 @@
 M7 split a 1854-line ABC with 112 abstract methods into per-domain contracts.
 The split makes contract changes navigable; it does not fix the reason contract
 changes hurt, which is that every method is an `@abstractmethod`, so adding one
-makes *both* backends fail at instantiation until both are written — and two
-test modules construct `ComBackend` at import time, so a half-finished edit
-takes the whole suite red.
+makes the backend fail at instantiation until it is written.
 
 `@capability` gives such a method a default. The default is the dangerous part,
 so it is pinned here:
@@ -14,7 +12,7 @@ so it is pinned here:
   `{"ok": False}`. A method nobody implemented must be indistinguishable from a
   deliberate refusal, not from a soft failure — the v1.5.0 honesty pass exists
   because things that quietly did nothing looked like things that worked.
-* Its capability key is **declared in both backends' capability maps**. Without
+* Its capability key is **declared in the backend's capability map**. Without
   this test the decorator would be a way to ship refusals that
   `system_capabilities` never mentions, which is worse than the build break it
   replaces: a client that pre-checks the feature map would be told the call is
@@ -31,8 +29,8 @@ import pytest
 
 from backends.base import AutoCADBackend, UnsupportedCapabilityError
 from backends.capability import capability_keys, is_capability_default
-from backends.com_backend import ComBackend
 from backends.contracts.environment import EnvironmentContract
+from backends.contracts.layouts import LayoutContract
 from backends.contracts.pagesetup import PageSetupContract
 from backends.contracts.styles import StylesContract
 from backends.ezdxf_backend import EzdxfBackend
@@ -54,13 +52,11 @@ def test_at_least_one_method_uses_the_decorator():
     assert capability_keys(), "no @capability methods — delete the decorator or use it"
 
 
-def test_every_declared_key_exists_in_both_capability_maps():
+def test_every_declared_key_exists_in_the_capability_map():
     """The gate. A refusal the feature map never mentions is a lie by omission."""
     ezdxf_keys = _feature_keys(EzdxfBackend())
-    com_keys = _feature_keys(ComBackend())
     for key in capability_keys():
         assert key in ezdxf_keys, f"@capability({key!r}) is undeclared on the ezdxf backend"
-        assert key in com_keys, f"@capability({key!r}) is undeclared on the COM backend"
 
 
 def test_the_contract_still_exposes_every_method_it_used_to():
@@ -73,11 +69,21 @@ def test_the_contract_still_exposes_every_method_it_used_to():
 # ── the default behaves like a deliberate refusal ───────────────────────────
 
 
+class _Unimplemented(EzdxfBackend):
+    """A backend that inherits the contract's default for one method.
+
+    The ezdxf engine implements every ``@capability`` method, so the default
+    is pinned on a probe that puts it back."""
+
+    name = "probe"
+    entity_change_space = LayoutContract.entity_change_space
+
+
 @asyncio_test
 async def test_a_backend_that_does_not_implement_it_refuses_with_the_key():
-    backend = ComBackend()
-    assert is_capability_default(ComBackend, "entity_change_space"), (
-        "fixture assumption: the COM backend inherits the default here"
+    backend = _Unimplemented()
+    assert is_capability_default(_Unimplemented, "entity_change_space"), (
+        "fixture assumption: the probe inherits the default here"
     )
 
     with pytest.raises(UnsupportedCapabilityError) as excinfo:
@@ -92,9 +98,9 @@ async def test_a_backend_that_does_not_implement_it_refuses_with_the_key():
 @asyncio_test
 async def test_the_refusal_names_the_backend_and_says_what_to_do_instead():
     with pytest.raises(UnsupportedCapabilityError) as excinfo:
-        await ComBackend().entity_change_space(["1A"], "2B")
+        await _Unimplemented().entity_change_space(["1A"], "2B")
     message = str(excinfo.value)
-    assert "com" in message
+    assert "probe" in message
     assert "ezdxf" in message, "a refusal that does not name the way out is half a refusal"
 
 
@@ -106,7 +112,7 @@ async def test_the_default_never_returns_a_soft_failure():
     type expectations and silently mean "nothing happened".
     """
     try:
-        result = await ComBackend().entity_change_space(["1A"], "2B")
+        result = await _Unimplemented().entity_change_space(["1A"], "2B")
     except UnsupportedCapabilityError:
         return
     pytest.fail(f"the default returned {result!r} instead of raising")
@@ -123,17 +129,11 @@ async def test_an_implementing_backend_is_unaffected(backend):
 
 # ── track E: composition and the five agreed keys ───────────────────────────
 
-#: spec §8.1 — the flag each engine must report. `mleaderstyle` is deliberately
+#: spec §8.1 — the flag the engine must report. `mleaderstyle` is deliberately
 #: absent: the spec retracted it (the ActiveX route through the
 #: ``ACAD_MLEADERSTYLE`` dictionary exists, §4.2), and both engines implement
 #: ``mleaderstyle_create`` natively — `capability_keys()` never registers it.
-TRACK_E_KEYS = {
-    "dwgprops": {"ezdxf": False, "com": True},
-    "dwt_write": {"ezdxf": False, "com": True},
-    "live_application": {"ezdxf": False, "com": True},
-    "preferences": {"ezdxf": False, "com": True},
-    "interactive_prompt": {"ezdxf": False, "com": True},
-}
+TRACK_E_KEYS = {"dwgprops": False, "dwt_write": False}
 
 
 def _feature_keys_full(backend) -> dict:
@@ -143,42 +143,35 @@ def _feature_keys_full(backend) -> dict:
 def test_track_e_contracts_are_composed_into_the_backend():
     for contract in (StylesContract, PageSetupContract, EnvironmentContract):
         assert issubclass(AutoCADBackend, contract), f"{contract.__name__} not in AutoCADBackend"
-        assert issubclass(EzdxfBackend, contract) and issubclass(ComBackend, contract)
+        assert issubclass(EzdxfBackend, contract)
 
 
 def test_track_e_capability_keys_carry_the_agreed_flags():
     assert "mleaderstyle" not in capability_keys(), "spec §8.1: no such engine boundary"
     ezdxf_features = _feature_keys_full(EzdxfBackend())
-    com_features = _feature_keys_full(ComBackend())
-    for key, flags in TRACK_E_KEYS.items():
+    for key, supported in TRACK_E_KEYS.items():
         assert key in ezdxf_features, f"{key} undeclared on ezdxf"
-        assert key in com_features, f"{key} undeclared on com"
-        assert ezdxf_features[key]["supported"] is flags["ezdxf"], key
-        assert com_features[key]["supported"] is flags["com"], key
+        assert ezdxf_features[key]["supported"] is supported, key
 
 
-def test_dwg_read_is_declared_on_both_engines(monkeypatch):
+def test_dwg_read_is_declared(monkeypatch):
     """K1 (1.8.0): ``drawing_open`` on a DWG. Not an ``@capability`` method -
     ``drawing_open`` is abstract - but a refusal the ezdxf engine raises, so
-    both maps carry the key: COM reads natively, ezdxf per call (odafc,
-    accoreconsole, or unsupported with a reason naming both)."""
+    the map carries the key, evaluated per call (odafc, or unsupported with a
+    reason naming it)."""
     from backends import ezdxf_backend
 
-    monkeypatch.setenv("ACCORECONSOLE_PATH", "off")
     monkeypatch.setattr(ezdxf_backend, "_odafc_available", lambda: False)
-    com = _feature_keys_full(ComBackend())["dwg_read"]
-    assert (com["supported"], com["mode"]) == (True, "native")
     headless = _feature_keys_full(EzdxfBackend())["dwg_read"]
     assert headless["supported"] is False
-    assert "oda_file_converter" in headless["reason"] and "accoreconsole" in headless["reason"]
+    assert "oda_file_converter" in headless["reason"]
 
 
 def test_layer_states_are_declared_as_ours_not_autocads():
     """Spec §7.2 / §8.3: the states live in the file and travel with it, and do
     not appear in AutoCAD's Layer States Manager. Said in the map, not only in
     a docstring."""
-    for backend in (EzdxfBackend(), ComBackend()):
-        feature = _feature_keys_full(backend)["layer_states"]
-        assert feature["supported"] is True
-        assert feature["mode"] == "xrecord"
-        assert "layer_states_manager" in (feature["reason"] or ""), backend.name
+    feature = _feature_keys_full(EzdxfBackend())["layer_states"]
+    assert feature["supported"] is True
+    assert feature["mode"] == "xrecord"
+    assert "layer_states_manager" in (feature["reason"] or "")

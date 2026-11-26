@@ -8,10 +8,6 @@ whose structured content is ``{ok: false, kind, category, retryable, hint,
 tool, backend, operation_id, message, ...}``; the text content is what the
 client read before, byte for byte. ``retryable`` is true only when the
 operation record is ``refused`` / ``cancelled``: nothing was written.
-
-The live engine is covered on a fake seat (no AutoCAD): ``HandleToObject``
-failing is ``not_found``, and ``RPC_E_CALL_REJECTED`` at the job's first touch
-is ``application_busy`` - retryable, revision unmoved.
 """
 
 from __future__ import annotations
@@ -25,11 +21,7 @@ from fastmcp import Client
 
 import config
 import server
-from backends import com_backend as cb
-from backends.quarantine import DaemonExecutor
 from engineering import errors
-
-_RPC_E_CALL_REJECTED = -2147418111
 
 
 @pytest_asyncio.fixture
@@ -86,8 +78,6 @@ def test_the_table_declares_every_kind_once_with_a_known_category():
         "path_refused",
         "policy_refused",
         "file_not_found",
-        "application_busy",
-        "command_incomplete",
         "internal",
         "validation_failed",
         "critique_gate_failed",
@@ -120,9 +110,6 @@ def test_every_kind_attribute_the_code_raises_is_declared():
         operations.OperationConflictError,
         operations.RequiresReconcileError,
         errors.EntityNotFoundError,
-        errors.ApplicationBusyError,
-        errors.CadNotRunningError,
-        errors.CommandIncompleteError,
         errors.InvalidArgsError,
         errors.PathRefusedError,
     ]
@@ -186,7 +173,7 @@ def test_retryable_is_only_ever_true_when_nothing_was_written():
     for kind in errors.ERROR_KINDS:
         for state in ("committed", "partial", "failed", "quarantined", "unknown_commit"):
             assert errors.retryable_for(kind, state) is False, (kind, state)
-    assert errors.retryable_for("application_busy", "refused") is True
+    assert errors.retryable_for("save_locked", "refused") is True
     assert errors.retryable_for("not_found", "refused") is False
 
 
@@ -579,190 +566,6 @@ async def test_every_mutating_handle_tool_answers_not_found_never_internal(full_
         )
         assert payload["kind"] != "internal"
     assert len(scanned) >= 25, scanned
-
-
-# ── the live engine, on a fake seat ─────────────────────────────────────────
-
-
-class _FakeComError(Exception):
-    """Stands in for pywintypes.com_error: args = (hresult, text, excepinfo, argerr)."""
-
-
-class _Space:
-    Count = 0
-
-
-class _Doc:
-    def __init__(self, seat):
-        self._seat = seat
-        self.Name = "First.dwg"
-        self.FullName = "C:\\work\\First.dwg"
-        self.Saved = True
-        self.ModelSpace = _Space()
-        self.vars = {"LTSCALE": 1.0, "CMDACTIVE": 0}
-        self.moved: list[str] = []
-
-    def GetVariable(self, name):
-        return self.vars.get(name, 0)
-
-    def SetVariable(self, name, value):
-        self.vars[name] = value
-
-    def HandleToObject(self, handle):
-        raise _FakeComError(-2145386484, "Invalid input", None, None)
-
-    def Export(self, base, extension, selection):
-        ezdxf.new("R2010").saveas(f"{base}.dxf")
-
-
-class _Docs:
-    def __init__(self, seat):
-        self._seat = seat
-        self.rejecting = False
-
-    @property
-    def Count(self):
-        if self.rejecting:
-            raise _FakeComError(_RPC_E_CALL_REJECTED, "Call was rejected by callee.", None, None)
-        return 1
-
-    def Item(self, index):
-        return self._seat.ActiveDocument
-
-
-class _Seat:
-    Version = "25.1s (test seat)"
-
-    def __init__(self):
-        self.Documents = _Docs(self)
-        self.ActiveDocument = _Doc(self)
-
-
-@pytest.fixture
-def seat(monkeypatch):
-    fake = _Seat()
-    monkeypatch.setattr(cb, "_acad_app", lambda: fake)
-    monkeypatch.setattr(cb, "_COM_ERROR", (_FakeComError,))
-    return fake
-
-
-@pytest.fixture
-def com(seat):
-    backend = cb.ComBackend()
-    backend._executor = DaemonExecutor(max_workers=1, name="test-sta")  # no CoInitialize
-    backend._connected = True
-    yield backend
-    if backend._executor is not None:
-        backend._executor.shutdown(wait=False)
-        backend._executor = None
-
-
-@pytest.mark.asyncio
-async def test_live_handle_to_object_failing_is_not_found(com, seat):
-    await com.system_get_variable("LTSCALE")  # binds the document
-    with pytest.raises(errors.EntityNotFoundError) as raised:
-        await com.entity_move("FFFFFF", 1.0, 0.0)
-    assert str(raised.value) == "Entity with handle 'FFFFFF' not found."
-    assert isinstance(raised.value, RuntimeError), "every except RuntimeError still holds"
-    assert errors.classify(raised.value)["kind"] == "not_found"
-
-
-@pytest.mark.asyncio
-async def test_live_handle_lookup_keeps_a_connection_error_as_it_was(seat):
-    doc = seat.ActiveDocument
-
-    def rejected(handle):
-        raise _FakeComError(_RPC_E_CALL_REJECTED, "Call was rejected by callee.", None, None)
-
-    doc.HandleToObject = rejected
-    with pytest.raises(_FakeComError):
-        cb._handle_to_object(doc, "1A")
-
-
-@pytest.mark.asyncio
-async def test_a_busy_seat_before_the_first_touch_is_application_busy(com, seat):
-    await com.system_get_variable("LTSCALE")
-    revision = com.document_identity()["revision"]
-    seat.Documents.rejecting = True
-    with pytest.raises(errors.ApplicationBusyError) as raised:
-        await com.system_set_variable("LTSCALE", 2.0)
-    assert "Nothing was written" in str(raised.value)
-    assert com.document_identity()["revision"] == revision, "a busy refusal moves no revision"
-    assert errors.classify(raised.value)["kind"] == "application_busy"
-
-
-def test_a_busy_seat_after_the_job_touched_autocad_is_not_application_busy(monkeypatch):
-    """The real ``_acad_app`` marks the job; a rejection after that may follow a write."""
-    fake = _Seat()
-    monkeypatch.setattr(cb, "_COM_ERROR", (_FakeComError,))
-    monkeypatch.setitem(cb._COM_STATE, "app", fake)
-    guard = cb._JobGuard(backend=None)
-    cb._JOB_STATE.guard = guard
-    try:
-        assert cb._acad_app() is fake  # the job held the Application proxy
-        assert guard.touched is True
-        fake.Documents.rejecting = True
-        with pytest.raises(_FakeComError):
-            cb._acad_doc()
-    finally:
-        cb._JOB_STATE.guard = None
-
-
-@pytest.mark.asyncio
-async def test_application_busy_reaches_the_client_retryable(com, seat, monkeypatch):
-    await com.system_get_variable("LTSCALE")
-
-    async def make():
-        return com
-
-    monkeypatch.setattr(server, "_make_backend", make)
-    async with Client(server.mcp) as connected:
-        seat.Documents.rejecting = True
-        result = await connected.call_tool(
-            "system_set_variable", {"name": "LTSCALE", "value": 2.0}, raise_on_error=False
-        )
-        seat.Documents.rejecting = False
-        payload = result.structured_content
-        assert result.is_error is True
-        assert payload["kind"] == "application_busy" and payload["category"] == "dependency"
-        assert payload["retryable"] is True and payload["backend"] == "com"
-        record = await _record(connected, payload["operation_id"])
-        assert (record["state"], record["error_kind"]) == ("refused", "application_busy")
-
-
-@pytest.mark.asyncio
-async def test_a_retryable_refusal_runs_again_under_the_same_operation_id(com, seat, monkeypatch):
-    """retryable: true is honoured on the idempotent route: the refusal is not
-    replayed, so the retry the envelope invites actually runs."""
-    await com.system_get_variable("LTSCALE")
-
-    async def make():
-        return com
-
-    monkeypatch.setattr(server, "_make_backend", make)
-    meta = {"operation_id": "retry-me-1"}
-    args = {"name": "LTSCALE", "value": 2.0}
-    async with Client(server.mcp) as connected:
-        seat.Documents.rejecting = True
-        first = await connected.call_tool(
-            "system_set_variable", args, raise_on_error=False, meta=meta
-        )
-        assert first.structured_content["kind"] == "application_busy"
-        assert first.structured_content["retryable"] is True
-        seat.Documents.rejecting = False  # the operator pressed ESC
-        retry = await connected.call_tool(
-            "system_set_variable", args, raise_on_error=False, meta=meta
-        )
-        assert retry.is_error is False, retry.structured_content
-        assert not (retry.structured_content or {}).get("replayed")
-        assert seat.ActiveDocument.vars["LTSCALE"] == 2.0
-        record = await _record(connected, "retry-me-1")
-        assert record["state"] == "committed"
-        # A committed answer under that id now replays, as before.
-        again = await connected.call_tool(
-            "system_set_variable", args, raise_on_error=False, meta=meta
-        )
-        assert again.structured_content.get("replayed") is True
 
 
 @pytest.mark.asyncio

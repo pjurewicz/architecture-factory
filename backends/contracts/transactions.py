@@ -45,15 +45,6 @@ class TransactionContract(ABC):
         """The active document's newest checkpoint id, read without a backend call."""
         return None
 
-    async def checkpoint_before(self, tool: str) -> str | None:
-        """A checkpoint before a destructive tool; the id, or None when none is taken.
-
-        The live engine exports one (``Document.Export``). The headless engine
-        takes none here: its checkpoints are anchored on saves and on the
-        transaction snapshot a batch already writes, at no per-call cost.
-        """
-        return None
-
     async def checkpoint_anchor_new(self) -> None:
         """After the ``drawing_new`` tool's bootstrap: S0 is the drawing it hands back.
 

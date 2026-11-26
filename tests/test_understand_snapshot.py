@@ -1,25 +1,20 @@
 """The snapshot: one bulk read of a drawing into frozen WCS records.
 
 Every expected coordinate and length is worked out by hand in the comment
-beside it. The live engine's export is exercised against a fake document that
-behaves the way AutoCAD 2026 was measured to behave (the extension must be
-"DXF", the file lands as snap.DXF, the document is not renamed).
+beside it.
 """
 
 from __future__ import annotations
 
 import asyncio
 import math
-from pathlib import Path
 
 import ezdxf
 import pytest
 from ezdxf.math import Vec2
 
-import backends.com_backend as cb
 import config
 from backends.base import UnsupportedCapabilityError
-from backends.com_backend import ComBackend
 from backends.ezdxf_backend import EzdxfBackend
 from engineering.understand.snapshot import (
     EntityRecord,
@@ -239,139 +234,3 @@ async def test_a_dwg_is_refused_headlessly_with_the_dwg_capability(tmp_path):
         await take_snapshot(backend, str(tmp_path / "missing.dwg"))
     with pytest.raises(ValueError):
         await take_snapshot(backend, str(tmp_path / "plant.txt"))
-
-
-# -- take_snapshot on the live engine (a fake that behaves as measured) ----------
-
-
-class _Selection:
-    def __init__(self, log):
-        self.log = log
-
-    def Select(self, mode, *args):  # noqa: N802 - ActiveX member name
-        self.log.append(("select", mode))
-
-    def Delete(self):  # noqa: N802
-        self.log.append(("delete_selection",))
-
-
-class _Selections:
-    def __init__(self, log):
-        self.log = log
-
-    def Add(self, name):  # noqa: N802
-        self.log.append(("add_selection", name))
-        return _Selection(self.log)
-
-
-class _Doc:
-    def __init__(self, name, log, full_name=""):
-        self.Name = name
-        self.FullName = full_name  # "" for a drawing never saved, as AutoCAD answers
-        self.log = log
-        self.SelectionSets = _Selections(log)
-
-    def Export(self, base, extension, selection):  # noqa: N802
-        if extension != "DXF":
-            raise ValueError("Invalid argument")  # what AutoCAD 2026 answers to ".dxf"
-        self.log.append(("export", Path(base).name, extension))
-        _doc().saveas(base + ".DXF")  # AutoCAD writes the upper-case extension
-
-    def SaveAs(self, *args):  # noqa: N802
-        raise AssertionError("a snapshot must never rename the document")
-
-    def Close(self, save):  # noqa: N802
-        self.log.append(("close", save))
-
-
-class _Documents:
-    def __init__(self, log, open_docs=()):
-        self.log = log
-        self.open_docs = list(open_docs)
-
-    @property
-    def Count(self):  # noqa: N802
-        return len(self.open_docs)
-
-    def Item(self, index):  # noqa: N802
-        return self.open_docs[index]
-
-    def Open(self, path, read_only):  # noqa: N802
-        self.log.append(("open", Path(path).name, read_only))
-        return _Doc(Path(path).name, self.log)
-
-
-class _App:
-    def __init__(self, log, open_docs=()):
-        self.Documents = _Documents(log, open_docs)
-
-
-def _live(monkeypatch, log, open_docs=()):
-    backend = ComBackend()
-
-    async def run_inline(func, *args, **kwargs):  # bypass the STA executor
-        return func(*args, **kwargs)
-
-    async def ensure_state():
-        log.append(("ensure_document_state",))
-
-    backend._run = run_inline
-    backend._ensure_document_state = ensure_state
-    active = _Doc("Drawing1.dwg", log)
-    monkeypatch.setattr(cb, "_acad_app", lambda: _App(log, open_docs))
-    monkeypatch.setattr(cb, "_acad_doc", lambda: active)
-    return backend, active
-
-
-@pytest.mark.asyncio
-async def test_the_live_engine_exports_a_dxf_snapshot_and_deletes_it(monkeypatch, tmp_path):
-    log: list[tuple] = []
-    made: list[str] = []
-    real_mkdtemp = __import__("tempfile").mkdtemp
-
-    def mkdtemp(prefix=""):
-        folder = real_mkdtemp(prefix=prefix, dir=tmp_path)
-        made.append(folder)
-        return folder
-
-    monkeypatch.setattr("engineering.understand.snapshot.tempfile.mkdtemp", mkdtemp)
-    backend, active = _live(monkeypatch, log)
-    snap = await take_snapshot(backend)
-    assert snap.source == "live:Drawing1.dwg"
-    assert active.Name == "Drawing1.dwg"
-    assert ("select", cb._AC_SELECTION_SET_ALL) in log
-    assert ("export", "snap", "DXF") in log
-    assert ("delete_selection",) in log
-    assert {r.type for r in snap.records} >= {"LINE", "INSERT", "MULTILEADER"}
-    assert made and not Path(made[0]).exists(), "the temporary snapshot must be deleted"
-
-
-@pytest.mark.asyncio
-async def test_a_dwg_on_the_live_engine_is_opened_read_only_and_closed_unsaved(
-    monkeypatch, tmp_path
-):
-    path = tmp_path / "plant.dwg"
-    path.write_bytes(b"AC1032")
-    log: list[tuple] = []
-    backend, _active = _live(monkeypatch, log)
-    snap = await take_snapshot(backend, str(path))
-    assert snap.source == "live:plant.dwg"
-    assert ("open", "plant.dwg", True) in log
-    assert ("close", False) in log
-    assert log[-1] == ("ensure_document_state",)
-
-
-@pytest.mark.asyncio
-async def test_a_dwg_already_open_is_read_from_its_document_and_never_closed(monkeypatch, tmp_path):
-    # Opening a drawing AutoCAD already has open, then closing "it" unsaved, could
-    # close the operator's copy and lose its unsaved work. The open document is
-    # exported as it stands and left open: the server closes only what it opened.
-    path = tmp_path / "plant.dwg"
-    path.write_bytes(b"AC1032")
-    log: list[tuple] = []
-    theirs = _Doc("plant.dwg", log, full_name=str(path))
-    backend, _active = _live(monkeypatch, log, open_docs=[_Doc("Drawing1.dwg", log), theirs])
-    snap = await take_snapshot(backend, str(path))
-    assert snap.source == "live:plant.dwg"
-    assert ("export", "snap", "DXF") in log
-    assert not [event for event in log if event[0] in ("open", "close")]

@@ -3,8 +3,8 @@
 §4.4 H5 of the rival's report: dimensioning a plate took us 89 calls (the
 rival 10) because ``dimension_auto`` refused everything but LINE. These tests
 hold the planner (``engineering/dimension_auto.py``) per entity type, the
-shared ``PremiumContract.dimension_auto`` on the headless engine and on a fake
-COM seat (both draw through the existing ``dimension_*`` contracts), the tool's
+shared ``PremiumContract.dimension_auto`` on the headless engine (it draws
+through the existing ``dimension_*`` contracts), the tool's
 answer and refusals, ``skip_existing`` (a second run draws nothing),
 ``omitted`` (never a silent drop), ``group_equal``, the feature records copied
 from 1.8-06 tags, and the binding of every drawn dimension by
@@ -13,55 +13,23 @@ from 1.8-06 tags, and the binding of every drawn dimension by
 
 from __future__ import annotations
 
-import importlib.util
-import math
-from types import SimpleNamespace
-
 import pytest
 import pytest_asyncio
 from fastmcp import Client
 
 import server
-from backends.base import EntityInfo, LayerInfo
 from benchmarks.call_budget import (
     PLATE_ARCS,
     PLATE_HOLE_RADIUS,
-    PLATE_HOLES,
-    PLATE_OUTLINE,
     build_plate,
 )
 from engineering import dimension_auto as da
 from engineering.errors import InvalidArgsError, classify
 from engineering.mech.xdata import APP_ID, decode, to_values
 
-needs_pywin32 = pytest.mark.skipif(
-    importlib.util.find_spec("win32com") is None, reason="pywin32 not installed"
-)
-
 pytestmark = pytest.mark.asyncio
 
 BOX = (0.0, 0.0, 120.0, 80.0)
-
-
-def _info(handle, kind, layer="GEOMETRY", **props) -> EntityInfo:
-    return EntityInfo(handle, kind, layer, 256, "ByLayer", True, props)
-
-
-def _plate_infos() -> list[EntityInfo]:
-    rows = [
-        _info(
-            "P1",
-            "LWPOLYLINE",
-            points=[list(p) for p in PLATE_OUTLINE],
-            bulges=[0.0] * len(PLATE_OUTLINE),
-            closed=True,
-        )
-    ]
-    for i, (x, y) in enumerate(PLATE_HOLES):
-        rows.append(_info(f"C{i}", "CIRCLE", center=[x, y], radius=PLATE_HOLE_RADIUS))
-    for i, (cx, cy, r, a0, a1) in enumerate(PLATE_ARCS):
-        rows.append(_info(f"A{i}", "ARC", center=[cx, cy], radius=r, start_angle=a0, end_angle=a1))
-    return rows
 
 
 def _plan(infos, **kwargs) -> da.Plan:
@@ -300,127 +268,3 @@ async def test_the_schema_offers_the_v2_parameters(full_catalog):
         "required" not in tools["dimension_auto"].parameters
         or not tools["dimension_auto"].parameters["required"]
     )
-
-
-# -- the live engine, on a fake seat -------------------------------------------------
-
-
-class _Dim:
-    def __init__(self, log, name, handle, args):
-        self._log = log
-        self.ObjectName = name
-        self.Handle = handle
-        self.Layer = "0"
-        self.color = 256
-        self.Linetype = "ByLayer"
-        self.Visible = True
-        self.args = args
-
-    def SetXData(self, codes, values):  # noqa: N802
-        self._log.append(("SetXData", self.Handle))
-
-
-class _RecordingSpace:
-    def __init__(self, log):
-        self._log = log
-        self.made: list[_Dim] = []
-
-    def _add(self, name, *args):
-        plain = [list(getattr(a, "value", a)) if hasattr(a, "value") else a for a in args]
-        dim = _Dim(self._log, name, f"D{len(self.made) + 1}", plain)
-        self.made.append(dim)
-        self._log.append((name, plain))
-        return dim
-
-    def AddDimRotated(self, *a):  # noqa: N802
-        return self._add("AcDbRotatedDimension", *a)
-
-    def AddDimAligned(self, *a):  # noqa: N802
-        return self._add("AcDbAlignedDimension", *a)
-
-    def AddDimRadial(self, *a):  # noqa: N802
-        return self._add("AcDbRadialDimension", *a)
-
-    def AddDimDiametric(self, *a):  # noqa: N802
-        return self._add("AcDbDiametricDimension", *a)
-
-
-@pytest.fixture
-def seat(monkeypatch):
-    import backends.com_backend as cb
-
-    log: list = []
-    space = _RecordingSpace(log)
-    doc = SimpleNamespace(RegisteredApplications=SimpleNamespace(Add=lambda name: None))
-    monkeypatch.setattr(cb, "_acad_doc", lambda: doc)
-    monkeypatch.setattr(cb, "_msp", lambda: space)
-    monkeypatch.setattr(cb, "_regen", lambda *_entity: None)
-    monkeypatch.setattr(cb, "_apply_dim_tolerance", lambda *a, **k: None)
-    backend = cb.ComBackend()
-
-    async def _run_inline(func, *args, **kwargs):
-        return func(*args, **kwargs)
-
-    monkeypatch.setattr(backend, "_run", _run_inline)
-    layers = [LayerInfo("0", 7, "Continuous", -3, True, False, False, True)]
-    created_layers: list[str] = []
-
-    async def _select(predicate):
-        log.append(("select", dict(predicate)))
-        return _plate_infos()
-
-    async def _list(type_filter=None, layer_filter=None, limit=200, offset=0):
-        return []  # no DIMENSION yet: skip_existing reads no snapshot
-
-    async def _xdata(handle, app_name=None):
-        return {"handle": handle, "xdata": {}, "backend": "com"}
-
-    async def _layers():
-        return layers
-
-    async def _layer_create(name, color=7, **_kw):
-        created_layers.append(name)
-
-    async def _snapshot(_backend, *a, **k):
-        return SimpleNamespace(records=[])
-
-    monkeypatch.setattr(backend, "entity_select_smart", _select)
-    monkeypatch.setattr(backend, "entity_list", _list)
-    monkeypatch.setattr(backend, "entity_get_xdata", _xdata)
-    monkeypatch.setattr(backend, "layer_list", _layers)
-    monkeypatch.setattr(backend, "layer_create", _layer_create)
-    import engineering.understand.snapshot as snapshot
-
-    monkeypatch.setattr(snapshot, "take_snapshot", _snapshot)
-    return SimpleNamespace(backend=backend, log=log, space=space, created_layers=created_layers)
-
-
-@needs_pywin32
-async def test_com_the_plate_draws_through_the_activex_dimension_calls(seat):
-    result = await seat.backend.dimension_auto(selector={"layer": "GEOMETRY"})
-    names = [dim.ObjectName for dim in seat.space.made]
-    assert names.count("AcDbRotatedDimension") == 4
-    assert names.count("AcDbDiametricDimension") == 6
-    assert names.count("AcDbRadialDimension") == 2
-    assert [info.handle for info in result] == [dim.Handle for dim in seat.space.made]
-    assert all(dim.Layer == "DIM" for dim in seat.space.made)
-    assert seat.created_layers == ["DIM"], "the layer exists before the first dimension"
-    assert ("select", {"layer": "GEOMETRY"}) in seat.log
-    centre = (60.0, 40.0)
-    for dim in seat.space.made:
-        if dim.ObjectName == "AcDbDiametricDimension":
-            first, far, leader = dim.args
-            assert math.dist(first[:2], centre) > math.dist(far[:2], centre)
-            text = [
-                first[i] + (first[i] - far[i]) / (2 * PLATE_HOLE_RADIUS) * leader for i in (0, 1)
-            ]
-            assert _outside(text), text
-
-
-@needs_pywin32
-async def test_com_a_dry_run_calls_no_activex_member(seat):
-    answer = (
-        await seat.backend.dimension_auto(selector={"layer": "GEOMETRY"}, dry_run=True)
-    ).to_dict()
-    assert len(answer["planned"]) == 12
-    assert seat.space.made == [] and seat.created_layers == []

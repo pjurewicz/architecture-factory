@@ -59,7 +59,6 @@ import collections
 import copy
 import json
 import os
-import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -273,32 +272,20 @@ async def _read_file_sheet(backend: AutoCADBackend, path: str, label: str) -> tu
     if not os.path.isfile(path):
         raise FileNotFoundError(f"pid_project: sheet {label}: no file at {path}")
     suffix = Path(path).suffix.lower()
-    if suffix == ".dwg" and backend.name != "com":
+    if suffix == ".dwg":
         raise UnsupportedCapabilityError(
             "dwg",
             f"pid_project: sheet {label} ({path}) is a DWG, which the headless engine cannot "
-            "read. Export it to DXF (DXFOUT or SAVEAS in AutoCAD) and list the .dxf, or run "
-            "the server on the live engine (AUTOCAD_MCP_BACKEND=com).",
+            "read. Convert it to DXF (drawing_open then drawing_save_as a .dxf) and list "
+            "the .dxf.",
         )
     sha = await asyncio.to_thread(file_sha256, path)
     key = f"{suffix}:{sha}"
     if key in _CACHE:
         _CACHE.move_to_end(key)
         return _CACHE[key], {"sha256": sha, "cached": True, "source": "file"}
-    if suffix == ".dwg":
-        from engineering.understand.snapshot import _com_export
-
-        written, folder, _source = await backend._run(_com_export, backend, path)
-        try:
-            await backend._ensure_document_state()
-            exported_sha = await asyncio.to_thread(file_sha256, written)
-            doc = await asyncio.to_thread(_load_dxf, written, label, exported_sha)
-        finally:
-            shutil.rmtree(folder, ignore_errors=True)
-        source = "live_export"
-    else:
-        doc = await asyncio.to_thread(_load_dxf, path, label, sha)
-        source = "file"
+    doc = await asyncio.to_thread(_load_dxf, path, label, sha)
+    source = "file"
     graph = await _graph_of_doc(doc)
     _CACHE[key] = graph
     while len(_CACHE) > CACHE_SIZE:
@@ -614,9 +601,7 @@ async def run_project(
         )
     project, listed = parse_sheets(sheets, manifest)
     current_identity = backend.document_identity() if include_current else None
-    current_open = include_current and not (
-        backend.name != "com" and current_identity.get("document_id") is None
-    )
+    current_open = include_current and current_identity.get("document_id") is not None
     current_path = (current_identity or {}).get("path")
     replaced = next((row for row in listed if _same_file(row["path"], current_path)), None)
     total = len(listed) + (1 if current_open and replaced is None else 0)

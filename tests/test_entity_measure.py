@@ -24,7 +24,6 @@ import math
 import pytest
 
 from backends.base import UnsupportedCapabilityError
-from backends.com_backend import ComBackend
 from backends.ezdxf_backend import EzdxfBackend
 
 pytestmark = pytest.mark.asyncio
@@ -123,19 +122,18 @@ async def test_a_line_has_no_area_on_any_engine_so_it_is_not_a_capability_gap(ba
 
 
 async def test_a_region_is_a_real_capability_boundary(backend):
-    """ezdxf stores ACIS opaquely and cannot evaluate it; live AutoCAD can."""
+    """ezdxf stores ACIS opaquely and cannot evaluate it."""
     region = backend._doc.modelspace().new_entity("REGION", {})
 
     with pytest.raises(UnsupportedCapabilityError) as excinfo:
         await backend.entity_measure(region.dxf.handle)
 
     assert excinfo.value.capability == "measure_area_acis"
-    assert "com" in str(excinfo.value).lower(), "a refusal must name the way forward"
+    assert "autocad" in str(excinfo.value).lower(), "a refusal must name the way forward"
 
 
-async def test_measure_capability_is_declared_on_both_backends():
+async def test_measure_capability_is_declared_unsupported_headless():
     assert EzdxfBackend().capabilities().features["measure_area_acis"].supported is False
-    assert ComBackend().capabilities().features["measure_area_acis"].supported is True
 
 
 # ── HATCH: the type the refusal advertised and then refused ─────────────────

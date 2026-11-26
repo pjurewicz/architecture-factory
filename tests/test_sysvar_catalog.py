@@ -360,36 +360,6 @@ async def test_set_variable_tool_refuses_out_of_range_before_the_backend_sees_it
 
 
 @asyncio_test
-async def test_set_variable_tool_refuses_before_a_live_backend_is_called(monkeypatch):
-    pytest.importorskip("win32com.client", reason="pywin32 not installed")
-    from fastmcp.exceptions import ToolError
-
-    import server
-    from backends import com_backend as module
-
-    calls: list[tuple] = []
-
-    class _Doc:  # the sysvar host is AcadDocument; the Application has no such members
-        def GetVariable(self, name):
-            calls.append(("GetVariable", name))
-            return 2
-
-        def SetVariable(self, name, value):
-            calls.append(("SetVariable", name, value))
-
-    monkeypatch.setattr(module, "_acad_doc", lambda: _Doc())
-    backend = module.ComBackend()
-
-    async def _run_inline(func, *args, **kwargs):
-        return func(*args, **kwargs)
-
-    monkeypatch.setattr(backend, "_run", _run_inline)
-    with pytest.raises(ToolError, match="DIMDEC"):
-        await server.system_set_variable(name="DIMDEC", value=40, ctx=_FakeCtx(backend))
-    assert calls == []
-
-
-@asyncio_test
 async def test_describe_tool_returns_the_row_with_the_current_value(backend):
     import server
 

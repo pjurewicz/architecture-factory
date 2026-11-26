@@ -45,19 +45,16 @@ made inside one of our calls cannot be told from our own and is not reported.
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import inspect
 import math
-import shutil
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
-import ezdxf
 from ezdxf.lldxf.tagwriter import TagCollector
 
-from engineering.understand.snapshot import _box, _com_export
+from engineering.understand.snapshot import _box
 from engineering.validation import SpecError
 
 __all__ = [
@@ -187,12 +184,6 @@ def _region_digest(doc, space: str, region) -> str:
 
 async def _read(backend, job):
     """``job(doc)`` on the document this engine's preview and apply both read."""
-    if backend.name == "com":
-        written, folder, _source = await backend._run(_com_export, backend, None)
-        try:
-            return await asyncio.to_thread(lambda: job(ezdxf.readfile(written)))
-        finally:
-            shutil.rmtree(folder, ignore_errors=True)
     return await backend._async(lambda: job(backend._require_doc()), readonly=True)
 
 

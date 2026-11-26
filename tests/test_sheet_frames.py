@@ -281,11 +281,10 @@ async def test_the_frame_puts_the_caller_back_on_the_tab_it_found_them_on(backen
 async def test_the_caller_s_tab_is_read_from_the_listing_not_a_private_attribute(
     backend, backend_without_private_state
 ):
-    """`_current_space` exists on EzdxfBackend only. ComBackend keeps the live
-    tab in AutoCAD, so reading the private attribute there fell through to the
-    ``getattr`` default and dropped a live caller onto Model after every
-    border -- measured on AutoCAD 2026. `layout_list()["current"]` is the value
-    both engines really report, and `enter_layout` already had it in hand.
+    """`_current_space` exists on EzdxfBackend only. A backend without it fell
+    through to the ``getattr`` default and dropped the caller onto Model after
+    every border. `layout_list()["current"]` is the value the backend contract
+    really reports, and `enter_layout` already had it in hand.
     """
     await backend.layout_create("SheetA")
     await backend.layout_create("SheetB")

@@ -45,9 +45,6 @@ propagates: a quarantined document must never read as clean.
 
 from __future__ import annotations
 
-import asyncio
-import shutil
-from collections import Counter
 from dataclasses import dataclass, replace
 
 import config
@@ -55,8 +52,6 @@ from backends.quarantine import DOCUMENT_REFUSALS, mark_readonly
 from engineering.understand.snapshot import (
     Snapshot,
     _box,
-    _com_export,
-    _read,
     records_from_doc,
 )
 
@@ -135,52 +130,7 @@ async def _read_ezdxf(backend) -> tuple[Snapshot | None, ScanCoverage]:
     return snap, ScanCoverage(True, len(snap.records), snap.layouts)
 
 
-def _com_live_counts(doc) -> dict[str, int]:
-    """Entities per layout, in tab order (members measured on AutoCAD 2026)."""
-    layouts = doc.Layouts
-    rows = []
-    for index in range(int(layouts.Count)):
-        layout = layouts.Item(index)
-        rows.append((int(layout.TabOrder), str(layout.Name), int(layout.Block.Count)))
-    return {name: count for _order, name, count in sorted(rows)}
-
-
-def _com_job(backend, limit: int):
-    """Count, then export - one COM job, so nothing of ours runs in between."""
-    from backends import com_backend as com
-
-    doc = com._acad_doc()
-    counts = backend._wait_out_rejected_call(lambda: _com_live_counts(doc))
-    refusal = _over_limit(counts, limit)
-    if refusal is not None:
-        return None, None, None, counts, refusal
-    written, folder, source = _com_export(backend, None)
-    return written, folder, source, counts, None
-
-
-async def _read_com(backend) -> tuple[Snapshot | None, ScanCoverage]:
-    written, folder, source, live, refusal = await backend._run(_com_job, backend, _limit())
-    if refusal is not None:
-        return None, ScanCoverage(False, 0, tuple(live), refusal)
-    try:
-        snap = await asyncio.to_thread(_read, written, source=source, insert_boxes=False)
-    finally:
-        shutil.rmtree(folder, ignore_errors=True)
-    read = Counter(record.space for record in snap.records)
-    differences = [
-        f"{name}: AutoCAD holds {live.get(name, 0):,}, the export carried {read.get(name, 0):,}"
-        for name in sorted(set(live) | set(read))
-        if live.get(name, 0) != read.get(name, 0)
-    ]
-    if differences:
-        reason = "the DXF export does not match the live drawing (" + "; ".join(differences) + ")"
-        return snap, ScanCoverage(False, len(snap.records), snap.layouts, reason)
-    return snap, ScanCoverage(True, len(snap.records), snap.layouts)
-
-
 async def _read_all_spaces(backend) -> tuple[Snapshot | None, ScanCoverage]:
-    if backend.name == "com":
-        return await _read_com(backend)
     return await _read_ezdxf(backend)
 
 
@@ -228,25 +178,17 @@ async def with_insert_boxes(backend, snap: Snapshot, spaces=None) -> Snapshot:
     }
     if not wanted:
         return snap
-    if backend.name == "com":
-        written, folder, source = await backend._run(_com_export, backend, None)
-        try:
-            full = await asyncio.to_thread(_read, written, source=source)
-        finally:
-            shutil.rmtree(folder, ignore_errors=True)
-        boxes = {r.handle: r.bbox for r in full.records if r.handle in wanted}
-    else:
 
-        def _sync():
-            doc = backend._require_doc()
-            found = {}
-            for handle in wanted:
-                entity = doc.entitydb.get(handle)
-                if entity is not None and entity.is_alive:
-                    found[handle] = _box(entity)
-            return found
+    def _sync():
+        doc = backend._require_doc()
+        found = {}
+        for handle in wanted:
+            entity = doc.entitydb.get(handle)
+            if entity is not None and entity.is_alive:
+                found[handle] = _box(entity)
+        return found
 
-        boxes = await _async_readonly(backend, _sync)
+    boxes = await _async_readonly(backend, _sync)
     missing = sorted(wanted - set(boxes))
     if missing:
         raise RuntimeError(
@@ -269,33 +211,6 @@ def _ezdxf_infos(doc):
     ]
 
 
-def _com_infos(backend):
-    from backends import com_backend as com
-
-    doc = com._acad_doc()
-    layouts = doc.Layouts
-    rows = []
-    for i in range(int(layouts.Count)):
-        layout = layouts.Item(i)  # one COM round trip per layout, not three
-        rows.append((int(layout.TabOrder), str(layout.Name), layout.Block))
-    # Sorted on the tab order alone: a COM object has no ordering to fall back on.
-    ordered = sorted(rows, key=lambda row: row[0])
-    out = []
-    failed: list[str] = []
-    for _order, name, block in ordered:
-        for index in range(int(block.Count)):
-            try:
-                out.append((com._entity_info(block.Item(index)), name))
-            except Exception as exc:  # noqa: BLE001 - counted and refused below, never skipped
-                failed.append(f"{name}[{index}]: {exc}")
-    if failed:
-        raise RuntimeError(
-            f"{len(failed)} entities could not be read ({'; '.join(failed[:5])}); "
-            "the drawing was not read in full"
-        )
-    return out
-
-
 async def entity_infos_all_spaces(backend) -> list:
     """``(EntityInfo, space)`` for every entity of every layout, in tab order,
     read in one locked call and without switching the current layout.
@@ -305,8 +220,6 @@ async def entity_infos_all_spaces(backend) -> list:
     read that changed the drawing (backlog W3-T14-09). An entity the live
     engine cannot read refuses the whole read instead of being skipped.
     """
-    if backend.name == "com":
-        return await backend._run(_com_infos, backend)
     return await _async_readonly(backend, lambda: _ezdxf_infos(backend._require_doc()))
 
 

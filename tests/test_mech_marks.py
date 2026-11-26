@@ -281,10 +281,9 @@ class _StrictLayerHatchBackend:
     `com_error (-2147352567, ..., 'Key not found', ..., -2145386476)`. Model
     space then still reports `[('AcDbHatch', '0')]` and the layer table is
     still `['0']` - the refusal leaves an orphan hatch behind. After
-    `doc.Layers.Add("HATCH")` the same assignment succeeds. `ComBackend`
-    reaches that assignment through `_apply_entity_attrs`, which is the one
-    line `entity.Layer = layer`, so this is the hatch spelling of the failure
-    `ensure_annotation_layers` already fixed for the annotation symbols.
+    `doc.Layers.Add("HATCH")` the same assignment succeeds. This is the hatch
+    spelling of the failure `ensure_annotation_layers` already fixed for the
+    annotation symbols.
 
     The fake models that measured refusal and nothing else: every member below
     exists on the real `AutoCADBackend` with this signature.

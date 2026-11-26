@@ -127,12 +127,7 @@ class LayoutContract(ABC):
     # the refusing default, so the source really is empty on purpose.
     @capability(  # noqa: B027
         "chspace",
-        reason=(
-            "ActiveX exposes no change-space member, so a live backend would have to recreate "
-            "geometry through CopyObjects or drive the CHSPACE command blind — neither has been "
-            "verified against a live AutoCAD. Use the headless backend "
-            "(AUTOCAD_MCP_BACKEND=ezdxf), or run CHSPACE in AutoCAD directly."
-        ),
+        reason="Use the ezdxf backend, or run CHSPACE in AutoCAD directly.",
     )
     async def entity_change_space(
         self,

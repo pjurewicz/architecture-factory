@@ -14,8 +14,6 @@ Expected fingerprints are recomputed in this file from ezdxf's own
 from __future__ import annotations
 
 import hashlib
-import os
-import tempfile
 
 import ezdxf
 import pytest
@@ -369,59 +367,6 @@ async def test_the_watch_reports_a_change_between_two_of_our_calls(backend):
         "after": interleaved,
         "interleaved": [{"before": "step 1", "expected": ours, "actual": interleaved}],
     }
-
-
-# -- the live engine reads its own export ---------------------------------------------
-
-
-class _LiveBackend:
-    """The surface the preview module touches on ComBackend: ``name``,
-    ``_run(func, *args)``, ``layout_list()``, ``document_identity()``."""
-
-    name = "com"
-
-    def __init__(self):
-        self.ran: list[str] = []
-
-    async def _run(self, func, *args, **kwargs):
-        self.ran.append(getattr(func, "__name__", str(func)))
-        return func(*args, **kwargs)
-
-    async def layout_list(self):
-        return {"ok": True, "layouts": ["Model", "Layout1"], "current": "Model"}
-
-    def document_identity(self):
-        return {"document_id": "f" * 32, "revision": 7, "name": "A.dwg", "path": None}
-
-
-async def test_the_live_engine_fingerprints_its_dxf_export(monkeypatch, tmp_path):
-    from engineering.changes import preview
-
-    doc = ezdxf.new("R2018")
-    handle = doc.modelspace().add_line((0, 0), (10, 0)).dxf.handle
-    folders: list[str] = []
-
-    def _fake_export(backend, path):
-        assert path is None, "the active (bound) document, never a file"
-        folder = tempfile.mkdtemp(prefix="acadmcp_snap_", dir=str(tmp_path))
-        folders.append(folder)
-        written = os.path.join(folder, "snap.DXF")
-        doc.saveas(written)
-        return written, folder, "live:A.dwg"
-
-    monkeypatch.setattr(preview, "_com_export", _fake_export)
-    live = _LiveBackend()
-
-    found = await preview.entity_fingerprints(live, [handle])
-
-    assert live.ran == ["_fake_export"]
-    assert not os.path.exists(folders[0]), "the export is deleted once read"
-    exported = tmp_path / "oracle.dxf"
-    doc.saveas(exported)
-    oracle = ezdxf.readfile(exported)
-    assert found == {handle: _oracle(oracle.entitydb[handle], oracle.dxfversion)}
-    payload = (await preview.make_preview(live, handles=[handle])).to_dict()
-    assert payload["revision"] == 7 and payload["document_id"] == "f" * 32
 
 
 async def test_what_autocad_regenerates_on_every_export_does_not_move_a_fingerprint():

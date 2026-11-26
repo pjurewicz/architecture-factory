@@ -5,7 +5,7 @@
   "title": "Foreign P&ID: instrument index, line list, equipment list",
   "summary": "Open a P&ID somebody else drew, read its connectivity graph with a confidence per node, and write the instrument index, the line list and the equipment list as CSV, without modifying the drawing.",
   "preconditions": {
-    "backends": ["ezdxf", "com"],
+    "backends": ["ezdxf"],
     "capabilities": ["dxf"],
     "packs": ["core", "pid"],
     "profiles": ["full"],

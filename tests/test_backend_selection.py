@@ -17,9 +17,6 @@ preserved so ``monkeypatch.setenv`` — which four call sites and
 
 from __future__ import annotations
 
-import sys
-import types
-
 import pytest
 from fastmcp import Client
 
@@ -29,34 +26,13 @@ import server
 pytestmark = pytest.mark.asyncio
 
 
-class _ComBackendSentinel:
-    """Stands in for the real COM backend and screams if anyone builds it."""
-
-    constructed: list[str] = []
-
-    def __init__(self, *args, **kwargs):
-        _ComBackendSentinel.constructed.append("ComBackend() CONSTRUCTED")
-        raise AssertionError("a test tried to construct the live COM backend")
-
-
-@pytest.fixture
-def com_sentinel(monkeypatch):
-    """Replace backends.com_backend with a module that cannot connect anywhere."""
-    _ComBackendSentinel.constructed.clear()
-    fake = types.ModuleType("backends.com_backend")
-    fake.ComBackend = _ComBackendSentinel
-    monkeypatch.setitem(sys.modules, "backends.com_backend", fake)
-    return _ComBackendSentinel
-
-
-async def test_the_env_var_is_what_actually_selects_the_backend(monkeypatch, com_sentinel):
+async def test_the_env_var_is_what_actually_selects_the_backend(monkeypatch):
     from backends.ezdxf_backend import EzdxfBackend
 
     monkeypatch.setenv("AUTOCAD_MCP_BACKEND", "ezdxf")
     backend = await server._make_backend()
 
     assert isinstance(backend, EzdxfBackend)
-    assert com_sentinel.constructed == [], "the COM backend must never have been touched"
     await backend.disconnect()
 
 
@@ -74,19 +50,18 @@ async def test_settings_backend_reports_what_make_backend_will_use(monkeypatch):
 
 
 @pytest.mark.parametrize("value", ["auto", "ezdxf"])
-async def test_every_accepted_setting_builds_the_headless_engine(monkeypatch, com_sentinel, value):
+async def test_every_accepted_setting_builds_the_headless_engine(monkeypatch, value):
     from backends.ezdxf_backend import EzdxfBackend
 
     monkeypatch.setenv("AUTOCAD_MCP_BACKEND", value)
     backend = await server._make_backend()
 
     assert isinstance(backend, EzdxfBackend)
-    assert com_sentinel.constructed == []
     await backend.disconnect()
 
 
 @pytest.mark.parametrize("value", ["com", "bogus"])
-async def test_an_unsupported_backend_fails_startup(monkeypatch, com_sentinel, value):
+async def test_an_unsupported_backend_fails_startup(monkeypatch, value):
     """The COM engine is gone: asking for it is an error, never a silent fallback."""
     monkeypatch.setenv("AUTOCAD_MCP_BACKEND", value)
     with pytest.raises(RuntimeError, match="only the headless ezdxf engine"):
@@ -94,7 +69,6 @@ async def test_an_unsupported_backend_fails_startup(monkeypatch, com_sentinel, v
     with pytest.raises(Exception, match="only the headless ezdxf engine"):
         async with Client(server.mcp):
             pass
-    assert com_sentinel.constructed == []
 
 
 async def test_assigning_to_settings_backend_fails_loudly(monkeypatch):

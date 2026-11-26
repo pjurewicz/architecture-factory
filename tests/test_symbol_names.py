@@ -1,21 +1,8 @@
-"""SendCommand takes a whole macro, so a name interpolated into one is code.
+"""A linetype name is checked by the DXF symbol-name rule before it is used.
 
-`security.py` recorded the policy as "`sanitize_command` and `sanitize_lisp`
-each have exactly ONE caller, both of them the COM-only free-text escape hatch
-into SendCommand. The policy is scoped to the CHANNEL." That premise was false.
-
-`_ensure_linetype_loaded` built ``_-LINETYPE _LOAD {name} {lin_file}`` and
-handed it to `doc.SendCommand`, and it is reached from the ``linetype=``
-argument of every COM entity-creation and layer tool — plus
-`ComBackend.linetype_load`, which interpolated a caller-supplied *file path*
-as well. SendCommand treats a newline and ``;`` as segment separators, so a
-linetype name carrying either injects further AutoCAD commands, and the 36-verb
-denylist and `DANGEROUS_COMMANDS_ENABLED` never see that channel at all. (Both
-loaders now call the ActiveX ``Linetypes.Load`` member, which takes the name
-as data; the guard stays in front of it, since a name the DXF rule refuses was
-never a loadable linetype.)
-
-The guard here is the DXF symbol-name rule rather than a bespoke blocklist:
+A newline and ``;`` end an AutoCAD macro segment, so a name carrying either
+could inject further commands wherever a name reaches a command line. The
+guard here is the DXF symbol-name rule rather than a bespoke blocklist:
 AutoCAD already forbids these characters in a table name, so anything this
 rejects was never a loadable linetype, and the injection characters fall out of
 the rule rather than having to be enumerated.
@@ -80,11 +67,3 @@ def test_the_refusal_does_not_echo_the_payload_back_verbatim():
         sanitize_symbol_name("CENTER\n_ERASE ALL\n", kind="linetype")
 
     assert "\n_ERASE" not in str(excinfo.value)
-
-
-def test_the_com_linetype_loader_refuses_before_it_reaches_sendcommand():
-    """The guard has to sit in front of the macro, not inside AutoCAD."""
-    import backends.com_backend as cb
-
-    with pytest.raises(ToolError):
-        cb._ensure_linetype_loaded("CENTER\n_ERASE ALL\n")

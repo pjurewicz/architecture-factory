@@ -9,10 +9,6 @@ detail cost a full-page PNG.
 The gate: of two far-apart circles, a window on one draws only that one - its
 ink bounding box sits where ``px_per_unit`` says it should - the report says
 ``applied: true`` with ``{px, region, px_per_unit}``, and ``max_px`` is obeyed.
-On the live engine a region renders the ``Document.Export`` snapshot through
-the same headless renderer (``source: "export_snapshot"``); without one it is
-the window capture (``source: "window"``). No AutoCAD is touched here: the
-seat is the fake of ``tests/test_bound_document_com.py``.
 """
 
 from __future__ import annotations
@@ -20,22 +16,15 @@ from __future__ import annotations
 import io
 import json
 
-import ezdxf
 import pytest
 
 pytest.importorskip("matplotlib", reason="rendering needs the [pdf] extra")
 Image = pytest.importorskip("PIL.Image", reason="the ink check reads pixels with Pillow")
 
-from backends import com_backend as cb  # noqa: E402
-from backends.base import UnsupportedCapabilityError  # noqa: E402
-from backends.document_guard import ActiveDocumentChangedError  # noqa: E402
-from backends.quarantine import DaemonExecutor  # noqa: E402
 from backends.region_render import (  # noqa: E402
     DEFAULT_MAX_PX,
     png_size,
-    render_dxf_file,
 )
-from tests.test_bound_document_com import _Seat  # noqa: E402
 
 LEFT = (0.0, 0.0)
 RIGHT = (1000.0, 0.0)
@@ -250,94 +239,3 @@ async def test_a_partial_window_is_refused_not_ignored():
         await client.call_tool("drawing_new", {})
         with pytest.raises(ToolError, match="y2"):
             await client.call_tool("view_zoom_and_screenshot", {"x1": 0, "y1": 0, "x2": 10})
-
-
-# ── live engine (fake seat) ──────────────────────────────────────────────────
-
-
-def _two_circle_dxf(path: str) -> None:
-    doc = ezdxf.new("R2010")
-    msp = doc.modelspace()
-    msp.add_circle(LEFT, RADIUS)
-    msp.add_circle(RIGHT, RADIUS)
-    doc.saveas(path)
-
-
-class _ExportingSeat(_Seat):
-    """The fake seat whose Export writes the two-circle drawing, plus ZoomWindow."""
-
-    def __init__(self):
-        super().__init__()
-        self.zoomed: list[tuple] = []
-        for doc in (self.first, self.second):
-            doc.Export = lambda base, ext, sel: _two_circle_dxf(f"{base}.dxf")
-
-    def ZoomWindow(self, p1, p2):
-        self.zoomed.append((tuple(p1), tuple(p2)))
-
-
-@pytest.fixture
-def seat(monkeypatch):
-    fake = _ExportingSeat()
-    monkeypatch.setattr(cb, "_acad_app", lambda: fake)
-    return fake
-
-
-@pytest.fixture
-def com(seat):
-    backend = cb.ComBackend()
-    backend._executor = DaemonExecutor(max_workers=1, name="test-sta")  # no CoInitialize
-    backend._connected = True
-    yield backend
-    if backend._executor is not None:
-        backend._executor.shutdown(wait=False)
-        backend._executor = None
-
-
-def _pixels(png: bytes) -> bytes:
-    return Image.open(io.BytesIO(png)).convert("RGB").tobytes()
-
-
-@pytest.mark.asyncio
-async def test_a_live_region_is_the_headless_render_of_the_exported_dxf(com, tmp_path):
-    report = await com.view_render(region=[-10, -10, 10, 10], max_px=256)
-    assert report["source"] == "export_snapshot"
-    assert report["applied"] is True
-    assert report["snapshot"] == "live:First.dwg"
-    assert report["px"] == [256, 256]
-
-    same = tmp_path / "same.dxf"
-    _two_circle_dxf(str(same))
-    headless = render_dxf_file(str(same), region=(-10.0, -10.0, 10.0, 10.0), max_px=256)
-    assert _pixels(report["png"]) == _pixels(headless["png"])
-    assert report["region"] == headless["region"]
-    assert report["px_per_unit"] == headless["px_per_unit"]
-
-
-@pytest.mark.asyncio
-async def test_a_live_region_after_a_tab_switch_is_refused(com, seat):
-    await com.system_get_variable("LTSCALE")  # bound to First.dwg
-    seat.ActiveDocument = seat.second
-    with pytest.raises(ActiveDocumentChangedError):
-        await com.view_render(region=[-10, -10, 10, 10], max_px=128)
-
-
-@pytest.mark.asyncio
-async def test_without_a_region_the_live_engine_captures_the_window(com, monkeypatch):
-    buf = io.BytesIO()
-    Image.new("RGB", (3000, 1500), "white").save(buf, format="PNG")
-    monkeypatch.setattr(cb, "_find_autocad_hwnd", lambda: 1234)
-    monkeypatch.setattr(cb, "_capture_window", lambda hwnd: buf.getvalue())
-    report = await com.view_render(max_px=600)
-    assert report["source"] == "window"
-    assert report["applied"] is True and report["framing"] == "current_view"
-    assert report["px"] == [600, 300], "max_px is obeyed on a capture too"
-    assert png_size(report["png"]) == (600, 300)
-    assert report["region"] is None and report["px_per_unit"] is None
-
-
-@pytest.mark.asyncio
-async def test_live_handle_labels_are_still_refused(com):
-    with pytest.raises(UnsupportedCapabilityError) as refused:
-        await com.view_render(region=[0, 0, 1, 1], overlay_handles=True)
-    assert refused.value.capability == "handle_overlay"

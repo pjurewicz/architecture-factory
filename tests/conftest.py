@@ -10,12 +10,9 @@ from backends.ezdxf_backend import EzdxfBackend
 def pin_headless_backend(request, monkeypatch):
     """Every test talks to the headless engine unless it says otherwise.
 
-    This suite runs on developer machines that have AutoCAD installed, and a
-    test that opens ``Client(server.mcp)`` without pinning would run the real
-    lifespan: ``AUTOCAD_MCP_BACKEND`` unset means ``auto``, which on Windows
-    means attaching to the operator's open, unsaved drawing and creating
-    entities in it. That has actually happened here. Defaulting the whole suite
-    to ``ezdxf`` is the only guard that covers tests nobody has written yet.
+    A test that opens ``Client(server.mcp)`` runs the real lifespan, which
+    reads ``AUTOCAD_MCP_BACKEND``; pinning it keeps a developer's environment
+    out of the suite.
 
     Opt out with ``@pytest.mark.live_backend`` for a test that deliberately
     exercises backend selection.
@@ -98,18 +95,6 @@ def full_catalog(request):
         module._apply_discovery_mode()
 
 
-@pytest.fixture(autouse=True)
-def no_dwg_converter(monkeypatch):
-    """No test spawns AutoCAD's accoreconsole unless it says so (K1, 1.8.0).
-
-    Unset, ``ACCORECONSOLE_PATH`` means AutoCAD 2026's installed console when it
-    exists, so on a developer machine with AutoCAD every ``drawing_open`` of a
-    ``.dwg`` would start a real AutoCAD engine. ``tests/test_dwg_read.py`` sets
-    the variable itself, to a fake or to the real executable.
-    """
-    monkeypatch.setenv("ACCORECONSOLE_PATH", "off")
-
-
 def pytest_configure(config):
     config.addinivalue_line(
         "markers",
@@ -130,12 +115,9 @@ async def backend():
 class WithoutPrivateState:
     """The real backend with its ezdxf-only private attributes taken away.
 
-    ``EzdxfBackend`` tracks the current tab in ``self._current_space``;
-    ``ComBackend`` does not -- the live tab lives in AutoCAD
-    (``doc.ActiveLayout``), so there is nothing of that name on it. Shared code
-    that reaches for the private attribute therefore silently takes the
-    ``getattr`` default on every live seat, and no ezdxf-backed test can see
-    it. Wrapping the real backend (rather than writing a fake that owns members
+    ``EzdxfBackend`` tracks the current tab in ``self._current_space``; shared
+    code must not reach for that private attribute (it silently takes the
+    ``getattr`` default on any backend without it). Wrapping the real backend (rather than writing a fake that owns members
     the real object never had) keeps every other call honest.
     """
 

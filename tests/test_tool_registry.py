@@ -205,8 +205,7 @@ async def test_drawing_open_refuses_a_dwg_the_backend_cannot_read(backend, tmp_p
     answers ``{"ok": True, "name": "part.dwg"}`` — a document that does not
     exist in that format.
 
-    K1 (1.8.0): with no DWG converter (conftest switches accoreconsole off,
-    and no ODA File Converter is installed) it is a ``dwg_read`` capability
+    K1 (1.8.0): with no DWG converter (no ODA File Converter is installed) it is a ``dwg_read`` capability
     refusal - the typed boundary, not a ToolError sentence.
     """
     dxf = await _saved_dxf(backend, tmp_path)
@@ -222,7 +221,7 @@ async def test_drawing_open_refuses_a_dwg_the_backend_cannot_read(backend, tmp_p
     # Blames the backend's missing capability and names the escape hatch,
     # rather than ezdxf's bare "is not a DXF file".
     assert "ezdxf" in message
-    assert "com" in message
+    assert "oda" in message
 
 
 async def test_drawing_open_refuses_a_real_dwg_without_leaking_a_parser_error(backend, tmp_path):
@@ -283,7 +282,7 @@ async def test_drawing_open_does_not_advertise_unconditional_dwg():
     for param in (tool.parameters or {}).get("properties", {}).values():
         text += " " + str(param.get("description", "")).lower()
     assert "dwg" in text, "DWG support should still be discoverable"
-    assert "com" in text, "but qualified by the backend that actually has it"
+    assert "oda" in text, "but qualified by the converter it needs"
 
 
 # ── @cad_tool — the discovery metadata channel ──────────────────────────────

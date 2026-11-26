@@ -513,30 +513,6 @@ def test_merge_changes_nets_a_batch_and_stays_honest_about_completeness():
     assert merge_changes([]) is None
 
 
-def test_the_live_engine_is_summarised_from_its_returned_handles():
-    """A backend without change_mark (ComBackend): the handles its result
-    returned, complete:false - ActiveX has no handle seed to diff."""
-    from types import SimpleNamespace
-
-    class Live:
-        name = "com"
-
-    mark = server._change_mark(Live(), "entity_create_line")
-    assert mark == "result"
-    result = SimpleNamespace(structured_content={"handle": "2A1", "type": "LINE"})
-    summary = server._change_summary(Live(), "entity_create_line", mark, result)
-    assert summary == {
-        "added": ["2A1"],
-        "deleted": [],
-        "counts": {"returned": {"added": 1}},
-        "complete": False,
-        "basis": "returned_handles",
-    }
-    assert server._change_mark(Live(), "entity_list") is None, "a read is never marked"
-    refused = SimpleNamespace(structured_content={"ok": False, "handle": "2A1"})
-    assert server._change_summary(Live(), "entity_create_line", mark, refused) is None
-
-
 @pytest.mark.asyncio
 async def test_a_call_whose_final_state_a_kill_lost_is_bounded_by_the_next_call(tmp_path):
     """The journal flushes final states in batches: a kill inside that window
@@ -571,39 +547,3 @@ async def test_a_call_whose_final_state_a_kill_lost_is_bounded_by_the_next_call(
     assert row["state"] == "unknown_commit"
     assert row["diff"]["span"]["after_inferred"] is True and row["diff"]["span"]["exact"] is False
     assert row["diff"]["changed"][0]["changes"]["radius"] == {"from": 5.0, "to": 6.0}
-
-
-@pytest.mark.asyncio
-async def test_live_rows_of_an_earlier_bind_are_found_by_the_lineage():
-    """The live engine's document_id is per bind; the lineage is what a reopened
-    file keeps. Rows of an earlier process's bind are listed; their checkpoint
-    diff is refused by reason - the revisions counted from another start."""
-    from backends.journal_store import open_journal
-    from engineering.history import history
-
-    journal = open_journal()
-    first = {"document_id": "bind-1", "revision": 3, "lineage_id": "L1"}
-    record, _ = journal.begin("entity_create_line", {"x1": 0}, document=first, label="round 2")
-    journal.finish(record, "committed", document={**first, "revision": 4})
-    journal.close()  # the process ends
-
-    class Live:
-        name = "com"
-
-        def document_identity(self):
-            return {"document_id": "bind-2", "revision": 0}
-
-        def active_lineage(self):
-            return "L1"
-
-        async def checkpoint_list(self, limit=1):
-            return {"lineage_id": "L1"}
-
-    restarted = open_journal()
-    try:
-        found = await history(Live(), restarted, label="round 2", detail="changes")
-    finally:
-        restarted.close()
-    (row,) = found["rows"]
-    assert row["tool"] == "entity_create_line" and row["label"] == "round 2"
-    assert row["diff"]["available"] is False and "earlier binding" in row["diff"]["reason"]

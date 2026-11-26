@@ -1,4 +1,4 @@
-"""Per-connection call metrics and the live engine's per-job breakdown (1.8-14).
+"""Per-connection call metrics (1.8-14).
 
 ``AuditMiddleware`` records every top-level tool call of a connection here -
 the call, its tool, the bytes of text it returned, its error kind and its
@@ -6,13 +6,9 @@ latency - and ``system_status(metrics=True)`` reads the connection's snapshot.
 Nothing is reported unless asked: the default status payload and the idle
 catalog pay nothing for it.
 
-``RunBreakdown`` is the live engine's twin: ``ComBackend._run`` splits each STA
-job into queue / guard / work / refresh / counter milliseconds, reported under
-the same flag.
-
 Everything is bounded and in memory: at most :data:`MAX_SESSIONS` connections
 (the oldest is forgotten first) and :data:`MAX_SAMPLES` latencies per
-connection or bucket. Recording never fails a call.
+connection. Recording never fails a call.
 """
 
 from __future__ import annotations
@@ -26,11 +22,8 @@ from typing import Any
 #: Connections remembered at once; a server with more forgets the oldest.
 MAX_SESSIONS = 64
 
-#: Latency samples kept per connection (and per breakdown bucket) for p50/p95.
+#: Latency samples kept per connection for p50/p95.
 MAX_SAMPLES = 2048
-
-#: The parts of one live-engine job, in the order they happen.
-RUN_BUCKETS = ("queue", "guard", "work", "refresh", "counter")
 
 
 def percentile(values: Iterable[float], q: float) -> float | None:
@@ -128,37 +121,3 @@ class SessionMetricsRegistry:
 
 #: The server's registry (one per process).
 SESSION_METRICS = SessionMetricsRegistry()
-
-
-class RunBreakdown:
-    """Per-bucket milliseconds of the live engine's STA jobs."""
-
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self.jobs = 0
-        self._totals = dict.fromkeys(RUN_BUCKETS, 0.0)
-        self._samples = {bucket: collections.deque(maxlen=MAX_SAMPLES) for bucket in RUN_BUCKETS}
-
-    def record(self, **ms: float) -> None:
-        with self._lock:
-            self.jobs += 1
-            for bucket in RUN_BUCKETS:
-                value = max(0.0, float(ms.get(bucket, 0.0)))
-                self._totals[bucket] += value
-                self._samples[bucket].append(value)
-
-    def snapshot(self) -> dict[str, Any]:
-        with self._lock:
-            if not self.jobs:
-                return {"jobs": 0, "ms": {}}
-            return {
-                "jobs": self.jobs,
-                "ms": {
-                    bucket: {
-                        "p50": round(percentile(self._samples[bucket], 50) or 0.0, 3),
-                        "p95": round(percentile(self._samples[bucket], 95) or 0.0, 3),
-                        "total": round(self._totals[bucket], 3),
-                    }
-                    for bucket in RUN_BUCKETS
-                },
-            }

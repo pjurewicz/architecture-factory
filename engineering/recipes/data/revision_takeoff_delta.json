@@ -5,7 +5,7 @@
   "title": "Revision pair: pipe takeoff delta",
   "summary": "Take the pipe quantities off two revisions of a P&ID against the same layout, compare the two revisions entity by entity, and report how the totals moved.",
   "preconditions": {
-    "backends": ["ezdxf", "com"],
+    "backends": ["ezdxf"],
     "capabilities": ["dxf"],
     "packs": ["core", "plant"],
     "profiles": ["full"],

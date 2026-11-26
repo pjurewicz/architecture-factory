@@ -1,8 +1,6 @@
-"""XDATA round trips, typing by group code, limits, removal — both engines."""
+"""XDATA round trips, typing by group code, limits, removal."""
 
 from __future__ import annotations
-
-import types
 
 import pytest
 
@@ -264,93 +262,3 @@ async def test_newline_is_refused_before_writing_and_snapshots_still_load(backen
     assert (await backend.entity_get_xdata(line.handle, "NOTES"))["xdata"] == {
         "NOTES": ["Inspect weld before paint"]
     }
-
-
-# ── live engine, fake ActiveX ────────────────────────────────────────────────
-
-
-class _FakeEntity:
-    def __init__(self):
-        self.stored: tuple | None = None
-
-    def SetXData(self, types_, values):
-        self.stored = (list(types_.value), list(values.value))
-
-    def GetXData(self, app):
-        if self.stored is None:
-            return ([], [])
-        codes, values = self.stored
-        if app:
-            return (codes, values)
-        return (codes, values)
-
-
-@pytest.fixture
-def com_backend(monkeypatch):
-    pytest.importorskip("win32com.client", reason="pywin32 not installed")
-    from backends import com_backend as module
-
-    entity = _FakeEntity()
-    registered: list[str] = []
-    document = types.SimpleNamespace(
-        HandleToObject=lambda handle: entity,
-        RegisteredApplications=types.SimpleNamespace(Add=registered.append),
-    )
-    monkeypatch.setattr(module, "_acad_doc", lambda: document)
-    backend = module.ComBackend()
-
-    async def _run_inline(func, *args, **kwargs):
-        return func(*args, **kwargs)
-
-    monkeypatch.setattr(backend, "_run", _run_inline)
-    return backend, entity, registered
-
-
-async def test_com_set_writes_the_1001_marker_first(com_backend):
-    backend, entity, registered = com_backend
-    await backend.entity_set_xdata("2F", "ACADMCP_PID", ["json", 3, [1, 2]])
-    assert registered == ["ACADMCP_PID"]
-    codes, values = entity.stored
-    assert codes == [1001, 1000, 1071, 1010]
-    assert values[0] == "ACADMCP_PID" and values[1] == "json" and values[2] == 3
-    assert tuple(values[3].value) == (1.0, 2.0, 0.0)
-
-
-async def test_com_get_splits_by_app(com_backend):
-    backend, entity, _ = com_backend
-    await backend.entity_set_xdata("2F", "ACADMCP_PID", ["json"])
-    got = await backend.entity_get_xdata("2F", "ACADMCP_PID")
-    assert got["xdata"] == {"ACADMCP_PID": ["json"]}
-
-
-async def test_com_empty_values_write_only_the_marker(com_backend):
-    backend, entity, _ = com_backend
-    result = await backend.entity_set_xdata("2F", "ACADMCP_PID", [])
-    assert result["removed"] is True
-    assert entity.stored == ([1001], ["ACADMCP_PID"])
-
-
-async def test_com_budget_reads_the_whole_stream_before_writing(com_backend):
-    backend, entity, registered = com_backend
-    # Pretend AutoCAD already holds 15 KB under APP_A (and ACAD overrides).
-    entity.stored = (
-        [1001, 1070, 1001] + [1000] * 60,
-        ["ACAD", 271, "APP_A"] + ["x" * 255] * 60,
-    )
-    with pytest.raises(ValueError, match=r"other applications.*16 KB per entity"):
-        await backend.entity_set_xdata("2F", "APP_B", ["y" * 255] * 5)
-    # Refused before RegisteredApplications.Add and SetXData.
-    assert registered == [] and entity.stored[1][2] == "APP_A" and len(entity.stored[0]) == 63
-    # Rewriting APP_A itself is judged without its old payload.
-    result = await backend.entity_set_xdata("2F", "APP_A", ["z" * 255] * 60)
-    assert result["ok"] is True and registered == ["APP_A"]
-    # Removal always goes through.
-    result = await backend.entity_set_xdata("2F", "APP_B", [])
-    assert result["removed"] is True and result["bytes"] == 0
-
-
-async def test_com_newline_is_refused_before_any_activex_call(com_backend):
-    backend, entity, registered = com_backend
-    with pytest.raises(ValueError, match="line separators are not allowed"):
-        await backend.entity_set_xdata("2F", "NOTES", ["a\r\nb"])
-    assert entity.stored is None and registered == []

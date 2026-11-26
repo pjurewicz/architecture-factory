@@ -64,13 +64,11 @@ from __future__ import annotations
 
 import asyncio
 import math
-import shutil
-import tempfile
 from pathlib import Path
 
 from backends.capability import UnsupportedCapabilityError
 from engineering.understand.diff import diff_snapshots
-from engineering.understand.snapshot import Snapshot, dxf_version_of, read_snapshot, take_snapshot
+from engineering.understand.snapshot import Snapshot, dxf_version_of, read_snapshot
 from engineering.verification.binding import bind, bind_dimension
 from engineering.verification.measure import default_epsilon, evaluate
 from engineering.verification.observe import observe
@@ -121,26 +119,11 @@ async def _fresh_snapshot(target: Path, backend) -> tuple[Snapshot, str]:
         ), "ezdxf.readfile"
     if suffix != ".dwg":
         raise ValueError(f"{target}: a saved artifact is a .dxf or a .dwg, not {suffix or 'this'}")
-    if backend is None or backend.name != "com":
-        raise UnsupportedCapabilityError(
-            "dwg",
-            f"{target} is a DWG, which the headless engine cannot read. Verify the drawing's "
-            ".dxf copy, or run the server on the live engine (AUTOCAD_MCP_BACKEND=com).",
-        )
-    folder = tempfile.mkdtemp(prefix="acadmcp_verify_")
-    try:
-        copy = Path(folder) / target.name
-        try:
-            await asyncio.to_thread(shutil.copy2, target, copy)
-        except OSError as exc:
-            raise ArtifactReadError(
-                f"{target}: could not take a private copy of the saved file to read it fresh "
-                f"({exc}); AutoCAD may hold it locked - save a .dxf copy and verify that"
-            ) from exc
-        snap = await take_snapshot(backend, str(copy), block_defs=True)
-        return snap, "private copy, Documents.Open read-only + Document.Export"
-    finally:
-        shutil.rmtree(folder, ignore_errors=True)
+    raise UnsupportedCapabilityError(
+        "dwg",
+        f"{target} is a DWG, which the headless engine cannot read. Verify the drawing's "
+        ".dxf copy.",
+    )
 
 
 def _same(a, b, eps: float) -> bool:

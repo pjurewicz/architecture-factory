@@ -69,21 +69,9 @@ Changelog = "https://github.com/U-C4N/Autocad-MCP/blob/main/CHANGELOG.md"
 # Rendering needs an extra — the core install cannot draw pixels.
 # ezdxf.addons.drawing.frontend does an unconditional top-level `import
 # PIL.Image`, so Pillow is required by *every* ezdxf render path (PNG
-# screenshot and PDF export alike), not only by the COM window-capture path
-# it is listed under below. `pip install autocad-mcp-pro` on its own therefore
+# screenshot and PDF export alike). `pip install autocad-mcp-pro` on its own therefore
 # renders nothing. Install `[pdf]` (or `[full]`) for rendering on any platform:
 # Pillow comes in transitively as a matplotlib dependency.
-com = [
-    # pywin32 publishes Windows wheels and no sdist, so without this marker
-    # the extra cannot be resolved at all on Linux or macOS -- pip dies at
-    # "no matching distribution" before installing anything. The marker
-    # makes `pip install autocad-mcp-pro[com]` a no-op there instead of a
-    # hard failure, which is the honest outcome: the COM backend needs
-    # Windows, and the server already falls back to ezdxf.
-    'pywin32>=306; sys_platform == "win32"',
-    # Win32 window capture for the live-AutoCAD screenshot path.
-    "Pillow>=10.0",
-]
 pdf = [
     # Also satisfies ezdxf's hard Pillow requirement, transitively.
     "matplotlib>=3.8",
@@ -95,10 +83,6 @@ office = [
     "openpyxl>=3.1",
 ]
 full = [
-    # Same marker as `com` above, and for the same reason: `[full]` is the
-    # extra this project recommends to contributors, and it was
-    # uninstallable on every non-Windows machine.
-    'pywin32>=306; sys_platform == "win32"',
     "Pillow>=10.0",
     "matplotlib>=3.8",
     "openpyxl>=3.1",

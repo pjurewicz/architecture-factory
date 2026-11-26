@@ -5,11 +5,9 @@ from __future__ import annotations
 import asyncio
 import subprocess
 import sys
-from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from benchmarks.adapters.autocad_mcp_pro import AutoCADMCPProAdapter
 from benchmarks.adapters.base import BenchmarkAdapter, TaskResult
 from benchmarks.run_competitors import run_tasks
 from benchmarks.tasks_v2 import TaskSpec
@@ -81,18 +79,6 @@ def test_task_result_has_machine_readable_status():
         "stdout_summary": "",
         "stderr_summary": "",
     }
-
-
-@pytest.mark.asyncio
-async def test_reference_adapter_selects_real_com_backend_class(tmp_path):
-    with patch("backends.com_backend.ComBackend") as backend_class:
-        backend_class.return_value.connect = AsyncMock()
-        adapter = AutoCADMCPProAdapter(backend="com")
-
-        await adapter.setup(tmp_path)
-
-    backend_class.assert_called_once_with()
-    assert adapter.backend is backend_class.return_value
 
 
 @pytest.mark.parametrize("args", [[], ["--help"]])

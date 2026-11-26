@@ -248,27 +248,17 @@ def test_dockerfile_copies_every_wheel_include() -> None:
     assert not missing, f"Dockerfile COPY misses wheel-shipped paths: {missing}"
 
 
-def test_windows_only_dependencies_carry_a_platform_marker() -> None:
-    """`pip install autocad-mcp-pro[full]` must resolve on Linux and macOS.
-
-    pywin32 publishes Windows wheels and **no sdist**, so an unmarked
-    `pywin32>=306` in an extra makes that extra uninstallable everywhere else:
-    pip fails at resolution with "no matching distribution" before it reaches
-    anything else. `[full]` is the extra this project's own README recommends
-    to contributors, and CI never caught it because every Linux lane installs
-    `[pdf]` or uses uv.lock, whose resolution markers paper over the gap.
-    """
+def test_no_dependency_brings_back_the_live_engine() -> None:
+    """The live COM engine was removed from this fork; pywin32 (Windows wheels
+    only, no sdist) must not come back through any extra."""
     extras = _pyproject()["project"]["optional-dependencies"]
-    unmarked: list[str] = []
-    for extra, requirements in extras.items():
-        for requirement in requirements:
-            name = re.split(r"[<>=!~\[; ]", requirement, maxsplit=1)[0].strip().lower()
-            if name in {"pywin32"} and "sys_platform" not in requirement:
-                unmarked.append(f"{extra}: {requirement}")
-    assert not unmarked, (
-        'Windows-only distributions need `; sys_platform == "win32"` or the '
-        f"extra cannot be installed off Windows: {unmarked}"
-    )
+    found = [
+        f"{extra}: {requirement}"
+        for extra, requirements in extras.items()
+        for requirement in requirements
+        if re.split(r"[<>=!~\[; ]", requirement, maxsplit=1)[0].strip().lower() == "pywin32"
+    ]
+    assert "com" not in extras and not found, found
 
 
 def test_document_numbers_match_the_tree() -> None:
@@ -323,14 +313,12 @@ def test_pre_commit_ruff_matches_the_project_pin() -> None:
 def test_the_release_gate_covers_the_platforms_ci_covers() -> None:
     """`release.yml` publishes to PyPI; a lane CI has and it lacks is a hole.
 
-    Its test job was one ubuntu/3.11 run, so a Windows-only defect could reach
-    PyPI with no Windows job having executed. v1.5.0 shipped exactly such a
-    defect (`except pywintypes.com_error` -> NameError without pywin32).
+    Its test job was one ubuntu/3.11 run. (The Windows lane left with the live
+    COM engine; this fork is headless only.)
     """
     release = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     gate = release.split("build:", 1)[0]
 
-    assert "windows-latest" in gate, "the release test gate never runs on Windows"
     assert "3.12" in gate, "the release test gate never runs on Python 3.12"
     assert "uv sync --locked" in gate, "the release gate must install from the lockfile"
 

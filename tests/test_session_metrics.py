@@ -111,15 +111,6 @@ async def test_with_the_flag_off_the_status_payload_is_unchanged(ezdxf_env):
     assert plain == off
 
 
-@pytest.mark.asyncio
-async def test_the_headless_engine_says_it_has_no_com_breakdown(ezdxf_env):
-    async with Client(server.mcp) as client:
-        status = await client.call_tool("system_status", {"metrics": True})
-    metrics = status.structured_content["metrics"]
-    assert metrics["com_run"] is None
-    assert "headless" in metrics["com_run_reason"]
-
-
 # ── the pure aggregates ─────────────────────────────────────────────────────
 
 
@@ -144,14 +135,3 @@ def test_an_unknown_session_reads_as_zero_never_raises():
     snapshot = sm.SessionMetricsRegistry().snapshot("never-seen")
     assert snapshot["calls"] == 0
     assert snapshot["p50_ms"] is None
-
-
-def test_the_run_breakdown_aggregate_reports_every_bucket():
-    breakdown = sm.RunBreakdown()
-    assert breakdown.snapshot() == {"jobs": 0, "ms": {}}
-    breakdown.record(queue=1.0, guard=2.0, work=3.0, refresh=4.0, counter=5.0)
-    breakdown.record(queue=3.0, guard=2.0, work=1.0, refresh=0.0, counter=1.0)
-    snapshot = breakdown.snapshot()
-    assert snapshot["jobs"] == 2
-    assert list(snapshot["ms"]) == list(sm.RUN_BUCKETS)
-    assert snapshot["ms"]["queue"] == {"p50": 1.0, "p95": 3.0, "total": 4.0}

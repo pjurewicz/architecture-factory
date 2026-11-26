@@ -21,11 +21,8 @@ env:
 
 jobs:
   test:
-    # The same three lanes as ci.yml, not one. This job was a single
-    # ubuntu/3.11 run, so a Windows-only defect could reach PyPI without any
-    # Windows job having executed -- which is not hypothetical: v1.5.0 shipped
-    # with `except pywintypes.com_error` raising NameError wherever pywin32 is
-    # absent, and only the Linux legs of ci.yml caught it.
+    # The same lanes as ci.yml. The fork runs only on Linux / macOS servers,
+    # so the Windows lane left with the live COM engine.
     strategy:
       fail-fast: true
       matrix:
@@ -36,9 +33,6 @@ jobs:
           - os: ubuntu-latest
             python-version: "3.12"
             extra: pdf
-          - os: windows-latest
-            python-version: "3.11"
-            extra: full
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

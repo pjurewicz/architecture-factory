@@ -172,11 +172,8 @@ def resolve_template(name_or_path: str, engine: str) -> tuple[str, str]:
     key = raw.lower()
     if key in TEMPLATE_CATALOG:
         dxf = TEMPLATES_DIR / f"{key}.dxf"
-        dwt = TEMPLATES_DIR / f"{key}.dwt"
-        if engine == "com" and dwt.is_file():
-            return str(dwt), "bundled"
         if dxf.is_file():
-            return str(dxf), "bundled" if engine != "com" else "bundled_dxf"
+            return str(dxf), "bundled"
         raise ValueError(
             f"template {key!r} is in the catalogue but {dxf} is missing — run "
             "`uv run --frozen python scripts/build_templates.py`"

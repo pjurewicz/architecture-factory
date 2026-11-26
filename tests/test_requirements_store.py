@@ -2,11 +2,7 @@
 
 The set is written into the drawing (an XRECORD ``CURRENT`` inside the
 ``ACADMCP_REQUIREMENTS`` dictionary, the layer-states pattern), so a saved and
-reopened file carries its requirements. The live path runs against a fake
-ActiveX surface that models only members measured on AutoCAD 2026 (the
-layer-states fakes: ``Dictionaries.Item`` / ``Add``, ``AddXRecord``,
-``SetXRecordData`` / ``GetXRecordData``, ``Count`` / ``Item`` / ``GetName``,
-and the makepy narrowing of ``Dictionaries.Item``).
+reopened file carries its requirements.
 """
 
 from __future__ import annotations
@@ -112,117 +108,6 @@ async def test_a_legacy_only_set_is_stored_as_given(backend):
     loaded = await load_requirements(backend)
     assert loaded.requirements == () and thaw(loaded.legacy) == {"width": 80.0}
     assert plan.requirement_digest == loaded.digest()
-
-
-# ── live engine, against a fake ActiveX surface ──────────────────────────────
-
-
-class _FakeXRecord:
-    def __init__(self, name):
-        self.name = name
-        self.types = None
-        self.values = None
-
-    def SetXRecordData(self, types_, values):
-        self.types, self.values = list(types_), list(values)
-
-    def GetXRecordData(self):
-        return self.types, self.values
-
-
-class _Narrowed:
-    """``IAcadDictionaries.Item`` / ``IAcadDictionary.Item`` with a makepy cache:
-    the declared ``IAcadObject`` wrapper, the live object only via ``_oleobj_``."""
-
-    def __init__(self, obj):
-        self._oleobj_ = obj
-
-    def __getattr__(self, name):
-        raise AttributeError(f"'IAcadObject' object has no attribute {name!r}")
-
-
-class _FakeDict:
-    def __init__(self, name):
-        self.Name = name
-        self.entries: list[_FakeXRecord] = []
-        self.calls: list[tuple[str, tuple]] = []
-
-    @property
-    def Count(self):
-        return len(self.entries)
-
-    def Item(self, index):
-        return _Narrowed(self.entries[index])
-
-    def GetName(self, obj):
-        return obj.name
-
-    def AddXRecord(self, keyword):
-        self.calls.append(("AddXRecord", (keyword,)))
-        record = _FakeXRecord(keyword)
-        self.entries.append(record)
-        return record
-
-
-class _FakeDictionaries:
-    def __init__(self):
-        self.dicts: dict[str, _FakeDict] = {}
-        self.calls: list[tuple[str, tuple]] = []
-
-    def Item(self, name):
-        self.calls.append(("Item", (name,)))
-        if name not in self.dicts:
-            raise RuntimeError(f"no dictionary {name}")
-        return _Narrowed(self.dicts[name])
-
-    def Add(self, name):
-        self.calls.append(("Add", (name,)))
-        self.dicts[name] = _FakeDict(name)
-        return self.dicts[name]
-
-
-class _FakeDocument:
-    def __init__(self):
-        self.Dictionaries = _FakeDictionaries()
-
-
-@pytest.fixture
-def com_store(monkeypatch):
-    pytest.importorskip("win32com.client", reason="pywin32 not installed")
-    from backends import com_backend as module
-
-    document = _FakeDocument()
-    monkeypatch.setattr(module, "_acad_doc", lambda: document)
-    monkeypatch.setattr(module, "_ai", lambda values: list(values))
-    monkeypatch.setattr(module, "_avar", lambda values: list(values))
-    backend = module.ComBackend()
-
-    async def _run_inline(func, *args, **kwargs):
-        module._note_reached()  # what the real `_run` notes when it hands a job over
-        return func(*args, **kwargs)
-
-    monkeypatch.setattr(backend, "_run", _run_inline)
-    backend._bind_key(("Part.dwg", "C:/work/Part.dwg"))
-    return backend, document
-
-
-async def test_the_live_engine_writes_one_xrecord_and_reads_it_back(com_store):
-    backend, document = com_store
-    rs = parse_requirements({"units": "mm", "items": _ITEMS})
-    stored = await store_requirements(backend, rs)
-    assert (stored["replaced"], stored["backend"]) == (False, "com")
-    assert document.Dictionaries.calls == [
-        ("Item", ("ACADMCP_REQUIREMENTS",)),
-        ("Add", ("ACADMCP_REQUIREMENTS",)),
-    ]
-    holder = document.Dictionaries.dicts["ACADMCP_REQUIREMENTS"]
-    (record,) = holder.entries
-    assert record.name == "CURRENT" and record.types == [1000] * len(record.values)
-    assert all(len(value) <= 255 for value in record.values)
-    assert backend.document_identity()["revision"] == 1, "a stored record is a content change"
-    assert await load_requirements(backend) == rs
-    again = await store_requirements(backend, rs)
-    assert again["replaced"] is True and len(holder.entries) == 1
 
 
 async def test_the_tool_takes_persist_requirements():

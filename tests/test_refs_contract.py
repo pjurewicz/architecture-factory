@@ -1,8 +1,8 @@
-"""External references, raster images and DWG output on both engines.
+"""External references, raster images and DWG output on the headless engine.
 
 The three capability keys are the point of this file: a refusal the feature map
 never mentions is a lie by omission, so every key raised here is asserted to be
-declared on both backends.
+declared in the backend's capability map.
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ from pathlib import Path
 import pytest
 
 from backends.base import AutoCADBackend, UnsupportedCapabilityError
-from backends.com_backend import ComBackend
 from backends.contracts.refs import (
     DWG_VERSIONS,
     XREF_ACTIONS,
@@ -22,11 +21,6 @@ from backends.contracts.refs import (
 )
 from backends.ezdxf_backend import EzdxfBackend
 
-#: A path that marshals a point or an object array builds a real pywin32 VARIANT,
-#: and pywin32 exists only on Windows. The Windows lane runs these; elsewhere
-#: they skip, like the suite's other VARIANT-dependent COM tests.
-needs_pywin32 = pytest.mark.skipif(find_spec("win32com") is None, reason="pywin32 not installed")
-
 TRACK_G_KEYS = ("dwg_write", "xref_live", "xlsx_write")
 
 
@@ -34,27 +28,21 @@ def _features(backend) -> dict:
     return backend.capabilities().to_dict()["features"]
 
 
-def test_the_contract_is_composed_into_both_backends():
+def test_the_contract_is_composed_into_the_backend():
     assert issubclass(AutoCADBackend, RefsContract)
     assert issubclass(EzdxfBackend, RefsContract)
-    assert issubclass(ComBackend, RefsContract)
     for name in ("xref_attach", "xref_manage", "image_attach", "drawing_export_dwg"):
         assert callable(getattr(AutoCADBackend, name, None)), name
 
 
-def test_the_three_keys_are_declared_in_both_capability_maps():
+def test_the_three_keys_are_declared_in_the_capability_map():
     ezdxf_features = _features(EzdxfBackend())
-    com_features = _features(ComBackend())
     for key in TRACK_G_KEYS:
         assert key in ezdxf_features, f"{key} undeclared on ezdxf"
-        assert key in com_features, f"{key} undeclared on com"
 
 
-def test_com_declares_dwg_and_live_xrefs_and_ezdxf_does_not():
-    com_features = _features(ComBackend())
+def test_ezdxf_does_not_declare_live_xrefs():
     ezdxf_features = _features(EzdxfBackend())
-    assert com_features["dwg_write"]["supported"] is True
-    assert com_features["xref_live"]["supported"] is True
     assert ezdxf_features["xref_live"]["supported"] is False
     assert "live" in (ezdxf_features["xref_live"]["reason"] or "")
 
@@ -70,13 +58,12 @@ def test_ezdxf_dwg_write_is_re_evaluated_from_the_converter_not_hardcoded():
         assert "oda" in (feature["reason"] or "").lower()
 
 
-def test_xlsx_write_follows_openpyxl_on_both_engines():
+def test_xlsx_write_follows_openpyxl():
     present = find_spec("openpyxl") is not None
-    for backend in (EzdxfBackend(), ComBackend()):
-        feature = _features(backend)["xlsx_write"]
-        assert feature["supported"] is present, backend.name
-        if not present:
-            assert "openpyxl" in (feature["reason"] or "")
+    feature = _features(EzdxfBackend())["xlsx_write"]
+    assert feature["supported"] is present
+    if not present:
+        assert "openpyxl" in (feature["reason"] or "")
 
 
 def test_the_vocabularies_are_closed():
@@ -230,7 +217,7 @@ async def test_reload_and_bind_refuse_headlessly_with_the_xref_live_key(backend,
         with pytest.raises(UnsupportedCapabilityError) as excinfo:
             await backend.xref_manage("BASE", action, None)
         assert excinfo.value.capability == "xref_live"
-        assert "com" in str(excinfo.value).lower()
+        assert "autocad" in str(excinfo.value).lower()
 
 
 @pytest.mark.asyncio
@@ -289,241 +276,3 @@ async def test_an_unknown_dwg_version_is_refused_on_both_engines(backend, tmp_pa
     message = str(excinfo.value)
     assert "R14" in message
     assert "R2018" in message
-
-
-# -- COM, against fakes that model the measured ActiveX members --------------
-
-
-def _com_backend():
-    b = ComBackend()
-
-    async def _run(func, *args, **kwargs):  # bypass the single-thread executor
-        return func(*args, **kwargs)
-
-    b._run = _run
-    return b
-
-
-def _point(variant):
-    """The doubles a VARIANT point carries.
-
-    ``_apoint`` hands ActiveX a ``win32com.client.VARIANT``, and that object is
-    *not* iterable -- measured here:
-    ``tuple(VARIANT(VT_ARRAY | VT_R8, [1.0, 2.0, 0.0]))`` raises
-    ``TypeError: 'VARIANT' object is not iterable``. The real ModelSpace reads
-    the array behind it, so the fakes read ``.value`` rather than pretending
-    the argument is a plain sequence.
-    """
-    return tuple(getattr(variant, "value", variant))
-
-
-class _Block:
-    """Measured members of an AcadBlock that is an xref (AutoCAD 2026)."""
-
-    def __init__(self, name, path="", is_xref=True):
-        self.Name = name
-        self.Path = path
-        self.IsXRef = is_xref
-        self.calls = []
-
-    def Reload(self):
-        self.calls.append("Reload")
-
-    def Bind(self, bPrefixName):
-        self.calls.append(("Bind", bPrefixName))
-
-    def Detach(self):
-        self.calls.append("Detach")
-
-
-class _Blocks:
-    def __init__(self, blocks):
-        self._blocks = list(blocks)
-
-    def Item(self, index):
-        if isinstance(index, int):
-            return self._blocks[index]
-        for block in self._blocks:
-            if block.Name == index:
-                return block
-        raise KeyError(index)
-
-    @property
-    def Count(self):
-        return len(self._blocks)
-
-    def __iter__(self):
-        return iter(self._blocks)
-
-
-class _Ref:
-    def __init__(self, handle="7F"):
-        self.Handle = handle
-
-
-class _ModelSpace:
-    def __init__(self):
-        self.attached = []
-        self.rasters = []
-
-    def AttachExternalReference(
-        self, PathName, Name, InsertionPoint, Xscale, Yscale, Zscale, Rotation, bOverlay
-    ):
-        self.attached.append(
-            (PathName, Name, _point(InsertionPoint), Xscale, Yscale, Zscale, Rotation, bOverlay)
-        )
-        return _Ref("A1")
-
-    def AddRaster(self, imageFileName, InsertionPoint, ScaleFactor, RotationAngle):
-        self.rasters.append((imageFileName, _point(InsertionPoint), ScaleFactor, RotationAngle))
-        return _Ref("B2")
-
-
-class _ComDoc:
-    def __init__(self, blocks=()):
-        self.ModelSpace = _ModelSpace()
-        self.Blocks = _Blocks(blocks)
-        self.saved = []
-
-    def SaveAs(self, FullFileName, SaveAsType):
-        self.saved.append((FullFileName, SaveAsType))
-
-
-@pytest.mark.asyncio
-@needs_pywin32
-async def test_com_attach_calls_the_measured_member_with_radians(monkeypatch, external):
-    import math
-
-    import backends.com_backend as cb
-
-    doc = _ComDoc()
-    monkeypatch.setattr(cb, "_acad_doc", lambda: doc)
-    result = await _com_backend().xref_attach(external, (10.0, 20.0), 2.0, 90.0, "overlay")
-    assert result["handle"] == "A1"
-    path, name, insert, sx, sy, sz, rotation, overlay = doc.ModelSpace.attached[0]
-    assert name == "BASE" and overlay is True
-    assert (sx, sy, sz) == (2.0, 2.0, 2.0)
-    assert rotation == pytest.approx(math.pi / 2)
-    assert insert[:2] == (10.0, 20.0)
-
-
-@pytest.mark.asyncio
-async def test_com_manage_uses_reload_bind_detach_on_the_block(monkeypatch):
-    import backends.com_backend as cb
-
-    block = _Block("BASE", path="C:/refs/BASE.dwg")
-    doc = _ComDoc([block])
-    monkeypatch.setattr(cb, "_acad_doc", lambda: doc)
-    b = _com_backend()
-
-    assert (await b.xref_manage("BASE", "reload", None))["ok"] is True
-    assert (await b.xref_manage("BASE", "bind", None))["ok"] is True
-    assert (await b.xref_manage("BASE", "detach", None))["ok"] is True
-    assert block.calls == ["Reload", ("Bind", False), "Detach"]
-
-    listing = await b.xref_manage("", "list", None)
-    assert listing["xrefs"][0]["name"] == "BASE"
-    assert listing["xrefs"][0]["path"] == "C:/refs/BASE.dwg"
-
-
-@pytest.mark.asyncio
-async def test_com_list_reports_kind_as_unknown_rather_than_inventing_attach(monkeypatch):
-    """IAcadBlock has no overlay indicator.
-
-    Measured from the seat's own registered type library (acax25*.tlb,
-    "AutoCAD 2025 Type Library", installed with AutoCAD 2026): the xref
-    members are IsXRef, Path, Name, Reload, Unload, Bind, Detach,
-    XRefDatabase -- nothing says attach-vs-overlay. The fake therefore has no
-    such member either (a fake that models one enshrines the bug), and the
-    honest row says `None`, the way `inserts` already does.
-    """
-    import backends.com_backend as cb
-
-    doc = _ComDoc([_Block("BASE", path="C:/refs/BASE.dwg")])
-    monkeypatch.setattr(cb, "_acad_doc", lambda: doc)
-    row = (await _com_backend().xref_manage("", "list", None))["xrefs"][0]
-    assert row["kind"] is None
-    assert row["inserts"] is None
-    for invented in ("IsOverlay", "Overlay", "XRefType"):
-        assert not hasattr(doc.Blocks.Item("BASE"), invented)
-
-
-@pytest.mark.asyncio
-async def test_com_attach_refuses_a_name_the_drawing_already_holds(monkeypatch, external):
-    """The refusal the contract and the tool docstring both promise.
-
-    It has to be on this engine too, and it has to fire *before*
-    AttachExternalReference is dispatched -- a second attach under a held name
-    re-points or half-writes the definition while the payload still claims the
-    new path was attached.
-    """
-    import backends.com_backend as cb
-
-    doc = _ComDoc([_Block("BASE", path="C:/other/BASE.dwg")])
-    monkeypatch.setattr(cb, "_acad_doc", lambda: doc)
-    with pytest.raises(ValueError) as excinfo:
-        await _com_backend().xref_attach(external, (0.0, 0.0), 1.0, 0.0, "attach")
-    assert "BASE" in str(excinfo.value)
-    assert "detach" in str(excinfo.value)
-    assert doc.ModelSpace.attached == []
-
-
-@pytest.mark.asyncio
-async def test_com_attach_refuses_a_plain_block_of_the_same_name_case_insensitively(
-    monkeypatch, external
-):
-    """AutoCAD symbol-table names are case-insensitive and a collision is a
-    collision whether or not the block in the way is itself an xref."""
-    import backends.com_backend as cb
-
-    doc = _ComDoc([_Block("Base", is_xref=False)])
-    monkeypatch.setattr(cb, "_acad_doc", lambda: doc)
-    with pytest.raises(ValueError):
-        await _com_backend().xref_attach(external, (0.0, 0.0), 1.0, 0.0, "attach")
-    assert doc.ModelSpace.attached == []
-
-
-@pytest.mark.asyncio
-@needs_pywin32
-async def test_com_attach_still_works_when_no_block_of_that_name_exists(monkeypatch, external):
-    import backends.com_backend as cb
-
-    doc = _ComDoc([_Block("OTHER", is_xref=True)])
-    monkeypatch.setattr(cb, "_acad_doc", lambda: doc)
-    result = await _com_backend().xref_attach(external, (0.0, 0.0), 1.0, 0.0, "attach")
-    assert result["ok"] is True and result["name"] == "BASE"
-    assert len(doc.ModelSpace.attached) == 1
-
-
-@pytest.mark.asyncio
-@needs_pywin32
-async def test_com_raster_calls_addraster_with_radians(monkeypatch, tmp_path):
-    import math
-
-    from PIL import Image
-
-    import backends.com_backend as cb
-
-    png = tmp_path / "logo.png"
-    Image.new("RGB", (400, 200), "white").save(png)
-    doc = _ComDoc()
-    monkeypatch.setattr(cb, "_acad_doc", lambda: doc)
-    result = await _com_backend().image_attach(str(png), (1.0, 2.0), 0.5, 180.0)
-    assert result["handle"] == "B2"
-    name, insert, scale, rotation = doc.ModelSpace.rasters[0]
-    assert Path(name).name == "logo.png"
-    assert insert[:2] == (1.0, 2.0)
-    assert scale == 0.5
-    assert rotation == pytest.approx(math.pi)
-
-
-@pytest.mark.asyncio
-async def test_com_dwg_export_uses_the_measured_acsaveastype_values(monkeypatch, tmp_path):
-    import backends.com_backend as cb
-
-    doc = _ComDoc()
-    monkeypatch.setattr(cb, "_acad_doc", lambda: doc)
-    b = _com_backend()
-    await b.drawing_export_dwg(str(tmp_path / "a.dwg"), "R2018")
-    await b.drawing_export_dwg(str(tmp_path / "b.dwg"), "R2000")
-    assert [entry[1] for entry in doc.saved] == [64, 12]

@@ -5,7 +5,7 @@
   "title": "Layer clean-up: merge misnamed layers, clear overrides to ByLayer, prove it",
   "summary": "Move every entity of the misnamed layers onto one standard layer and delete them, set every entity's colour and lineweight back to ByLayer, and prove it with an empty iso128 / layer_color / property_override critique - one cad_batch, never one call per entity.",
   "preconditions": {
-    "backends": ["ezdxf", "com"],
+    "backends": ["ezdxf"],
     "capabilities": [],
     "packs": ["core"],
     "profiles": ["full"],

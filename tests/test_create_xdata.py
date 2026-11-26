@@ -1,17 +1,14 @@
 """Create calls that carry their own XDATA (B17): one call, one lock, one undo step.
 
 The mechanical generators tag every entity they draw; doing it with a second
-entity_set_xdata per entity would double the COM round trips and the headless
-undo snapshots. The tag rides in the create call instead.
+entity_set_xdata per entity would double the headless undo snapshots. The tag
+rides in the create call instead.
 """
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
 
-from backends.com_backend import ComBackend
 from backends.xdata_specs import prepare_xdata
 
 TAG = {"ACADMCP_MECH": ['{"kind":"feature","v":1}']}
@@ -66,75 +63,3 @@ async def test_a_refused_tag_creates_nothing(backend):
 async def test_an_untagged_create_call_is_unchanged(backend):
     info = await backend.entity_create_line(0, 0, 1, 0)
     assert (await backend.entity_get_xdata(info.handle))["xdata"] == {}
-
-
-class _FakeEntity:
-    def __init__(self, log, object_name, **members):
-        self._log = log
-        self.ObjectName = object_name
-        self.Handle = "2A"
-        self.Layer = "0"
-        self.color = 256
-        self.Linetype = "ByLayer"
-        self.Visible = True
-        for name, value in members.items():
-            setattr(self, name, value)
-
-    def GetBoundingBox(self):
-        return ((0.0, 0.0, 0.0), (1.0, 1.0, 0.0))
-
-    def SetXData(self, codes, values):
-        self._log.append(
-            (
-                "SetXData",
-                list(getattr(codes, "value", codes)),
-                list(getattr(values, "value", values)),
-            )
-        )
-
-
-def _com_seat(monkeypatch):
-    pytest.importorskip("win32com.client", reason="pywin32 not installed")
-    import backends.com_backend as cb
-
-    log: list = []
-    space = SimpleNamespace(
-        AddLine=lambda start, end: _FakeEntity(
-            log, "AcDbLine", StartPoint=(0.0, 0.0, 0.0), EndPoint=(1.0, 0.0, 0.0), Length=1.0
-        ),
-        AddCircle=lambda centre, radius: _FakeEntity(
-            log, "AcDbCircle", Center=(0.0, 0.0, 0.0), Radius=float(radius)
-        ),
-    )
-    doc = SimpleNamespace(
-        RegisteredApplications=SimpleNamespace(Add=lambda name: log.append(("Add", name))),
-        Regen=lambda viewport: None,
-    )
-    monkeypatch.setattr(cb, "_msp", lambda: space)
-    monkeypatch.setattr(cb, "_acad_doc", lambda: doc)
-    backend = ComBackend()
-    jobs: list = []
-
-    async def _run(func, *args, **kwargs):  # one call here is one COM job
-        jobs.append(func)
-        return func(*args, **kwargs)
-
-    backend._run = _run
-    return backend, log, jobs
-
-
-@pytest.mark.asyncio
-async def test_com_create_writes_the_tag_inside_the_same_job(monkeypatch):
-    backend, log, jobs = _com_seat(monkeypatch)
-    await backend.entity_create_line(0, 0, 1, 0, xdata=TAG)
-    await backend.entity_create_circle(0, 0, 2, xdata=TAG)
-    assert len(jobs) == 2
-    expected = ("SetXData", [1001, 1000], ["ACADMCP_MECH", '{"kind":"feature","v":1}'])
-    assert log == [("Add", "ACADMCP_MECH"), expected, ("Add", "ACADMCP_MECH"), expected]
-
-
-@pytest.mark.asyncio
-async def test_com_create_without_a_tag_writes_no_xdata(monkeypatch):
-    backend, log, jobs = _com_seat(monkeypatch)
-    await backend.entity_create_line(0, 0, 1, 0)
-    assert log == [] and len(jobs) == 1

@@ -65,19 +65,19 @@ Decided 2026-11-26. In order, each stage its own commit with the suite green:
 3. The COM engine itself (`backends/com_backend.py` and its helpers, the live
    branches in `engineering/`, the `COM_*` / `CAD_LAUNCH` settings, `pywin32`,
    the COM tests), the error kinds only it raises, and the `accoreconsole` DWG
-   route (ODA stays).
-4. One capability map instead of two.
+   route (ODA stays). **Done.**
+4. One capability map instead of two. **Done** with stage 3 (the capability
+   gate checks the ezdxf map alone).
 5. The live smokes, `scripts/live/`, the live claims in
    `scripts/check_doc_numbers.py` and the COM-only benchmark tasks.
-6. Documentation: CLAUDE.md, README, the skill and the plugin.
+6. Documentation: CLAUDE.md, README, the skill, the plugin, and the tool
+   docstrings that still describe the live engine.
 7. The cherry-pick procedure, with the upstream commit reviewed up to.
 
 The package name and version scheme stay as they are.
 
 ## Known gaps
 
-- `drawing_save_as` refuses a `.dwg` path headlessly; `drawing_export_dwg` is the
-  DWG writer, but the refusal does not name it.
 - `system_capabilities` reports `dwg: false` next to `dwg_write: true` when ODA is
   installed.
 - Three `tests/test_tool_registry.py::test_drawing_open_*` tests expect DWG reading

@@ -220,8 +220,7 @@ async def test_malformed_arguments_are_invalid_args_by_path(backend, where, set_
     assert classify(caught.value)["kind"] == "invalid_args"
 
 
-async def test_wcmatch_filters_escape_everything_but_star_and_question_mark():
-    assert se.wcmatch_any(("A-WALL", "B.*", "C#?")) == "A`-WALL,B`.*,C`#?"
+async def test_globs_match_only_star_and_question_mark():
     assert se.glob_matches(("a-w*",), "A-WALL") and not se.glob_matches(("A.B",), "AxB")
 
 

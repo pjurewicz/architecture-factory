@@ -188,9 +188,7 @@ async def test_by_default_undo_answers_from_the_checkpoint_store(backend):
     assert result["ok"] is False and result["source"] == "checkpoint"
 
 
-async def test_the_capability_is_declared_on_both_backends(monkeypatch):
-    from backends.com_backend import ComBackend
-
+async def test_the_capability_is_declared(monkeypatch):
     default = EzdxfBackend().capabilities().features["undo_history"]
     assert (default.supported, default.mode) == (True, "checkpoint")
     assert "EZDXF_UNDO_DEPTH" in (default.reason or "")
@@ -198,9 +196,6 @@ async def test_the_capability_is_declared_on_both_backends(monkeypatch):
     ezdxf_feature = EzdxfBackend().capabilities().features["undo_history"]
     assert ezdxf_feature.supported is False
     assert "EZDXF_UNDO_DEPTH" in (ezdxf_feature.reason or "")
-
-    # AutoCAD keeps its own undo journal, so the live backend needs no setting.
-    assert ComBackend().capabilities().features["undo_history"].supported is True
 
 
 async def test_switching_it_on_flips_the_capability(monkeypatch):

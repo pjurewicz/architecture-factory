@@ -7,8 +7,6 @@ then by geometry; a copied feature tag makes the binding ambiguous, which is
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import ezdxf
 import pytest
 
@@ -19,7 +17,7 @@ from engineering.mech.xdata import encode
 from engineering.understand.diff import diff_snapshots
 from engineering.understand.snapshot import read_snapshot
 from engineering.verification import artifact
-from engineering.verification.artifact import ArtifactReadError, verify_artifact
+from engineering.verification.artifact import verify_artifact
 from engineering.verification.report import verify_requirements
 from engineering.verification.types import FeatureSelector, Requirement, RequirementSet
 
@@ -176,48 +174,6 @@ async def test_a_dwg_on_the_headless_engine_is_refused(backend, tmp_path):
     with pytest.raises(UnsupportedCapabilityError) as raised:
         await verify_artifact(str(dwg), rs, backend=backend)
     assert raised.value.capability == "dwg"
-
-
-class _ComLike:
-    name = "com"
-
-
-@pytest.mark.asyncio
-async def test_a_live_dwg_is_read_from_a_private_copy(tmp_path, monkeypatch):
-    saved = tmp_path / "part.dwg"
-    saved.write_bytes(b"AC1032 synthetic")
-    fresh = tmp_path / "fresh.dxf"
-    _write(fresh, [("bore", 50, 50, 20, False)])
-    seen: dict = {}
-
-    async def fake_take_snapshot(backend, path=None, *, block_defs=False):
-        seen["path"] = Path(path)
-        seen["bytes"] = Path(path).read_bytes()
-        seen["block_defs"] = block_defs
-        return read_snapshot(str(fresh), block_defs=block_defs)
-
-    monkeypatch.setattr(artifact, "take_snapshot", fake_take_snapshot)
-    snap, method = await artifact._fresh_snapshot(saved, _ComLike())
-    assert seen["path"].name == "part.dwg"
-    assert seen["path"].parent != saved.parent, "AutoCAD opens a copy, never the saved file"
-    assert seen["bytes"] == b"AC1032 synthetic"
-    assert seen["block_defs"] is True, "observe() needs the block definitions to explode INSERTs"
-    assert not seen["path"].exists(), "the private copy is deleted after the read"
-    assert method == "private copy, Documents.Open read-only + Document.Export"
-    assert len(snap.records) == 2
-
-
-@pytest.mark.asyncio
-async def test_a_dwg_that_cannot_be_copied_is_a_named_refusal(tmp_path, monkeypatch):
-    saved = tmp_path / "part.dwg"
-    saved.write_bytes(b"AC1032 synthetic")
-
-    def locked(src, dst):
-        raise PermissionError(13, "The process cannot access the file")
-
-    monkeypatch.setattr(artifact.shutil, "copy2", locked)
-    with pytest.raises(ArtifactReadError, match="private copy"):
-        await artifact._fresh_snapshot(saved, _ComLike())
 
 
 @pytest.mark.asyncio

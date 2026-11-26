@@ -17,7 +17,7 @@ import threading
 from collections import Counter
 from pathlib import Path
 
-from benchmarks.adapters.base import BenchmarkAdapter, EnvironmentBlocked, TaskResult
+from benchmarks.adapters.base import BenchmarkAdapter, TaskResult
 from benchmarks.tasks_v8 import NEW_TASKS_V8, TaskSpec
 from benchmarks.tasks_v9 import HEADLESS_ONLY_V9
 from engineering.delivery import deliver_drawing
@@ -184,13 +184,6 @@ class AutoCADMCPProAdapter(BenchmarkAdapter):
             from backends.ezdxf_backend import EzdxfBackend
 
             self.backend = EzdxfBackend()
-        elif self.backend_name == "com":
-            try:
-                from backends.com_backend import ComBackend
-
-                self.backend = ComBackend()
-            except ImportError as exc:  # no pywin32: not a Windows seat
-                raise EnvironmentBlocked(f"the live engine is unavailable here: {exc}") from exc
         else:
             raise ValueError(f"Unknown backend: {self.backend_name}")
         self.artifact_dir = artifact_dir

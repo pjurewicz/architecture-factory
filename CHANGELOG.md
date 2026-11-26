@@ -12,8 +12,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The live AutoCAD (COM) engine can no longer be selected: the server always
   runs the headless ezdxf engine. `AUTOCAD_MCP_BACKEND` accepts `auto` (the
   default) and `ezdxf`; any other value, `com` included, fails startup with a
-  message naming the setting instead of falling back. The COM code itself is
-  removed in later steps (`FORK.md`, *Removing the live engine*).
+  message naming the setting instead of falling back.
+- The COM engine itself: `backends/com_backend.py`, `com_checkpoints.py`,
+  `document_guard.py`, `message_filter.py`, the live branches in
+  `engineering/`, the `COM_*`, `CAD_PROGID` and `CAD_LAUNCH` settings, the
+  `[com]` extra (`pywin32`), the Windows CI lanes, the live smokes
+  (`scripts/smoke_*_com.py`, `scripts/live/`), `benchmarks/perf_com.py` and
+  the COM-only tests. The error kinds only it raised are gone:
+  `active_document_changed`, `application_busy`, `command_incomplete`,
+  `cad_not_running`. The capability map lost the keys of the removed tools
+  (`solid_3d`, `lisp`, `live_application`, `preferences`,
+  `interactive_prompt`).
+- The `accoreconsole` DWG route (`ACCORECONSOLE_PATH`,
+  `ACCORECONSOLE_TIMEOUT_S`): `drawing_open` converts a `.dwg` through the ODA
+  File Converter only, and refuses `dwg_read` without it.
+
+### Changed
+
+- Refusals no longer send callers to the live COM backend: a `.dwg`
+  `drawing_save_as` names `drawing_export_dwg`, and the ACIS area, opaque
+  explode, registry variable, summary properties and xref reload / bind
+  refusals say to do it in AutoCAD.
 - The tools only a live AutoCAD could run (257 -> 242 registered):
   `system_run_command`, `system_run_lisp`, `system_launch`,
   `system_preferences_get` / `_set`, `user_pick_point`, `user_select`,
@@ -55,8 +74,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so two clients drawing at once no longer write into each other's documents.
   `SESSION_IDLE_TIMEOUT` (default `3600` s) releases an idle session's engine
   with its unsaved documents; `0` keeps them until shutdown. The first session
-  keeps the server's own engine, so a single-client server behaves as before.
-  A live AutoCAD backend is still shared (`backends/session_backends.py`).
+  keeps the server's own engine, so a single-client server behaves as before
+  (`backends/session_backends.py`).
 - A session's engine is released as soon as the client ends the session
   (HTTP `DELETE` of its `mcp-session-id`), not only after
   `SESSION_IDLE_TIMEOUT`; the first session's engine is emptied and goes to

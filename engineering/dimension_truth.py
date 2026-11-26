@@ -249,7 +249,7 @@ def dimension_issues(
                 evidence,
             )
         if rendered_matches(record.rendered_text, record.dimension, record.dim_vars) is False:
-            reflex = engine != "com" and reflex_render(dimtype, record.rendered_text, shown)
+            reflex = reflex_render(dimtype, record.rendered_text, shown)
             found[DIM_RENDER_STALE] = _issue(
                 DIM_RENDER_STALE,
                 record,
@@ -306,10 +306,6 @@ def dimension_issues(
 
 async def _block_definitions(backend, snap):
     """The block definitions the snapshot was read without, for exploding."""
-    if backend.name == "com":
-        from .understand.snapshot import take_snapshot
-
-        return (await take_snapshot(backend, block_defs=True)).blocks
     from .qa_scan import _async_readonly
     from .understand.snapshot import _block_records
 

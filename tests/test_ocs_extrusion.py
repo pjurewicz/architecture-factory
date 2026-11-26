@@ -1,4 +1,4 @@
-"""T0.4 — coordinates that cross the MCP boundary are WCS, on both engines.
+"""T0.4 — coordinates that cross the MCP boundary are WCS.
 
 DXF does not store 2D geometry in world coordinates. A CIRCLE, ARC, LWPOLYLINE,
 TEXT or INSERT lives in an Object Coordinate System derived from its ``extrusion``
@@ -28,7 +28,6 @@ from __future__ import annotations
 import pytest
 
 from backends.base import UnsupportedCapabilityError
-from backends.com_backend import ComBackend
 from backends.ezdxf_backend import EzdxfBackend
 
 pytestmark = pytest.mark.asyncio
@@ -238,54 +237,8 @@ async def test_entity_edit_geometry_refuses_a_tilted_plane_with_capability_shape
 # ── the boundary is pre-checkable ───────────────────────────────────────────
 
 
-async def test_ocs_capability_keys_are_declared_on_both_backends():
-    for features in (
-        EzdxfBackend().capabilities().features,
-        ComBackend().capabilities().features,
-    ):
-        assert features["ocs_normalized"].supported is True
-        assert features["ocs_normalized"].reason, "the residual must be named, not implied"
-        assert features["ocs_tilted_plane"].supported is False
-
-
-# ── COM: the one genuinely wrong read on that engine ────────────────────────
-
-
-def _fake_lwpolyline(coords, normal):
-    """The minimum surface ``_entity_info`` touches for a lightweight polyline."""
-    import types
-
-    return types.SimpleNamespace(
-        ObjectName="AcDbLWPolyline",
-        Coordinates=coords,
-        Normal=normal,
-        Elevation=0.0,
-        Handle="2F",
-        Layer="0",
-        color=256,
-        Linetype="ByLayer",
-        Visible=True,
-        Closed=False,
-        Length=30.0,
-        GetBoundingBox=lambda: ((0.0, 0.0, 0.0), (1.0, 1.0, 0.0)),
-    )
-
-
-async def test_com_lwpolyline_coordinates_are_translated_to_wcs():
-    """ActiveX returns WCS for everything *except* polyline Coordinates (OCS).
-
-    Unit-tested against a fake COM object: this machine has a live AutoCAD and
-    connecting to it is forbidden, so this path ships verified only at this
-    level — the CHANGELOG says so.
-    """
-    from backends.com_backend import _entity_info
-
-    info = _entity_info(_fake_lwpolyline((10.0, 0.0, 20.0, 0.0, 20.0, 10.0), (0.0, 0.0, -1.0)))
-    _assert_points(info.properties["points"], [[-10, 0], [-20, 0], [-20, 10]])
-
-
-async def test_com_lwpolyline_with_identity_normal_is_untouched():
-    from backends.com_backend import _entity_info
-
-    info = _entity_info(_fake_lwpolyline((10.0, 0.0, 20.0, 0.0), (0.0, 0.0, 1.0)))
-    _assert_points(info.properties["points"], [[10, 0], [20, 0]])
+async def test_ocs_capability_keys_are_declared():
+    features = EzdxfBackend().capabilities().features
+    assert features["ocs_normalized"].supported is True
+    assert features["ocs_normalized"].reason, "the residual must be named, not implied"
+    assert features["ocs_tilted_plane"].supported is False

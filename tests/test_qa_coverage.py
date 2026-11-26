@@ -145,37 +145,7 @@ async def test_a_partial_read_is_scan_incomplete_in_the_ledger(backend, monkeypa
     assert qa_coverage_of(shared)["complete"] is False
 
 
-# -- legibility: the live lane and the paper layouts ---------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_the_live_legibility_lane_is_not_checked_on_a_com_mock(monkeypatch):
-    pytest.importorskip("win32com.client")
-    from backends import com_backend as cb
-
-    live = cb.ComBackend()
-
-    async def layer_list():
-        return []
-
-    monkeypatch.setattr(live, "layer_list", layer_list)
-    shared: dict = {}
-    issues = await run_critique(live, ["iso128"], shared=shared)
-    assert issues == []  # it was [] in 1.7 too - and read as "checked, clean"
-    rows = _rows(shared, focus="iso128")
-    lanes = {(r.lane, r.status, r.reason) for r in rows}
-    assert ("dimension_legibility", "not_checked", "engine_live_document_template") in lanes
-    assert ("layer_lineweight", "checked", None) in lanes
-    coverage = qa_coverage_of(shared)
-    assert coverage["complete"] is False
-    assert coverage["not_checked"] == [
-        {
-            "focus": "iso128",
-            "layout": DOCUMENT,
-            "reason": "engine_live_document_template",
-            "lane": "dimension_legibility",
-        }
-    ]
+# -- legibility: the paper layouts ---------------------------------------
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,5 @@
 """drawing_settings, track E: limits, grid/snap, ortho/polar, PSLTSCALE, annotation
-scale, unit formats and the current styles — on both engines.
+scale, unit formats and the current styles.
 
 Measured before writing (ezdxf 1.4.4, 2026-09-16):
 
@@ -14,10 +14,6 @@ Measured before writing (ezdxf 1.4.4, 2026-09-16):
 """
 
 from __future__ import annotations
-
-import json
-import math
-from types import SimpleNamespace
 
 import pytest
 
@@ -447,14 +443,11 @@ async def test_annotation_scale_on_r12_refuses_a_malformed_value_by_the_value(tm
         await backend.disconnect()
 
 
-def test_both_capability_maps_declare_registry_sysvar():
-    from backends.com_backend import ComBackend
+def test_the_capability_map_declares_registry_sysvar():
     from backends.ezdxf_backend import EzdxfBackend
 
     ezdxf_features = EzdxfBackend().capabilities().to_dict()["features"]
-    com_features = ComBackend().capabilities().to_dict()["features"]
     assert ezdxf_features["registry_sysvar"]["supported"] is False
-    assert com_features["registry_sysvar"]["supported"] is True
 
 
 # ── server tool wiring ──────────────────────────────────────────────────────
@@ -480,199 +473,3 @@ async def test_server_tool_carries_the_new_keys(backend):
     read = await server.drawing_settings(ctx=ctx)
     assert read["settings"]["limits"] == [[0.0, 0.0], [297.0, 210.0]]
     assert read["settings"]["annotation_scale"] == {"name": "1:2", "value": 0.5}
-
-
-# ── live engine, against a fake ActiveX application ─────────────────────────
-
-
-class _FakeApp:
-    """The ActiveX *Application*: it has an ActiveDocument and no sysvar
-    members at all. `GetVariable` / `SetVariable` live on `AcadDocument`;
-    a backend that calls them on the Application raises `AttributeError:
-    AutoCAD.Application.GetVariable` on a live seat before anything reaches
-    AutoCAD (measured, AutoCAD 2026) -- so this fake refuses them the same way
-    instead of quietly answering."""
-
-    def __init__(self):
-        self.ActiveDocument = _FakeDoc()
-        self.Documents = SimpleNamespace(Count=1)
-
-    def __getattr__(self, name):
-        if name in ("GetVariable", "SetVariable"):
-            raise AttributeError(f"AutoCAD.Application.{name}")
-        raise AttributeError(name)
-
-
-class _FakeDoc:
-    """Records GetVariable / SetVariable; stores what AutoCAD would store."""
-
-    def __init__(self):
-        self.store = {
-            "INSUNITS": 4,
-            "LIMMIN": (0.0, 0.0),
-            "LIMMAX": (420.0, 297.0),
-            "GRIDMODE": 0,
-            "GRIDUNIT": (10.0, 10.0),
-            "SNAPMODE": 0,
-            "SNAPUNIT": (10.0, 10.0),
-            "ORTHOMODE": 0,
-            "AUTOSNAP": 63,
-            "POLARANG": math.pi / 2,
-            "PSLTSCALE": 1,
-            "CANNOSCALE": "1:1",
-            "LUNITS": 2,
-            "AUNITS": 0,
-            "DIMSTYLE": "ISO-25",
-            "TEXTSTYLE": "Standard",
-            "DIMSCALE": 1.0,
-        }
-        self.calls: list[tuple] = []
-
-    def GetVariable(self, name):
-        self.calls.append(("GetVariable", name))
-        return self.store[name]
-
-    def SetVariable(self, name, value):
-        stored = getattr(value, "value", value)  # a VARIANT array → its Python sequence
-        if isinstance(stored, list):
-            stored = tuple(stored)
-        self.calls.append(("SetVariable", name, stored))
-        self.store[name] = stored
-
-
-@pytest.fixture
-def com_backend(monkeypatch):
-    pytest.importorskip("win32com.client", reason="pywin32 not installed")
-    from backends import com_backend as module
-
-    app = _FakeApp()
-    # Only the Application is faked: the real `_acad_doc()` runs and resolves
-    # `ActiveDocument`, so the test exercises the true call path.
-    monkeypatch.setattr(module, "_acad_app", lambda: app)
-    backend = module.ComBackend()
-
-    async def _run_inline(func, *args, **kwargs):
-        return func(*args, **kwargs)
-
-    monkeypatch.setattr(backend, "_run", _run_inline)
-    return backend, app.ActiveDocument
-
-
-async def test_com_facade_sends_autocad_shaped_values(com_backend):
-    backend, doc = com_backend
-    res = await backend.drawing_settings(
-        {
-            "limits": [[0, 0], [500, 350]],
-            "grid": True,
-            "grid_spacing": 5,
-            "polar": False,
-            "polar_angle": 45,
-            "annotation_scale": "1:50",
-            "linear_units": "architectural",
-            "psltscale": 0,
-        }
-    )
-    assert res["ok"] is True, res.get("errors")
-    sets = [call[1:] for call in doc.calls if call[0] == "SetVariable"]
-    assert sets == [
-        ("LIMMIN", (0.0, 0.0)),
-        ("LIMMAX", (500.0, 350.0)),
-        ("GRIDMODE", 1),
-        ("GRIDUNIT", (5.0, 5.0)),
-        ("AUTOSNAP", 55),  # 63 with bit 8 cleared: polar off, everything else kept
-        ("POLARANG", pytest.approx(math.radians(45))),
-        ("CANNOSCALE", "1:50"),
-        ("LUNITS", 4),
-        ("PSLTSCALE", 0),
-    ]
-    assert res["changed"]["polar"] == [True, False]
-    assert res["changed"]["polar_angle"] == [90.0, 45.0]
-
-
-async def test_com_point_variables_travel_as_variant_double_arrays(com_backend):
-    import pythoncom
-
-    backend, doc = com_backend
-    seen: dict = {}
-    real_set = doc.SetVariable
-
-    def _capture(name, value):
-        seen[name] = value
-        real_set(name, value)
-
-    doc.SetVariable = _capture
-    res = await backend.system_set_variable("LIMMAX", (300, 200))
-    variant = seen["LIMMAX"]
-    assert variant.varianttype == pythoncom.VT_ARRAY | pythoncom.VT_R8
-    assert tuple(variant.value) == (300.0, 200.0)
-    # The VARIANT is an ActiveX argument only. The reply carries the plain
-    # Python list -- a VARIANT in the dict cannot be serialised by pydantic,
-    # and the tool would then report failure after AutoCAD applied the write.
-    assert res == {"ok": True, "variable": "LIMMAX", "value": [300.0, 200.0]}
-    json.dumps(res)
-
-
-async def test_com_point_variable_reply_survives_the_mcp_output_schema(com_backend, monkeypatch):
-    """Through the real tool: `system_set_variable` returns its dict verbatim
-    under `output_schema={"type": "object"}`, so anything pydantic cannot
-    serialise turns into `ToolError: outputSchema defined but no structured
-    output returned` *after* `SetVariable` has landed -- a retry/undo trap."""
-    from fastmcp import Client
-
-    import server
-
-    backend, doc = com_backend
-
-    async def _fake_make_backend():
-        return backend
-
-    monkeypatch.setattr(server, "_make_backend", _fake_make_backend)
-    async with Client(server.mcp) as client:
-        res = await client.call_tool("system_set_variable", {"name": "LIMMAX", "value": [300, 200]})
-    assert res.data == {"ok": True, "variable": "LIMMAX", "value": [300.0, 200.0]}
-    assert doc.store["LIMMAX"] == (300.0, 200.0)
-
-
-async def test_com_refuses_before_touching_activex(com_backend):
-    backend, doc = com_backend
-    res = await backend.drawing_settings({"limits": [[0, 0], [0, 0]], "annotation_scale": "x"})
-    assert res["ok"] is False
-    assert not [call for call in doc.calls if call[0] == "SetVariable"]
-
-
-async def test_com_sysvars_are_read_and_written_on_the_document(com_backend):
-    """Regression: both methods called `GetVariable` / `SetVariable` on the
-    object `_acad_app()` returns, which has neither, so every
-    `drawing_settings` read and write on the live engine died with
-    `AttributeError: AutoCAD.Application.GetVariable`."""
-    backend, doc = com_backend
-    assert await backend.system_get_variable("LIMMAX") == (420.0, 297.0)
-    res = await backend.system_set_variable("GRIDMODE", "1")
-    assert res == {"ok": True, "variable": "GRIDMODE", "value": 1}
-    assert doc.store["GRIDMODE"] == 1
-    assert doc.calls == [
-        ("GetVariable", "LIMMAX"),
-        ("GetVariable", "GRIDMODE"),  # the type probe
-        ("SetVariable", "GRIDMODE", 1),
-    ]
-
-
-async def test_com_sysvars_need_an_open_drawing(monkeypatch):
-    """With no document open there is nothing to read the variable from:
-    `_acad_doc()`'s clear refusal is what surfaces, not an ActiveX error."""
-    pytest.importorskip("win32com.client", reason="pywin32 not installed")
-    from backends import com_backend as module
-
-    app = _FakeApp()
-    app.Documents = SimpleNamespace(Count=0)
-    monkeypatch.setattr(module, "_acad_app", lambda: app)
-    backend = module.ComBackend()
-
-    async def _run_inline(func, *args, **kwargs):
-        return func(*args, **kwargs)
-
-    monkeypatch.setattr(backend, "_run", _run_inline)
-    with pytest.raises(RuntimeError, match="No drawing is open"):
-        await backend.system_get_variable("LIMMAX")
-    with pytest.raises(RuntimeError, match="No drawing is open"):
-        await backend.system_set_variable("GRIDMODE", 1)

@@ -1,6 +1,6 @@
 """AutoCAD MCP Pro – FastMCP 3.0 server.
 
-Dual engine: pywin32 COM API (live AutoCAD) + ezdxf (headless file ops).
+Headless engine: ezdxf (DXF file operations; DWG through the ODA File Converter).
 The exact tool count is reported dynamically via system_status / system_about.
 
 Usage:
@@ -73,7 +73,6 @@ from engineering.errors import (
     classify,
     compact_message,
     describe,
-    document_changed_of,
     gate_failure_payload,
     quarantine_of,
     refusal_kind,
@@ -557,8 +556,8 @@ _RAN_PAST_THE_CALLER = frozenset(
 )
 
 #: The record state for an error kind. Every kind not listed declined before
-#: doing its work, so it is ``refused``. 1.8-02: ``internal`` (a bug mid-call),
-#: ``command_incomplete`` (a command left at a prompt) and the finalize gates
+#: doing its work, so it is ``refused``. 1.8-02: ``internal`` (a bug mid-call)
+#: and the finalize gates
 #: (the gate ran - and may have saved - then found the drawing wanting) did work.
 #: 1.8-04's kinds are listed by name, the refusals too, so each decision is
 #: visible: a damaged or DWG source is refused before anything is opened, a
@@ -571,7 +570,6 @@ _STATE_OF_KIND = {
     "failed": "failed",
     "timed_out": "failed",
     "internal": "failed",
-    "command_incomplete": "failed",
     "validation_failed": "failed",
     "critique_gate_failed": "failed",
     "failed_acceptance": "failed",
@@ -624,20 +622,8 @@ def _count_call(context, tool: str, start: float, result, exc: BaseException | N
 
 
 def _metrics_payload(ctx, backend) -> dict:
-    """``system_status(metrics=True)``: the connection's counters and the COM breakdown."""
-    payload = {"session": SESSION_METRICS.snapshot(_session_key(ctx))}
-    reader = getattr(backend, "run_metrics", None)
-    if callable(reader):
-        payload["com_run"] = reader()
-        payload["com_run_reason"] = None
-    else:
-        payload["com_run"] = None
-        payload["com_run_reason"] = (
-            "headless engine: no STA job queue to break down"
-            if backend is not None
-            else "no backend"
-        )
-    return payload
+    """``system_status(metrics=True)``: the connection's counters."""
+    return {"session": SESSION_METRICS.snapshot(_session_key(ctx))}
 
 
 def _lifespan_context_or_none(context) -> dict | None:
@@ -831,15 +817,6 @@ def _identity_of(backend) -> dict | None:
     return identity
 
 
-async def _checkpoint_before(backend, tool: str) -> None:
-    """1.8-08: a durable checkpoint before a destructive tool (the live engine
-    exports one; the headless engine's are save / batch anchored). Never a
-    reason to fail the tool: the backend logs a checkpoint it could not take."""
-    taker = getattr(backend, "checkpoint_before", None)
-    if callable(taker):
-        await taker(tool)
-
-
 def _worker_outcome(backend, operation_id: str) -> str | None:
     """The latest ``call_outcomes`` outcome recorded under ``operation_id``, or None."""
     found = None
@@ -984,10 +961,6 @@ class CapabilityRefusalMiddleware(Middleware):
     draw into is untrusted — so it gets ``kind: "quarantined"`` and carries the
     abandoned-call record instead of a capability key.
 
-    v1.7.0 (B11) added a third kind: ``active_document_changed``, the live
-    engine's refusal when AutoCAD's active document is not the bound one. It
-    carries ``bound`` and ``active`` instead of a capability or a quarantine.
-
     1.8-02 makes it the one error envelope: it no longer re-raises anything.
     Every exception a tool call ends in is typed by ``engineering.errors.classify``
     - the function ``cad_batch`` types a step with, so both routes give one kind
@@ -1011,9 +984,7 @@ class CapabilityRefusalMiddleware(Middleware):
 
 #: The kinds whose 1.7 envelope carried the sentence as ``error`` and as the
 #: text content; kept so a 1.7 client reading either still finds it.
-_LEGACY_ERROR_KEY = frozenset(
-    {"unsupported", "stale_revision", "busy", "quarantined", "active_document_changed"}
-)
+_LEGACY_ERROR_KEY = frozenset({"unsupported", "stale_revision", "busy", "quarantined"})
 
 #: Used only for its transform: the text a non-legacy error had on the wire.
 _WIRE_ERRORS = ErrorHandlingMiddleware(logger=log)
@@ -1062,10 +1033,7 @@ def _error_envelope(context, exc: BaseException) -> ToolResult:
     payload.update({k: v for k, v in classified.items() if k not in ("kind", "message")})
     if operation_id is not None:
         payload["operation_id"] = operation_id
-    if kind == "active_document_changed":
-        content = document_changed_of(exc)["error"]
-        payload["error"] = content
-    elif kind in _LEGACY_ERROR_KEY:
+    if kind in _LEGACY_ERROR_KEY:
         content = message  # prose-only clients still get a full sentence
         payload["error"] = message
     else:
@@ -2242,9 +2210,7 @@ async def drawing_info(ctx: Context) -> dict:
     extents (min/max), units, version, backend name, and the document's
     `document_id` (a uuid4 hex minted when it was opened or created) and
     `revision` (its content revision: moved by every content change, never by
-    a save, an export, a finalize or a delivery). On the live engine a call
-    made after the operator switched AutoCAD's active document is refused with
-    `kind: "active_document_changed"` (`bound`, `active`).
+    a save, an export, a finalize or a delivery).
     """
     await ctx.info("Fetching drawing info")
     result = await _backend(ctx).drawing_info()
@@ -2317,11 +2283,7 @@ async def drawing_new(
     await ctx.info(f"Creating new drawing (template={template}, bootstrap={bootstrap})")
     raw = await backend.drawing_new(template)
     result = dict(raw) if isinstance(raw, dict) else {"result": raw}
-    converted = result.pop("template_dwt", None)
     if template_info is not None:
-        if converted:  # the live engine built a .dwt from the .dxf (see ComBackend.drawing_new)
-            template_info["dwt"] = converted["path"]
-            template_info["dwt_cached"] = bool(converted.get("cached"))
         result["template"] = template_info
     if bootstrap:
         try:
@@ -2359,8 +2321,8 @@ async def drawing_new(
 async def drawing_open(
     path: Annotated[
         str,
-        "Full path to the .dxf or .dwg. Live COM reads DWG natively; headless "
-        "converts it (ODA, then accoreconsole) or refuses `dwg_read`.",
+        "Full path to the .dxf or .dwg. A .dwg is converted through the ODA File "
+        "Converter, or refused `dwg_read` without it.",
     ],
     recover: Annotated[
         bool,
@@ -2370,12 +2332,11 @@ async def drawing_open(
     ] = False,
     ctx: Context = None,
 ) -> dict:
-    """Open an existing DXF drawing file (DWG too, on the live COM backend).
+    """Open an existing DXF drawing file (or a DWG, converted to DXF).
 
-    Headless, a .dwg is converted to DXF (ODA File Converter, then
-    accoreconsole); the result carries `dwg_read: {route, seconds, log}`. No
-    converter: refused `dwg_read`; a failed conversion: `dwg_conversion_failed`
-    with each route's log.
+    A .dwg is converted to DXF through the ODA File Converter; the result
+    carries `dwg_read: {route, seconds, dxf_version}`. No converter: refused
+    `dwg_read`; a failed conversion: `dwg_conversion_failed` with the attempt.
 
     A file that does not parse is refused (`damaged_drawing`) and the open
     document is kept; the refusal names `recover=True`. The result carries the
@@ -2539,13 +2500,9 @@ async def drawing_export_pdf(
     tags={"drawing", "cleanup"},
 )
 async def drawing_purge(ctx: Context = None) -> dict:
-    """Purge all unused objects (layers, blocks, linetypes, styles) from the drawing.
-
-    Live AutoCAD stores a durable checkpoint first (checkpoint_list).
-    """
+    """Purge all unused objects (layers, blocks, linetypes, styles) from the drawing."""
     await ctx.info("Purging drawing")
     backend = _backend(ctx)
-    await _checkpoint_before(backend, "drawing_purge")
     return await backend.drawing_purge()
 
 
@@ -2559,9 +2516,7 @@ async def drawing_audit(ctx: Context = None) -> dict:
 
     This mutates the drawing. `fixes` lists repairs that have ALREADY been
     applied, so save afterwards to keep them; `errors` lists problems that could
-    not be repaired. On the live COM backend AutoCAD applies repairs but hands
-    back no counts, so they arrive as null with `detail: "unavailable"` rather
-    than as zero.
+    not be repaired.
     """
     await ctx.info("Auditing drawing")
     return await _backend(ctx).drawing_audit()
@@ -2594,8 +2549,7 @@ async def drawing_close(
 async def drawing_undo(ctx: Context = None) -> dict:
     """Undo the last drawing operation.
 
-    On the live COM backend this is AutoCAD's own undo. Headless (1.8.0), undo
-    steps back to the newest durable checkpoint below the current revision -
+    Undo (1.8.0) steps back to the newest durable checkpoint below the current revision -
     taken at every save, open, new drawing, rollback-mode cad_batch /
     transaction and checkpoint_create - so it works after a server restart too,
     and reports `granularity` ("save", "batch" or "label") and `checkpoint`.
@@ -2607,9 +2561,7 @@ async def drawing_undo(ctx: Context = None) -> dict:
     Drawing something after an undo discards the redo branch, as in AutoCAD.
 
     `verified` says whether the drawing observably changed: always true for a
-    headless snapshot restore; live, true when the entity count over every
-    layout or the document's edit counter moved (`evidence` has both), false
-    for "no change seen". An undo left at a prompt is `command_incomplete`.
+    snapshot restore.
     """
     return await _backend(ctx).drawing_undo()
 
@@ -3832,7 +3784,6 @@ async def text_find_replace(
         rows = list(result.get("entities") or [])
         preview = await make_preview(backend, handles=[row["handle"] for row in rows], planned=rows)
         return {**result, "preview": preview.to_dict()}
-    await _checkpoint_before(backend, "text_find_replace")
     if expected_revision is None and preconditions is None:
         return await backend.text_find_replace(find, replace, layer or None, match_case, False)
     return await _guarded_text_find_replace(
@@ -4084,12 +4035,7 @@ async def entity_get(
     the rule `analysis_measure_entity` applies; None when a loop has an ellipse
     or spline edge. A DIMENSION also reports `dimension`: `dimtype`, the five
     `defpoints`, its own `measurement` (before DIMLFAC), `text_override`,
-    `dimstyle`, `dimlfac` and `angle`. On the live engine those two are read
-    from a DXF export of the whole drawing (`detail_source` says so), which
-    costs about as much as drawing_understand; it is reused for
-    COM_SNAPSHOT_TTL seconds (default 5) while the document's revision and
-    operator-edit count stand still, so N reads of an unchanged drawing cost
-    one export. A member of a block definition reports `detail_unavailable`. An
+    `dimstyle`, `dimlfac` and `angle`. A member of a block definition reports `detail_unavailable`. An
     entity in a plane tilted out of WCS XY reports `plane_normal` (or
     `tilted`) and omits what xy cannot express. Refused: a handle the drawing
     does not hold.
@@ -4219,8 +4165,6 @@ async def entity_delete_many(
     with anyio.CancelScope(shield=True):
         opened = await b.transaction_begin()
     in_transaction = isinstance(opened, dict) and bool(opened.get("ok"))
-    if not (in_transaction and opened.get("checkpoint")):
-        await _checkpoint_before(b, "entity_delete_many")  # 1.8-08: live AutoCAD only
     deleted = 0
     errors = []
     try:
@@ -5099,8 +5043,8 @@ async def analysis_measure_entity(
     a semicircular edge, silently.
 
     Measurable: LWPOLYLINE, 2D POLYLINE, CIRCLE, ELLIPSE, SPLINE, HATCH, SOLID,
-    TRACE, 3DFACE. REGION and 3DSOLID need the live COM backend (their area is
-    in ACIS data ezdxf cannot evaluate) and refuse with
+    TRACE, 3DFACE. REGION and 3DSOLID (their area is in ACIS data ezdxf
+    cannot evaluate) refuse with
     `capability: "measure_area_acis"`. LINE/TEXT/INSERT bound no area on any
     engine and are a plain error, not a capability gap.
 
@@ -5389,7 +5333,6 @@ def _batch_read_only_tools() -> frozenset[str]:
 _batch_cause_chain = cause_chain
 _batch_capability_of = capability_of
 _batch_quarantine_of = quarantine_of
-_document_changed_of = document_changed_of
 _batch_refusal_kind = refusal_kind
 _batch_stale_of = stale_of
 _refusal_message = refusal_message
@@ -6061,7 +6004,6 @@ async def cad_batch(
     ERRORS are typed, never text: each failed step carries error.kind - one of
     unsupported (with the backend `capability`), invalid_args, refused, failed,
     unknown_tool, unresolved_ref, denied, malformed_step, quarantined, busy,
-    active_document_changed (live engine: the operator switched documents),
     stale_revision, scan_incomplete, timed_out, unknown_commit (a write that
     outran its deadline while its worker ran), cancelled, operation_conflict,
     unknown_handle - and its own `operation_id`.
@@ -7535,14 +7477,8 @@ async def system_status(
     """Get full status of the AutoCAD MCP Pro server and backend connection.
 
     Returns backend name, connection status, capabilities, document info, and
-    the document's `document_id` and content `revision` (headless: the active
-    registry entry; live: the bound document, plus `bound_document` and
-    `active_document_changed`). Live, the revision counts this server's writes
-    and the operator's object edits between two calls (an AutoLISP reactor;
-    `operator_edits` says whether it runs); without Visual LISP, this server's
-    writes only. Live, `snapshot_reuse` is `{ttl_s, exports, reused}`: the
-    COM_SNAPSHOT_TTL in force, and how many DIMENSION / HATCH detail reads
-    took a fresh export or reused one.
+    the document's `document_id` and content `revision` (the active registry
+    entry).
 
     `operations` is `{count, last: {op, tool, state, rev}, unknown_commit}`;
     drawing_history lists the calls.
@@ -7561,8 +7497,7 @@ async def system_status(
     file kept) per target.
 
     `metrics` (only with metrics=True) counts this connection's earlier calls
-    (`session`: calls, by_tool, result_bytes, errors_by_kind, p50_ms, p95_ms)
-    and, live, `com_run`: each COM job's queue/guard/work/refresh/counter ms.
+    (`session`: calls, by_tool, result_bytes, errors_by_kind, p50_ms, p95_ms).
     """
     b = ctx.lifespan_context.get("backend")
     journal = _operations_journal(ctx.lifespan_context)
