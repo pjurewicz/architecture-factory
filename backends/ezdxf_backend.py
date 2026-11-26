@@ -6591,6 +6591,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         xdata=None,
         *,
         text_at=None,
+        text_leader=False,
     ) -> EntityInfo:
         prepared = prepare_xdata(xdata)
         from backends.contracts.dimensions import linear_rotation
@@ -6608,17 +6609,22 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 # the text moves alone: the header's DIMTMOVE 0 would move the
                 # dimension line with it
                 override = {**(override or {}), "dimtmove": 2}
+            leader = bool(text_leader) and location is not None
             msp = self._msp()
             dim = msp.add_linear_dim(
                 base=(float(dim_x), float(dim_y)),
                 p1=(float(x1), float(y1)),
                 p2=(float(x2), float(y2)),
-                location=location,
+                location=None if leader else location,
                 angle=float(rotation),
                 text=text if text is not None else "<>",
                 dimstyle=_current_dimstyle_name(self._require_doc()),
                 override=override or None,
             )
+            if leader:
+                # DIMTMOVE 1: only set_location draws the leader; a location
+                # passed to add_linear_dim is placed without one
+                dim.set_location(location, leader=True)
             dim.render()
             ent = dim.dimension
             if layer:

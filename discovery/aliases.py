@@ -477,6 +477,18 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "h7 fit",
         ),
     ),
+    "dimension_chain": ToolAliases(
+        acad=(),
+        synonyms=(
+            "chain dimension",
+            "continuous dimension",
+            "running dimensions",
+            "dimension points in a row",
+            "stagger dimension text",
+            "wymiarowanie łańcuchowe",
+            "łańcuch wymiarów",
+        ),
+    ),
     "dimension_radius": ToolAliases(
         acad=("DIMRADIUS", "DRA"),
         synonyms=(

@@ -650,7 +650,7 @@ async def test_tool_group_sizes_are_unchanged():
         "batch": 3,
         "blocks": 9,
         "corner_ops": 4,
-        "dimensions": 5,
+        "dimensions": 6,  # + dimension_chain
         "drawing": 11,
         "engineering": 10,
         "entity_creation": 18,
@@ -673,4 +673,4 @@ async def test_tool_group_sizes_are_unchanged():
         "validation": 1,
         "view": 2,
     }
-    assert sum(sizes.values()) == 246
+    assert sum(sizes.values()) == 247

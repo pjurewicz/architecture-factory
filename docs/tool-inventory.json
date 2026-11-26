@@ -3,7 +3,7 @@
   "schema_version": 2,
   "package_version": "1.8.0",
   "totals": {
-    "tools": 246,
+    "tools": 247,
     "resources": 13,
     "prompts": 5,
     "groups": 27
@@ -14,7 +14,7 @@
     "batch": 3,
     "blocks": 9,
     "corner_ops": 4,
-    "dimensions": 5,
+    "dimensions": 6,
     "drawing": 11,
     "engineering": 10,
     "entity_creation": 18,
@@ -1337,6 +1337,31 @@
       ],
       "annotations": {
         "title": "Dimension: Auto (a whole part, one call)",
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "dimension_chain",
+      "group": "dimensions",
+      "cost": "mutate",
+      "summary": "Dimension a run of points as one continuous chain, tight texts staggered.",
+      "acad": [],
+      "synonyms": [
+        "chain dimension",
+        "continuous dimension",
+        "running dimensions",
+        "dimension points in a row",
+        "stagger dimension text",
+        "wymiarowanie łańcuchowe",
+        "łańcuch wymiarów"
+      ],
+      "tags": [
+        "annotation",
+        "dimension"
+      ],
+      "annotations": {
+        "title": "Dimension Chain",
+        "readOnlyHint": false,
         "destructiveHint": false
       }
     },

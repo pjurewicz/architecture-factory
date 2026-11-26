@@ -3065,7 +3065,7 @@ async def entity_create_revcloud(
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 3: Dimensions (5 tools) ─────────────────────────────────────────
+# ── SECTION 3: Dimensions (6 tools) ─────────────────────────────────────────
 # ---------------------------------------------------------------------------
 
 
@@ -3303,6 +3303,91 @@ async def dimension_diameter(
         text_override,
     )
     return _dc(result)
+
+
+@cad_tool(
+    summary="Dimension a run of points as one continuous chain, tight texts staggered.",
+    cost="mutate",
+)
+@mcp.tool(
+    annotations={"title": "Dimension Chain", "readOnlyHint": False, "destructiveHint": False},
+    tags={"annotation", "dimension"},
+)
+async def dimension_chain(
+    points: Annotated[
+        list[list[float]],
+        Field(description="Points to chain, [[x, y], ...] in any order (at least two)"),
+    ],
+    offset: Annotated[
+        float,
+        Field(
+            description="Dimension line distance beyond the outermost point: + above a "
+            "horizontal chain, right of a vertical one, left of an aligned one (first->last)"
+        ),
+    ],
+    orientation: Annotated[
+        str,
+        Field(
+            default="auto",
+            description="auto | horizontal | vertical | aligned (along first->last point)",
+        ),
+    ] = "auto",
+    overall: Annotated[
+        bool, Field(default=True, description="Add the overall dimension one row farther out")
+    ] = True,
+    step: Annotated[
+        float | None,
+        Field(default=None, gt=0, description="Chain row -> overall row (default 8 mm on paper)"),
+    ] = None,
+    scale: Annotated[
+        float | None,
+        Field(
+            default=None,
+            gt=0,
+            description="Plot-scale denominator used as DIMSCALE for the chain; default: "
+            "the drawing's DIMSCALE",
+        ),
+    ] = None,
+    leader: Annotated[
+        bool, Field(default=True, description="Leader to a text moved out of its span")
+    ] = True,
+    layer: Annotated[
+        str | None, Field(default=None, description="Default: the layer set's DIM")
+    ] = None,
+    dry_run: Annotated[bool, Field(default=False, description="Plan only")] = False,
+    ctx: Context = None,
+) -> dict:
+    """One continuous chain of linear DIMENSIONs through any points (a section's
+    steps, a detail, polyline vertices), sharing one dimension line, plus the
+    overall size. Points are projected on the chain direction and sorted; points
+    on one station are merged (`merged`).
+
+    A text wider than its span (e.g. 60 / 105 at 1:20) is staggered onto
+    alternating tiers beyond the line, else slid to the nearest free place with
+    a leader; the overall row moves out to clear them. Each row reports
+    `placement` inline | staggered | moved. Drawn in one transaction.
+
+    Refused by name: fewer than two stations, offset 0, an unknown orientation.
+    """
+    from engineering.dimension_chain import draw_chain
+
+    try:
+        return await draw_chain(
+            _backend(ctx),
+            points,
+            offset,
+            orientation=orientation,
+            overall=overall,
+            step=step,
+            scale=scale,
+            layer=layer,
+            leader=leader,
+            dry_run=dry_run,
+        )
+    except ValueError as exc:
+        from engineering.errors import InvalidArgsError
+
+        raise InvalidArgsError(f"invalid_args: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------

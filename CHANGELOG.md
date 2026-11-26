@@ -24,6 +24,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `black` | `transparent`; with a paper layout both are refused (`invalid_args`,
   the sheet plots its page setup). `auto` is now white paper under any table
   that maps ink, screening included.
+- `dimension_chain(points, offset, orientation="auto", overall=True)`: one
+  continuous chain of linear DIMENSIONs through any points (a section's steps,
+  a detail, polyline vertices) on one dimension line, plus the overall size one
+  row farther out. `orientation` is `auto`, `horizontal`, `vertical` or
+  `aligned` (along first -> last point); points on one station are merged and
+  reported. A text wider than its span (60 / 105 at 1:20) is staggered onto
+  two alternating tiers beyond the dimension line (past DIMEXE), else slid to
+  the nearest free place with a leader (`leader=True`); the overall row moves
+  out until it clears them. Each row reports `placement` (`inline` /
+  `staggered` / `moved`). `scale` sets DIMSCALE
+  for the chain only; `dry_run` plans without drawing; one transaction.
+  `dimension_linear`'s backend method takes `text_leader` (DIMTMOVE 1).
 - Parametric catalogue items: `arch_catalogue_insert(width=, depth=, height=)`
   redraws an item's plan symbol for the given footprint (rails, rims and chairs
   keep their real sizes), within the range each row reports as `size_range`;
