@@ -174,13 +174,36 @@ async def test_an_empty_paper_layout_is_checked_with_nothing_on_it(backend):
 
 
 @pytest.mark.asyncio
-async def test_a_viewport_onto_lettered_model_space_is_deferred_not_passed(backend):
-    await backend.entity_create_line(0, 0, 100, 0, layer="GEOMETRY")
+async def test_each_viewport_grades_model_lettering_at_its_own_scale(backend):
+    # 50 mm model text plots at 2.0 mm on 1:25 (under ISO 3098's 2.5) and at
+    # 5.0 mm on 1:10; a text outside both windows is not graded at all.
+    await backend.entity_create_text("SMALL AT 1:25", 0, 0, height=50)
+    await backend.entity_create_text("FAR AWAY", 90000, 90000, height=1)
+    sheet = backend._doc.layouts.get("Layout1")
+    coarse = sheet.add_viewport(
+        center=(150, 100), size=(200, 150), view_center_point=(0, 0), view_height=150 * 25
+    )
+    sheet.add_viewport(
+        center=(450, 100), size=(200, 150), view_center_point=(0, 0), view_height=150 * 10
+    )
+    shared: dict = {}
+    issues = await run_critique(backend, ["iso128"], shared=shared)
+    (row,) = _rows(shared, focus="iso128", layout="Layout1")
+    assert row.status == "checked" and row.n == 2
+    (issue,) = [i for i in issues if i.detail.get("code") == "plotted_text_too_small"]
+    assert issue.detail["viewport"] == coarse.dxf.handle
+    assert issue.detail["smallest_mm"] == pytest.approx(2.0)
+    assert len(issue.handles) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_viewport_without_a_view_height_is_deferred_not_passed(backend):
     await backend.entity_create_text("NOTE", 0, 10, height=2.5)
     sheet = backend._doc.layouts.get("Layout1")
-    sheet.add_viewport(
+    vp = sheet.add_viewport(
         center=(150, 100), size=(200, 150), view_center_point=(50, 0), view_height=150
     )
+    vp.dxf.view_height = 0.0
     shared: dict = {}
     await run_critique(backend, ["iso128"], shared=shared)
     (row,) = _rows(shared, focus="iso128", layout="Layout1")

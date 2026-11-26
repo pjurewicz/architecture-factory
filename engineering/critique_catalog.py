@@ -29,7 +29,8 @@ FOCUS_CATALOG: dict[str, tuple[str, str, str | None]] = {
     "iso128": (
         "core",
         "layer lineweights outside the ISO 128 set; dimension text under 2.5 mm (ISO 3098) "
-        "or a decimal marker other than a point (ISO 129)",
+        "or a decimal marker other than a point (ISO 129); model lettering under 2.5 mm at a "
+        "paper viewport's scale (plotted_text_too_small)",
         "the dimension-legibility lane is not_checked on a live document "
         "(engine_live_document_template) and on paper layouts (no_viewport_scale / "
         "viewport_scale_deferred)",

@@ -85,8 +85,12 @@ async def build_index(backend: AutoCADBackend) -> dict:
     "faces": [{"loop", "area", ...}]}``. The faces are read only when there is
     a wall record to bound them; a ``rooms_detect`` refusal (no wall layer)
     reads as no faces.
+
+    Every space is read, whichever layout is current: a plan in model space
+    critiqued while a paper sheet is current read as ``domain_absent``
+    before. Faces are found per space that holds a wall record.
     """
-    from engineering.sheet.bom import all_entities
+    from engineering.qa_scan import entity_infos_all_spaces
 
     index: dict = {
         "walls": {},
@@ -96,30 +100,40 @@ async def build_index(backend: AutoCADBackend) -> dict:
         "wall_polygons": {},
         "faces": [],
     }
-    for layer in sorted(set(ARCH_ROLE_LAYER.values())):
-        entities = await all_entities(backend, layer=layer)
-        for entity in entities:
-            raw = await backend.entity_get_xdata(entity.handle, APP_ID)
-            values = (raw.get("xdata") or {}).get(APP_ID) or []
-            if not values:
-                continue
-            try:
-                obj = from_payload(decode(values))
-            except (ValueError, KeyError, TypeError):
-                # Not ours, or corrupt: the codec refused it, and guessing at
-                # it here would undo that.
-                continue
-            bucket = index[_BUCKETS[type(obj)]]
-            entry = bucket.setdefault(obj.id, {"obj": obj, "handles": []})
-            entry["handles"].append(entity.handle)
-    if index["walls"] or index["wall_polygons"]:
+    order = {name.lower(): i for i, name in enumerate(sorted(set(ARCH_ROLE_LAYER.values())))}
+    ours = [
+        (entity, space)
+        for entity, space in await entity_infos_all_spaces(backend)
+        if str(entity.layer or "0").lower() in order
+    ]
+    ours.sort(key=lambda row: order[str(row[0].layer or "0").lower()])  # stable
+    wall_spaces: list[str] = []
+    for entity, space in ours:
+        raw = await backend.entity_get_xdata(entity.handle, APP_ID)
+        values = (raw.get("xdata") or {}).get(APP_ID) or []
+        if not values:
+            continue
+        try:
+            obj = from_payload(decode(values))
+        except (ValueError, KeyError, TypeError):
+            # Not ours, or corrupt: the codec refused it, and guessing at
+            # it here would undo that.
+            continue
+        bucket = index[_BUCKETS[type(obj)]]
+        entry = bucket.setdefault(obj.id, {"obj": obj, "handles": []})
+        entry["handles"].append(entity.handle)
+        if isinstance(obj, (Wall, WallPolygon)) and space not in wall_spaces:
+            wall_spaces.append(space)
+    if wall_spaces:
         from engineering.arch.rooms import rooms_detect, wall_layers
 
-        try:
-            detected = await rooms_detect(backend, layers=await wall_layers(backend))
-        except ValueError:
-            detected = {"rooms": []}
-        index["faces"] = list(detected.get("rooms") or [])
+        layers = await wall_layers(backend)
+        for space in wall_spaces:
+            try:
+                detected = await rooms_detect(backend, layers=layers, space=space)
+            except ValueError:
+                detected = {"rooms": []}
+            index["faces"].extend(detected.get("rooms") or [])
     return index
 
 

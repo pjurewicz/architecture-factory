@@ -419,6 +419,7 @@ _STYLE_VAR_DEFAULTS: tuple[tuple[str, object], ...] = (
     ("dimtol", 0),
     ("dimlim", 0),
     ("dimtxt", 1.0),
+    ("dimscale", 1.0),
     ("dimtfill", 0),
     ("dimtfillclr", 1),
     ("dimclrt", None),

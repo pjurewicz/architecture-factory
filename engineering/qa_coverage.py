@@ -83,8 +83,8 @@ NOT_CHECKED_REASONS: dict[str, str] = {
         "to judge the model's lettering on that sheet at"
     ),
     "viewport_scale_deferred": (
-        "lettering at a viewport's plot scale (text under 2.5 mm, arrow size) is checked "
-        "from 1.8.1; until then the sheet's plotted text heights are not checked"
+        "a viewport onto lettered model space has no view height, so its plot scale - and "
+        "the plotted text heights on that sheet - cannot be read"
     ),
     "font_unresolved": (
         "the text style's font file could not be found, so its glyphs cannot be checked "

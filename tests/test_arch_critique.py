@@ -267,3 +267,24 @@ async def test_run_critique_reaches_the_arch_focuses(backend):
     (issue,) = await run_critique(backend, ["arch_wall_gap"])
     assert issue.focus == "arch_wall_gap" and issue.severity == "error"
     assert "stops 40 mm short of wall" in issue.message
+
+
+@pytest.mark.asyncio
+async def test_a_plan_in_model_space_is_read_while_a_paper_sheet_is_current(backend):
+    # arch_plan_from_spec draws into model space; a sheet made current
+    # afterwards must not turn every arch focus into domain_absent.
+    import copy
+
+    from engineering.arch.spec import EXAMPLE_SPEC, draw_plan_from_spec
+    from engineering.critique import run_critique
+    from engineering.qa_coverage import ledger_of
+
+    await draw_plan_from_spec(backend, copy.deepcopy(EXAMPLE_SPEC))
+    await backend.layout_create("A1")
+    await backend.layout_set_current("A1")
+    shared: dict = {}
+    await run_critique(backend, list(ARCH_FOCUSES), shared=shared)
+    rows = ledger_of(shared).rows
+    assert {r.focus for r in rows} == set(ARCH_FOCUSES)
+    assert all(r.status == "checked" and r.n > 0 for r in rows)
+    assert (await build_index(backend))["faces"]

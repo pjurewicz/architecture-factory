@@ -32,6 +32,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `rotation` is unchanged; the same rule applies to `entity_batch_create`'s
   `dimension_linear` and to the nominal an ISO 286 `fit` is resolved for.
 
+### Fixed
+
+- `drawing_critique`'s `iso128` dimension-legibility lane now grades paper
+  layouts: each model viewport grades the model lettering inside its window at
+  its own scale (TEXT / MTEXT / MULTILEADER height, or a DIMENSION's DIMTXT x
+  DIMSCALE, times the viewport scale; frozen layers skipped). Lettering under
+  ISO 3098's 2.5 mm is a warning with code `plotted_text_too_small`, naming the
+  viewport. `viewport_scale_deferred` is left only for a viewport without a view
+  height.
+- The `arch_*` critique focuses read every space, so a plan drawn by
+  `arch_plan_from_spec` no longer reads as `domain_absent` when a paper
+  layout is current.
+
 ### Removed
 
 - The collected-test count on README's release-snapshot line and its

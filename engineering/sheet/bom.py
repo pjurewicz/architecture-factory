@@ -117,8 +117,12 @@ PAGE_SIZE = 1000
 INSERT_TYPES = ("INSERT", "BLOCKREFERENCE")
 
 
-async def all_entities(backend: AutoCADBackend, *, type_filter=None, layer=None):
+async def all_entities(backend: AutoCADBackend, *, type_filter=None, layer=None, space=None):
     """Every entity of a type in the CURRENT space -- not the first 200 of them.
+
+    ``space`` names a layout to read instead of the current one (a QA reader
+    must not depend on which tab the operator left current); it is read in one
+    locked call, with ``entity_list``'s filter rules.
 
     `entity_list`'s `limit` defaults to 200, so a single call is
     a silent truncation on any real drawing: a parts list that stops at the
@@ -132,6 +136,15 @@ async def all_entities(backend: AutoCADBackend, *, type_filter=None, layer=None)
     ever. Handles are unique per drawing, so that guard cannot drop a real
     entity.
     """
+    if space is not None:
+        from engineering.qa_scan import entity_infos_all_spaces
+
+        return tuple(
+            info
+            for info, _space in await entity_infos_all_spaces(backend, [space])
+            if (not type_filter or str(type_filter).upper() == str(info.type).upper())
+            and (not layer or str(layer).lower() == str(info.layer or "0").lower())
+        )
     found: list = []
     seen: set[str] = set()
     offset = 0

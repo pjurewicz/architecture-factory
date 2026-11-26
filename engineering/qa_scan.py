@@ -193,26 +193,29 @@ async def with_insert_boxes(backend, snap: Snapshot, spaces=None) -> Snapshot:
     return replace(snap, records=records, insert_boxes=spaces is None)
 
 
-def _ezdxf_infos(doc):
+def _ezdxf_infos(doc, spaces=None):
     from backends.ezdxf_backend import _entity_info_dxf
 
     return [
         (_entity_info_dxf(entity), name)
         for name in doc.layouts.names_in_taborder()
+        if spaces is None or name in spaces
         for entity in doc.layouts.get(name)
     ]
 
 
-async def entity_infos_all_spaces(backend) -> list:
-    """``(EntityInfo, space)`` for every entity of every layout, in tab order,
-    read in one locked call and without switching the current layout.
+async def entity_infos_all_spaces(backend, spaces=None) -> list:
+    """``(EntityInfo, space)`` for every entity of every layout (or of the
+    layouts named in ``spaces``), in tab order, read in one locked call and
+    without switching the current layout.
 
     ``pid_graph(scope="all")`` walked the layouts with ``layout_set_current``,
     which rebinds the active paper layout and marks the document dirty - a
     read that changed the drawing (backlog W3-T14-09). An entity the live
     engine cannot read refuses the whole read instead of being skipped.
     """
-    return await _async_readonly(backend, lambda: _ezdxf_infos(backend._require_doc()))
+    wanted = None if spaces is None else set(spaces)
+    return await _async_readonly(backend, lambda: _ezdxf_infos(backend._require_doc(), wanted))
 
 
 class _FailedBuild:

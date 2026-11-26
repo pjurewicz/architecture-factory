@@ -486,12 +486,15 @@ async def test_a_mechanical_index_that_cannot_read_fails_every_mech_focus(backen
 
 
 async def test_an_architectural_index_that_cannot_read_fails_every_arch_focus(backend, monkeypatch):
+    import engineering.qa_scan as qa_scan
     from engineering.arch.critique import ARCH_FOCUSES
 
-    async def broken_list(*_args, **_kwargs):
-        raise RuntimeError("entity_list down")
+    async def broken_read(*_args, **_kwargs):
+        raise RuntimeError("entity read down")
 
-    monkeypatch.setattr(backend, "entity_list", broken_list)
+    # The index reads every space through entity_infos_all_spaces (not the
+    # current space's entity_list), so that is the read to break.
+    monkeypatch.setattr(qa_scan, "entity_infos_all_spaces", broken_read)
     issues = await run_critique(backend, list(ARCH_FOCUSES))
 
     assert [i.focus for i in issues] == list(ARCH_FOCUSES)

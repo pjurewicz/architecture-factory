@@ -395,12 +395,12 @@ def detect_rooms(
     return tuple(rooms)
 
 
-async def read_records(backend: AutoCADBackend) -> dict:
+async def read_records(backend: AutoCADBackend, *, space=None) -> dict:
     """Every ``ACADMCP_ARCH`` record on the drawing's architectural layers.
 
     The shape `read_plan` (Task 4) returns - ``walls``, ``openings``, ``stairs``,
     ``rooms`` as model dataclasses - plus ``room_handles`` (room id -> the
-    handle of the label that carries it). The current space is paged through
+    handle of the label that carries it). The current space (or ``space``) is read
     once, not sampled and not once per layer: a record past the 200th entity is
     still a record, and the drawing is scanned once rather than once for each
     of the twelve arch layers.
@@ -432,7 +432,7 @@ async def read_records(backend: AutoCADBackend) -> dict:
     arch_layers = {name.casefold(): name for name in ARCH_ROLE_LAYER.values()}
     ours = [
         entity
-        for entity in await all_entities(backend)
+        for entity in await all_entities(backend, space=space)
         if str(entity.layer or "").casefold() in arch_layers
     ]
     ours.sort(key=lambda entity: arch_layers[str(entity.layer).casefold()])  # stable
@@ -459,7 +459,7 @@ async def read_records(backend: AutoCADBackend) -> dict:
     return {**found, "room_handles": room_handles, "unreadable": unreadable}
 
 
-async def read_segments(backend: AutoCADBackend, layers) -> tuple[list, list[dict]]:
+async def read_segments(backend: AutoCADBackend, layers, *, space=None) -> tuple[list, list[dict]]:
     """Straight segments on ``layers`` as ``(p1, p2, layer)``, and what was skipped.
 
     Read: LINE, and the lightweight polyline (LWPOLYLINE) by its ``points``. Everything else that can
@@ -486,7 +486,7 @@ async def read_segments(backend: AutoCADBackend, layers) -> tuple[list, list[dic
         skipped.append({"handle": entity.handle, "type": kind, "reason": reason})
 
     for layer in layers:
-        for entity in await all_entities(backend, layer=layer):
+        for entity in await all_entities(backend, layer=layer, space=space):
             props = entity.properties or {}
             kind = str(entity.type).upper()
             if kind in NON_BOUNDARY_TYPES or "DIMENSION" in kind:
@@ -687,6 +687,7 @@ async def rooms_detect(
     layers=None,
     min_area: float = DEFAULT_MIN_AREA,
     tol: float = DEFAULT_TOL,
+    space=None,
 ) -> dict:
     """Read the rooms of any plan: faces of the lines on ``layers``, measured, never drawn.
 
@@ -700,7 +701,8 @@ async def rooms_detect(
     face - and ``label``, the first of them or None. A face carrying more than
     one record is listed in ``label_conflicts``, because a schedule reading the
     records would count its area once per record. What `read_segments` could
-    not read is in ``skipped``, with its handle and why.
+    not read is in ``skipped``, with its handle and why. ``space`` reads that
+    layout instead of the current one (the critique's reader).
     """
     min_area = _positive(min_area, "min_area")
     tol = _positive(tol, "tol")
@@ -725,8 +727,8 @@ async def rooms_detect(
             )
         chosen = [lookup[str(name).casefold()] for name in layers]
 
-    segments, skipped = await read_segments(backend, chosen)
-    records = await read_records(backend)
+    segments, skipped = await read_segments(backend, chosen, space=space)
+    records = await read_records(backend, space=space)
     closures, omitted = opening_closures(records["walls"], records["openings"])
     wall_layer = ARCH_ROLE_LAYER["wall"]
     extra = [(p1, p2, wall_layer) for p1, p2 in closures]

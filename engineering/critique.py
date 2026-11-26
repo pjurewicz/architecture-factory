@@ -81,7 +81,7 @@ async def _check_iso128(backend: AutoCADBackend, shared: dict | None = None) -> 
             )
     issues.extend(_check_dimension_legibility(backend, ledger))
     if getattr(backend, "_doc", None) is not None:
-        await _plot_scale_rows(backend, shared, ledger)
+        issues.extend(await _plot_scale_rows(backend, shared, ledger))
     return issues
 
 
@@ -95,37 +95,175 @@ LEGIBILITY_LANE = "dimension_legibility"
 _LETTERING_TYPES = frozenset({"DIMENSION", "TEXT", "MTEXT", "MULTILEADER", "LEADER"})
 
 
-async def _plot_scale_rows(backend: AutoCADBackend, shared: dict, ledger) -> None:
-    """One legibility row per paper layout (headless; 1.8-16).
+#: Handles a plotted-lettering issue lists (``detail.count`` says how many there were).
+_PLOTTED_HANDLES = 50
 
-    The lane grades the document's dimension settings at 1:1. A sheet plots
-    the model at its viewports' scale, which this release does not grade
-    (1.8.1), so a paper layout is never reported as checked by it:
+
+def _read_viewports(doc) -> dict[str, list[dict]]:
+    """Every model viewport of every paper layout: its window onto the model
+    (centre, half sizes and twist in model units), its scale (paper / model)
+    and the layers it freezes. A viewport without a view height has no scale
+    (``scale`` None)."""
+    out: dict[str, list[dict]] = {}
+    for name in doc.layouts.names_in_taborder():
+        if name == "Model":
+            continue
+        layout = doc.layouts.get(name)
+        main = layout.main_viewport()
+        rows = out.setdefault(name, [])
+        for vp in layout.viewports():
+            if main is not None and vp.dxf.handle == main.dxf.handle:
+                continue
+            view_height = float(vp.dxf.get("view_height", 0.0) or 0.0)
+            height = float(vp.dxf.get("height", 0.0) or 0.0)
+            width = float(vp.dxf.get("width", 0.0) or 0.0)
+            centre = vp.dxf.get("view_center_point", (0.0, 0.0))
+            ok = view_height > 0 and height > 0
+            rows.append(
+                {
+                    "handle": vp.dxf.handle,
+                    "scale": height / view_height if ok else None,
+                    "centre": (float(centre[0]), float(centre[1])),
+                    "half": (view_height * width / height / 2.0, view_height / 2.0) if ok else None,
+                    "twist": math.radians(float(vp.dxf.get("view_twist_angle", 0.0) or 0.0)),
+                    "frozen": {str(n).lower() for n in (vp.frozen_layers or ())},
+                }
+            )
+    return out
+
+
+def _in_window(point, view: dict) -> bool:
+    dx = float(point[0]) - view["centre"][0]
+    dy = float(point[1]) - view["centre"][1]
+    c, s = math.cos(view["twist"]), math.sin(view["twist"])
+    u, v = dx * c + dy * s, -dx * s + dy * c  # model -> view axes (a twisted view)
+    hx, hy = view["half"]
+    return abs(u) <= hx + 1e-9 and abs(v) <= hy + 1e-9
+
+
+def _plotted_height(record, scale: float) -> tuple[float | None, str]:
+    """The height ``record``'s lettering plots at on a viewport of ``scale``,
+    with what it was read from. A DIMENSION letters at DIMTXT x DIMSCALE
+    model units; DIMSCALE 0 scales it to the viewport, so it plots at DIMTXT."""
+    if record.type == "DIMENSION":
+        style = dict(record.dim_vars or ())
+        if "dimtxt" not in style:
+            return None, "dimtxt"
+        dimtxt = float(style["dimtxt"])
+        dimscale = float(style.get("dimscale", 1.0) or 0.0)
+        if dimscale == 0.0:
+            return dimtxt, "dimtxt (DIMSCALE 0: scaled to the viewport)"
+        return dimtxt * dimscale * scale, "dimtxt x dimscale"
+    if record.height is None or record.height <= 0:
+        return None, "height"
+    return float(record.height) * scale, "height"
+
+
+def _lettering_point(record):
+    if not record.points:
+        return None
+    if record.type == "DIMENSION" and len(record.points) > 1:
+        return record.points[1]  # the text midpoint
+    if record.type == "MULTILEADER":
+        return record.points[-1]  # the MTEXT insert
+    return record.points[0]
+
+
+async def _plot_scale_rows(backend: AutoCADBackend, shared: dict, ledger) -> list[Issue]:
+    """One legibility row per paper layout (headless; 1.8-16), and the
+    plotted-lettering findings of its viewports.
+
+    The document lane grades the dimension settings at 1:1. A sheet plots the
+    model at its viewports' scales, so each model viewport grades the model
+    lettering inside its window at its own scale: a TEXT / MTEXT / MULTILEADER
+    height, or a DIMENSION's DIMTXT x DIMSCALE, times the viewport scale must
+    reach ISO 3098's 2.5 mm. Layers the viewport freezes and LEADERs (no
+    lettering of their own) are not graded.
 
     * no entity but its own paper viewport: ``checked``, n = 0 - nothing plots;
-    * a viewport onto lettered model space: ``viewport_scale_deferred``;
-    * viewports onto a model with no lettering: ``checked``, n = viewports;
+    * viewports with a scale: ``checked``, n = the lettering graded on them;
+    * a viewport onto lettered model space with no view height: its scale
+      cannot be read, ``viewport_scale_deferred``;
     * content and no model viewport: ``no_viewport_scale``.
     """
     snap, coverage = await qa_snapshot(backend, shared)
     if snap is None or not coverage.complete:
         ledger.not_checked("iso128", DOCUMENT, "scan_incomplete", lane=LEGIBILITY_LANE)
-        return
-    lettered = any(r.space == "Model" and r.type in _LETTERING_TYPES for r in snap.records)
+        return []
+    from .qa_scan import _async_readonly
+
+    viewports = await _async_readonly(backend, lambda: _read_viewports(backend._require_doc()))
+    lettering = [
+        r
+        for r in snap.records
+        if r.space == "Model" and r.type in _LETTERING_TYPES and r.type != "LEADER"
+    ]
+    issues: list[Issue] = []
     for layout in snap.layouts:
         if layout == "Model":
             continue
         here = [r for r in snap.records if r.space == layout]
-        views = [r for r in here if r.type == "VIEWPORT" and not r.paper_viewport]
+        views = viewports.get(layout, [])
         content = [r for r in here if r.type != "VIEWPORT"]
-        if views and lettered:
+        if not views:
+            if content:
+                ledger.not_checked("iso128", layout, "no_viewport_scale", lane=LEGIBILITY_LANE)
+            else:
+                ledger.checked("iso128", layout, 0, lane=LEGIBILITY_LANE)
+            continue
+        graded = 0
+        unscaled = False
+        for view in views:
+            seen = [
+                r
+                for r in lettering
+                if str(r.layer).lower() not in view["frozen"]
+                and (view["half"] is None or (p := _lettering_point(r)) is not None)
+                and (view["half"] is None or _in_window(p, view))
+            ]
+            if view["scale"] is None:
+                unscaled = unscaled or bool(seen)
+                continue
+            small: list[tuple[float, object]] = []
+            for record in seen:
+                plotted, _source = _plotted_height(record, view["scale"])
+                if plotted is None:
+                    continue
+                graded += 1
+                if plotted < ISO_3098_MIN_TEXT_MM - 1e-9:
+                    small.append((plotted, record))
+            if small:
+                small.sort(key=lambda row: row[0])
+                ratio = 1.0 / view["scale"]
+                label = f"1:{ratio:g}" if ratio >= 1 else f"{view['scale']:g}:1"
+                issues.append(
+                    Issue(
+                        severity="warning",
+                        focus="iso128",
+                        message=(
+                            f"Viewport {view['handle']} on '{layout}' plots at {label}: "
+                            f"{len(small)} model lettering entit"
+                            f"{'y' if len(small) == 1 else 'ies'} below ISO 3098's "
+                            f"{ISO_3098_MIN_TEXT_MM} mm (smallest {small[0][0]:.2f} mm)."
+                        ),
+                        handles=[r.handle for _h, r in small[:_PLOTTED_HANDLES]],
+                        detail={
+                            "code": "plotted_text_too_small",
+                            "layout": layout,
+                            "viewport": view["handle"],
+                            "scale": view["scale"],
+                            "minimum": ISO_3098_MIN_TEXT_MM,
+                            "smallest_mm": round(small[0][0], 4),
+                            "count": len(small),
+                            "repairable": False,
+                        },
+                    )
+                )
+        if unscaled:
             ledger.not_checked("iso128", layout, "viewport_scale_deferred", lane=LEGIBILITY_LANE)
-        elif views:
-            ledger.checked("iso128", layout, len(views), lane=LEGIBILITY_LANE)
-        elif content:
-            ledger.not_checked("iso128", layout, "no_viewport_scale", lane=LEGIBILITY_LANE)
         else:
-            ledger.checked("iso128", layout, 0, lane=LEGIBILITY_LANE)
+            ledger.checked("iso128", layout, graded, lane=LEGIBILITY_LANE)
+    return issues
 
 
 def _check_dimension_legibility(backend: AutoCADBackend, ledger=None) -> list[Issue]:
