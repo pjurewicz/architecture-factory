@@ -38,7 +38,12 @@ class DimensionContract(ABC):
         tol_mode: str = "none",
         text_override: str | None = None,
         xdata: dict[str, list] | None = None,
-    ) -> EntityInfo: ...
+        *,
+        text_at: tuple[float, float] | None = None,
+    ) -> EntityInfo:
+        """``text_at`` places the text's middle there and leaves the dimension
+        line where ``dim_x, dim_y`` put it (DIMTMOVE 2: no leader); None lets
+        the style place it."""
 
     @abstractmethod
     async def dimension_aligned(

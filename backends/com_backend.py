@@ -7843,6 +7843,8 @@ class ComBackend(ComCheckpoints, AutoCADBackend):
         tol_mode="none",
         text_override=None,
         xdata=None,
+        *,
+        text_at=None,
     ) -> EntityInfo:
         prepared = prepare_xdata(xdata)
 
@@ -7859,6 +7861,11 @@ class ComBackend(ComCheckpoints, AutoCADBackend):
             if layer:
                 dim.Layer = layer
             _apply_dim_tolerance(dim, tol_upper, tol_lower, tol_mode, text_override)
+            if text_at is not None:
+                # acMoveTextNoLeader first: under DIMTMOVE 0 a TextPosition
+                # would drag the dimension line along. Not yet run on a live seat.
+                dim.TextMovement = 2
+                dim.TextPosition = _apoint(text_at[0], text_at[1])
             _attach_xdata(dim, prepared)
             _regen(dim)
             return _entity_info(dim)

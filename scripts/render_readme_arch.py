@@ -62,10 +62,10 @@ GRID_Y = [0.0, 7000.0]
 GRID_EXTENSION = 34.0 * SCALE
 
 #: Exterior chains on the top and left facades, rows 10 / 18 / 26 mm out. The
-#: headless renderer centres a text too wide for its gap on the gap and shifts
-#: it along the dimension line's +normal: outward on top and left, but inward -
-#: among the row's own extension lines - on bottom and right. So the chains go
-#: where a moved text lands in open space.
+#: chain engine places every text itself (``chain_text_positions``: a text too
+#: wide for its span is moved clear of the other texts and the extension
+#: lines), so any side would read; top and left are this sheet's composition,
+#: not a renderer constraint.
 CHAINS_SIDES = ("top", "left")
 CHAINS_FIRST = 10.0 * SCALE
 CHAINS_STEP = 8.0 * SCALE

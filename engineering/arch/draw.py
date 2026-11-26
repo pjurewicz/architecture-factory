@@ -23,7 +23,7 @@ import logging
 import math
 from dataclasses import replace
 
-from engineering.arch.dimension import exterior_chains
+from engineering.arch.dimension import chain_text_positions, exterior_chains
 from engineering.arch.lang import tag_prefix
 from engineering.arch.layers import ARCH_LAYERS, ARCH_ROLE_LAYER
 from engineering.arch.model import (
@@ -396,7 +396,27 @@ async def draw_chains(
     if abs(previous - factor) > 1e-9:
         await backend.system_set_variable("DIMSCALE", factor)
     try:
-        for intent in intents:
+        style = {
+            name: await backend.system_get_variable(name.upper())
+            for name in (
+                "dimtxt",
+                "dimgap",
+                "dimtad",
+                "dimdec",
+                "dimzin",
+                "dimdsep",
+                "dimrnd",
+                "dimpost",
+            )
+        }
+        texts = chain_text_positions(
+            intents,
+            text_height=float(style["dimtxt"] or 2.5) * factor,
+            gap=float(style["dimgap"] or 0.0) * factor,
+            tad=int(style["dimtad"] or 0),
+            style_vars={k: v for k, v in style.items() if v is not None},
+        )
+        for intent, text_at in zip(intents, texts, strict=True):
             horizontal = abs(intent.p2[1] - intent.p1[1]) <= abs(intent.p2[0] - intent.p1[0])
             info = await backend.dimension_linear(
                 intent.p1[0],
@@ -407,6 +427,7 @@ async def draw_chains(
                 intent.text_at[1],
                 0.0 if horizontal else 90.0,
                 layer,
+                text_at=text_at,
             )
             handles.append(info.handle)
             rows.append(
@@ -415,6 +436,7 @@ async def draw_chains(
                     "from": list(intent.p1),
                     "to": list(intent.p2),
                     "value": math.dist(intent.p1, intent.p2),
+                    "text_at": list(text_at),
                 }
             )
     finally:

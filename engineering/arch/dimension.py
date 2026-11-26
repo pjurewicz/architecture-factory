@@ -24,6 +24,15 @@ Offsets are paper millimetres times the plot-scale denominator: the first row
 10 mm from the building and 8 mm between rows. Those two numbers are this
 repository's drafting defaults, not standard values; pass ``first_offset`` /
 ``step`` in drawing units to override them.
+
+A stepped facade (a garage set forward, a porch, a wing set back) projects every
+step onto one row, so short spans - a wall's 120, a return's 240 - stand side
+by side and their texts would print over each other. :func:`chain_text_positions`
+places every text of a side as a box: centred on its span where it fits, else
+on the other side of its dimension line, else slid along the line to the
+nearest free place - no two boxes overlap and none crosses another row's line.
+A text's width is estimated from its formatted value (``TEXT_WIDTH_FACTOR``
+text heights per character), not measured from a font.
 """
 
 from __future__ import annotations
@@ -39,6 +48,10 @@ SIDES: tuple[str, ...] = ("bottom", "top", "left", "right")
 ROWS: tuple[str, ...] = ("openings", "walls", "overall")
 FIRST_OFFSET_PAPER_MM = 10.0
 STEP_PAPER_MM = 8.0
+#: Width of one character of dimension text, in text heights: an estimate a
+#: little wider than a digit of the fonts the engines draw with, so a box is
+#: never narrower than its text.
+TEXT_WIDTH_FACTOR = 0.75
 _TOL = 1.0
 
 
@@ -206,3 +219,131 @@ def exterior_chains(
                     p1, p2, at = (edge, p), (edge, q), (offset, (p + q) / 2.0)
                 intents.append(DimIntent("linear", p1, p2, at, feature=f"{side}:{ROWS[r]}"))
     return tuple(intents)
+
+
+def chain_text_positions(
+    intents: Sequence[DimIntent], *, text_height, gap, tad=1, style_vars=None
+) -> list[tuple[float, float]]:
+    """The text centre of each of ``exterior_chains``' dimensions, in its order.
+
+    ``text_height`` and ``gap`` are drawing units (DIMTXT and DIMGAP times
+    DIMSCALE); ``tad`` is DIMTAD (0: the text sits in the dimension line, else
+    above it); ``style_vars`` formats the values the way the drawing does, to
+    size each box (``engineering/dimtext.py``).
+
+    Per side, texts whose box fits inside their span go first, centred where
+    the style puts them. Every other text then takes, row by row from the
+    building outwards and along the row, the free place nearest its span's
+    middle: the style's place, the other side of its own line, or one of those
+    slid along the line clear of the boxes already placed and of the extension
+    lines. A place is free when its box keeps a text height from its neighbours
+    along the line and ``gap`` from every other row's line; a moved text also
+    keeps ``gap`` from every extension line where the row leaves room.
+    """
+    from engineering.dimtext import format_value
+
+    h = _positive(text_height, "text_height")
+    g = abs(float(gap))
+    near = g + h / 2.0
+    # neighbours along a line keep a text height apart: closer, "60" and
+    # "240" read as "60240"
+    sep = max(g, h)
+    out: list[tuple[float, float] | None] = [None] * len(intents)
+    by_side: dict[str, list[int]] = {}
+    for i, intent in enumerate(intents):
+        by_side.setdefault(intent.feature.split(":")[0], []).append(i)
+
+    def place_side(side: str, members: list[int]) -> None:
+        ai = 0 if side in ("bottom", "top") else 1
+        ci = 1 - ai
+        # "above" a horizontal text is +y; a vertical one reads upwards, so its
+        # "above" is -x
+        up = 1.0 if ai == 0 else -1.0
+        slots = (up * near, -up * near) if tad else (0.0, up * near, -up * near)
+        lines = sorted({intents[i].text_at[ci] for i in members})
+        placed: list[tuple[float, float, float, float]] = []
+        # every extension line: its position along, and the stretch across it
+        # covers - from the building to its own row's line, plus the overshoot
+        exts: set[tuple[float, float, float]] = set()
+        for j in members:
+            edge, line = intents[j].p1[ci], intents[j].text_at[ci]
+            tip = line + math.copysign(h / 2.0, line - edge)
+            for end in (intents[j].p1[ai], intents[j].p2[ai]):
+                exts.add((end, min(edge, tip), max(edge, tip)))
+
+        def box(i, along, slot):
+            intent = intents[i]
+            label = format_value(math.dist(intent.p1, intent.p2), 0, style_vars)
+            half = len(label) * TEXT_WIDTH_FACTOR * h / 2.0
+            across = intent.text_at[ci] + slot
+            return (along - half, along + half, across - h / 2.0, across + h / 2.0)
+
+        def free(i, rect, clear_ext=False) -> bool:
+            own = intents[i].text_at[ci]
+            if any(line != own and rect[2] - g < line < rect[3] + g for line in lines):
+                return False
+            if clear_ext and any(
+                rect[0] - g < at < rect[1] + g and lo < rect[3] and rect[2] < hi
+                for at, lo, hi in exts
+            ):
+                return False
+            return not any(
+                rect[0] < o[1] + sep and o[0] < rect[1] + sep and rect[2] < o[3] and o[2] < rect[3]
+                for o in placed
+            )
+
+        def put(i, rect) -> None:
+            placed.append(rect)
+            along = (rect[0] + rect[1]) / 2.0
+            across = (rect[2] + rect[3]) / 2.0
+            out[i] = (along, across) if ai == 0 else (across, along)
+
+        def middle(i) -> float:
+            return (intents[i].p1[ai] + intents[i].p2[ai]) / 2.0
+
+        later: list[int] = []
+        for i in members:
+            rect = box(i, middle(i), slots[0])
+            span = abs(intents[i].p2[ai] - intents[i].p1[ai])
+            if rect[1] - rect[0] + 2.0 * g <= span and free(i, rect):
+                put(i, rect)
+            else:
+                later.append(i)
+        later.sort(key=lambda i: (ROWS.index(intents[i].feature.split(":")[1]), middle(i)))
+        for i in later:
+            mid = middle(i)
+            first = box(i, mid, slots[0])
+            half = (first[1] - first[0]) / 2.0
+            alongs = {mid}
+            for o in placed:
+                alongs.add(o[1] + sep + half)
+                alongs.add(o[0] - sep - half)
+            for at, _, _ in exts:
+                alongs.add(at + g + half)
+                alongs.add(at - g - half)
+            candidates = sorted(
+                ((abs(a - mid), s, a) for a in alongs for s in range(len(slots))),
+                key=lambda c: (c[0], c[1], c[2]),
+            )
+            # clear of every extension line if there is room, else only of
+            # the other texts and rows
+            for clear_ext in (True, False):
+                spot = next(
+                    (
+                        rect
+                        for _, s, along in candidates
+                        if free(i, rect := box(i, along, slots[s]), clear_ext)
+                    ),
+                    None,
+                )
+                if spot is not None:
+                    put(i, spot)
+                    break
+            else:
+                # rows closer than a text height leave no free place: the
+                # style's place, overlapping, rather than none
+                put(i, box(i, mid, slots[0]))
+
+    for side, members in by_side.items():
+        place_side(side, members)
+    return [p for p in out if p is not None]

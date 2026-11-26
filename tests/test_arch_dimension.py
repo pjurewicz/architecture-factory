@@ -16,6 +16,8 @@ from engineering.arch.dimension import (
     ROWS,
     SIDES,
     STEP_PAPER_MM,
+    TEXT_WIDTH_FACTOR,
+    chain_text_positions,
     exterior_chains,
 )
 from engineering.arch.model import Opening, Wall
@@ -105,3 +107,59 @@ def test_bad_sides_and_scales_are_refused_by_name():
         exterior_chains([SHELL], [], scale=0)
     with pytest.raises(ValueError, match="sides"):
         exterior_chains([SHELL], [], sides="bottom")
+
+
+#: A stepped bottom facade: a garage, a vestibule pushed 1200 forward between
+#: two 120 partitions, a wing set back 800 - every step projects onto one row.
+STEPPED = Wall(
+    id="ext",
+    axis=(
+        (0.0, 0.0),
+        (6000.0, 0.0),
+        (6000.0, 800.0),
+        (6400.0, 800.0),
+        (6400.0, -1200.0),
+        (8800.0, -1200.0),
+        (8800.0, 800.0),
+        (9040.0, 800.0),
+        (9040.0, 2400.0),
+        (17000.0, 2400.0),
+        (17000.0, 12000.0),
+        (0.0, 12000.0),
+    ),
+    thickness=240.0,
+    closed=True,
+)
+STEPPED_PARTITIONS = [
+    Wall(id="p1", axis=((6000.0, 800.0), (6000.0, 12000.0)), thickness=120.0),
+    Wall(id="p2", axis=((9040.0, 2400.0), (9040.0, 12000.0)), thickness=120.0),
+]
+
+
+def boxes(intents, texts, h):
+    out = []
+    for intent, (x, y) in zip(intents, texts, strict=True):
+        label = f"{abs(intent.p2[0] - intent.p1[0]):.0f}"
+        half = len(label) * TEXT_WIDTH_FACTOR * h / 2.0
+        out.append((intent, (x - half, x + half, y - h / 2.0, y + h / 2.0)))
+    return out
+
+
+def test_stepped_facade_texts_never_overlap_and_fitting_ones_stay_centred():
+    intents = exterior_chains([STEPPED, *STEPPED_PARTITIONS], [], sides=("bottom",), scale=50)
+    h, gap = 125.0, 31.25  # ISO-25 at 1:50: DIMTXT 2.5, DIMGAP 0.625
+    texts = chain_text_positions(intents, text_height=h, gap=gap, tad=1)
+    shorts = [i for i in intents if abs(i.p2[0] - i.p1[0]) <= 240.0]
+    assert len(shorts) >= 6  # the 60 / 120 / 160 / 240 steps that collided
+    placed = boxes(intents, texts, h)
+    for n, (a, ra) in enumerate(placed):
+        for b, rb in placed[n + 1 :]:
+            apart_x = ra[1] + h <= rb[0] + 1e-6 or rb[1] + h <= ra[0] + 1e-6
+            apart_y = ra[3] <= rb[2] + 1e-6 or rb[3] <= ra[2] + 1e-6
+            assert apart_x or apart_y, (a, b)
+        # no text sits on another row's dimension line
+        for line in {i.text_at[1] for i in intents} - {a.text_at[1]}:
+            assert not ra[2] - gap < line < ra[3] + gap, a
+    for intent, (x, y) in zip(intents, texts, strict=True):
+        if abs(intent.p2[0] - intent.p1[0]) >= 1000.0:
+            assert (x, y) == ((intent.p1[0] + intent.p2[0]) / 2.0, intent.text_at[1] + gap + h / 2)

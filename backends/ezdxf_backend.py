@@ -6566,6 +6566,8 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         tol_mode="none",
         text_override=None,
         xdata=None,
+        *,
+        text_at=None,
     ) -> EntityInfo:
         prepared = prepare_xdata(xdata)
 
@@ -6574,11 +6576,18 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
 
             override, text = build_dim_override(tol_upper, tol_lower, tol_mode, text_override)
             override = _with_header_dimvars(self._require_doc(), override)
+            location = None
+            if text_at is not None:
+                location = (float(text_at[0]), float(text_at[1]))
+                # the text moves alone: the header's DIMTMOVE 0 would move the
+                # dimension line with it
+                override = {**(override or {}), "dimtmove": 2}
             msp = self._msp()
             dim = msp.add_linear_dim(
                 base=(float(dim_x), float(dim_y)),
                 p1=(float(x1), float(y1)),
                 p2=(float(x2), float(y2)),
+                location=location,
                 angle=float(rotation),
                 text=text if text is not None else "<>",
                 dimstyle=_current_dimstyle_name(self._require_doc()),
