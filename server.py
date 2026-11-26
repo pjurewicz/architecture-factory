@@ -31,7 +31,7 @@ from fastmcp.server.middleware.error_handling import ErrorHandlingMiddleware
 from fastmcp.server.middleware.logging import LoggingMiddleware
 from fastmcp.server.middleware.timing import TimingMiddleware
 from fastmcp.tools.tool import ToolResult
-from pydantic import Field
+from pydantic import Field, ValidationError, WithJsonSchema
 
 import config
 import http_guard
@@ -44,6 +44,8 @@ from backends.base import (
     LayerInfo,
     Lineweight,
 )
+from backends.contracts.entity_creation import batch_create_adapter as _batch_create_adapter
+from backends.contracts.entity_creation import inline_json_schema as _inline_json_schema
 from backends.journal_store import open_journal, state_store_status
 from backends.operations import (
     CURRENT_OPERATION,
@@ -60,6 +62,7 @@ from backends.session_backends import (
 from backends.session_metrics import SESSION_METRICS, result_text_bytes
 from discovery.aliases import aliases_for, tools_for_command
 from discovery.descriptions import record_wire_description
+from engineering.arch.spec import spec_schema as _arch_spec_schema
 from engineering.errors import (
     ERROR_KINDS,
     CommandRefusedError,
@@ -6859,8 +6862,16 @@ async def cad_batch(
 async def entity_batch_create(
     entities: Annotated[
         list[dict],
-        "List of entity definitions. Each dict must have 'type' and that entity_create_* tool's params. Types: line, circle, arc, polyline, rectangle (x1, y1, x2, y2), text, mtext, point, hatch, spline, ellipse. "
-        "Any definition may add 'lineweight' (hundredths of a mm, or 'ByLayer' = -1, 'ByBlock' = -2, 'Default' = -3 - not ByLayer)",
+        WithJsonSchema(
+            {
+                "type": "array",
+                "items": _inline_json_schema(_batch_create_adapter().json_schema()),
+                "description": "Entity definitions, one per item: 'type' and that "
+                "entity_create_* tool's arguments (a rectangle: x1, y1, x2, y2), plus an "
+                "optional 'lineweight' (hundredths of a mm, or 'ByLayer' = -1, 'ByBlock' = -2, "
+                "'Default' = -3 - not ByLayer).",
+            }
+        ),
     ],
     ctx: Context = None,
 ) -> dict:
@@ -6891,6 +6902,18 @@ async def entity_batch_create(
             f"invalid_args: unknown or missing entity type at index {', '.join(bad[:10])} - "
             f"nothing was drawn. Types: {', '.join(known)}"
         )
+    # Every item against the schema this tool advertises, before anything is drawn.
+    problems = []
+    for i, spec in enumerate(entities):
+        try:
+            _batch_create_adapter().validate_python({**spec, "type": str(spec["type"]).lower()})
+        except ValidationError as exc:
+            problems += [
+                f"entities[{i}].{'.'.join(map(str, err['loc'][1:]))}: {err['msg']}"
+                for err in exc.errors()
+            ]
+    if problems:
+        raise InvalidArgsError(f"invalid_args: {'; '.join(problems[:10])} - nothing was drawn")
     total = len(entities)
     await ctx.info(f"Batch creating {total} entities")
     # 1.8-23: one backend call - the contract's loop over entity_create_*
@@ -13796,16 +13819,13 @@ async def arch_symbol(
 async def arch_plan_from_spec(
     spec: Annotated[
         dict,
-        Field(
-            description=(
-                "{sheet: {intent, sheet_size, scale (denominator, 50 = 1:50)}, lang: 'en'|'tr', "
-                "poche: bool, walls: [{id, axis: [[x,y],...], thickness, justification, "
-                "material, closed}], openings: [{id, wall, kind: 'door'|'window', offset, "
-                "width, swing, hand, sill, height, tag}], stairs: [{id, start, direction_deg, "
-                "width, risers, riser_height, going, kind, turn}], rooms: [{id, name, number, "
-                "at}], chains: {sides: ['bottom','left']}, schedules: [{kind: "
-                "'doors'|'windows'|'rooms', at: [x,y]}]}"
-            )
+        WithJsonSchema(
+            _arch_spec_schema()
+            | {
+                "description": "The whole plan: walls (axis, thickness, justification, "
+                "material), openings hosted by wall id and offset, stairs, rooms (no area: "
+                "measured), chains and schedules."
+            }
         ),
     ],
     ctx: Context = None,

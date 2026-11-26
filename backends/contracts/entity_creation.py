@@ -7,6 +7,9 @@ Split out of the single 1854-line ``AutoCADBackend`` ABC in v1.5.0 (M7).
 
 from __future__ import annotations
 
+import functools
+import inspect
+import typing
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
@@ -14,6 +17,81 @@ from backends.capability import capability
 
 if TYPE_CHECKING:
     from backends.base import EntityInfo
+
+
+@functools.cache
+def batch_create_adapter():
+    """The pydantic adapter of one ``entity_batch_create`` item.
+
+    A union discriminated by ``type``: one model per type, built from that
+    type's ``entity_create_*`` signature on this contract (the rectangle's from
+    ``batch_create_spec``: the polyline's minus ``points`` / ``closed``, plus
+    ``x1, y1, x2, y2``), each with ``lineweight`` and no other field. The tool
+    validates every item with it before drawing and advertises its JSON
+    schema, so the documented syntax and the accepted one cannot drift apart.
+    """
+    from typing import Annotated, Literal, Union
+
+    from pydantic import ConfigDict, Field, TypeAdapter, create_model
+
+    def params(target: str) -> dict:
+        creator = getattr(EntityCreationContract, f"entity_create_{target}")
+        hints = typing.get_type_hints(creator, localns={"EntityInfo": object})
+        return {
+            name: (hints[name], ... if p.default is p.empty else p.default)
+            for name, p in inspect.signature(creator).parameters.items()
+            if name != "self"
+        }
+
+    lineweight = (int | float | str | None, None)  # parse_lineweight names the spellings
+    shapes = {target: params(target) for target in EntityCreationContract.BATCH_CREATE_TYPES}
+    for alias, target in EntityCreationContract.BATCH_CREATE_ALIASES.items():
+        # batch_create_spec rewrites x1, y1, x2, y2 into the target's points / closed
+        base = {k: v for k, v in shapes[target].items() if k not in ("points", "closed")}
+        shapes[alias] = {key: (float, ...) for key in ("x1", "y1", "x2", "y2")} | base
+    models = [
+        create_model(
+            kind,
+            __config__=ConfigDict(extra="forbid"),
+            type=(Literal[kind], ...),
+            lineweight=lineweight,
+            **fields,
+        )
+        for kind, fields in shapes.items()
+    ]
+    return TypeAdapter(Annotated[Union[tuple(models)], Field(discriminator="type")])  # noqa: UP007
+
+
+def inline_json_schema(schema: dict) -> dict:
+    """A pydantic schema made self-contained so it can sit under a property.
+
+    ``$ref`` into ``$defs`` is inlined, ``title`` dropped, an optional
+    argument's ``anyOf [X, null]`` read as ``X`` and the OpenAPI
+    ``discriminator`` removed: what stays is plain JSON Schema, a ``oneOf``
+    whose branches tell themselves apart by their ``const`` ``type``.
+    """
+    defs = schema.get("$defs", {})
+
+    def walk(node):
+        if isinstance(node, list):
+            return [walk(item) for item in node]
+        if not isinstance(node, dict):
+            return node
+        if "$ref" in node:
+            return walk(defs[node["$ref"].rsplit("/", 1)[-1]])
+        options = node.get("anyOf")
+        if isinstance(options, list) and {"type": "null"} in options and "default" in node:
+            # an optional argument: its default stands for "not given", so null is noise
+            kept = [option for option in options if option != {"type": "null"}]
+            rest = {key: value for key, value in node.items() if key != "anyOf"}
+            node = rest | (kept[0] if len(kept) == 1 else {"anyOf": kept})
+        return {
+            key: (walk(value) if key != "properties" else {k: walk(v) for k, v in value.items()})
+            for key, value in node.items()
+            if key not in ("$defs", "title", "discriminator")
+        }
+
+    return walk(schema)
 
 
 class EntityCreationContract(ABC):

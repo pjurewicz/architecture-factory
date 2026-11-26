@@ -626,11 +626,40 @@ async def test_entity_batch_create_draws_the_rectangle_its_schema_lists(client):
     assert measured["area"] == pytest.approx(300.0) and measured["perimeter"] == pytest.approx(80.0)
 
 
+async def test_entity_batch_create_advertises_and_enforces_one_item_schema(full_catalog, client):
+    """The item syntax is a oneOf by type, and a key outside it is refused before drawing."""
+    import jsonschema
+
+    tools = {tool.name: tool for tool in await client.list_tools()}
+    schema = tools["entity_batch_create"].inputSchema
+    validator = jsonschema.Draft202012Validator(schema)
+    good = [
+        {"type": "rectangle", "x1": 0, "y1": 0, "x2": 4, "y2": 2, "lineweight": "ByLayer"},
+        {"type": "circle", "cx": 0, "cy": 0, "radius": 1, "layer": "GEOMETRY"},
+    ]
+    assert not list(validator.iter_errors({"entities": good}))
+    # a rectangle takes corners, not a polyline's points; a typo'd key is not ignored
+    for bad in ({"type": "rectangle", "points": [[0, 0], [1, 1]]}, {**good[1], "radiu": 2}):
+        assert list(validator.iter_errors({"entities": [bad]})), bad
+        result = await client.call_tool(
+            "entity_batch_create", {"entities": [good[0], bad]}, raise_on_error=False
+        )
+        assert result.is_error and "entities[1]" in result.content[0].text
+        assert await _entity_count(client) == 0
+    result = await client.call_tool("entity_batch_create", {"entities": good})
+    assert result.structured_content["created"] == 2
+
+
 @pytest.mark.parametrize(
     "bad",
     [
-        {"type": "spiral", "x1": 0, "y1": 0},  # refused before anything is drawn
-        {"type": "circle", "cx": 0, "cy": 0},  # no radius: fails after the line is drawn
+        {
+            "type": "circle",
+            "cx": 0,
+            "cy": 0,
+            "radius": 1,
+            "lineweight": "thick",
+        },  # fails at run time
     ],
 )
 async def test_a_failed_entity_in_entity_batch_create_fails_and_rolls_back_the_batch(client, bad):
@@ -649,6 +678,23 @@ async def test_a_failed_entity_in_entity_batch_create_fails_and_rolls_back_the_b
     assert result["ok"] is False
     assert result["results"][1]["status"] == "error"
     assert result["atomicity"]["rolled_back"] is True
+    assert await _entity_count(client) == 0
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"type": "spiral", "x1": 0, "y1": 0},
+        {"type": "circle", "cx": 0, "cy": 0},  # no radius
+    ],
+)
+async def test_an_item_outside_entity_batch_create_schema_refuses_the_whole_batch(client, bad):
+    """The item schema is a real oneOf, so cad_batch's pre-flight refuses it: nothing runs."""
+    with pytest.raises(ToolError, match="nothing was executed. step 1: entity_batch_create"):
+        await _batch(
+            client,
+            [_line(), {"tool": "entity_batch_create", "args": {"entities": [bad]}}],
+        )
     assert await _entity_count(client) == 0
 
 

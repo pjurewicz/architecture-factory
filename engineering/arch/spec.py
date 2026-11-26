@@ -172,6 +172,62 @@ def _list(spec: dict, key: str) -> list:
     return list(value)
 
 
+def spec_schema() -> dict:
+    """The JSON schema of the whole document ``validate_spec`` reads.
+
+    Assembled from the same tuples the validator checks (``SPEC_KEYS``,
+    ``SHEET_KEYS``, ``LANGS``, ``CHAIN_SIDES``, ``SCHEDULE_KINDS``) and each
+    item from its builder (``item_schema``), so the advertised syntax is the
+    accepted one. Ranges and cross-item rules stay with the validator.
+    """
+    from .model import Opening, Room, Stair, Wall, item_schema
+
+    point = {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}
+    props = {
+        "sheet": {
+            "type": "object",
+            "properties": {
+                "intent": {"type": "string"},
+                "sheet_size": {"type": "string", "default": "A3"},
+                "scale": {"type": "number", "default": 50, "description": "50 = 1:50"},
+            },
+            "additionalProperties": False,
+        },
+        "lang": {"type": "string", "enum": list(LANGS), "default": "en"},
+        "poche": {"type": "boolean", "default": True},
+        "walls": {"type": "array", "items": item_schema(Wall), "minItems": 1},
+        "openings": {"type": "array", "items": item_schema(Opening)},
+        "stairs": {"type": "array", "items": item_schema(Stair)},
+        "rooms": {"type": "array", "items": item_schema(Room)},
+        "chains": {
+            "type": ["object", "boolean", "null"],
+            "properties": {
+                "sides": {"type": "array", "items": {"type": "string", "enum": list(CHAIN_SIDES)}}
+            },
+            "additionalProperties": False,
+        },
+        "schedules": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "kind": {"type": "string", "enum": list(SCHEDULE_KINDS)},
+                    "at": point,
+                },
+                "required": ["kind", "at"],
+                "additionalProperties": False,
+            },
+        },
+    }
+    assert tuple(props) == SPEC_KEYS and tuple(props["sheet"]["properties"]) == SHEET_KEYS
+    return {
+        "type": "object",
+        "properties": props,
+        "required": ["walls"],
+        "additionalProperties": False,
+    }
+
+
 def validate_spec(spec: dict) -> dict:
     """The whole document checked and normalised - nothing is drawn here.
 

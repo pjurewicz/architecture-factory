@@ -18,7 +18,8 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import MISSING, asdict, dataclass
+from dataclasses import fields as dataclass_fields
 
 from engineering.mech import xdata as _codec
 
@@ -190,6 +191,62 @@ _STAIR_FIELDS = (
     "turn",
 )
 _ROOM_FIELDS = ("id", "name", "number", "at")
+
+
+#: The closed values each builder's ``_choice`` checks, by field.
+_CHOICES: dict[type, dict[str, Sequence[str]]] = {
+    Wall: {"justification": JUSTIFICATIONS, "material": WALL_MATERIALS},
+    Opening: {"kind": OPENING_KINDS, "swing": SWINGS, "hand": HANDS},
+    Stair: {"kind": STAIR_KINDS, "turn": TURNS},
+    Room: {},
+}
+_POINT_SCHEMA = {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}
+
+
+def item_schema(model: type) -> dict:
+    """The JSON schema of one ``<model>_from_dict`` item.
+
+    Built from what the builder reads: the accepted keys are its ``_FIELDS``
+    tuple (nothing else - ``additionalProperties: false``), each type comes
+    from the dataclass annotation, the closed values from the tuples
+    ``_choice`` checks, and a field is required when the dataclass gives it
+    neither a default nor ``None``. Numeric ranges and cross-item rules (an
+    opening inside its wall) stay with the builders, which name the path.
+    """
+    import typing
+
+    fields = {Wall: _WALL_FIELDS, Opening: _OPENING_FIELDS, Stair: _STAIR_FIELDS}.get(
+        model, _ROOM_FIELDS
+    )
+    hints = typing.get_type_hints(model)
+    defaults = {f.name: f.default for f in dataclass_fields(model)}
+    plain = {str: "string", float: "number", int: "integer", bool: "boolean"}
+    props: dict[str, dict] = {}
+    required: list[str] = []
+    for name in fields:
+        hint = hints[name]
+        args = [a for a in typing.get_args(hint) if a is not type(None)]
+        optional = type(None) in typing.get_args(hint)
+        base = args[0] if optional else hint
+        if base == Pt:
+            prop = dict(_POINT_SCHEMA)
+        elif typing.get_origin(base) is tuple:  # tuple[Pt, ...]
+            prop = {"type": "array", "items": dict(_POINT_SCHEMA)}
+        else:
+            prop = {"type": plain[base]}
+        if name in _CHOICES[model]:
+            prop["enum"] = list(_CHOICES[model][name])
+        if defaults[name] not in (MISSING, None):
+            prop["default"] = defaults[name]
+        props[name] = prop
+        if defaults[name] is MISSING and not optional:
+            required.append(name)
+    return {
+        "type": "object",
+        "properties": props,
+        "required": required,
+        "additionalProperties": False,
+    }
 
 
 def wall_from_dict(d: dict, path: str = "wall") -> Wall:

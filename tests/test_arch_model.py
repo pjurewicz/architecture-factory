@@ -310,3 +310,31 @@ def test_a_mechanical_payload_is_not_ours():
         decode(mech_values(part))
     with pytest.raises(ValueError, match=r"belongs to application 'ACADMCP_MECH'"):
         decode([(1001, "ACADMCP_MECH"), (1000, "{}")])
+
+
+def test_the_advertised_plan_schema_is_the_one_the_validator_reads():
+    """The tool's JSON schema accepts the example plan and refuses what the builders refuse."""
+    import copy
+
+    import jsonschema
+
+    from engineering.arch.spec import EXAMPLE_SPEC, spec_schema, validate_spec
+
+    validator = jsonschema.Draft202012Validator(spec_schema())
+    assert not list(validator.iter_errors(EXAMPLE_SPEC))
+    validate_spec(EXAMPLE_SPEC)
+    for path, value in (
+        (("rooms", 0, "area"), 30.0),  # areas are measured, never typed
+        (("walls", 0, "colour"), "red"),
+        (("openings", 0, "kind"), "arch"),
+        (("stairs", 0, "start"), [[6000, 1000]]),
+    ):
+        bad = copy.deepcopy(EXAMPLE_SPEC)
+        *parents, key = path
+        node = bad
+        for step in parents:
+            node = node[step]
+        node[key] = value
+        assert list(validator.iter_errors(bad)), path
+        with pytest.raises(ValueError):
+            validate_spec(bad)
