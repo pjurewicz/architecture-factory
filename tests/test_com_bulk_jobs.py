@@ -186,20 +186,24 @@ def test_a_create_job_is_still_reported_under_its_tool():
     from backends.quarantine import real_call_name
 
     backend = cb.ComBackend()
+    specs = {
+        "line": (0, 0, 1, 1),
+        "circle": (0, 0, 1),
+        "arc": (0, 0, 1, 0, 90),
+        "polyline": ([[0, 0], [1, 0]],),
+        "text": ("A", 0, 0),
+        "mtext": ("A", 0, 0),
+        "point": (0, 0),
+        "hatch": ("ANSI31", [[0, 0], [1, 0], [1, 1]]),
+        "spline": ([[0, 0], [1, 1]],),
+        "ellipse": (0, 0, 1, 0),
+        "insert": ("BOLT", 0, 0),
+        "dimension_linear": (0, 0, 10, 0, 5, -5),
+    }
+    assert set(backend._BATCH_JOBS) == set(specs) == set(backend.BATCH_CREATE_TYPES)
     for kind, builder in backend._BATCH_JOBS.items():
-        spec = {
-            "line": (0, 0, 1, 1),
-            "circle": (0, 0, 1),
-            "arc": (0, 0, 1, 0, 90),
-            "polyline": ([[0, 0], [1, 0]],),
-            "text": ("A", 0, 0),
-            "mtext": ("A", 0, 0),
-            "point": (0, 0),
-            "hatch": ("ANSI31", [[0, 0], [1, 0], [1, 1]]),
-            "spline": ([[0, 0], [1, 1]],),
-            "ellipse": (0, 0, 1, 0),
-        }[kind]
-        assert real_call_name(getattr(backend, builder)(*spec)) == f"entity_create_{kind}"
+        tool = backend.BATCH_CREATE_METHODS.get(kind, f"entity_create_{kind}")
+        assert real_call_name(getattr(backend, builder)(*specs[kind])) == tool
 
 
 @pytest.mark.asyncio
