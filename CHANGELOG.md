@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- The live AutoCAD (COM) engine can no longer be selected: the server always
+  runs the headless ezdxf engine. `AUTOCAD_MCP_BACKEND` accepts `auto` (the
+  default) and `ezdxf`; any other value, `com` included, fails startup with a
+  message naming the setting instead of falling back. The COM code itself is
+  removed in later steps (`FORK.md`, *Removing the live engine*).
+
 ### Added
 
 - `download_url` (`artifact_links.py`): a file `drawing_export_pdf`,

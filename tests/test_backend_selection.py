@@ -21,6 +21,7 @@ import sys
 import types
 
 import pytest
+from fastmcp import Client
 
 import config
 import server
@@ -70,6 +71,30 @@ async def test_settings_backend_reports_what_make_backend_will_use(monkeypatch):
 
     monkeypatch.delenv("AUTOCAD_MCP_BACKEND", raising=False)
     assert config.settings.backend == "auto"
+
+
+@pytest.mark.parametrize("value", ["auto", "ezdxf"])
+async def test_every_accepted_setting_builds_the_headless_engine(monkeypatch, com_sentinel, value):
+    from backends.ezdxf_backend import EzdxfBackend
+
+    monkeypatch.setenv("AUTOCAD_MCP_BACKEND", value)
+    backend = await server._make_backend()
+
+    assert isinstance(backend, EzdxfBackend)
+    assert com_sentinel.constructed == []
+    await backend.disconnect()
+
+
+@pytest.mark.parametrize("value", ["com", "bogus"])
+async def test_an_unsupported_backend_fails_startup(monkeypatch, com_sentinel, value):
+    """The COM engine is gone: asking for it is an error, never a silent fallback."""
+    monkeypatch.setenv("AUTOCAD_MCP_BACKEND", value)
+    with pytest.raises(RuntimeError, match="only the headless ezdxf engine"):
+        await server._make_backend()
+    with pytest.raises(Exception, match="only the headless ezdxf engine"):
+        async with Client(server.mcp):
+            pass
+    assert com_sentinel.constructed == []
 
 
 async def test_assigning_to_settings_backend_fails_loudly(monkeypatch):

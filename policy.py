@@ -37,7 +37,6 @@ from __future__ import annotations
 
 import fnmatch
 import logging
-import sys
 from contextvars import ContextVar
 
 from fastmcp.exceptions import ToolError
@@ -166,13 +165,8 @@ def denylist() -> tuple[str, ...]:
 
 
 def headless() -> bool:
-    """True when the server can only run the headless ezdxf engine.
-
-    ``AUTOCAD_MCP_BACKEND=ezdxf``, or any setting off Windows, where the COM
-    engine cannot start (``auto`` and ``com`` fall back to ezdxf there). On
-    Windows ``auto`` may still fall back at startup; that case keeps the tools.
-    """
-    return _settings().backend == "ezdxf" or sys.platform != "win32"
+    """True: this fork runs only the headless ezdxf engine (no live COM engine)."""
+    return True
 
 
 def hide_live_only() -> bool:

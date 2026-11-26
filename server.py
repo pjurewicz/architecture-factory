@@ -113,64 +113,35 @@ logging.basicConfig(
 log = logging.getLogger("autocad_mcp")
 
 # ---------------------------------------------------------------------------
-# Backend auto-detection
+# Backend selection
 # ---------------------------------------------------------------------------
 
-_WIN32 = sys.platform == "win32"
+#: The values ``AUTOCAD_MCP_BACKEND`` may still take. This fork runs only the
+#: headless ezdxf engine; ``auto`` (the default) is kept so existing
+#: configurations start unchanged.
+_BACKEND_VALUES = ("ezdxf", "auto")
 
 
-def _detect_autocad_running() -> bool:
-    if not _WIN32:
-        return False
-    try:
-        import win32gui
+def _check_backend_setting() -> None:
+    """Refuse a backend this server cannot run, before anything starts.
 
-        result = {"found": False}
-
-        def _cb(hwnd, _):
-            if "AutoCAD" in win32gui.GetWindowText(hwnd) and win32gui.IsWindowVisible(hwnd):
-                result["found"] = True
-                return False
-            return True
-
-        win32gui.EnumWindows(_cb, None)
-        return result["found"]
-    except Exception as exc:
-        log.debug("AutoCAD detection failed: %s", exc)
-        return False
+    The live AutoCAD (COM) engine was removed from this fork, so
+    ``AUTOCAD_MCP_BACKEND=com`` is a configuration error, not a silent fallback.
+    """
+    value = config.settings.backend
+    if value not in _BACKEND_VALUES:
+        raise RuntimeError(
+            f"AUTOCAD_MCP_BACKEND={value!r} is not supported: this server runs only "
+            "the headless ezdxf engine (the live AutoCAD COM engine was removed). "
+            "Unset it or set AUTOCAD_MCP_BACKEND=ezdxf."
+        )
 
 
 async def _make_backend():
-    """Create the best available backend."""
-    # Through the setting, not straight off os.environ: reading the environment
-    # here is what let config.settings.backend drift into a control that
-    # controlled nothing, so a test believing it had pinned the headless engine
-    # could reach a live AutoCAD instead. The property reads the environment
-    # live, so nothing about startup ordering changes.
-    backend_env = config.settings.backend
-
-    if backend_env == "ezdxf":
-        from backends.ezdxf_backend import EzdxfBackend
-
-        b = EzdxfBackend()
-        await b.connect()
-        return b
-
-    if backend_env in ("auto", "com"):
-        if _WIN32:
-            try:
-                from backends.com_backend import ComBackend
-
-                b = ComBackend()
-                await b.connect()
-                log.info("Using COM backend (live AutoCAD control)")
-                return b
-            except Exception as exc:
-                log.warning("COM backend init failed (%s)", exc)
-                if backend_env == "com":
-                    raise RuntimeError(f"COM backend requested but failed: {exc}") from exc
-        else:
-            log.warning("COM backend requires Windows; falling back to ezdxf")
+    """Create the headless ezdxf backend."""
+    # Through the setting, not straight off os.environ: one source of truth for
+    # what the environment asked for (tests/test_backend_selection.py).
+    _check_backend_setting()
 
     from backends.ezdxf_backend import EzdxfBackend
 
@@ -189,6 +160,9 @@ async def _make_backend():
 async def autocad_lifespan(server):
     """Initialize AutoCAD backend on server start, clean up on stop."""
     log.info("Initializing AutoCAD MCP Pro...")
+    # A backend this server cannot run fails startup outright rather than
+    # leaving every tool to answer the same init_error.
+    _check_backend_setting()
     if config.settings.dangerous_commands_enabled:
         log.warning(
             "⚠ DANGEROUS_COMMANDS_ENABLED=true — command and LISP sanitization is "

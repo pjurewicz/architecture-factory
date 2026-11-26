@@ -346,16 +346,12 @@ async def test_live_only_tools_stay_when_the_setting_is_off(monkeypatch):
     assert policy.LIVE_ONLY_TOOLS <= listed
 
 
-def test_live_only_tools_are_kept_where_com_can_run(monkeypatch):
+def test_live_only_tools_are_hidden_whatever_the_backend_setting(monkeypatch):
+    """No setting brings back a live engine, so none keeps the live-only tools."""
     _set(monkeypatch, hide_live_only_tools=True)
-    monkeypatch.setattr(policy.sys, "platform", "win32")
-    monkeypatch.setenv("AUTOCAD_MCP_BACKEND", "auto")
-    assert not policy.hide_live_only()
-    monkeypatch.setenv("AUTOCAD_MCP_BACKEND", "ezdxf")
-    assert policy.hide_live_only()
-    monkeypatch.setattr(policy.sys, "platform", "darwin")
-    monkeypatch.setenv("AUTOCAD_MCP_BACKEND", "auto")
-    assert policy.hide_live_only()
+    for value in ("auto", "ezdxf"):
+        monkeypatch.setenv("AUTOCAD_MCP_BACKEND", value)
+        assert policy.hide_live_only()
 
 
 @pytest.mark.asyncio

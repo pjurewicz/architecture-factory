@@ -71,7 +71,10 @@ class Settings:
 
     @property
     def backend(self) -> str:
-        """Which engine to run: ``ezdxf``, ``com`` or ``auto``.
+        """The engine the environment asks for: ``ezdxf`` or ``auto`` (both run ezdxf).
+
+        Any other value, ``com`` included, is refused at startup by
+        ``server._check_backend_setting``: the live COM engine was removed.
 
         Read live rather than captured in ``__init__``, and deliberately
         read-only. ``_make_backend`` used to read ``os.environ`` itself while

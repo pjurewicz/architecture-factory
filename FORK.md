@@ -6,9 +6,9 @@ agents use it over MCP to produce technical drawings (plans, elevations, section
 dimensions, title blocks) as DWG, DXF, PDF and PNG files.
 
 The upstream project is built around a live AutoCAD on Windows, with ezdxf as a
-headless fallback. This fork turns that around: **the headless engine is what we
-run**, and the live AutoCAD engine is kept only because it is upstream code we do
-not want to diverge from.
+headless fallback. This fork turns that around: **the headless engine is the only
+engine**. The live AutoCAD (COM) engine is being removed in stages (see *Removing
+the live engine* below); `AUTOCAD_MCP_BACKEND=com` already fails startup.
 
 ## Assumptions
 
@@ -29,11 +29,15 @@ not want to diverge from.
   Use `DISCOVERY_MODE`, `TOOL_PROFILE` and `TOOL_PACKS` (see the
   [README](README.md#configuration)) to keep the catalog small; `TOOL_PACKS=core,arch`
   fits architectural drawing.
-- **Upstream stays the base.** Changes go in as small, self-contained commits that
-  keep upstream's tests and gates green (`scripts/check_doc_numbers.py`,
-  `benchmarks.token_suite --budget`, `benchmarks.call_budget`, ruff), so upstream
-  releases can still be merged in. The upstream README below this fork's note is
-  left as upstream wrote it, apart from the counts the gates check.
+- **Upstream is cherry-picked, not merged.** Upstream adds most features to both
+  engines in one commit, so once the live engine is gone a merge would bring it
+  back piece by piece. Upstream commits are reviewed and taken one by one with
+  `git cherry-pick -x`; the procedure is written down here when the removal is
+  done. Changes still go in as small, self-contained commits that keep the gates
+  green (`scripts/check_doc_numbers.py`, `benchmarks.token_suite --budget`,
+  `benchmarks.call_budget`, ruff). The last commit shared with upstream is
+  `6f6a538` (2026-11-06); the tag `pre-com-removal` marks the fork before the
+  removal started.
 
 ## What differs from upstream
 
@@ -46,6 +50,29 @@ not want to diverge from.
 
 Not isolated between sessions: files on disk (two sessions saving to one path
 overwrite each other) and the operation journal.
+
+## Removing the live engine
+
+Decided 2026-11-26. In order, each stage its own commit with the suite green:
+
+1. Backend selection: the server always builds the ezdxf engine; `auto` (the
+   default) and `ezdxf` are accepted, any other value, `com` included, fails
+   startup. **Done.**
+2. The live-only tools (`system_run_*`, `system_launch`, `system_preferences_*`,
+   `user_*`, `system_prompt_message`, `solid_*`, `view_zoom_extents` /
+   `view_zoom_window`) and what exists only for them (`security_lisp.py`,
+   `LISP_POLICY`, `HIDE_LIVE_ONLY_TOOLS`).
+3. The COM engine itself (`backends/com_backend.py` and its helpers, the live
+   branches in `engineering/`, the `COM_*` / `CAD_LAUNCH` settings, `pywin32`,
+   the COM tests), the error kinds only it raises, and the `accoreconsole` DWG
+   route (ODA stays).
+4. One capability map instead of two.
+5. The live smokes, `scripts/live/`, the live claims in
+   `scripts/check_doc_numbers.py` and the COM-only benchmark tasks.
+6. Documentation: CLAUDE.md, README, the skill and the plugin.
+7. The cherry-pick procedure, with the upstream commit reviewed up to.
+
+The package name and version scheme stay as they are.
 
 ## Known gaps
 
