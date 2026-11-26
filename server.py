@@ -12823,7 +12823,10 @@ async def arch_catalogue_list(
     ] = "en",
     ctx: Context = None,
 ) -> dict:
-    """Catalogue rows: name, family, both labels, nominal size [w, d] in mm, block name, layer.
+    """Catalogue rows: name, family, labels, nominal size (width x depth, mm), block, layer.
+
+    Every block shares one frame: `origin` back_left, back along +X, `front_dir`
+    [0, 1] at rotation 0, the footprint [0, width] x [0, depth].
 
     Sizes are nominal catalogue dimensions - what a furniture or appliance
     catalogue lists as a common size - and every row says so in `size_basis`;
@@ -12863,18 +12866,29 @@ async def arch_catalogue_insert(
             )
         ),
     ],
-    x: Annotated[float, Field(description="X (WCS) of the item's back-left corner")],
-    y: Annotated[float, Field(description="Y (WCS) of the item's back-left corner")],
+    x: Annotated[float, Field(description="X (WCS) of the anchor point")],
+    y: Annotated[float, Field(description="Y (WCS) of the anchor point")],
     rotation: Annotated[
         float,
         Field(
             default=0.0,
             description=(
                 "Degrees CCW about (x, y); 0 puts the item's back (its wall side) along +X "
-                "with the item extending towards +Y"
+                "with its front facing +Y. Against a wall face running from P to Q with the "
+                "room on its left, use the direction of P->Q"
             ),
         ),
     ] = 0.0,
+    anchor: Annotated[
+        str,
+        Field(
+            default="back_left",
+            description=(
+                "Which footprint point lands on (x, y): back_left | back_center | "
+                "back_right | center | front_center"
+            ),
+        ),
+    ] = "back_left",
     ctx: Context = None,
 ) -> dict:
     """Define the item's block ARCH_<NAME> once, insert it on the furniture or sanitary layer.
@@ -12884,13 +12898,17 @@ async def arch_catalogue_insert(
     standards value; the outline is a plan symbol drawn inside that footprint.
     The furniture / sanitary layer is created from the `arch` layer set when
     the drawing lacks it. Refusals, all before any write: an unknown name
-    (with the nearest catalogue names) and a non-finite coordinate or rotation.
+    (with the nearest catalogue names), an unknown anchor and a non-finite
+    coordinate or rotation. The result reports the WCS `footprint` corners,
+    `back_center`, `center`, `front_dir` and the block's `insert_point`.
     """
     from engineering.arch.catalogue import insert_item
 
     await ctx.info(f"arch catalogue: {name} at ({x}, {y})")
     try:
-        return await insert_item(_backend(ctx), name, at=(x, y), rotation=rotation)
+        return await insert_item(
+            _backend(ctx), name, at=(x, y), rotation=rotation, anchor=anchor
+        )
     except ValueError as exc:
         raise ToolError(str(exc)) from exc
 

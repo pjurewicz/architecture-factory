@@ -48,6 +48,19 @@ BLOCK_PREFIX = "ARCH_"
 ITEM_TAG = "ITEM"
 ITEM_TAG_HEIGHT = 100.0
 
+#: The block-local frame every item shares, reported in each row.
+ORIGIN = "back_left"
+#: Where an item's front faces at ``rotation=0`` (block-local, unit vector).
+FRONT_DIR = (0.0, 1.0)
+#: Named points of the footprint as fractions of (w, d); ``anchor=`` on insert.
+ANCHORS: dict[str, tuple[float, float]] = {
+    "back_left": (0.0, 0.0),
+    "back_center": (0.5, 0.0),
+    "back_right": (1.0, 0.0),
+    "center": (0.5, 0.5),
+    "front_center": (0.5, 1.0),
+}
+
 
 # -- block_define spec helpers (block-local mm, layer 0) ---------------------
 
@@ -423,6 +436,10 @@ def _row(item: CatalogueItem, lang: str) -> dict:
         "label_tr": item.label_tr,
         "label_pl": LABEL_PL[item.name],
         "size": [item.w, item.d],
+        "width": item.w,
+        "depth": item.d,
+        "origin": ORIGIN,
+        "front_dir": list(FRONT_DIR),
         "size_basis": SIZE_BASIS,
         "block": f"{BLOCK_PREFIX}{item.name.upper()}",
         "layer": ARCH_ROLE_LAYER[item.family],
@@ -517,14 +534,46 @@ async def _ensure_layer(backend: AutoCADBackend, name: str) -> bool:
     return True
 
 
-async def insert_item(backend: AutoCADBackend, name: str, *, at, rotation: float = 0.0) -> dict:
-    """Define ``ARCH_<NAME>`` once, insert it at ``at`` turned by ``rotation``.
+def _placement(w: float, d: float, at, angle: float, anchor: str) -> dict:
+    """The WCS geometry of an item whose ``anchor`` lands on ``at`` turned by ``angle``."""
+    c, s = math.cos(math.radians(angle)), math.sin(math.radians(angle))
+    fx, fy = ANCHORS[anchor]
+    ox, oy = at[0] - (c * fx * w - s * fy * d), at[1] - (s * fx * w + c * fy * d)
 
-    ``at`` is the WCS point the item's back-left corner lands on; ``rotation``
-    is degrees CCW about it. Refusals - an unknown item (with the nearest
-    names), a non-finite coordinate or rotation - fire before any write.
+    def wcs(lx: float, ly: float) -> list[float]:
+        return [round(ox + c * lx - s * ly, 6) + 0.0, round(oy + s * lx + c * ly, 6) + 0.0]
+
+    return {
+        "insert_point": wcs(0.0, 0.0),
+        "back_center": wcs(w / 2.0, 0.0),
+        "center": wcs(w / 2.0, d / 2.0),
+        "footprint": [wcs(0.0, 0.0), wcs(w, 0.0), wcs(w, d), wcs(0.0, d)],
+        "front_dir": [round(-s, 9) + 0.0, round(c, 9) + 0.0],
+    }
+
+
+async def insert_item(
+    backend: AutoCADBackend,
+    name: str,
+    *,
+    at,
+    rotation: float = 0.0,
+    anchor: str = ORIGIN,
+) -> dict:
+    """Define ``ARCH_<NAME>`` once, insert it so its ``anchor`` lands on ``at``.
+
+    ``anchor`` names a point of the footprint (``ANCHORS``; the block's own
+    base is ``back_left``); ``rotation`` is degrees CCW about ``at``. The result
+    carries the block's real ``insert_point``, the WCS ``footprint`` (back-left,
+    back-right, front-right, front-left), ``back_center``, ``center`` and the WCS
+    ``front_dir``. Refusals - an unknown item (with the nearest names) or
+    anchor, a non-finite coordinate or rotation - fire before any write.
     """
     spec = block_spec(name)
+    if anchor not in ANCHORS:
+        raise ValueError(
+            f"arch catalogue: anchor must be one of {', '.join(ANCHORS)}, got {anchor!r}."
+        )
     try:
         x, y = float(at[0]), float(at[1])
     except (TypeError, IndexError, ValueError) as exc:
@@ -534,6 +583,9 @@ async def insert_item(backend: AutoCADBackend, name: str, *, at, rotation: float
     angle = float(rotation)
     if not math.isfinite(angle):
         raise ValueError(f"arch catalogue: rotation must be finite, got {rotation!r}.")
+
+    w, d = spec["size"]
+    placed = _placement(w, d, (x, y), angle, anchor)
 
     layer = ARCH_ROLE_LAYER[spec["family"]]
     layer_created = await _ensure_layer(backend, layer)
@@ -550,7 +602,14 @@ async def insert_item(backend: AutoCADBackend, name: str, *, at, rotation: float
             False,
         )
     ref = await backend.block_insert(
-        spec["name"], x, y, 1.0, 1.0, angle, {ITEM_TAG: spec["item"]}, layer
+        spec["name"],
+        placed["insert_point"][0],
+        placed["insert_point"][1],
+        1.0,
+        1.0,
+        angle,
+        {ITEM_TAG: spec["item"]},
+        layer,
     )
     return {
         "ok": True,
@@ -562,7 +621,9 @@ async def insert_item(backend: AutoCADBackend, name: str, *, at, rotation: float
         "layer": layer,
         "layer_created": layer_created,
         "at": [x, y],
+        "anchor": anchor,
         "rotation": angle,
+        **placed,
         "size": spec["size"],
         "size_basis": SIZE_BASIS,
         "backend": backend.name,

@@ -241,3 +241,28 @@ async def test_insert_refuses_before_writing_anything(backend):
         await insert_item(backend, "bathtub", at=(0.0, 0.0), rotation=float("inf"))
     assert len(await backend.entity_list()) == before
     assert "ARCH_BATHTUB" not in {b.name for b in await backend.block_list()}
+
+
+@pytest.mark.asyncio
+async def test_an_anchor_lands_on_the_point_and_the_result_reports_the_footprint(backend):
+    # wc is 380 x 700; back_center turned 90 deg CCW onto (1000, 500): the back
+    # runs up +Y, so the block base sits 190 below and the front faces -X.
+    result = await insert_item(
+        backend, "wc", at=(1000.0, 500.0), rotation=90.0, anchor="back_center"
+    )
+    assert result["insert_point"] == pytest.approx([1000.0, 310.0])
+    assert result["back_center"] == pytest.approx([1000.0, 500.0])
+    assert result["front_dir"] == pytest.approx([-1.0, 0.0])
+    assert result["footprint"] == [
+        pytest.approx(p) for p in ([1000, 310], [1000, 690], [300, 690], [300, 310])
+    ]
+    insert = await backend.entity_get(result["handle"])
+    assert insert.properties["insertion"] == pytest.approx([1000.0, 310.0])
+    with pytest.raises(ValueError, match="anchor must be one of"):
+        await insert_item(backend, "wc", at=(0.0, 0.0), anchor="middle")
+
+
+def test_every_row_states_its_frame():
+    for row in catalogue():
+        assert row["origin"] == "back_left" and row["front_dir"] == [0.0, 1.0]
+        assert [row["width"], row["depth"]] == row["size"]
