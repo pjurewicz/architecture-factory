@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Amp orb setup: the headless engine (ezdxf, PNG/PDF rendering, XLSX) and the
+# ODA File Converter, which drawing_open and drawing_export_dwg use for DWG.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+step() { echo "==> $1"; SECONDS=0; }
+done_step() { echo "    done in ${SECONDS}s"; }
+
+# Runtime libraries ODA File Converter (Qt6, xcb) needs, plus Xvfb so it runs headless.
+apt_packages=(xvfb xauth libopengl0 libxkbcommon-x11-0)
+step "System packages"
+missing=()
+for p in "${apt_packages[@]}"; do
+  dpkg -s "$p" >/dev/null 2>&1 || missing+=("$p")
+done
+if ((${#missing[@]})); then
+  sudo apt-get update -qq
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends "${missing[@]}"
+fi
+done_step
+
+# ODA File Converter is a free download from opendesign.com, governed by the ODA license.
+oda_file="ODAFileConverter_QT6_lnxX64_11dll.deb"
+step "ODA File Converter"
+if ! dpkg -s odafileconverter >/dev/null 2>&1; then
+  tmp="$(mktemp -d)"
+  curl -fsSL -o "$tmp/$oda_file" "https://www.opendesign.com/guestfiles/get?filename=$oda_file"
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$tmp/$oda_file"
+  rm -rf "$tmp"
+fi
+command -v ODAFileConverter
+done_step
+
+step "Python dependencies (uv, headless extras)"
+uv sync --locked --extra pdf --extra office
+.venv/bin/python -c "from ezdxf.addons import odafc; assert odafc.is_installed(), 'ODA File Converter not found'"
+done_step
