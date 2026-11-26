@@ -66,6 +66,37 @@ async def test_the_active_drawing_downloads_as_pdf_dxf_and_dwg(monkeypatch):
             )
             assert got.status_code == 200 and got.content.startswith(magic), fmt
             assert got.headers["content-disposition"].endswith(f'.{fmt}"')
+        # every open document is viewable, not only the active one, and viewing
+        # one never activates it
+        await engine.drawing_new()
+        for _ in range(2):
+            await engine.entity_create_circle(0, 0, 5)
+        state = (await http.get("/preview/state", auth=(USER, PASSWORD))).json()
+        docs = state["sessions"][0]["documents"]
+        first = next(d for d in docs if not d["active"] and d["entity_count"] == 1)
+        query = {"session": "server", "document": first["document_id"]}
+        got = await http.get("/preview/download", params=query, auth=(USER, PASSWORD))
+        assert got.content.count(b"\nLINE\n") == 1 and b"\nCIRCLE\n" not in got.content
+        got = await http.get("/preview/render.png", params=query, auth=(USER, PASSWORD))
+        assert got.status_code == 200 and got.content.startswith(b"\x89PNG")
+        # zoom and pan: the page asks for a window and is told the one drawn
+        window = {**query, "region": "10,0,30,5", "max_px": "400"}
+        got = await http.get("/preview/render.png", params=window, auth=(USER, PASSWORD))
+        x0, y0, x1, y1 = map(float, got.headers["x-render-region"].split(","))
+        assert x0 <= 10 and x1 >= 30 and y0 <= 0 and y1 >= 5 and x1 - x0 < 20.1
+        assert int.from_bytes(got.content[16:20], "big") == 400  # IHDR width
+        bad = {**query, "region": "1,2,x,4"}
+        got = await http.get("/preview/render.png", params=bad, auth=(USER, PASSWORD))
+        assert got.status_code == 400
+        got = await http.get(
+            "/preview/download", params={**query, "format": "pdf"}, auth=(USER, PASSWORD)
+        )
+        assert got.status_code == 200 and got.content.startswith(b"%PDF")
+        active = next(d for d in await engine.document_list() if d["active"])
+        assert active["entity_count"] == 2
+        missing = {"session": "server", "document": "no-such-id"}
+        got = await http.get("/preview/render.png", params=missing, auth=(USER, PASSWORD))
+        assert got.status_code == 409
 
 
 @pytest.mark.asyncio

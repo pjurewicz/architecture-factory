@@ -3618,7 +3618,8 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
 
         return await self._async(_sync)
 
-    async def drawing_export_dwg(self, path, version="R2018") -> dict:
+    async def drawing_export_dwg(self, path, version="R2018", *, document=None) -> dict:
+        """``document`` (preview.py only): another open document's ``document_id``."""
         from backends.contracts.refs import DWG_VERSIONS
 
         if version not in DWG_VERSIONS:
@@ -3636,7 +3637,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         def _sync():
             from ezdxf.addons import odafc
 
-            doc = self._require_doc()
+            doc = self._preview_state(document).doc
             self._refuse_path_held_elsewhere("drawing_export_dwg", path)
             odafc.export_dwg(doc, path, version=version, replace=True)
             return {
@@ -3649,20 +3650,40 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
 
         return await self._async(_sync)
 
-    async def dxf_bytes(self) -> tuple[str, bytes]:
-        """The active document as DXF bytes and its name, nothing written to disk (preview.py)."""
+    def _preview_state(self, document: str | None) -> _DocState:
+        """The open document whose ``document_id`` is ``document`` (None: the active one).
+
+        For preview.py, which shows any open document without activating it.
+        """
+        if document is None:
+            self._require_doc()
+            return self._state
+        for state in self._docs.values():
+            if state.document_id == document:
+                return state
+        raise ValueError(f"no open document has document_id {document!r}")
+
+    async def dxf_bytes(self, document: str | None = None) -> tuple[str, bytes]:
+        """An open document (default: the active one) as DXF bytes and its name,
+        nothing written to disk (preview.py)."""
 
         def _sync():
-            doc = self._require_doc()
+            state = self._preview_state(document)
+            doc = state.doc
             stream = io.StringIO()
             doc.write(stream)
-            name = Path(self._docs[self._active_key].label).stem + ".dxf"
+            name = Path(state.label).stem + ".dxf"
             return name, stream.getvalue().encode(doc.output_encoding, errors="replace")
 
         return await self._async(_sync, readonly=True)
 
-    async def drawing_export_pdf(self, path: str, layout: str | None = None) -> dict:
+    async def drawing_export_pdf(
+        self, path: str, layout: str | None = None, *, document: str | None = None
+    ) -> dict:
         """Export to PDF via ezdxf's matplotlib backend.
+
+        ``document`` (preview.py only) exports another open document, by its
+        ``document_id``, in model space; it cannot be combined with ``layout``.
 
         With ``layout`` set to a paper-space layout name, the layout's own
         entities *and* the model content each viewport looks at are rendered,
@@ -3685,8 +3706,11 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         is current.
         """
 
+        if document is not None and layout:
+            raise ValueError("drawing_export_pdf: document and layout cannot be combined")
+
         def _sync():
-            doc = self._require_doc()
+            doc = self._preview_state(document).doc
             resolved = self._find_layout(layout) if layout else None
             if layout and layout.strip().lower() != "model":
                 if resolved is None:
@@ -9432,14 +9456,20 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         region: list[float] | None = None,
         max_px: int = DEFAULT_MAX_PX,
         overlay_handles: bool = False,
+        document: str | None = None,
     ) -> dict:
-        """The current space drawn at a stated scale, the window applied (1.8-07)."""
+        """The current space drawn at a stated scale, the window applied (1.8-07).
+
+        ``document`` (preview.py only) names another open document by its
+        ``document_id``; it is drawn in model space and stays inactive.
+        """
         wanted = normalize_region(region)
         size = check_max_px(max_px)
 
         def _sync():
-            doc = self._require_doc()
-            space = self._msp()
+            state = self._preview_state(document)
+            doc = state.doc
+            space = self._msp() if state is self._state else doc.modelspace()
             try:
                 report = render_layout(
                     doc,
