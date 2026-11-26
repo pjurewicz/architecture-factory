@@ -25,6 +25,7 @@ import os
 import pytest
 
 import config
+import policy
 import server
 from benchmarks import token_suite as ts
 
@@ -187,9 +188,18 @@ def test_the_idle_lane_covers_the_advertised_surfaces_and_the_instructions(repor
     assert variants["search_pinned"]["advertised_tools"] == 6
     assert variants["search"]["chars"] < variants["search_pinned"]["chars"]
     packs = server.PACK_TOOL_NAMES
+    # The suite runs a headless server, which hides policy.LIVE_ONLY_TOOLS unless
+    # HIDE_LIVE_ONLY_TOOLS=false; a hidden pack tool is not in "default" either.
+    hidden = (
+        policy.LIVE_ONLY_TOOLS
+        if os.environ.get("HIDE_LIVE_ONLY_TOOLS", "true").lower().strip() != "false"
+        else frozenset()
+    )
     assert variants["packs_core"]["advertised_tools"] == (
         variants["default"]["advertised_tools"]
-        - sum(len(packs[name]) for name in ("pid", "settings", "mech", "arch", "plant"))
+        - sum(
+            len(set(packs[name]) - hidden) for name in ("pid", "settings", "mech", "arch", "plant")
+        )
     )
     assert variants["instructions"]["kind"] == "instructions"
     # measured on the full-catalog surface (the longest text the builder writes)
@@ -198,17 +208,11 @@ def test_the_idle_lane_covers_the_advertised_surfaces_and_the_instructions(repor
     )
     assert variants["packs_core_mech"]["advertised_tools"] == (
         variants["default"]["advertised_tools"]
-        - len(packs["pid"])
-        - len(packs["settings"])
-        - len(packs["arch"])
-        - len(packs["plant"])
+        - sum(len(set(packs[name]) - hidden) for name in ("pid", "settings", "arch", "plant"))
     )
     assert variants["packs_core_arch"]["advertised_tools"] == (
         variants["default"]["advertised_tools"]
-        - len(packs["pid"])
-        - len(packs["settings"])
-        - len(packs["mech"])
-        - len(packs["plant"])
+        - sum(len(set(packs[name]) - hidden) for name in ("pid", "settings", "mech", "plant"))
     )
     for narrowed in ("packs_core_mech", "packs_core_arch"):
         assert (

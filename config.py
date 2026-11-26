@@ -277,6 +277,11 @@ class Settings:
         self.tool_allowlist: tuple[str, ...] = parse_patterns(os.environ.get("TOOL_ALLOWLIST"))
         self.tool_denylist: tuple[str, ...] = parse_patterns(os.environ.get("TOOL_DENYLIST"))
         self.max_tool_cost: str = parse_cost(os.environ.get("MAX_TOOL_COST"))
+        # policy.LIVE_ONLY_TOOLS are hidden and refused on a headless server
+        # unless HIDE_LIVE_ONLY_TOOLS=false.
+        self.hide_live_only_tools: bool = (
+            os.environ.get("HIDE_LIVE_ONLY_TOOLS", "true").lower().strip() != "false"
+        )
 
         # 1.8-18 (security_lisp.py): how system_run_lisp checks an expression.
         # "read" (default) runs what passes the AutoLISP read tier and sends the

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `HIDE_LIVE_ONLY_TOOLS` (default `true`): a headless server no longer offers
+  the eight tools that can only fail there (`policy.LIVE_ONLY_TOOLS`: LISP, the
+  command line, launch, preferences and the operator prompts). They are left
+  out of `tools/list` and of search, and a call by name, through `call_tool`
+  or as a `cad_batch` step is refused `policy_refused` with
+  `policy: "headless_engine"`. `system_status.policy.live_only_hidden` lists
+  them. Restore: `HIDE_LIVE_ONLY_TOOLS=false`.
+
 ## [1.8.0] - 2026-11-06
 
 1.8.0: the server remembers, finishes a job in one call and measures itself
