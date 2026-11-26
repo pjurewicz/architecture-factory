@@ -211,4 +211,3 @@ def test_solid_vertices_use_dxf_bowtie_order():
     assert solid_vertices(quad) == [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)]
     tri = [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)]
     assert solid_vertices(tri) == tri
-

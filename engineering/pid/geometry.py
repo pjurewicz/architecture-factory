@@ -197,7 +197,9 @@ def bbox_of(primitives) -> tuple[float, float, float, float]:
             xs += [p["cx"] - p["radius"], p["cx"] + p["radius"]]
             ys += [p["cy"] - p["radius"], p["cy"] + p["radius"]]
         elif kind == "arc":
-            for x, y in _arc_extent(p["cx"], p["cy"], p["radius"], p["start_angle"], p["end_angle"]):
+            for x, y in _arc_extent(
+                p["cx"], p["cy"], p["radius"], p["start_angle"], p["end_angle"]
+            ):
                 xs.append(x)
                 ys.append(y)
         elif kind in ("polyline", "solid"):

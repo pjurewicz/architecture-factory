@@ -1043,7 +1043,12 @@ async def draw_std_feature(
             )
         elif prim["type"] == "arc":
             info = await backend.entity_create_arc(
-                prim["cx"], prim["cy"], prim["radius"], prim["start_angle"], prim["end_angle"], layer=target
+                prim["cx"],
+                prim["cy"],
+                prim["radius"],
+                prim["start_angle"],
+                prim["end_angle"],
+                layer=target,
             )
         else:
             info = await backend.entity_create_polyline(prim["points"], prim["closed"], target)

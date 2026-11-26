@@ -355,7 +355,9 @@ async def test_the_balloon_guards_read_past_the_entity_list_page(backend):
 async def test_extract_reads_every_insert_not_the_first_page(backend):
     """250 bolts must report QTY 250. The 200-entity `entity_list` default used
     to print 200 into a real TABLE with nothing saying it had been cut."""
-    await backend.block_define("BOLT", [{"type": "circle", "cx": 0.0, "cy": 0.0, "radius": 3.0}], [])
+    await backend.block_define(
+        "BOLT", [{"type": "circle", "cx": 0.0, "cy": 0.0, "radius": 3.0}], []
+    )
     for index in range(250):
         insert = await backend.block_insert("BOLT", float(index) * 10.0, 0.0)
         await backend.entity_set_xdata(
