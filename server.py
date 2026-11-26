@@ -12906,9 +12906,7 @@ async def arch_catalogue_insert(
 
     await ctx.info(f"arch catalogue: {name} at ({x}, {y})")
     try:
-        return await insert_item(
-            _backend(ctx), name, at=(x, y), rotation=rotation, anchor=anchor
-        )
+        return await insert_item(_backend(ctx), name, at=(x, y), rotation=rotation, anchor=anchor)
     except ValueError as exc:
         raise ToolError(str(exc)) from exc
 
