@@ -147,7 +147,9 @@ ROOM_BOX = [
 async def test_a_curtain_wall_draws_no_line_over_the_walls_own(client, openings):
     await call(client, "arch_wall", {"walls": ROOM_BOX})
     for opening in openings:
-        placed = await call(client, "arch_opening", {"wall": "S", "kind": "curtain_wall", **opening})
+        placed = await call(
+            client, "arch_opening", {"wall": "S", "kind": "curtain_wall", **opening}
+        )
         assert "error" not in placed and not placed.get("omitted")
     critique = await call(client, "drawing_critique", {"focus": ["duplicate_entities"]})
     assert critique["result"] == []
