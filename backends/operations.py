@@ -112,12 +112,22 @@ class OperationRecord:
     #: filters on, so the rows of an earlier process (and, live, an earlier
     #: bind of the same file, whose ``document_id`` differs) are found.
     lineage_id: str | None = None
+    #: The tool that really ran when ``tool`` is the search proxy's
+    #: ``call_tool`` (``/preview/tools`` counts by it); None when they agree.
+    effective_tool: str | None = None
 
     def to_dict(self) -> dict:
         row = asdict(self)
         # Shown only when present: a record without them stays the 1.7 row,
         # byte for byte.
-        for key in ("checkpoint_before", "checkpoint_after", "label", "changes", "lineage_id"):
+        for key in (
+            "checkpoint_before",
+            "checkpoint_after",
+            "label",
+            "changes",
+            "lineage_id",
+            "effective_tool",
+        ):
             if row[key] is None:
                 del row[key]
         return row
@@ -327,6 +337,7 @@ class OperationJournal:
         operation_id: str | None = None,
         document: dict | None = None,
         label: str | None = None,
+        effective_tool: str | None = None,
     ) -> tuple[OperationRecord, Any | None]:
         """Open a record; ``(record, replayed result or None)``.
 
@@ -372,6 +383,7 @@ class OperationJournal:
             checkpoint_before=identity.get("checkpoint"),
             label=label,
             lineage_id=identity.get("lineage_id"),
+            effective_tool=effective_tool if effective_tool not in (None, tool) else None,
         )
         self._store(record)
         return record, None
@@ -513,6 +525,14 @@ class OperationJournal:
                 break
         return {"count": len(self._records), "last": last, "unknown_commit": unknown}
 
+    def tool_usage(self, since: float | None = None) -> list[dict]:
+        """Calls per tool that really ran, started at ``since`` or later (``/preview/tools``)."""
+        return usage_rows(
+            (r.effective_tool or r.tool, r.error_kind, 1, (r.ended or r.started) - r.started)
+            for r in list(self._records.values())
+            if r.state != "running" and (since is None or r.started >= since)
+        )
+
     def _lookup(self, operation_id: str) -> tuple[OperationRecord, bool, Any] | None:
         """``(record, has_result, result)`` for a known id, else None.
 
@@ -535,6 +555,35 @@ class OperationJournal:
             evicted, _ = self._records.popitem(last=False)
             self._results.pop(evicted, None)
             self._seqs.pop(evicted, None)
+
+
+#: Journal rows that record no tool call (``drawing_open``'s outside-edit note).
+NOT_TOOL_CALLS = frozenset({"external_edit"})
+
+
+def usage_rows(groups) -> list[dict]:
+    """``(tool, error_kind, calls, seconds)`` groups as one row per tool, most called first.
+
+    A row: ``{tool, calls, errors, error_kinds: {kind: n}, ms}``; a call is an
+    error when its record carries an ``error_kind``.
+    """
+    tools: dict[str, dict] = {}
+    for tool, kind, calls, seconds in groups:
+        if tool in NOT_TOOL_CALLS:
+            continue
+        row = tools.setdefault(
+            tool, {"tool": tool, "calls": 0, "errors": 0, "error_kinds": {}, "ms": 0.0}
+        )
+        row["calls"] += calls
+        row["ms"] += (seconds or 0.0) * 1000.0
+        if kind:
+            row["errors"] += calls
+            row["error_kinds"][kind] = row["error_kinds"].get(kind, 0) + calls
+    rows = sorted(tools.values(), key=lambda r: (-r["calls"], r["tool"]))
+    for row in rows:
+        row["ms"] = round(row["ms"], 1)
+        row["error_kinds"] = dict(sorted(row["error_kinds"].items(), key=lambda kv: -kv[1]))
+    return rows
 
 
 def _mine(record: OperationRecord, document_id: str, lineage_id: str | None) -> bool:

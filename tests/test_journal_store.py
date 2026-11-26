@@ -27,6 +27,7 @@ from backends import journal_store
 from backends.journal_store import (
     ARGS_CAP_BYTES,
     JOURNAL_FILE,
+    SCHEMA_VERSION,
     DurableJournal,
     JournalSettingError,
     JournalSettings,
@@ -634,3 +635,53 @@ def test_the_state_store_status_counts_what_it_holds(state_dir):
     assert status["path"] == str(state_dir / JOURNAL_FILE)
     assert status["bytes"] > 0 and status["documents"] == 1 and status["checkpoints"] == 0
     assert status["operations"] == 2 and status["write_failures"] == 0
+
+
+def test_tool_usage_counts_the_tool_that_ran_across_a_restart_and_an_older_file(state_dir):
+    # A file written before effective_tool existed: its call_tool row names
+    # the tool only in its arguments.
+    old = journal_store._SCHEMA.replace(",\n    effective_tool TEXT", "")
+    assert "effective_tool" not in old
+    connection = sqlite3.connect(state_dir / JOURNAL_FILE)
+    connection.executescript(old)
+    connection.execute("INSERT INTO meta VALUES ('schema_version', ?)", (SCHEMA_VERSION,))
+    hour_ago = time.time() - 3600
+    connection.execute(
+        "INSERT INTO operations (operation_id, tool, request_hash, state, started, ended, "
+        "error_kind, server_instance, pid, args_json) VALUES "
+        "('old', 'call_tool', 'h', 'refused', ?, ?, 'not_found', 'gone', 1, "
+        '\'{"arguments":{"handle":"FF"},"name":"entity_get"}\')',
+        (hour_ago, hour_ago + 0.5),
+    )
+    connection.commit()
+    connection.close()
+
+    journal = _journal(state_dir)
+    for tool, effective, state, kind in (
+        ("call_tool", "entity_get", "refused", "invalid_args"),
+        ("call_tool", "entity_create_line", "committed", None),
+        ("entity_create_line", None, "committed", None),
+        ("external_edit", None, "committed", None),  # not a tool call
+    ):
+        record, _ = journal.begin(tool, {"x": 1}, effective_tool=effective)
+        journal.finish(record, state, error_kind=kind)
+    journal.close()
+
+    reopened = _journal(state_dir)
+    try:
+        usage = {row["tool"]: row for row in reopened.tool_usage()}
+        assert set(usage) == {"entity_get", "entity_create_line"}
+        assert usage["entity_create_line"] == {
+            "tool": "entity_create_line",
+            "calls": 2,
+            "errors": 0,
+            "error_kinds": {},
+            "ms": usage["entity_create_line"]["ms"],
+        }
+        assert usage["entity_get"]["calls"] == 2 and usage["entity_get"]["errors"] == 2
+        assert usage["entity_get"]["error_kinds"] == {"not_found": 1, "invalid_args": 1}
+        # since: the older file's row (an hour old) is outside the window
+        recent = {row["tool"]: row for row in reopened.tool_usage(since=hour_ago + 60)}
+        assert recent["entity_get"]["error_kinds"] == {"invalid_args": 1}
+    finally:
+        reopened.close()

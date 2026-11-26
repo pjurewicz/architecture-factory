@@ -84,7 +84,12 @@ from pathlib import Path
 from typing import Any
 
 from backends import fault_barrier
-from backends.operations import OperationJournal, OperationRecord, history_row_matches
+from backends.operations import (
+    OperationJournal,
+    OperationRecord,
+    history_row_matches,
+    usage_rows,
+)
 
 __all__ = [
     "ARGS_CAP_BYTES",
@@ -151,7 +156,8 @@ CREATE TABLE IF NOT EXISTS operations (
     checkpoint_before TEXT,
     checkpoint_after TEXT,
     label TEXT,
-    changes_json TEXT
+    changes_json TEXT,
+    effective_tool TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS operations_client_id
     ON operations(operation_id) WHERE client_supplied = 1;
@@ -179,6 +185,7 @@ _COLUMNS = (
     "checkpoint_before",
     "label",
     "lineage_id",
+    "effective_tool",
 )
 #: A server id's row.
 _INSERT = (
@@ -694,6 +701,11 @@ class DurableJournal(OperationJournal):
             sync = "FULL" if self.settings.sync == "full" else "NORMAL"
             connection.execute(f"PRAGMA synchronous = {sync}")
             connection.executescript(_SCHEMA)
+            # Added after schema 1 shipped: nullable, so a server without it
+            # still reads and writes the same file.
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(operations)")}
+            if "effective_tool" not in columns:
+                connection.execute("ALTER TABLE operations ADD COLUMN effective_tool TEXT")
             connection.execute(
                 "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
                 (SCHEMA_VERSION,),
@@ -885,6 +897,7 @@ class DurableJournal(OperationJournal):
                 record.checkpoint_before,
                 record.label,
                 record.lineage_id,
+                record.effective_tool,
             ),
         )
 
@@ -991,10 +1004,16 @@ class DurableJournal(OperationJournal):
         operation_id: str | None = None,
         document: dict | None = None,
         label: str | None = None,
+        effective_tool: str | None = None,
     ) -> tuple[OperationRecord, Any | None]:
         if self._connection is None:
             return super().begin(
-                tool, arguments, operation_id=operation_id, document=document, label=label
+                tool,
+                arguments,
+                operation_id=operation_id,
+                document=document,
+                label=label,
+                effective_tool=effective_tool,
             )
         client = operation_id is not None
         eager = client or not self._read_only(tool)
@@ -1005,11 +1024,21 @@ class DurableJournal(OperationJournal):
                 except sqlite3.Error as exc:
                     self._failed(exc, "begin")
                     return super().begin(
-                        tool, arguments, operation_id=operation_id, document=document, label=label
+                        tool,
+                        arguments,
+                        operation_id=operation_id,
+                        document=document,
+                        label=label,
+                        effective_tool=effective_tool,
                     )
             try:
                 record, replay = super().begin(
-                    tool, arguments, operation_id=operation_id, document=document, label=label
+                    tool,
+                    arguments,
+                    operation_id=operation_id,
+                    document=document,
+                    label=label,
+                    effective_tool=effective_tool,
                 )
             except BaseException:
                 # A refusal (conflict, reconcile): the transaction holds at most
@@ -1351,6 +1380,23 @@ class DurableJournal(OperationJournal):
                 rev = after if after is not None else before
                 last = {"op": op, "tool": tool, "state": state, "rev": rev}
         return {"count": int(count or 0), "last": last, "unknown_commit": int(unknown or 0)}
+
+    def tool_usage(self, since: float | None = None) -> list[dict]:
+        """Calls per tool over every run's rows still kept (``JOURNAL_RETAIN_DAYS``).
+
+        A ``call_tool`` row written before ``effective_tool`` existed is
+        counted under the ``name`` in its arguments when they were kept.
+        """
+        rows = self._history_query(
+            "SELECT COALESCE(effective_tool, CASE WHEN tool = 'call_tool' "
+            "AND json_valid(args_json) THEN json_extract(args_json, '$.name') END, tool), "
+            "error_kind, COUNT(*), SUM(COALESCE(ended, started) - started) FROM operations "
+            "WHERE state != 'running' AND started >= ? GROUP BY 1, 2",
+            (since if since is not None else float("-inf"),),
+        )
+        if rows is None:
+            return super().tool_usage(since)
+        return usage_rows(rows)
 
     # ── status and shutdown ──
 

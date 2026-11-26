@@ -452,6 +452,8 @@ class AuditMiddleware(Middleware):
             if refused is not None:
                 elapsed = (time.monotonic() - start) * 1000
                 log.warning("TOOL ERR %-40s %6.1fms  (policy_refused)", tool_name, elapsed)
+                if CURRENT_OPERATION.get() is None:
+                    _journal_policy_refusal(context, tool_name, arguments, effective)
                 return _journal_refusal(context, "policy_refused", str(refused), refused.fields())
             return await self._call(context, call_next, tool_name, start, arguments, effective)
         finally:
@@ -490,6 +492,7 @@ class AuditMiddleware(Middleware):
                 operation_id=supplied,
                 document=_identity_of(backend),
                 label=label,
+                effective_tool=effective,
             )
         except (OperationConflictError, RequiresReconcileError) as exc:
             elapsed = (time.monotonic() - start) * 1000
@@ -1100,6 +1103,16 @@ def _error_envelope(context, exc: BaseException) -> ToolResult:
     else:
         content = _wire_text(context, exc)
     return ToolResult(content=content, structured_content=payload, is_error=True)
+
+
+def _journal_policy_refusal(context, tool: str, arguments: dict, effective: str) -> None:
+    """One ``refused`` row for a call the tool policy turned away, so it is counted."""
+    try:
+        journal = _operations_journal(_lifespan_context_or_none(context))
+        record, _replay = journal.begin(tool, arguments, effective_tool=effective)
+        journal.finish(record, "refused", error_kind="policy_refused")
+    except Exception as exc:  # the journal is evidence, never a reason to fail a refusal
+        log.debug("policy refusal not journalled: %s", exc)
 
 
 def _journal_refusal(context, kind: str, text: str, fields: dict) -> ToolResult:

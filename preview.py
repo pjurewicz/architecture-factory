@@ -4,8 +4,10 @@ A headless server has no AutoCAD window to watch. ``/preview`` lists the
 server's sessions (one per engine, see backends/session_backends.py), each
 session's open documents, a render of its active document that refreshes when
 the document's revision moves, its recent tool calls with their duration and data size, and
-PDF / DXF / DWG downloads of the active document. Nothing on the page changes a
-drawing.
+PDF / DXF / DWG downloads of the active document. ``/preview/tools`` counts the
+calls of every tool and their errors by kind, across all sessions, read from the
+operation journal (backends/journal_store.py): it outlives a restart and keeps
+``JOURNAL_RETAIN_DAYS``. Nothing on either page changes a drawing.
 
 The routes sit beside ``/mcp`` but outside its bearer-token check, and the
 MCP token is not a browser credential, so the page has its own: HTTP Basic
@@ -132,6 +134,31 @@ async def _state(server) -> dict:
     return {"sessions": sessions, "time": time.time()}
 
 
+#: ``/preview/tools`` ranges: seconds back from now, None for every kept row.
+_RANGES = {"24h": 86400.0, "7d": 7 * 86400.0, "all": None}
+
+
+async def _tool_usage(server, window: str) -> dict:
+    """The journal's calls per tool over ``window`` (a key of ``_RANGES``)."""
+    import asyncio
+
+    journal = server._operations_journal(getattr(server.mcp, "_lifespan_result", None))
+    back = _RANGES[window]
+    since = None if back is None else time.time() - back
+    tools = await asyncio.to_thread(journal.tool_usage, since)
+    settings = getattr(journal, "settings", None)
+    durable = getattr(journal, "_connection", None) is not None
+    return {
+        "range": window,
+        "since": since,
+        "durable": durable,
+        "retain_days": getattr(settings, "retain_days", None) if durable else None,
+        "calls": sum(t["calls"] for t in tools),
+        "errors": sum(t["errors"] for t in tools),
+        "tools": tools,
+    }
+
+
 def register(server) -> None:
     """Add the ``/preview`` routes to ``server.mcp``."""
     mcp = server.mcp
@@ -147,6 +174,23 @@ def register(server) -> None:
         if (refused := _guard(request)) is not None:
             return refused
         return JSONResponse(await _state(server), headers={"cache-control": "no-store"})
+
+    @mcp.custom_route("/preview/tools", methods=["GET"])
+    async def preview_tools_page(request: Request) -> Response:
+        if (refused := _guard(request)) is not None:
+            return refused
+        return HTMLResponse(_TOOLS_PAGE)
+
+    @mcp.custom_route("/preview/tools.json", methods=["GET"])
+    async def preview_tools(request: Request) -> Response:
+        if (refused := _guard(request)) is not None:
+            return refused
+        window = request.query_params.get("range", "all")
+        if window not in _RANGES:
+            return JSONResponse({"error": f"range is one of {list(_RANGES)}"}, status_code=400)
+        return JSONResponse(
+            await _tool_usage(server, window), headers={"cache-control": "no-store"}
+        )
 
     @mcp.custom_route("/preview/render.png", methods=["GET"])
     async def preview_render(request: Request) -> Response:
@@ -223,7 +267,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}td{padding:4px 2px;bord
 td.n{font-family:ui-monospace,monospace;white-space:nowrap;padding-right:8px}td.r{text-align:right;white-space:nowrap}#tot{margin:-2px 0 6px;font-family:ui-monospace,monospace;font-size:12px;color:var(--dim)}.committed{color:var(--ok)}.failed,.refused{color:var(--bad)}.partial,.unknown_commit{color:var(--warn)}
 .pill{font-size:11px;padding:1px 6px;border-radius:10px;border:1px solid var(--line);color:var(--dim)}.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--ok);margin-right:6px}
 </style></head><body>
-<aside><h1>AutoCAD MCP preview</h1><h2>Sessions</h2><div id="sessions"></div></aside>
+<aside><h1>AutoCAD MCP preview</h1><a class="b" href="preview/tools">Tool usage</a><h2>Sessions</h2><div id="sessions"></div></aside>
 <main>
  <div class="bar"><span class="t" id="title">No session selected</span><span class="m" id="meta"></span><span class="sp"></span>
   <a class="b" id="pdf" href="#">PDF</a><a class="b" id="dxf" href="#">DXF</a><a class="b" id="dwg" href="#">DWG</a></div>
@@ -253,5 +297,43 @@ async function tick(){
  $('hist').innerHTML=s.calls.recent.map(h=>`<tr title="in ${fmtB(h.bytes_in)} · out text ${fmtB(h.bytes_out_text)}${h.bytes_out_image?' + image '+fmtB(h.bytes_out_image):''}"><td class="n">${new Date(h.started*1000).toLocaleTimeString('en-GB',{hour12:false})}</td><td class="n">${esc(h.tool)}</td><td class="n r">${fmtMs(h.ms)}</td><td class="n r">${fmtB(h.bytes_in+h.bytes_out_text+h.bytes_out_image)}${h.bytes_out_image?' 🖼':''}</td><td class="${h.ok?'committed':'failed'}">${h.ok?'ok':'error'}</td><td class="n">${h.revision!=null?'r'+h.revision:''}</td></tr>`).join('')||'<tr><td>none yet</td></tr>';
 }
 tick();setInterval(tick,2000);
+</script></body></html>
+"""
+
+
+_TOOLS_PAGE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AutoCAD MCP tool usage</title>
+<style>
+:root{--bg:#0f1115;--panel:#171a21;--line:#2a2f3a;--text:#e6e8ee;--dim:#8b93a7;--accent:#4c8dff;--bad:#f85149}
+*{box-sizing:border-box}body{margin:0;padding:20px 28px;font:14px/1.45 system-ui,sans-serif;background:var(--bg);color:var(--text)}
+h1{font-size:17px;margin:0}.bar{display:flex;align-items:baseline;gap:14px;margin-bottom:6px}
+a.b,button{color:var(--text);text-decoration:none;border:1px solid var(--line);padding:5px 10px;border-radius:6px;background:var(--panel);font:13px system-ui,sans-serif;cursor:pointer}a.b:hover,button:hover{border-color:var(--accent)}
+button.on{border-color:var(--accent);background:#1d2a44}.seg{display:flex;gap:4px;margin-left:auto}
+#tot{color:var(--dim);margin-bottom:16px}table{border-collapse:collapse;width:100%}
+th{text-align:right;color:var(--dim);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.04em;padding:6px 10px;border-bottom:1px solid var(--line)}th:first-child,th:nth-child(5){text-align:left}
+td{padding:7px 12px;border-bottom:1px solid var(--line);font-family:ui-monospace,monospace;font-size:14px;text-align:right;white-space:nowrap;vertical-align:top}td:first-child,td:nth-child(5){text-align:left}
+th:nth-child(3){width:30%}td:nth-child(5){white-space:normal}.k{display:inline-block;white-space:nowrap;margin:0 6px 2px 0;padding:0 6px;border-radius:9px;border:1px solid #5a2a2a;color:#ffb3ad;font-size:12px}
+.share{display:flex;align-items:center;gap:10px}.share b{flex:1;display:block}.share i{display:block;height:8px;background:var(--accent);border-radius:2px}.share span{width:44px}.bad{color:var(--bad)}.empty{color:var(--dim)}
+</style></head><body>
+<div class="bar"><h1>Tool usage</h1><a class="b" href="../preview">&larr; Sessions</a>
+<div class="seg"><button data-r="24h">24 h</button><button data-r="7d">7 days</button><button data-r="all">All</button></div></div>
+<div id="tot"></div>
+<table><thead><tr><th>Tool</th><th>Calls</th><th>Share</th><th>Errors</th><th>Error kinds</th><th>Avg</th><th>Total time</th></tr></thead><tbody id="rows"></tbody></table>
+<script>
+const $=id=>document.getElementById(id);let range=new URLSearchParams(location.search).get('range')||'all';
+const fmtMs=m=>m>=60000?(m/60000).toFixed(1)+' min':m>=1000?(m/1000).toFixed(1)+' s':Math.round(m)+' ms';
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+document.querySelectorAll('.seg button').forEach(b=>b.onclick=()=>{range=b.dataset.r;history.replaceState(null,'','?range='+range);tick()});
+async function tick(){
+ document.querySelectorAll('.seg button').forEach(b=>b.classList.toggle('on',b.dataset.r===range));
+ let st;try{const r=await fetch('tools.json?range='+range,{cache:'no-store'});if(!r.ok)throw 0;st=await r.json()}catch(e){$('tot').textContent='server unreachable';return}
+ const span=st.range==='all'?(st.durable?`the journal's last ${st.retain_days} days`:'this run (no durable journal)'):(st.range==='24h'?'the last 24 hours':'the last 7 days');
+ $('tot').textContent=`${st.calls} calls of ${st.tools.length} tools, ${st.errors} errors, all sessions, over ${span}`;
+ const top=st.tools.length?st.tools[0].calls:1;
+ $('rows').innerHTML=st.tools.map(t=>`<tr><td>${esc(t.tool)}</td><td>${t.calls}</td><td><span class="share"><b><i style="width:${Math.max(1,100*t.calls/top)}%"></i></b><span>${(100*t.calls/st.calls).toFixed(1)}%</span></span></td><td class="${t.errors?'bad':''}">${t.errors||''}</td><td>${Object.entries(t.error_kinds).map(([k,n])=>`<span class="k">${esc(k)} ${n}</span>`).join('')}</td><td>${fmtMs(t.ms/t.calls)}</td><td>${fmtMs(t.ms)}</td></tr>`).join('')||'<tr><td class="empty" colspan="7">No calls in this range</td></tr>';
+}
+tick();setInterval(tick,5000);
 </script></body></html>
 """

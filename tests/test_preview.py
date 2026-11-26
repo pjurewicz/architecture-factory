@@ -41,8 +41,9 @@ async def test_the_page_needs_its_basic_credentials(monkeypatch):
             assert (await http.get("/preview/state", auth=auth)).status_code == 401
         mcp_token = {"authorization": "Bearer mcp-token-0123456789"}
         assert (await http.get("/preview/state", headers=mcp_token)).status_code == 401
-        assert (await http.get("/preview", auth=(USER, PASSWORD))).status_code == 200
-        assert (await http.get("/preview/state", auth=(USER, PASSWORD))).status_code == 200
+        for route in ("/preview", "/preview/state", "/preview/tools", "/preview/tools.json"):
+            assert (await http.get(route)).status_code == 401, route
+            assert (await http.get(route, auth=(USER, PASSWORD))).status_code == 200, route
 
 
 @pytest.mark.asyncio
@@ -115,3 +116,64 @@ async def test_state_shows_each_session_drawing_and_renders_it(monkeypatch):
         engine = preview._engine(server, busy["id"])
         name, data = await engine.dxf_bytes()
         assert name.endswith(".dxf") and data.count(b"\nLINE\n") == 3
+
+
+@pytest.mark.asyncio
+async def test_tool_usage_reads_the_journal_under_the_tool_that_ran(monkeypatch):
+    monkeypatch.setattr(config.settings, "session_isolation", True)
+    monkeypatch.setattr(config.settings, "hide_live_only_tools", True)
+    async with _served(monkeypatch) as http:
+
+        async def usage(window="all"):
+            got = await http.get(
+                "/preview/tools.json", params={"range": window}, auth=(USER, PASSWORD)
+            )
+            assert got.status_code == 200
+            return got.json()
+
+        before = {t["tool"]: t for t in (await usage())["tools"]}
+        previous = "search" if server._discovery_transform is not None else "off"
+        server._apply_discovery_mode("search")
+        try:
+            async with Client(server.mcp) as a, Client(server.mcp) as b:
+                await a.call_tool("call_tool", {"name": "drawing_new", "arguments": {}})
+                await b.call_tool("drawing_new", {})
+                line = {"x1": 0, "y1": 0, "x2": 5, "y2": 5}
+                await b.call_tool("call_tool", {"name": "entity_create_line", "arguments": line})
+                for handle in ("FFFFFF", "FFFFFE"):
+                    await b.call_tool(
+                        "call_tool",
+                        {"name": "entity_get", "arguments": {"handle": handle}},
+                        raise_on_error=False,
+                    )
+                await b.call_tool(
+                    "call_tool",
+                    {"name": "system_run_lisp", "arguments": {"code": "(+ 1 2)"}},
+                    raise_on_error=False,
+                )
+        finally:  # the mode the suite was in, not the configured default
+            server._apply_discovery_mode(previous)
+        # the sessions have ended; the journal still holds their calls
+        state = await usage()
+        assert (await usage("24h"))["calls"] <= state["calls"]
+        bad = await http.get("/preview/tools.json", params={"range": "1y"}, auth=(USER, PASSWORD))
+        assert bad.status_code == 400
+    after = {t["tool"]: t for t in state["tools"]}
+
+    def delta(tool, key="calls"):
+        return after[tool][key] - before.get(tool, {}).get(key, 0)
+
+    def kinds(tool, kind):
+        return after[tool]["error_kinds"].get(kind, 0) - before.get(tool, {}).get(
+            "error_kinds", {}
+        ).get(kind, 0)
+
+    assert "call_tool" not in after
+    assert delta("drawing_new") == 2 and delta("entity_create_line") == 1
+    assert delta("entity_get") == 2 and kinds("entity_get", "not_found") == 2
+    assert delta("drawing_new", "errors") == 0
+    # a call the tool policy turned away is counted too (live-only on this engine)
+    assert kinds("system_run_lisp", "policy_refused") == 1
+    assert state["calls"] == sum(t["calls"] for t in state["tools"])
+    ranked = [t["calls"] for t in state["tools"]]
+    assert ranked == sorted(ranked, reverse=True)

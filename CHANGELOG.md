@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   DWG downloads, behind
   HTTP Basic auth: `PREVIEW_USER` (default `preview`) / `PREVIEW_PASSWORD`.
   Without a password every `/preview` route answers 404 (`preview.py`).
+  `/preview/tools` (JSON at `/preview/tools.json?range=24h|7d|all`) counts each
+  tool's calls, errors by kind and time across all sessions, read from the
+  operation journal, so it outlives a restart and covers `JOURNAL_RETAIN_DAYS`.
+  The journal now records the tool a search-mode `call_tool` really ran
+  (`effective_tool`, a nullable column added to existing files in place; older
+  rows fall back to the name in their arguments), and a call the tool policy
+  refuses now gets a `refused` row with `error_kind: policy_refused`.
 - `SESSION_ISOLATION` (default `true`): each MCP session of a headless server
   gets its own engine (open documents, active document, undo, transactions),
   so two clients drawing at once no longer write into each other's documents.
