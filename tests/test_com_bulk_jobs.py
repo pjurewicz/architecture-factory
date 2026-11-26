@@ -599,7 +599,7 @@ _MIXED_SPECS = [
     {"type": "hatch", "pattern": "ANSI31", "boundary_points": [[0, 0], [5, 0], [5, 5]]},
     {"type": "circle", "cx": 0, "cy": 0},
     {"cx": 1},
-    {"type": "rectangle", "x": 0},
+    {"type": "spiral", "x": 0},
     {"type": "circle", "cx": 0, "cy": 0, "radius": 1, "lineweight": "thick"},
     {"type": "LINE", "x1": 0, "y1": 0, "x2": 1, "y2": 1},
 ]
@@ -644,10 +644,17 @@ async def test_headless_server_tools_answer_what_they_answered(monkeypatch):
     await oracle.drawing_new()
     async with Client(server.mcp) as client:
         await client.call_tool("drawing_new", {})
-        created = await client.call_tool("entity_batch_create", {"entities": _MIXED_SPECS})
-        expected = await _loop_1_8_0_batch_create(oracle, _MIXED_SPECS)
-        assert created.structured_content["created"] == expected["created"]
-        assert created.structured_content["errors"] == expected["errors"]
+        # The tool is all or nothing now: a spec without a type refuses the
+        # call before anything is drawn; the good specs answer what the loop did.
+        refused_all = await client.call_tool(
+            "entity_batch_create", {"entities": _MIXED_SPECS}, raise_on_error=False
+        )
+        assert refused_all.is_error and refused_all.structured_content["kind"] == "invalid_args"
+        good = [*_MIXED_SPECS[:10], _MIXED_SPECS[-1]]
+        created = await client.call_tool("entity_batch_create", {"entities": good})
+        expected = await _loop_1_8_0_batch_create(oracle, good)
+        assert created.structured_content["created"] == expected["created"] == 11
+        assert created.structured_content["errors"] == expected["errors"] == []
         handles = [row["handle"] for row in created.structured_content["entities"]][:3]
         # 1.8-09: a missing handle now refuses the whole call before anything
         # runs (the loop deleted the others); the one-job method keeps the
