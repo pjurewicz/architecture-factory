@@ -233,6 +233,30 @@ def _glyph_pipeline(out):
             finally:
                 self.drawing_text = False
 
+        def draw_viewport(self, vp, layout_ctx, bbox_cache=None):
+            # ezdxf draws a viewport's model space in storage order, so a
+            # DRAWORDER in the SORTENTSTABLE that model space honours was lost
+            # on a sheet: a hatch sent behind a WIPEOUT plotted on top of it.
+            # Same order as Frontend.draw_layout gives model space itself.
+            from ezdxf import reorder
+            from ezdxf.addons.drawing.pipeline import filter_vp_entities
+
+            if vp.doc is None:
+                return
+            try:
+                limits = vp.get_modelspace_limits()
+            except ValueError:  # modelspace limits not detectable
+                return
+            msp = vp.doc.modelspace()
+            mapping = list(msp.get_redraw_order())
+            entities = list(reorder.ascending(msp, mapping)) if mapping else msp
+            if self.enter_viewport(vp):
+                self.draw_entities(
+                    layout_ctx.from_viewport(vp),
+                    filter_vp_entities(entities, limits, bbox_cache),
+                )
+                self.exit_viewport()
+
     return _Pipeline(out)
 
 

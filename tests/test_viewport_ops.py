@@ -374,6 +374,27 @@ async def test_the_headless_renderer_does_project_model_content_through_viewport
     )
 
 
+async def test_a_viewport_draws_model_space_in_its_draw_order(backend, tmp_path):
+    """ezdxf draws a viewport's model space in creation order: a hatch sent
+    behind a WIPEOUT with `draw_order` covered it again on the sheet, while
+    model space showed it masked. Proven by subtraction: sending the hatch
+    back must uncover the wiped-out square on the sheet too."""
+    pytest.importorskip("matplotlib", reason="rendering needs the [pdf] extra")
+    pytest.importorskip("PIL", reason="rendering needs the [pdf] extra")
+
+    await backend.entity_create_wipeout([[80, 30], [120, 30], [120, 70], [80, 70]])
+    hatch = await backend.entity_create_hatch("SOLID", [[60, 10], [140, 10], [140, 90], [60, 90]])
+    await _sheet(backend)
+    await backend.viewport_create(SHEET, 210, 148.5, 260, 180, 100, 50, scale=1.0)
+
+    on_top = await _ink(backend, SHEET, tmp_path / "on_top.png")
+    await backend.draw_order([hatch.handle], "send_to_back")
+    behind = await _ink(backend, SHEET, tmp_path / "behind.png")
+
+    # the wipeout is a quarter of the hatch's area
+    assert behind < on_top * 0.85, (on_top, behind)
+
+
 async def test_the_capability_map_no_longer_calls_viewport_rendering_com_only(backend):
     features = backend.capabilities().to_dict()["features"]
     assert features["viewport_render"]["supported"] is True
