@@ -219,9 +219,12 @@ def describe_payload(tool: Tool, *, pack: str | None = None) -> dict[str, Any]:
     from what the call validates against. ``description`` is the *full* text
     (:func:`discovery.descriptions.full_description`): a listing carries only
     the leading paragraphs of a long docstring and points here for the rest.
-    ``cost`` is the ``@cad_tool`` card's, ``acad`` / ``synonyms`` the alias
-    corpus's, and ``examples`` only what the docstring itself writes
-    (:func:`docstring_examples`).
+    ``cost`` is the ``@cad_tool`` card's, ``acad`` the alias corpus's AutoCAD
+    command names, and ``examples`` only what the docstring itself writes
+    (:func:`docstring_examples`). The corpus's ``synonyms`` are not on the
+    card: they rank ``search_tools`` hits, which already found the tool, and
+    a long list (Turkish ones included) only made the card overflow a
+    client's tool-output limit.
     """
     wire = tool.to_mcp_tool()
     cad = (tool.meta or {}).get("cad")
@@ -240,7 +243,6 @@ def describe_payload(tool: Tool, *, pack: str | None = None) -> dict[str, Any]:
         "cost": cad.get("cost") if isinstance(cad, dict) else None,
         "pack": pack,
         "acad": list(record.acad) if record else [],
-        "synonyms": list(record.synonyms) if record else [],
         "examples": docstring_examples(full),
     }
 

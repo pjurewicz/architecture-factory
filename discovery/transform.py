@@ -24,7 +24,7 @@ built is reused, only with different documents.
 parameters only (``discovery/serialize.py`` says why), so a search-mode client
 had no way to read a tool's optional arguments short of a failed call.
 ``describe_tool(name)`` returns one tool's full input schema, description,
-annotations, risk, cost, pack, AutoCAD commands, synonyms and its docstring's
+annotations, risk, cost, pack, AutoCAD commands and its docstring's
 own examples; ``describe_tool(names=[...])`` returns several in one turn
 (1.8-11). It resolves names against the same filtered catalog
 ``call_tool`` reaches, refuses a hidden or unknown name with the same

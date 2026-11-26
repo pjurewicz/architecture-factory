@@ -57,6 +57,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   paper colour. `drawing_export_pdf` and the region render report
   `plot_style {name, ink, exact}`. Model-space screenshots keep object
   colours and now show the lineweights.
+- `describe_tool` repeated every alias synonym of a tool (Turkish ones
+  included), which helped a long card overflow a client's tool-output limit.
+  The synonyms are no longer on the card; they still rank `search_tools`
+  hits and stay in `docs/tool-inventory.json`.
 - A client reopening its session's SSE stream (`GET /mcp`) after a proxy
   dropped the old one silently was refused `409 Conflict: Only one SSE stream
   is allowed per session` until it gave up and ended the session, losing its

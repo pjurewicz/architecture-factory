@@ -942,7 +942,6 @@ async def test_describe_tool_carries_risk_cost_pack_and_the_alias_vocabulary():
     assert fillet["pack"] == "core"
     assert fillet["acad"] == list(record.acad)
     assert "FILLET" in fillet["acad"]
-    assert fillet["synonyms"] == list(record.synonyms)
     assert graph["pack"] == "pid"
     assert graph["risk"] == "read"
     assert wipe["risk"] == "destructive"
@@ -955,9 +954,10 @@ async def test_describe_tool_carries_risk_cost_pack_and_the_alias_vocabulary():
         "cost",
         "pack",
         "acad",
-        "synonyms",
         "examples",
     }
+    # the synonyms rank search hits; the card does not repeat them
+    assert record.synonyms
 
 
 async def test_describe_tool_shows_the_optional_parameters_a_search_card_leaves_out():
