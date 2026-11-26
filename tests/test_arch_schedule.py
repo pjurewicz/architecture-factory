@@ -184,6 +184,18 @@ async def test_a_door_schedule_is_a_table_with_title_header_and_one_row_per_door
 
 
 @pytest.mark.asyncio
+async def test_a_column_widens_to_its_longest_value(backend):
+    wall = Wall(id="W_INT_VEST", axis=((0.0, 0.0), (6000.0, 0.0)), thickness=100.0)
+    door = Opening(id="d", wall=wall.id, kind="cased_opening", offset=1000.0, width=1200.0)
+    await write_record(backend, wall, "wall")
+    await write_record(backend, door, "door")
+    result = await draw_schedule(backend, "doors", at=(0.0, 0.0), scale=1)
+    # 10 characters x 0.9 x 2.5 mm + 2 x 1 mm margin = 24.5 -> 25 mm, not the declared 20;
+    # the other columns keep theirs: 15+35+20+20+20+20 = 130
+    assert result["bbox"]["max"][0] == 155.0
+
+
+@pytest.mark.asyncio
 async def test_a_room_schedule_carries_the_total_row(backend):
     await write_plan(backend)
     result = await draw_schedule(backend, "rooms", at=(0.0, 0.0), lang="tr")

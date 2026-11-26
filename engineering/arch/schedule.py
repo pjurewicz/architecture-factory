@@ -27,7 +27,9 @@ decimal commas.
 
 DECLARED, not standard: the paper column widths below and the reuse of the
 parts list's 7 mm row and 2.5 mm text (`engineering.sheet.bom.ROW_HEIGHT`,
-`TEXT_HEIGHT`) - no standard fixes a schedule's layout.
+`TEXT_HEIGHT`) - no standard fixes a schedule's layout. A column is widened
+past its declared width when its longest header or value would not fit
+(``CHAR_WIDTH_FACTOR`` per character plus the cell margins).
 """
 
 from __future__ import annotations
@@ -82,6 +84,24 @@ COLUMN_WIDTHS: dict[str, float] = {
     "name": 45.0,
     "area": 25.0,
 }
+
+#: Character advance in text heights used to widen a column to its longest
+#: cell - generous for upper-case, as `engineering.arch.rooms.CHAR_WIDTH_FACTOR`.
+CHAR_WIDTH_FACTOR = 0.9
+
+
+def _column_widths(columns, headers, cells, text_height: float, row_height: float) -> list[float]:
+    """Paper widths: `COLUMN_WIDTHS` as the minimum, widened so the longest
+    header or value fits between the cell margins `entity_create_table` keeps
+    (``min(0.4 h, 0.15 row)`` on each side), rounded up to a whole millimetre."""
+    margin = min(0.4 * text_height, 0.15 * row_height)
+    widths = []
+    for index, column in enumerate(columns):
+        longest = max(len(str(text)) for text in [headers[index], *(r[index] for r in cells)])
+        need = CHAR_WIDTH_FACTOR * text_height * longest + 2.0 * margin
+        widths.append(max(COLUMN_WIDTHS[column], float(math.ceil(need))))
+    return widths
+
 
 #: `entity_create_table` takes at most 200 rows, the title and header included.
 MAX_ROWS = 198
@@ -262,18 +282,21 @@ async def draw_schedule(
     columns = SCHEDULE_COLUMNS[kind]
     layer = ARCH_ROLE_LAYER["symbol"]
     await _ensure_layer(backend, layer)
+    headers = [words[c] for c in columns]
+    cells = [[row[c] for c in columns] for row in rows]
+    paper_widths = _column_widths(columns, headers, cells, TEXT_HEIGHT, ROW_HEIGHT)
     entity = await backend.entity_create_table(
         x,
         y,
-        [[row[c] for c in columns] for row in rows],
-        headers=[words[c] for c in columns],
-        column_widths=[COLUMN_WIDTHS[c] * factor for c in columns],
+        cells,
+        headers=headers,
+        column_widths=[w * factor for w in paper_widths],
         row_height=ROW_HEIGHT * factor,
         text_height=TEXT_HEIGHT * factor,
         title=words[SCHEDULE_TITLES[kind]],
         layer=layer,
     )
-    width = sum(COLUMN_WIDTHS[c] for c in columns) * factor
+    width = sum(paper_widths) * factor
     height = (len(rows) + 2) * ROW_HEIGHT * factor
     return {
         "ok": True,
