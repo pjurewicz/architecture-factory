@@ -25,6 +25,8 @@ from __future__ import annotations
 import contextvars
 import logging
 import time
+import weakref
+from collections import deque
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -34,6 +36,21 @@ log = logging.getLogger(__name__)
 CURRENT_BACKEND: contextvars.ContextVar[Any] = contextvars.ContextVar(
     "acadmcp_session_backend", default=None
 )
+
+
+#: Calls kept per engine for the /preview page (preview.py), newest last.
+CALL_LOG_ROWS = 50
+_CALL_LOGS: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+
+
+def record_call(backend, row: dict) -> None:
+    """Remember one tool call made on ``backend``'s documents."""
+    _CALL_LOGS.setdefault(backend, deque(maxlen=CALL_LOG_ROWS)).append(row)
+
+
+def call_log(backend) -> list[dict]:
+    """The calls made on ``backend``, oldest first."""
+    return list(_CALL_LOGS.get(backend, ()))
 
 
 class _Entry:
@@ -126,6 +143,7 @@ class SessionBackends:
         if entry is None or entry.in_flight:
             return False
         del self._sessions[session]
+        _CALL_LOGS.pop(entry.backend, None)
         await self._release(entry.backend)
         if entry.is_default:
             await entry.backend.connect()

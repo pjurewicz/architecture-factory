@@ -11,7 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `/preview`: a read-only browser page beside `/mcp` showing each session's
   open documents, a render of its active document that refreshes when its
-  revision moves, its recent operations and PDF / DXF / DWG downloads, behind
+  revision moves, its recent tool calls with their duration and data size
+  (argument bytes in; text and image bytes out, measured, not tokens), and PDF / DXF /
+  DWG downloads, behind
   HTTP Basic auth: `PREVIEW_USER` (default `preview`) / `PREVIEW_PASSWORD`.
   Without a password every `/preview` route answers 404 (`preview.py`).
 - `SESSION_ISOLATION` (default `true`): each MCP session of a headless server

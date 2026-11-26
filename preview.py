@@ -3,7 +3,7 @@
 A headless server has no AutoCAD window to watch. ``/preview`` lists the
 server's sessions (one per engine, see backends/session_backends.py), each
 session's open documents, a render of its active document that refreshes when
-the document's revision moves, its recent operations from the journal, and
+the document's revision moves, its recent tool calls with their duration and data size, and
 PDF / DXF / DWG downloads of the active document. Nothing on the page changes a
 drawing.
 
@@ -18,7 +18,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
-import json
 import logging
 import tempfile
 import time
@@ -90,27 +89,19 @@ def _engine(server, wanted: str):
     return None
 
 
-def _history(server, document_id: str) -> list[dict]:
-    lifespan = getattr(server.mcp, "_lifespan_result", None) or {}
-    journal = lifespan.get("operations") if isinstance(lifespan, dict) else None
-    if journal is None or not document_id:
-        return []
-    try:
-        rows = journal.history(document_id, limit=_HISTORY_ROWS, skip=server._read_only_tool)
-    except Exception as exc:  # the page shows what it can
-        log.debug("preview history: %s", exc)
-        return []
-    keep = ("tool", "state", "revision_after", "started", "label")
-    out = []
-    for row in rows:
-        item = {key: row.get(key) for key in keep}
-        try:  # the search proxy's call_tool names the tool that really ran
-            arguments = json.loads(row.get("args_json") or "{}")
-            item["tool"] = server._effective_tool(item["tool"], arguments)
-        except (ValueError, TypeError):
-            pass
-        out.append(item)
-    return out
+def _calls(engine) -> dict:
+    """The engine's recent tool calls, newest first, and their totals."""
+    from backends.session_backends import call_log
+
+    calls = call_log(engine)
+    totals = {
+        "calls": len(calls),
+        "ms": round(sum(c["ms"] for c in calls), 1),
+        "bytes_in": sum(c["bytes_in"] for c in calls),
+        "bytes_out_text": sum(c["bytes_out_text"] for c in calls),
+        "bytes_out_image": sum(c["bytes_out_image"] for c in calls),
+    }
+    return {"recent": list(reversed(calls))[:_HISTORY_ROWS], "totals": totals}
 
 
 async def _state(server) -> dict:
@@ -134,7 +125,7 @@ async def _state(server) -> dict:
                 ],
                 "active": None if active is None else active["name"],
                 "revision": None if active is None else active["revision"],
-                "history": [] if active is None else _history(server, active.get("document_id")),
+                "calls": _calls(engine),
                 "error": error,
             }
         )
@@ -227,9 +218,9 @@ h1{font-size:15px;margin:4px 4px 12px}h2{font-size:13px;color:var(--dim);font-we
 a.b{color:var(--text);text-decoration:none;border:1px solid var(--line);padding:5px 10px;border-radius:6px;background:var(--panel)}a.b:hover{border-color:var(--accent)}
 .view{flex:1;display:flex;min-height:0}.canvas{flex:1;display:flex;align-items:center;justify-content:center;background:#212830;margin:12px;border-radius:8px;overflow:hidden;position:relative}
 .canvas img{max-width:100%;max-height:100%;object-fit:contain}.empty{color:var(--dim)}
-.side{width:340px;border-left:1px solid var(--line);overflow:auto;padding:0 12px 12px}
+.side{width:420px;border-left:1px solid var(--line);overflow:auto;padding:0 12px 12px}
 table{width:100%;border-collapse:collapse;font-size:12px}td{padding:4px 2px;border-bottom:1px solid var(--line);vertical-align:top}
-td.n{font-family:ui-monospace,monospace}.committed{color:var(--ok)}.failed,.refused{color:var(--bad)}.partial,.unknown_commit{color:var(--warn)}
+td.n{font-family:ui-monospace,monospace;white-space:nowrap;padding-right:8px}td.r{text-align:right;white-space:nowrap}#tot{margin:-2px 0 6px;font-family:ui-monospace,monospace;font-size:12px;color:var(--dim)}.committed{color:var(--ok)}.failed,.refused{color:var(--bad)}.partial,.unknown_commit{color:var(--warn)}
 .pill{font-size:11px;padding:1px 6px;border-radius:10px;border:1px solid var(--line);color:var(--dim)}.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--ok);margin-right:6px}
 </style></head><body>
 <aside><h1>AutoCAD MCP preview</h1><h2>Sessions</h2><div id="sessions"></div></aside>
@@ -237,15 +228,17 @@ td.n{font-family:ui-monospace,monospace}.committed{color:var(--ok)}.failed,.refu
  <div class="bar"><span class="t" id="title">No session selected</span><span class="m" id="meta"></span><span class="sp"></span>
   <a class="b" id="pdf" href="#">PDF</a><a class="b" id="dxf" href="#">DXF</a><a class="b" id="dwg" href="#">DWG</a></div>
  <div class="view"><div class="canvas"><img id="img" alt="Render of the active document" hidden><div class="empty" id="empty">Nothing drawn yet</div></div>
-  <div class="side"><h2>Open documents</h2><table id="docs"></table><h2>Recent operations</h2><table id="hist"></table></div></div>
+  <div class="side"><h2>Open documents</h2><table id="docs"></table><h2>Recent calls</h2><div class="id" id="tot"></div><table id="hist"></table></div></div>
 </main>
 <script>
 let sel=null,shown=null;const $=id=>document.getElementById(id);
+const fmtB=b=>b>=1048576?(b/1048576).toFixed(1)+' MB':b>=1024?(b/1024).toFixed(1)+' kB':b+' B';
+const fmtMs=m=>m>=1000?(m/1000).toFixed(1)+' s':Math.round(m)+' ms';
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 async function tick(){
  let st;try{const r=await fetch('preview/state',{cache:'no-store'});if(!r.ok)throw 0;st=await r.json()}catch(e){$('meta').textContent='server unreachable';return}
  const ss=st.sessions;if(!ss.find(s=>s.id===sel))sel=(ss.find(s=>s.active)||ss[0]||{}).id||null;
- $('sessions').innerHTML=ss.map((s,i)=>`<div class="s ${s.id===sel?'sel':''}" data-id="${s.id}"><div class="id"><span class="dot" style="opacity:${s.idle_s!=null&&s.idle_s<60?1:.25}"></span>${s.id==='server'?'server engine':'session '+esc(s.id)}</div><div class="doc">${esc(s.active||'no document')}</div><div class="id">${s.documents.length} open${s.idle_s!=null?' · idle '+s.idle_s+'s':''}</div></div>`).join('')||'<div class="empty" style="color:var(--dim)">No sessions yet</div>';
+ $('sessions').innerHTML=ss.map((s,i)=>`<div class="s ${s.id===sel?'sel':''}" data-id="${s.id}"><div class="id"><span class="dot" style="opacity:${s.idle_s!=null&&s.idle_s<60?1:.25}"></span>${s.id==='server'?'server engine':'session '+esc(s.id)}</div><div class="doc">${esc(s.active||'no document')}</div><div class="id">${s.documents.length} open · ${fmtB(s.calls.totals.bytes_in+s.calls.totals.bytes_out_text+s.calls.totals.bytes_out_image)}${s.idle_s!=null?' · idle '+s.idle_s+'s':''}</div></div>`).join('')||'<div class="empty" style="color:var(--dim)">No sessions yet</div>';
  document.querySelectorAll('.s').forEach(e=>e.onclick=()=>{sel=e.dataset.id;shown=null;tick()});
  const s=ss.find(x=>x.id===sel);
  if(!s){$('title').textContent='No session';return}
@@ -256,7 +249,8 @@ async function tick(){
  if(s.active&&key!==shown){const img=new Image();img.onload=()=>{$('img').src=img.src;$('img').hidden=false;$('empty').hidden=true;shown=key};img.onerror=()=>{shown=key};img.src=`preview/render.png?session=${s.id}&r=${encodeURIComponent(key)}`}
  if(!s.active){$('img').hidden=true;$('empty').hidden=false;shown=key}
  $('docs').innerHTML=s.documents.map(d=>`<tr><td>${esc(d.name)} ${d.active?'<span class="pill">active</span>':''}</td><td class="n">${d.entity_count} ent</td><td>${d.saved?'saved':'unsaved'}</td></tr>`).join('')||'<tr><td>none</td></tr>';
- $('hist').innerHTML=s.history.map(h=>`<tr><td class="n">${new Date(h.started*1000).toLocaleTimeString()}</td><td class="n">${esc(h.tool)}</td><td class="${esc(h.state)}">${esc(h.state)}</td><td class="n">r${h.revision_after??''}</td></tr>`).join('')||'<tr><td>none yet</td></tr>';
+ const t=s.calls.totals,tb=t.bytes_in+t.bytes_out_text+t.bytes_out_image;$('tot').textContent=t.calls?`${t.calls} calls · ${fmtMs(t.ms)} · ${fmtB(tb)} (in ${fmtB(t.bytes_in)} / out text ${fmtB(t.bytes_out_text)}${t.bytes_out_image?' + images '+fmtB(t.bytes_out_image):''})`:'';
+ $('hist').innerHTML=s.calls.recent.map(h=>`<tr title="in ${fmtB(h.bytes_in)} · out text ${fmtB(h.bytes_out_text)}${h.bytes_out_image?' + image '+fmtB(h.bytes_out_image):''}"><td class="n">${new Date(h.started*1000).toLocaleTimeString('en-GB',{hour12:false})}</td><td class="n">${esc(h.tool)}</td><td class="n r">${fmtMs(h.ms)}</td><td class="n r">${fmtB(h.bytes_in+h.bytes_out_text+h.bytes_out_image)}${h.bytes_out_image?' 🖼':''}</td><td class="${h.ok?'committed':'failed'}">${h.ok?'ok':'error'}</td><td class="n">${h.revision!=null?'r'+h.revision:''}</td></tr>`).join('')||'<tr><td>none yet</td></tr>';
 }
 tick();setInterval(tick,2000);
 </script></body></html>

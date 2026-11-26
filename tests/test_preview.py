@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import contextlib
 
 import httpx
@@ -86,7 +87,31 @@ async def test_state_shows_each_session_drawing_and_renders_it(monkeypatch):
         counts = sorted(s["documents"][0]["entity_count"] for s in sessions if s["documents"])
         assert counts == [0, 3]
         busy = next(s for s in sessions if s["documents"] and s["documents"][0]["entity_count"])
-        assert [row["tool"] for row in busy["history"]][:1] == ["entity_create_line"]
+        recent = busy["calls"]["recent"]
+        assert [row["tool"] for row in recent][:1] == ["entity_create_line"]
+        assert recent[0]["ok"] and recent[0]["ms"] > 0 and recent[0]["revision"] is not None
+        # the arguments as JSON, byte for byte; a text result back and no image
+        assert recent[0]["bytes_in"] == len('{"x1": 0, "y1": 0, "x2": 5, "y2": 5}')
+        assert recent[0]["bytes_out_text"] > 0 and recent[0]["bytes_out_image"] == 0
+        assert busy["calls"]["totals"]["calls"] == 4  # drawing_new + three lines
+        # through the search proxy, a call is still logged once, under its real tool
+        previous = "search" if server._discovery_transform is not None else "off"
+        server._apply_discovery_mode("search")
+        try:
+            await b.call_tool("call_tool", {"name": "drawing_info", "arguments": {}})
+        finally:  # the mode the suite was in, not the configured default
+            server._apply_discovery_mode(previous)
+        calls = (await preview._state(server))["sessions"]
+        busy = next(s for s in calls if s["id"] == busy["id"])
+        assert busy["calls"]["totals"]["calls"] == 5
+        assert busy["calls"]["recent"][0]["tool"] == "drawing_info"
+        # a screenshot's PNG is counted as image bytes: its real decoded size
+        shot = await b.call_tool("view_screenshot", {"max_px": 256})
+        png = next(block for block in shot.content if block.type == "image")
+        calls = (await preview._state(server))["sessions"]
+        row = next(s for s in calls if s["id"] == busy["id"])["calls"]["recent"][0]
+        assert row["tool"] == "view_screenshot"
+        assert row["bytes_out_image"] == len(base64.b64decode(png.data))
         engine = preview._engine(server, busy["id"])
         name, data = await engine.dxf_bytes()
         assert name.endswith(".dxf") and data.count(b"\nLINE\n") == 3

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextvars
 import json
 import logging
 import math
@@ -50,7 +51,12 @@ from backends.operations import (
     OperationJournal,
     RequiresReconcileError,
 )
-from backends.session_backends import CURRENT_BACKEND, EndSessionOnDelete, SessionBackends
+from backends.session_backends import (
+    CURRENT_BACKEND,
+    EndSessionOnDelete,
+    SessionBackends,
+    record_call,
+)
 from backends.session_metrics import SESSION_METRICS, result_text_bytes
 from discovery.aliases import aliases_for, tools_for_command
 from discovery.descriptions import record_wire_description
@@ -280,17 +286,81 @@ class SessionBackendMiddleware(Middleware):
         lifespan = _lifespan_context_or_none(context)
         router = lifespan.get("backend") if lifespan is not None else None
         if not isinstance(router, SessionBackends):
-            return await call_next(context)
+            return await _logged_call(context, call_next, router)
         # initialize runs before the transport has named the session (no
         # request in context): it touches no drawing, so it holds no engine.
         session = None if context.method == "initialize" else _isolation_key(fastmcp_context)
         backend, entry = await router.acquire(session)
         token = CURRENT_BACKEND.set(backend)
         try:
-            return await call_next(context)
+            return await _logged_call(context, call_next, backend)
         finally:
             CURRENT_BACKEND.reset(token)
             router.release_entry(entry)
+
+
+def _result_bytes(result) -> tuple[int, int]:
+    """``(text, image)`` bytes of a tool result's content blocks, as sent to the client.
+
+    Text is UTF-8; an image is its decoded size (the base64 on the wire is a
+    third larger). Measured, not converted to tokens: every model counts
+    tokens, and images above all, its own way.
+    """
+    images = 0
+    for block in getattr(result, "content", None) or ():
+        data = getattr(block, "data", None)
+        if getattr(block, "type", None) == "image" and isinstance(data, str):
+            images += len(data) * 3 // 4 - data[-2:].count("=")
+    return result_text_bytes(result), images
+
+
+#: Set while a tools/call is being logged: the search proxy's call_tool runs
+#: its target through the middleware again, and that is one call, not two.
+_LOGGING_CALL: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "acadmcp_logging_call", default=False
+)
+
+
+async def _logged_call(context: MiddlewareContext, call_next, backend):
+    """Run a request; a tools/call is recorded on its engine's call log (/preview)."""
+    if context.method != "tools/call" or backend is None or _LOGGING_CALL.get():
+        return await call_next(context)
+    reentry = _LOGGING_CALL.set(True)
+    message = context.message
+    arguments = dict(getattr(message, "arguments", None) or {})
+    tool = _effective_tool(str(getattr(message, "name", "?")), arguments)
+    started, start = time.time(), time.monotonic()
+    result, ok = None, False
+    try:
+        result = await call_next(context)
+        found = getattr(result, "structured_content", None)
+        refused = isinstance(found, dict) and found.get("ok") is False
+        ok = not getattr(result, "is_error", False) and not refused
+        return result
+    finally:
+        try:
+            identity = getattr(backend, "document_identity", None)
+            revision = identity().get("revision") if callable(identity) else None
+        except Exception:  # no document open
+            revision = None
+        try:
+            out_text, out_image = _result_bytes(result) if result is not None else (0, 0)
+            record_call(
+                backend,
+                {
+                    "tool": tool,
+                    "started": started,
+                    "ms": round((time.monotonic() - start) * 1000.0, 1),
+                    "ok": ok,
+                    "revision": revision,
+                    "bytes_in": len(json.dumps(arguments, default=str).encode("utf-8")),
+                    "bytes_out_text": out_text,
+                    "bytes_out_image": out_image,
+                },
+            )
+        except Exception as exc:  # the log is for people, never a reason to fail a call
+            log.debug("call log: %s", exc)
+        _LOGGING_CALL.reset(reentry)
 
 
 def _resolve_interrupted_saves() -> list[dict]:
