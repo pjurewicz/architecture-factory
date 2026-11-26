@@ -167,10 +167,20 @@ def test_family_filter_and_the_label_language():
     assert len(catalogue()) == 20
 
 
+def test_polish_labels_cover_every_item_and_are_searchable_without_diacritics():
+    from engineering.arch.catalogue import ITEMS, LABEL_PL
+
+    assert set(LABEL_PL) == {item.name for item in ITEMS}
+    (row,) = catalogue("lodowka", lang="pl")
+    assert (row["name"], row["label"], row["label_pl"]) == ("fridge", "lodówka", "lodówka")
+    assert [r["name"] for r in catalogue("ŁÓŻKO")] == ["single_bed", "double_bed"]
+    assert catalogue("fridge", lang="en")[0]["label"] == "fridge"
+
+
 def test_unknown_family_and_language_are_refused_with_the_list():
     with pytest.raises(ValueError, match="furniture, sanitary"):
         catalogue(family="lighting")
-    with pytest.raises(ValueError, match="en, tr"):
+    with pytest.raises(ValueError, match="en, tr, pl"):
         catalogue(lang="de")
 
 

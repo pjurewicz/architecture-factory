@@ -40,7 +40,7 @@ async def _count(backend) -> int:
     [
         ({"colour": "red"}, r"^spec: unknown key\(s\) colour; keys are sheet"),
         ({"walls": []}, r"^walls: name at least one wall"),
-        ({"lang": "de"}, r"^lang: unknown language 'de'; languages are en, tr"),
+        ({"lang": "de"}, r"^lang: unknown language 'de'; languages are en, tr, pl"),
         ({"sheet": {"scale": 0}}, r"^sheet\.scale: must be a finite number greater than zero"),
         ({"chains": {"sides": ["north"]}}, r"^chains\.sides: \['north'\]"),
         (

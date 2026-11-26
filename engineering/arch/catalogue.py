@@ -354,13 +354,56 @@ _BY_NAME: dict[str, CatalogueItem] = {item.name: item for item in ITEMS}
 
 #: Turkish letters folded to ASCII so "buzdolabi" finds "buzdolabı" and a
 #: query typed on an English keyboard still reaches the Turkish label.
+#: Polish labels by item name; a test holds the keys equal to ``ITEMS``.
+LABEL_PL: dict[str, str] = {
+    "single_bed": "łóżko pojedyncze",
+    "double_bed": "łóżko podwójne",
+    "wardrobe": "szafa",
+    "sofa_3_seat": "sofa trzyosobowa",
+    "armchair": "fotel",
+    "chair": "krzesło",
+    "dining_table_4": "stół jadalny z czterema krzesłami",
+    "desk": "biurko",
+    "kitchen_counter": "blat kuchenny",
+    "fridge": "lodówka",
+    "bookshelf": "regał na książki",
+    "nightstand": "szafka nocna",
+    "coffee_table": "stolik kawowy",
+    "wc": "miska ustępowa ze spłuczką",
+    "bidet": "bidet",
+    "wall_basin": "umywalka",
+    "shower_tray": "brodzik",
+    "bathtub": "wanna",
+    "kitchen_sink": "zlewozmywak z ociekaczem",
+    "washing_machine": "pralka",
+}
+
 _FOLD = str.maketrans(
-    {"ç": "c", "ğ": "g", "ı": "i", "ö": "o", "ş": "s", "ü": "u", "â": "a", "î": "i", "û": "u"}
+    {
+        "ç": "c",
+        "ğ": "g",
+        "ı": "i",
+        "ö": "o",
+        "ş": "s",
+        "ü": "u",
+        "â": "a",
+        "î": "i",
+        "û": "u",
+        "ą": "a",
+        "ć": "c",
+        "ę": "e",
+        "ł": "l",
+        "ń": "n",
+        "ó": "o",
+        "ś": "s",
+        "ź": "z",
+        "ż": "z",
+    }
 )
 
 
 def _fold(text: str) -> str:
-    """Lower-case and fold Turkish letters. ``İ`` is mapped before ``lower()``,
+    """Lower-case and fold Turkish and Polish letters. ``İ`` is mapped before ``lower()``,
     which would otherwise turn it into ``i`` plus a combining dot."""
     return " ".join(str(text).replace("İ", "i").lower().translate(_FOLD).split())
 
@@ -375,9 +418,10 @@ def _row(item: CatalogueItem, lang: str) -> dict:
     return {
         "name": item.name,
         "family": item.family,
-        "label": item.label_tr if lang == "tr" else item.label_en,
+        "label": {"tr": item.label_tr, "pl": LABEL_PL[item.name]}.get(lang, item.label_en),
         "label_en": item.label_en,
         "label_tr": item.label_tr,
+        "label_pl": LABEL_PL[item.name],
         "size": [item.w, item.d],
         "size_basis": SIZE_BASIS,
         "block": f"{BLOCK_PREFIX}{item.name.upper()}",
@@ -392,9 +436,9 @@ def catalogue(
 
     ``family`` is ``furniture`` or ``sanitary`` (anything else is refused with
     the list). ``query`` is split into words and every word must occur in the
-    item's name, family, English label or Turkish label; matching ignores case
-    and Turkish diacritics, so ``'bed'``, ``'yatak'``, ``'KLOZET'`` and
-    ``'buzdolabi'`` all work. ``lang`` picks the ``label`` column.
+    item's name, family, English, Turkish or Polish label; matching ignores case
+    and Turkish and Polish diacritics, so ``'bed'``, ``'yatak'``, ``'KLOZET'``,
+    ``'buzdolabi'`` and ``'lozko'`` all work. ``lang`` picks the ``label`` column.
     """
     _check_lang(lang)
     if family is not None and family not in FAMILIES:
@@ -405,7 +449,8 @@ def catalogue(
         if family is not None and item.family != family:
             continue
         haystack = _fold(
-            f"{item.name.replace('_', ' ')} {item.family} {item.label_en} {item.label_tr}"
+            f"{item.name.replace('_', ' ')} {item.family} {item.label_en} {item.label_tr} "
+            f"{LABEL_PL[item.name]}"
         )
         if all(word in haystack for word in words):
             rows.append(_row(item, lang))

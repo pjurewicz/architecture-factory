@@ -38,8 +38,8 @@ states its own accuracy.
 ## Text and scale
 
 `scale` is a denominator (50 = 1:50) and a paper text height `h` is drawn at
-`h x scale` units. `lang="tr"` switches words and the decimal comma; any
-other language is refused with the list.
+`h x scale` units. `lang="tr"` (Turkish) or `lang="pl"` (Polish) switches
+words and the decimal comma; any other language is refused with the list.
 
 ## Schedules and dimensions
 

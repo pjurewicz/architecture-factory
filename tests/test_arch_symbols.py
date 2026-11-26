@@ -314,7 +314,7 @@ def test_a_parameter_the_kind_does_not_take_is_refused():
 
 
 def test_an_unknown_language_is_refused():
-    with pytest.raises(ValueError, match="en, tr"):
+    with pytest.raises(ValueError, match="en, tr, pl"):
         symbol_prims("north_arrow", (0.0, 0.0), lang="de")
 
 

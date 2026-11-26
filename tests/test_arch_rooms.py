@@ -95,7 +95,7 @@ def test_label_without_a_number_puts_the_area_on_the_second_line_and_tr_uses_a_c
 @pytest.mark.parametrize(
     ("kwargs", "message"),
     [
-        ({"lang": "de"}, "lang: 'de' is not a label language; languages are en, tr"),
+        ({"lang": "de"}, "lang: 'de' is not a label language; languages are en, tr, pl"),
         ({"scale": 0}, "scale: must be a finite number greater than zero, got 0"),
     ],
 )

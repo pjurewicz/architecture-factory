@@ -13234,7 +13234,7 @@ async def arch_opening(
     opening_id: Annotated[
         str | None, Field(default=None, description="Opening id; default its tag")
     ] = None,
-    lang: Annotated[str, Field(default="en", description="Tag language: en | tr")] = "en",
+    lang: Annotated[str, Field(default="en", description="Tag language: en | tr | pl")] = "en",
     poche: Annotated[
         bool, Field(default=True, description="Hatch the redrawn wall's cut faces")
     ] = True,
@@ -13302,7 +13302,7 @@ async def arch_stair(
     turn: Annotated[
         str, Field(default="left", description="L / U stairs: which way the second flight turns")
     ] = "left",
-    lang: Annotated[str, Field(default="en", description="Label language: en | tr")] = "en",
+    lang: Annotated[str, Field(default="en", description="Label language: en | tr | pl")] = "en",
     scale: Annotated[
         float,
         Field(
@@ -13440,7 +13440,8 @@ async def arch_room(
         Field(default=None, description="Record id; default is the first free R<n>."),
     ] = None,
     lang: Annotated[
-        str, Field(default="en", description="Label language: en | tr (tr writes 24,50 m²).")
+        str,
+        Field(default="en", description="Label language: en | tr | pl (tr, pl write 24,50 m²)."),
     ] = "en",
     scale: Annotated[
         float,
@@ -13461,7 +13462,7 @@ async def arch_room(
     recorded on the drawing closes its gap along the wall faces, so two rooms
     either side of a door stay two rooms.
 
-    Refused before anything is drawn: an unknown `lang` (named with en, tr), a
+    Refused before anything is drawn: an unknown `lang` (named with en, tr, pl), a
     `number`/`name` the room model refuses, a `room_id` already labelled on the
     drawing, a point in no closed face of the walls (draw or close them first,
     or read a plan drawn by other means with `arch_rooms_detect`), a point
@@ -13544,7 +13545,10 @@ async def arch_schedule(
     x: Annotated[float, Field(description="WCS X of the table's top-left corner.")],
     y: Annotated[float, Field(description="WCS Y of the table's top-left corner.")],
     lang: Annotated[
-        str, Field(default="en", description="Headers and numbers: en | tr (decimal comma).")
+        str,
+        Field(
+            default="en", description="Headers and numbers: en | tr | pl (tr, pl: decimal comma)."
+        ),
     ] = "en",
     scale: Annotated[
         float,
@@ -13606,7 +13610,7 @@ async def arch_catalogue_list(
     ] = None,
     lang: Annotated[
         str,
-        Field(default="en", description="en | tr - the language of the 'label' column"),
+        Field(default="en", description="en | tr | pl - the language of the 'label' column"),
     ] = "en",
     ctx: Context = None,
 ) -> dict:
@@ -13616,7 +13620,7 @@ async def arch_catalogue_list(
     catalogue lists as a common size - and every row says so in `size_basis`;
     they are not standards values. Twenty items: thirteen furniture, seven
     sanitary. Refusals: a `family` other than furniture/sanitary and a `lang`
-    other than en/tr, each with the list.
+    other than en/tr/pl, each with the list.
     """
     from engineering.arch.catalogue import FAMILIES, SIZE_BASIS, catalogue
 
@@ -13781,7 +13785,9 @@ async def arch_symbol(
     ] = None,
     lang: Annotated[
         str,
-        Field(default="en", description="en | tr - the north letter and the decimal separator"),
+        Field(
+            default="en", description="en | tr | pl - the north letter and the decimal separator"
+        ),
     ] = "en",
     scale: Annotated[
         float,
@@ -13802,7 +13808,7 @@ async def arch_symbol(
     does), a section mark without p1/p2, with an empty label, an unknown side
     or a cut line too short for its two arrows, an elevation direction outside
     up/right/down/left or named twice, a non-finite level value, and a `lang`
-    other than en/tr.
+    other than en/tr/pl.
     """
     from engineering.arch.symbols import draw_symbol
 
@@ -15237,8 +15243,8 @@ WORKFLOW
    arch_opening_clash run in it).
 9. drawing_finalize(save_path=...) — or drawing_deliver(output_dir=...) for a hashed bundle.
 
-TURKISH SHEETS: "lang": "tr" in the spec (or lang="tr" on a tool) switches labels and schedules to
-Turkish with a decimal comma; any other language is refused with the list.
+TURKISH / POLISH SHEETS: "lang": "tr" or "pl" in the spec (or on a tool) switches labels and
+schedules to Turkish or Polish with a decimal comma; any other language is refused with the list.
 """
 
 

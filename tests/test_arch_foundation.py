@@ -177,11 +177,12 @@ def test_every_row_states_where_its_symbol_comes_from():
 # -- language --------------------------------------------------------------------
 
 
-def test_both_languages_carry_the_same_keys():
-    assert LANGS == ("en", "tr")
+def test_every_language_carries_the_same_keys():
+    assert LANGS == ("en", "tr", "pl")
     assert (
         set(vocab("en"))
         == set(vocab("tr"))
+        == set(vocab("pl"))
         == {
             "door_schedule",
             "window_schedule",
@@ -217,19 +218,23 @@ def test_both_languages_carry_the_same_keys():
     )
     assert vocab("tr")["up"] == "ÇIKIŞ"
     assert vocab("en")["up"] == "UP"
+    assert vocab("pl")["room_schedule"] == "ZESTAWIENIE POMIESZCZEŃ"
 
 
 def test_tag_prefixes():
     assert (tag_prefix("door", "en"), tag_prefix("window", "en")) == ("D", "W")
     assert (tag_prefix("door", "tr"), tag_prefix("window", "tr")) == ("K", "P")
+    assert (tag_prefix("sliding_door", "pl"), tag_prefix("window", "pl")) == ("D", "O")
 
 
-def test_turkish_switches_the_decimal_separator_to_a_comma():
+def test_turkish_and_polish_switch_the_decimal_separator_to_a_comma():
     assert fmt_number(24.5, "en") == "24.50"
     assert fmt_number(24.5, "tr") == "24,50"
     assert fmt_number(-0.001, "en") == "0.00"
     assert fmt_area_m2(24_500_000.0, "en") == "24.50 m²"
     assert fmt_area_m2(24_500_000.0, "tr") == "24,50 m²"
+    assert fmt_number(-3.125, "pl", 1) == "-3,1"
+    assert fmt_area_m2(24_500_000.0, "pl") == "24,50 m²"
     assert fmt_area_m2(20_000_000.0, "en") == "20.00 m²"
 
 
@@ -240,7 +245,7 @@ def test_an_unknown_language_is_refused_with_the_list():
         lambda: tag_prefix("door", "fr"),
     ):
         with pytest.raises(
-            ValueError, match=r"lang: unknown language '(de|fr)'; languages are en, tr"
+            ValueError, match=r"lang: unknown language '(de|fr)'; languages are en, tr, pl"
         ):
             call()
 

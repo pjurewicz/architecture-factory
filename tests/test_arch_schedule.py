@@ -128,6 +128,18 @@ def test_turkish_room_rows_write_the_total_with_a_decimal_comma():
     assert rows[0]["area"] == "15,00 m²"
 
 
+def test_polish_door_rows_share_the_d_prefix_without_renaming_an_explicit_tag():
+    rows = schedule_rows("doors", plan(), lang="pl")
+    # "D2" is explicit; the generated tags skip it instead of duplicating it
+    assert [(r["tag"], r["generated"]) for r in rows] == [("D1", True), ("D2", False), ("D3", True)]
+    d1 = rows[0]
+    assert d1["width"] == "912,5"
+    assert (d1["swing"], d1["hand"]) == ("DO WEWNĄTRZ", "LEWE")
+    assert [r["tag"] for r in schedule_rows("windows", plan(), lang="pl")] == ["O1"]
+    rooms = schedule_rows("rooms", plan(), lang="pl")
+    assert (rooms[-1]["name"], rooms[-1]["area"]) == ("RAZEM", "45,00 m²")
+
+
 def test_an_empty_plan_has_no_rows_and_no_total():
     assert schedule_rows("rooms", {"walls": [], "openings": [], "rooms": []}) == ()
     assert schedule_rows("doors", {"walls": [], "openings": [], "rooms": []}) == ()
@@ -137,7 +149,7 @@ def test_an_empty_plan_has_no_rows_and_no_total():
     ("kind", "lang", "message"),
     [
         ("stairs", "en", "kind: 'stairs' is not a schedule; schedules are doors, windows, rooms"),
-        ("doors", "de", "lang: 'de' is not a schedule language; languages are en, tr"),
+        ("doors", "de", "lang: 'de' is not a schedule language; languages are en, tr, pl"),
     ],
 )
 def test_an_unknown_kind_or_language_is_refused_with_the_list(kind, lang, message):

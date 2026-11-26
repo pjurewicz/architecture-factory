@@ -1,20 +1,21 @@
-"""English / Turkish vocabulary for labels and schedules, and the number format.
+"""English / Turkish / Polish vocabulary for labels and schedules, and the number format.
 
-``lang="en"`` is the default; ``lang="tr"`` switches the words *and* the
-decimal separator to a comma (``24,50 m²``), the user's decision of
-2026-09-23. Any other value is refused with the list, never silently
-rendered in English.
+``lang="en"`` is the default; ``lang="tr"`` and ``lang="pl"`` switch the words
+*and* the decimal separator to a comma (``24,50 m²``), the user's decision of
+2026-09-23 (Turkish) and 2026-11-26 (Polish). Any other value is refused with
+the list, never silently rendered in English.
 
 The Turkish words are the ones a Turkish drawing office writes on a plan
 (``MAHAL LİSTESİ`` for a room schedule, ``KOT`` for a level, ``ÇIKIŞ`` for
-the up-arrow of a stair); they are vocabulary, not a standard.
+the up-arrow of a stair); the Polish ones likewise (``ZESTAWIENIE
+POMIESZCZEŃ``, ``RZĘDNA``, ``DRZWI LEWE``). Both are vocabulary, not a standard.
 """
 
 from __future__ import annotations
 
 import math
 
-LANGS: tuple[str, ...] = ("en", "tr")
+LANGS: tuple[str, ...] = ("en", "tr", "pl")
 
 _VOCAB: dict[str, dict[str, str]] = {
     "en": {
@@ -81,12 +82,48 @@ _VOCAB: dict[str, dict[str, str]] = {
         "window": "PENCERE",
         "curtain_wall": "GİYDİRME CEPHE",
     },
+    "pl": {
+        "door_schedule": "ZESTAWIENIE DRZWI",
+        "window_schedule": "ZESTAWIENIE OKIEN",
+        "room_schedule": "ZESTAWIENIE POMIESZCZEŃ",
+        "tag": "OZN.",
+        "width": "SZEROKOŚĆ",
+        "height": "WYSOKOŚĆ",
+        "sill": "PARAPET",
+        "swing": "OTWIERANIE",
+        "hand": "STRONA",
+        "wall": "ŚCIANA",
+        "number": "NR",
+        "name": "NAZWA",
+        "area": "POWIERZCHNIA",
+        "total": "RAZEM",
+        "up": "GÓRA",
+        "down": "DÓŁ",
+        "north": "N",
+        "level": "RZĘDNA",
+        "in": "DO WEWNĄTRZ",
+        "out": "NA ZEWNĄTRZ",
+        "left": "LEWE",
+        "right": "PRAWE",
+        "type": "TYP",
+        "door": "DRZWI",
+        "double_door": "DRZWI DWUSKRZYDŁOWE",
+        "sliding_door": "DRZWI PRZESUWNE",
+        "garage_door": "BRAMA GARAŻOWA",
+        "cased_opening": "OTWÓR BEZ DRZWI",
+        "window": "OKNO",
+        "curtain_wall": "ŚCIANA OSŁONOWA",
+    },
 }
 
 _TAG_PREFIX: dict[str, dict[str, str]] = {
     "en": {"door": "D", "window": "W"},
     "tr": {"door": "K", "window": "P"},
+    "pl": {"door": "D", "window": "O"},
 }
+
+#: Languages that write a decimal comma.
+_DECIMAL_COMMA = frozenset({"tr", "pl"})
 
 
 def _lang(lang: str) -> str:
@@ -101,7 +138,8 @@ def vocab(lang: str) -> dict[str, str]:
 
 
 def tag_prefix(kind: str, lang: str) -> str:
-    """The door family -> ``D`` / ``K`` (kapı), the glazed family -> ``W`` / ``P`` (pencere).
+    """The door family -> ``D`` / ``K`` (kapı) / ``D`` (drzwi), the glazed family ->
+    ``W`` / ``P`` (pencere) / ``O`` (okno).
 
     One prefix per family, so a sliding door and a hinged door share one
     numbering and one schedule; the schedule's TYPE column tells them apart.
@@ -117,7 +155,7 @@ def tag_prefix(kind: str, lang: str) -> str:
 
 
 def fmt_number(value: float, lang: str, decimals: int = 2) -> str:
-    """``24.5`` -> ``"24.50"`` (en) / ``"24,50"`` (tr). No thousands separator."""
+    """``24.5`` -> ``"24.50"`` (en) / ``"24,50"`` (tr, pl). No thousands separator."""
     code = _lang(lang)
     if isinstance(decimals, bool) or not isinstance(decimals, int) or decimals < 0:
         raise ValueError(f"decimals: expected a whole number >= 0, got {decimals!r}")
@@ -130,7 +168,7 @@ def fmt_number(value: float, lang: str, decimals: int = 2) -> str:
     text = f"{number:.{decimals}f}"
     if text.startswith("-") and float(text) == 0.0:
         text = text[1:]  # never print "-0.00"
-    return text.replace(".", ",") if code == "tr" else text
+    return text.replace(".", ",") if code in _DECIMAL_COMMA else text
 
 
 def fmt_area_m2(area_mm2: float, lang: str) -> str:
