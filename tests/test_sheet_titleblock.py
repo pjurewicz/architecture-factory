@@ -100,6 +100,46 @@ def test_the_title_sits_at_the_pinned_index_and_carries_the_text_verbatim():
     assert title.at[1] == pytest.approx(57.5, abs=EPS)
 
 
+def test_long_texts_step_down_to_one_iso_3098_height_inside_their_cells():
+    """Rendered by ezdxf (the `txt` style), not by the layout's own estimate."""
+    import ezdxf
+    from ezdxf import bbox
+
+    meta = _meta(
+        title="WAŁ NAPĘDOWY PRZEKŁADNI ZĘBATEJ STOPNIA DRUGIEGO Z PIASTĄ",
+        material="C45 wg PN-EN 10083",
+        company="FMR Sp. z o.o. Poznań",
+    )
+    prims = titleblock_prims("A3", meta, projection="first")
+    msp = ezdxf.new().modelspace()
+
+    def x_extent(text: Text) -> tuple[float, float]:
+        ext = bbox.extents(
+            [msp.add_text(text.text, dxfattribs={"height": text.height, "insert": text.at})]
+        )
+        return ext.extmin.x, ext.extmax.x
+
+    index = value_text_indices()
+    # One height for every value, the long company pulling the short ones down.
+    assert {prims[i].height for i in index.values()} == {1.8}
+    assert prims[TITLE_TEXT_INDEX].height == 2.5
+    symbol_right = max(p.p2[0] for p in prims[-4:] if isinstance(p, Line))
+    left, right = x_extent(prims[TITLE_TEXT_INDEX])
+    assert left > symbol_right and right < 410.0
+    for field, (cell_left, cell_right) in {
+        "material": (290.0, 350.0),
+        "company": (365.0, 410.0),
+    }.items():
+        left, right = x_extent(prims[index[field]])
+        assert cell_left < left and right < cell_right, field
+
+
+def test_a_value_too_long_even_at_1_8_mm_is_refused_by_field_name():
+    meta = _meta(company="Fabryka Maszyn Rolniczych i Przemysłowych Sp. z o.o.")
+    with pytest.raises(ValueError, match=r"company \(52 characters, at most 24\)"):
+        titleblock_prims("A3", meta)
+
+
 def test_projection_none_draws_no_symbol_and_first_draws_one():
     plain = titleblock_prims("A3", _meta(), projection=None)
     first = titleblock_prims("A3", _meta(), projection="first")

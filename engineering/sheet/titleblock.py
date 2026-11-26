@@ -87,6 +87,15 @@ VALUE_PAD_X = 3.0
 VALUE_PAD_Y = 5.0
 ROW4_VALUE_PAD_Y = 1.5
 
+#: Text heights of advance per character assumed when fitting a text into its
+#: cell. Deliberately wider than the 0.6 the centring rule uses: measured on
+#: ezdxf's rendering of the `txt` style, real titles run 0.72-0.90 (capitals
+#: with Polish diacritics at the top), so 0.6 would still let them overflow.
+FIT_ADVANCE = 0.9
+#: The ISO 3098-0 nominal heights a title-block text may be lowered to, largest
+#: first. 1.8 mm is the smallest the series has; below it the block refuses.
+ISO_3098_HEIGHTS = (5.0, 3.5, 2.5, 1.8)
+
 PROJECTION_ANGLES = ("first", "third")
 PROJECTION_CONE_LENGTH = 8.0
 PROJECTION_R = 4.0
@@ -287,25 +296,44 @@ def titleblock_prims(
         Line(p1=(r4_split3, tb_y0), p2=(r4_split3, row4_top)),
     ]
 
-    title_x = tb_x0 + TB_WIDTH * 0.5 - (len(meta.title) * TITLE_HEIGHT * 0.3)
-    title_y = row2_top + (ROW1_H - TITLE_HEIGHT) / 2.0
-    prims.append(Text(at=(title_x, title_y), text=meta.title, height=TITLE_HEIGHT))
+    # The title shares row 1 with the projection symbol, so it is fitted into
+    # and kept inside the part of the row the symbol leaves free.
+    symbol_x = tb_x0 + 15.0
+    title_left = tb_x0 + VALUE_PAD_X
+    if projection is not None:
+        symbol_half = (PROJECTION_CONE_LENGTH + PROJECTION_GAP + 2 * PROJECTION_R) / 2.0
+        title_left = symbol_x + symbol_half + 1.0 + VALUE_PAD_X
+    title_right = tb_x1 - VALUE_PAD_X
+    title_h = _series_height({"title": (meta.title, title_right - title_left)}, TITLE_HEIGHT)
+    centred_x = tb_x0 + TB_WIDTH * 0.5 - (len(meta.title) * title_h * 0.3)
+    title_x = max(title_left, min(centred_x, title_right - FIT_ADVANCE * title_h * len(meta.title)))
+    title_y = row2_top + (ROW1_H - title_h) / 2.0
+    prims.append(Text(at=(title_x, title_y), text=meta.title, height=title_h))
 
-    # field -> (cell left edge, the row's top rule, the value's baseline)
-    cells: dict[str, tuple[float, float, float]] = {
-        "drawing_no": (tb_x0, row2_top, row3_top + VALUE_PAD_Y),
-        "revision": (r2_split1, row2_top, row3_top + VALUE_PAD_Y),
-        "sheet": (r2_split2, row2_top, row3_top + VALUE_PAD_Y),
-        "part_no": (tb_x0, row3_top, row4_top + VALUE_PAD_Y),
-        "material": (r3_split1, row3_top, row4_top + VALUE_PAD_Y),
-        "scale": (r3_split2, row3_top, row4_top + VALUE_PAD_Y),
-        "drawn_by": (tb_x0, row4_top, tb_y0 + ROW4_VALUE_PAD_Y),
-        "checked_by": (r4_split1, row4_top, tb_y0 + ROW4_VALUE_PAD_Y),
-        "date": (r4_split2, row4_top, tb_y0 + ROW4_VALUE_PAD_Y),
-        "company": (r4_split3, row4_top, tb_y0 + ROW4_VALUE_PAD_Y),
+    # field -> (cell left edge, cell right edge, the row's top rule, the value's baseline)
+    cells: dict[str, tuple[float, float, float, float]] = {
+        "drawing_no": (tb_x0, r2_split1, row2_top, row3_top + VALUE_PAD_Y),
+        "revision": (r2_split1, r2_split2, row2_top, row3_top + VALUE_PAD_Y),
+        "sheet": (r2_split2, tb_x1, row2_top, row3_top + VALUE_PAD_Y),
+        "part_no": (tb_x0, r3_split1, row3_top, row4_top + VALUE_PAD_Y),
+        "material": (r3_split1, r3_split2, row3_top, row4_top + VALUE_PAD_Y),
+        "scale": (r3_split2, tb_x1, row3_top, row4_top + VALUE_PAD_Y),
+        "drawn_by": (tb_x0, r4_split1, row4_top, tb_y0 + ROW4_VALUE_PAD_Y),
+        "checked_by": (r4_split1, r4_split2, row4_top, tb_y0 + ROW4_VALUE_PAD_Y),
+        "date": (r4_split2, r4_split3, row4_top, tb_y0 + ROW4_VALUE_PAD_Y),
+        "company": (r4_split3, tb_x1, row4_top, tb_y0 + ROW4_VALUE_PAD_Y),
     }
+    # Every value shares one height: the largest at which all of them fit.
+    value_h = _series_height(
+        {
+            f: (getattr(meta, f), right - left - 2 * VALUE_PAD_X)
+            for f, (left, right, _, _) in cells.items()
+        },
+        VALUE_HEIGHT,
+    )
     for field, label in VALUE_FIELDS:
-        left, row_top, value_y = cells[field]
+        left, _right, row_top, value_y = cells[field]
+        value = getattr(meta, field)
         prims.append(
             Text(
                 at=(left + LABEL_PAD_X, row_top - LABEL_HEIGHT - LABEL_PAD_Y),
@@ -313,13 +341,34 @@ def titleblock_prims(
                 height=LABEL_HEIGHT,
             )
         )
-        prims.append(
-            Text(at=(left + VALUE_PAD_X, value_y), text=getattr(meta, field), height=VALUE_HEIGHT)
-        )
+        prims.append(Text(at=(left + VALUE_PAD_X, value_y), text=value, height=value_h))
 
     if projection is not None:
-        prims.extend(projection_symbol_prims((tb_x0 + 15.0, row2_top + ROW1_H / 2.0), projection))
+        prims.extend(projection_symbol_prims((symbol_x, row2_top + ROW1_H / 2.0), projection))
     return tuple(prims)
+
+
+def _series_height(texts: dict[str, tuple[str, float]], nominal: float) -> float:
+    """The largest ISO 3098 height up to `nominal` at which every text fits its
+    width, `texts` being field -> (text, width), at FIT_ADVANCE per character.
+
+    The height steps down rather than the width factor because
+    `entity_create_text` draws in the current text style and carries no width
+    factor of its own. A text that does not fit even at the smallest height is
+    refused by field name, before anything is drawn.
+    """
+    for height in (h for h in ISO_3098_HEIGHTS if h <= nominal):
+        if all(FIT_ADVANCE * height * len(text) <= width for text, width in texts.values()):
+            return height
+    smallest = ISO_3098_HEIGHTS[-1]
+    too_long = [
+        f"{field} ({len(text)} characters, at most {int(width / (FIT_ADVANCE * smallest))})"
+        for field, (text, width) in texts.items()
+        if FIT_ADVANCE * smallest * len(text) > width
+    ]
+    raise ValueError(
+        f"title block: too long to fit its cell even at {smallest} mm: {', '.join(too_long)}"
+    )
 
 
 async def apply_titleblock(
@@ -372,5 +421,9 @@ async def apply_titleblock(
         "value_texts": {f: tb_handles[i] for f, i in value_text_indices().items()},
         "projection_symbol": tb_handles[symbol_start:],
         "metadata": asdict(metadata),
+        "text_heights": {
+            "title": tb_prims[TITLE_TEXT_INDEX].height,
+            "values": tb_prims[value_text_indices()["drawing_no"]].height,
+        },
         "bbox": {"min": [ox, oy], "max": [ox + w, oy + h]},
     }
