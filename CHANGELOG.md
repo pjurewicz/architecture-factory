@@ -36,6 +36,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `policy: "headless_engine"`. `system_status.policy.live_only_hidden` lists
   them. Restore: `HIDE_LIVE_ONLY_TOOLS=false`.
 
+### Fixed
+
+- A client reopening its session's SSE stream (`GET /mcp`) after a proxy
+  dropped the old one silently was refused `409 Conflict: Only one SSE stream
+  is allowed per session` until it gave up and ended the session, losing its
+  unsaved drawings. The new stream now replaces the old one (the MCP SDK does
+  not implement this reconnect).
+
 ## [1.8.0] - 2026-11-06
 
 1.8.0: the server remembers, finishes a job in one call and measures itself

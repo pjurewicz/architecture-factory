@@ -15484,6 +15484,41 @@ def _guarded_http_app(*args, **kwargs):
 mcp.http_app = _guarded_http_app
 
 
+def _let_a_new_get_stream_replace_the_old() -> None:
+    """A client's new SSE ``GET`` replaces its session's old one instead of 409.
+
+    The MCP SDK allows one standalone SSE stream per session and does not
+    implement reconnecting it (its own docstring calls this a known gap). When
+    a proxy drops the long-lived stream without the server noticing, every
+    reconnect is refused ``409 Conflict: Only one SSE stream is allowed per
+    session`` until the client gives up and ends the session, losing its
+    unsaved drawings. The newest GET is the client's live connection, so the
+    old stream is closed first; its writer removes it from the session, then
+    the SDK's own handler serves the new one.
+    """
+    from mcp.server.streamable_http import GET_STREAM_KEY, StreamableHTTPServerTransport
+
+    original = StreamableHTTPServerTransport._handle_get_request
+    if getattr(original, "_acadmcp_replaces_stale", False):
+        return
+
+    async def _handle_get_request(self, request, send):
+        streams = self._request_streams
+        if GET_STREAM_KEY in streams and not request.headers.get("last-event-id"):
+            log.info("session %s: a new SSE GET replaces the old stream", self.mcp_session_id)
+            await streams[GET_STREAM_KEY][0].aclose()  # ends the old writer's loop
+            with anyio.move_on_after(2.0):
+                while GET_STREAM_KEY in streams:
+                    await anyio.sleep(0.01)
+        await original(self, request, send)
+
+    _handle_get_request._acadmcp_replaces_stale = True
+    StreamableHTTPServerTransport._handle_get_request = _handle_get_request
+
+
+_let_a_new_get_stream_replace_the_old()
+
+
 def main() -> None:
     """Run the MCP server from the installed ``autocad-mcp`` command."""
     parser = argparse.ArgumentParser(description="Run the AutoCAD MCP server")
