@@ -34,17 +34,35 @@ def batch_create_adapter():
 
     from pydantic import ConfigDict, Field, TypeAdapter, create_model
 
-    from backends.base import AutoCADBackend  # insert / dimension_linear live on other contracts
+    from backends.base import MTEXT_ALIGN, TEXT_ALIGN, AutoCADBackend
+
+    # The value rules the signatures cannot carry: the single entity_create_*
+    # tools' Field constraints, a hatch boundary that encloses an area, and
+    # the align names as an explicit enum (the canonical keys only; the
+    # backend's forgiving parser stays for direct calls).
+    rules = {
+        ("circle", "radius"): (float, Field(gt=0)),
+        ("arc", "radius"): (float, Field(gt=0)),
+        ("text", "height"): (float, Field(gt=0)),
+        ("text", "align"): (Literal[tuple(TEXT_ALIGN)] | None, None),
+        ("mtext", "align"): (Literal[tuple(MTEXT_ALIGN)] | None, None),
+        ("hatch", "boundary_points"): (list[list[float]], Field(min_length=3)),
+        ("hatch", "scale"): (float, Field(gt=0)),
+    }
 
     def params(target: str) -> dict:
         method = EntityCreationContract.BATCH_CREATE_METHODS.get(target, f"entity_create_{target}")
         creator = getattr(AutoCADBackend, method)
         hints = typing.get_type_hints(creator, localns={"EntityInfo": object})
-        return {
-            name: (hints[name], ... if p.default is p.empty else p.default)
-            for name, p in inspect.signature(creator).parameters.items()
-            if name != "self"
-        }
+        fields = {}
+        for name, p in inspect.signature(creator).parameters.items():
+            if name == "self":
+                continue
+            hint, rule = rules.get((target, name), (hints[name], None))
+            if rule is not None:
+                hint = Annotated[hint, rule]
+            fields[name] = (hint, ... if p.default is p.empty else p.default)
+        return fields
 
     lineweight = (int | float | str | None, None)  # parse_lineweight names the spellings
     shapes = {target: params(target) for target in EntityCreationContract.BATCH_CREATE_TYPES}

@@ -702,6 +702,13 @@ async def test_a_failed_entity_in_entity_batch_create_fails_and_rolls_back_the_b
     [
         {"type": "spiral", "x1": 0, "y1": 0},
         {"type": "circle", "cx": 0, "cy": 0},  # no radius
+        {"type": "circle", "cx": 0, "cy": 0, "radius": -10},
+        {"type": "circle", "cx": 0, "cy": 0, "radius": 0},
+        {"type": "hatch", "pattern": "SOLID", "boundary_points": [[0, 0]]},
+        {"type": "hatch", "pattern": "SOLID", "boundary_points": [[0, 0], [5, 0]]},
+        {"type": "text", "text": "A", "x": 0, "y": 0, "align": "diagonal"},
+        {"type": "text", "text": "A", "x": 0, "y": 0, "align": "Middle-Center"},  # not canonical
+        {"type": "mtext", "text": "A", "x": 0, "y": 0, "align": "center"},  # a TEXT name only
     ],
 )
 async def test_an_item_outside_entity_batch_create_schema_refuses_the_whole_batch(client, bad):
