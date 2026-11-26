@@ -111,3 +111,40 @@ async def test_block_get_attributes(backend):
     ref = await backend.block_insert("ATTR_BLK", 0, 0)
     attrs = await backend.block_get_attributes(ref.handle)
     assert isinstance(attrs, dict)
+
+
+async def test_block_insert_keep_text_upright(backend):
+    from ezdxf import bbox
+
+    await backend.block_define(
+        "SOCKET",
+        [
+            {"type": "circle", "cx": 0, "cy": 0, "radius": 5},
+            {"type": "text", "text": "S", "x": 0, "y": -9, "height": 2},
+        ],
+        attdefs=[{"tag": "IP", "default": "IP44", "x": 6, "y": 0, "height": 2.5}],
+    )
+
+    def attrib(ref):
+        return backend._doc.entitydb[ref.handle].attribs[0]
+
+    plain = attrib(await backend.block_insert("SOCKET", 100, 100, rotation=180))
+    assert plain.dxf.rotation == pytest.approx(180)
+
+    ref = await backend.block_insert("SOCKET", 100, 100, rotation=180, keep_text_upright=True)
+    upright = attrib(ref)
+    assert upright.dxf.rotation == pytest.approx(0)
+    # Turned about its own centre: the label covers the same place.
+    assert bbox.extents([upright]).center.isclose(bbox.extents([plain]).center, abs_tol=1e-6)
+    report = ref.properties["text_upright"]
+    assert report["flipped"] == ["IP"]
+    assert report["not_flipped"] == [
+        {"type": "TEXT", "text": "S", "reason": "definition_text_shared"}
+    ]
+
+    # (90°, 270°]: 90 reads bottom-to-top and stays, 270 is turned to 90.
+    at_90 = await backend.block_insert("SOCKET", 0, 0, rotation=90, keep_text_upright=True)
+    assert attrib(at_90).dxf.rotation == pytest.approx(90)
+    assert at_90.properties["text_upright"]["flipped"] == []
+    at_270 = await backend.block_insert("SOCKET", 0, 0, rotation=270, keep_text_upright=True)
+    assert attrib(at_270).dxf.rotation == pytest.approx(90)

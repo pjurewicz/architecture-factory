@@ -29,6 +29,8 @@ class BlockContract(ABC):
         rotation: float = 0.0,
         attributes: dict | None = None,
         layer: str | None = None,
+        *,
+        keep_text_upright: bool = False,
     ) -> EntityInfo: ...
 
     @abstractmethod

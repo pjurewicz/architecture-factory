@@ -4731,6 +4731,9 @@ async def block_insert(
     rotation: Annotated[float, "Rotation angle in degrees"] = 0.0,
     attributes: Annotated[dict | None, "Attribute values: {TAG: value}"] = None,
     layer: Annotated[str | None, "Layer name"] = None,
+    keep_text_upright: Annotated[
+        bool, "Turn attributes that would read upside down by 180° about their centre"
+    ] = False,
     ctx: Context = None,
 ) -> dict:
     """Insert a block and optionally set attribute values.
@@ -4741,10 +4744,25 @@ async def block_insert(
     `"101"`), while `null`, booleans, lists and objects are refused naming
     the tag (they used to be written as their Python repr). Values for tags
     the block does not define are ignored.
+
+    `keep_text_upright=True` turns every attribute whose reading direction
+    ends in (90°, 270°] by 180° about its centre, so a rotated label such as
+    `IP44` stays legible; `properties.text_upright` lists the `flipped` tags
+    and what was `not_flipped`. A plain TEXT/MTEXT of the definition is
+    shared by every reference and is only reported
+    (`definition_text_shared`): make it an ATTDEF to have it kept upright.
     """
     await ctx.info(f"Inserting block '{name}' at ({x},{y})")
     result = await _backend(ctx).block_insert(
-        name, x, y, scale_x, scale_y, rotation, attributes, layer
+        name,
+        x,
+        y,
+        scale_x,
+        scale_y,
+        rotation,
+        attributes,
+        layer,
+        keep_text_upright=keep_text_upright,
     )
     return _dc(result)
 

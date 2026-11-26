@@ -8259,9 +8259,13 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         rotation=0.0,
         attributes=None,
         layer=None,
+        *,
+        keep_text_upright=False,
     ) -> EntityInfo:
         from backends.block_specs import validate_attribute_values
 
+        if not isinstance(keep_text_upright, bool):
+            raise TypeError("block_insert: 'keep_text_upright' must be a boolean")
         values = validate_attribute_values(attributes)
 
         def _sync():
@@ -8300,10 +8304,74 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 for attrib in ref.attribs:
                     if attrib.has_embedded_mtext_entity:
                         attrib.dxf.text = self._attrib_value(attrib)
+            upright = self._keep_text_upright(ref) if keep_text_upright else None
             self._mark_dirty()
-            return _entity_info_dxf(ref)
+            info = _entity_info_dxf(ref)
+            if upright is not None:
+                info.properties["text_upright"] = upright
+            return info
 
         return await self._async(_sync)
+
+    @staticmethod
+    def _keep_text_upright(ref) -> dict:
+        """Turn every ATTRIB of ``ref`` that reads upside down 180° about its centre.
+
+        Upside down is a WCS reading direction in (90°, 270°]; a text in a plane
+        tilted out of WCS XY has no "up" here and is left as drawn. A TEXT or
+        MTEXT of the block definition is shared by every reference, so turning
+        it would turn it under all of them: it is reported in ``not_flipped``
+        (make it an ATTDEF to have it kept upright), never edited.
+        """
+        from ezdxf import bbox
+        from ezdxf.math import Matrix44, Vec3
+
+        def world_angle(ent) -> float | None:
+            if ent.dxftype() == "MTEXT":
+                return ent.get_rotation() % 360.0
+            ocs = ent.ocs()
+            if not Vec3(ocs.uz).isclose(Vec3(0, 0, 1)) and not Vec3(ocs.uz).isclose(
+                Vec3(0, 0, -1)
+            ):
+                return None
+            return ocs.to_wcs(Vec3.from_deg_angle(ent.dxf.get("rotation", 0.0))).angle_deg % 360
+
+        def inverted(angle: float) -> bool:
+            return 90.0 + 1e-9 < angle <= 270.0 + 1e-9
+
+        flipped: list[str] = []
+        not_flipped: list[dict] = []
+        for attrib in ref.attribs:
+            tag = attrib.dxf.get("tag", "")
+            angle = world_angle(attrib)
+            if angle is None:
+                not_flipped.append({"tag": tag, "reason": "tilted_plane"})
+                continue
+            if not inverted(angle):
+                continue
+            box = bbox.extents([attrib])
+            if not box.has_data:
+                not_flipped.append({"tag": tag, "reason": "no_extents"})
+                continue
+            c = box.center
+            attrib.transform(
+                Matrix44.translate(-c.x, -c.y, 0)
+                @ Matrix44.z_rotate(math.pi)
+                @ Matrix44.translate(c.x, c.y, 0)
+            )
+            # z_rotate leaves -1.4e-14 where 0 is meant.
+            attrib.dxf.rotation = round(attrib.dxf.rotation % 360.0, 9) % 360.0
+            flipped.append(tag)
+        for ent in ref.virtual_entities():
+            if ent.dxftype() not in ("TEXT", "MTEXT"):
+                continue
+            angle = world_angle(ent)
+            if angle is not None and inverted(angle):
+                text = ent.plain_text() if ent.dxftype() == "MTEXT" else ent.dxf.get("text", "")
+                not_flipped.append(
+                    {"type": ent.dxftype(), "text": text, "reason": "definition_text_shared"}
+                )
+        return {"flipped": flipped, "not_flipped": not_flipped}
 
     @staticmethod
     def _owner_layout_for_explode(ent, handle: str):
