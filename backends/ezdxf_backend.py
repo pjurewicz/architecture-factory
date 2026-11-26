@@ -7252,7 +7252,9 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                         "text is a stripe through the text, not a mask"
                     ),
                 }
-            entity.set_bg_color(int(color) if color is not None else None, scale=factor)
+            # ezdxf reads set_bg_color(None) as "remove the fill"; no colour (or
+            # ACI 0) means AutoCAD's "use drawing background colour", bg_fill=3.
+            entity.set_bg_color(int(color) if color else "canvas", scale=factor)
             self._mark_dirty()
             return {
                 "ok": True,

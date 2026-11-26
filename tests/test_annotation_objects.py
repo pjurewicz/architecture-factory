@@ -115,6 +115,37 @@ async def test_a_background_mask_round_trips(backend, tmp_path):
     assert reloaded.dxf.box_fill_scale == pytest.approx(1.5)
 
 
+async def test_a_background_mask_without_colour_uses_the_drawing_background(backend):
+    """ezdxf reads set_bg_color(None) as "remove the fill": color 0 reported
+    ok and left no mask at all."""
+    mtext = await backend.entity_create_mtext("SECTION A-A", 10, 10)
+
+    result = await backend.text_set_background(mtext.handle, color=0)
+
+    assert result["ok"] is True
+    assert backend._doc.entitydb.get(mtext.handle).dxf.get("bg_fill") == 3  # use background
+
+
+async def test_a_background_mask_hides_a_hatch_on_plain_mtext(backend):
+    """ezdxf draws the mask only for MTEXT with inline codes; plain MTEXT let the
+    hatch through the text."""
+    import io
+
+    pytest.importorskip("matplotlib")
+    from PIL import Image
+
+    from backends.region_render import render_layout
+
+    await backend.entity_create_hatch("SOLID", SQUARE, color=1)
+    mtext = await backend.entity_create_mtext("SECTION A-A", 10, 35, height=5)
+    await backend.text_set_background(mtext.handle, color=2, scale=1.5)
+
+    png = render_layout(backend._doc, backend._doc.modelspace(), region=(0, 0, 100, 60), max_px=500)
+    image = Image.open(io.BytesIO(png["png"])).convert("RGB")
+    # 1.5 units above the text's top edge: inside the 2.5-unit mask margin, no glyphs
+    assert image.getpixel((12 * 5, int((60 - 36.5) * 5))) == (255, 255, 0)
+
+
 async def test_a_background_mask_can_be_turned_off_again(backend):
     mtext = await backend.entity_create_mtext("X", 10, 10)
     await backend.text_set_background(mtext.handle, color=2)

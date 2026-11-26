@@ -147,6 +147,7 @@ def draw_layout(doc, layout, out, *, plot: bool, vector: bool = False) -> dict:
     from ezdxf.addons.drawing.frontend import UniversalFrontend
     from ezdxf.addons.drawing.pipeline import color_to_monochrome
     from ezdxf.filemanagement import find_support_file
+    from ezdxf.tools.text_layout import LayoutError
 
     from engineering.standards.papers import CTB_RENDERING
 
@@ -166,13 +167,25 @@ def draw_layout(doc, layout, out, *, plot: bool, vector: bool = False) -> dict:
             color = super().resolve_color(entity, resolved_layer=resolved_layer)
             return mapping(color[:7]) + color[7:] if mapping else color
 
+    class _Frontend(UniversalFrontend):
+        def draw_simple_mtext(self, mtext, properties):
+            # ezdxf draws an MTEXT background mask (BACKGROUNDMASK, bg_fill) only
+            # on its formatted-MTEXT path; on the plain path the mask was lost
+            # and a hatch showed through the text.
+            if mtext.dxf.get("bg_fill", 0):
+                try:
+                    return self.draw_complex_mtext(mtext, properties)
+                except LayoutError:
+                    pass
+            return super().draw_simple_mtext(mtext, properties)
+
     config = Configuration(
         lineweight_scaling=MM_TO_PT,
         min_lineweight=VECTOR_MIN_LINEWEIGHT_MM * MM_TO_PT if vector else None,
         # a monochrome or grey plot is ink on white paper, model space included
         background_policy=BackgroundPolicy.WHITE if mapping else BackgroundPolicy.DEFAULT,
     )
-    UniversalFrontend(_PlotContext(doc, ctb=ctb), _glyph_pipeline(out), config=config).draw_layout(
+    _Frontend(_PlotContext(doc, ctb=ctb), _glyph_pipeline(out), config=config).draw_layout(
         layout, finalize=True
     )
     return {"name": name or None, "ink": ink, "exact": exact}

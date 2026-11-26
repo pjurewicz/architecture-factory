@@ -3678,7 +3678,7 @@ async def text_set_background(
     MTEXT only: TEXT has no background-fill attribute, so setting one on it
     would report success and change nothing.
     """
-    return await _backend(ctx).text_set_background(handle, enabled, color or None, scale)
+    return await _backend(ctx).text_set_background(handle, enabled, color, scale)
 
 
 async def _guarded_text_find_replace(
