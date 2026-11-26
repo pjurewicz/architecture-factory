@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with its unsaved documents; `0` keeps them until shutdown. The first session
   keeps the server's own engine, so a single-client server behaves as before.
   A live AutoCAD backend is still shared (`backends/session_backends.py`).
+- A session's engine is released as soon as the client ends the session
+  (HTTP `DELETE` of its `mcp-session-id`), not only after
+  `SESSION_IDLE_TIMEOUT`; the first session's engine is emptied and goes to
+  the next session. Engines are now keyed by the transport's `mcp-session-id`,
+  and `initialize` no longer claims an engine of its own.
 - `HIDE_LIVE_ONLY_TOOLS` (default `true`): a headless server no longer offers
   the eight tools that can only fail there (`policy.LIVE_ONLY_TOOLS`: LISP, the
   command line, launch, preferences and the operator prompts). They are left

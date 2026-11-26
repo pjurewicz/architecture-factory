@@ -68,3 +68,37 @@ async def test_an_idle_session_engine_is_released(monkeypatch, idle_timeout, kep
         await b.call_tool("document_list", {})  # B's request sweeps idle engines
         assert (await _documents(a) != []) is kept
         assert await _documents(first) != []
+
+
+@pytest.mark.asyncio
+async def test_ending_an_http_session_releases_its_drawings(monkeypatch):
+    """A client's DELETE of its session frees its engine at once, not after the idle timeout."""
+    import httpx
+    from fastmcp.client.transports import StreamableHttpTransport
+
+    import http_guard
+
+    monkeypatch.setattr(http_guard, "_bound", {"host": "127.0.0.1", "port": 8000})
+    app = server.mcp.http_app()
+
+    def factory(**kwargs):
+        kwargs.pop("base_url", None)
+        return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), **kwargs)
+
+    def client():
+        url = "http://127.0.0.1:8000/mcp"
+        return Client(StreamableHttpTransport(url, httpx_client_factory=factory))
+
+    async with app.router.lifespan_context(app):
+        router = server._session_router()
+        async with client() as first:
+            await first.call_tool("drawing_new", {})
+            async with client() as second:
+                await second.call_tool("drawing_new", {})
+                await second.call_tool("entity_create_line", LINE)
+                assert router.session_count() == 2
+            assert router.session_count() == 1
+            assert await _entities(first) == 0  # the first session keeps its drawing
+        assert router.session_count() == 0
+        async with client() as third:  # starts on the emptied server engine
+            assert await _documents(third) == []

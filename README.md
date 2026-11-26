@@ -27,7 +27,7 @@ Live through COM on Windows, or headless through ezdxf anywhere — one typed co
 
 </div>
 
-> **v1.8 release snapshot:** 257 tools · 13 resources · 5 prompt templates · 7594 collected tests.
+> **v1.8 release snapshot:** 257 tools · 13 resources · 5 prompt templates · 7595 collected tests.
 > 257 is the **registered** count. Since 1.8.0 a default install lists six over `tools/list`
 > (`DISCOVERY_MODE=search`: `search_tools`, `describe_tool`, `call_tool` and the three
 > `DISCOVERY_PINNED` tools), and every tool the profile and packs allow stays callable by name;
@@ -443,7 +443,7 @@ Nothing loads a `.env` file — export these, or set them in your MCP client's `
 | `ACCORECONSOLE_TIMEOUT_S` | `60` | One DWG -> DXF conversion's deadline (kept inside `EZDXF_CALL_TIMEOUT`); an overrun kills the console's process tree. Must be a number above 0 |
 | `EZDXF_CALL_TIMEOUT` | `120` | Per-call headless timeout (s). A read that overruns is never quarantined: until it ends, other calls on its document are refused by name (`kind: "busy"`) while `drawing_open` / `drawing_new` / `drawing_close` / `document_activate` / `document_close` and `document_list` go through without waiting for it — no restart is needed. They do not wait on its lock, but a read that computes holds Python's GIL, so the server answers slowly until it ends: an 8 s CPU-bound read at `1` s gave its own error at 5.1–5.5 s, a busy refusal in 1.2–1.8 s and `drawing_new` in 0.6–1.3 s (a read that waits on I/O answers in milliseconds). `0` disables the timeout: nothing is quarantined or detached, so a call that never ends keeps the document — every later call, the exits included, queues behind it, and only its end or a restart frees it |
 | `SESSION_ISOLATION` | `true` | On a headless server every MCP session (one HTTP client connection) gets its own engine: its own open documents, active document, undo and transactions. Two clients drawing at once no longer write into each other's documents. Files on disk are still shared: two sessions saving to one path overwrite each other. A live AutoCAD is one application and stays shared. `false` gives every session one workspace again |
-| `SESSION_IDLE_TIMEOUT` | `3600` | Seconds after its last request that a session's headless engine is released, with its unsaved documents (save before leaving). The first session keeps the server's own engine until the server stops, so a server with one client behaves as before. `0` keeps every engine until the server stops |
+| `SESSION_IDLE_TIMEOUT` | `3600` | A session's headless engine is released with its unsaved documents (save before leaving) as soon as the client ends the session (HTTP `DELETE` of its `mcp-session-id`); for a client that vanishes without ending it, this many seconds after its last request. The first session keeps the server's own engine until the server stops, so a server with one client behaves as before. `0` keeps every engine until the server stops |
 | `PREVIEW_PASSWORD` | unset | Turns on the read-only `/preview` page (each session's documents, a live render, recent operations, PDF / DXF / DWG downloads), behind HTTP Basic auth with this password. Unset, every `/preview` route answers 404. Separate from `MCP_AUTH_TOKEN` |
 | `PREVIEW_USER` | `preview` | The HTTP Basic user name of the `/preview` page |
 | `SHUTDOWN_GRACE` | `5` | Seconds shutdown waits for a worker still inside a call before exiting without it; `0` does not wait |

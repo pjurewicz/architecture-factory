@@ -11,9 +11,13 @@ it. The first session gets the engine the lifespan built, which is also what
 a read outside any request sees, so a server with one client behaves exactly
 as before; every later session gets a new engine.
 
-A later session's engine is released after ``SESSION_IDLE_TIMEOUT`` seconds
-without a request, with its unsaved documents; ``0`` keeps every engine until
-shutdown. The first session's engine is kept until shutdown, as it always was.
+A session's engine is released with its unsaved documents when the client
+ends the session (an HTTP ``DELETE`` carrying its ``mcp-session-id``,
+``EndSessionOnDelete``); the first session's engine is emptied instead, and
+the next session starts on it. A client that vanishes without ending its
+session leaves its engine until ``SESSION_IDLE_TIMEOUT`` seconds pass without a
+request (``0`` keeps it until shutdown); the first session's engine is never
+released for idleness, as it always was.
 """
 
 from __future__ import annotations
@@ -112,6 +116,22 @@ class SessionBackends:
             log.info("session %s: idle for %.0fs, engine released", key, now - entry.last_used)
             await self._release(entry.backend)
 
+    async def end_session(self, session: str) -> bool:
+        """The client ended ``session``: release its engine now; True when one was held.
+
+        The default engine is emptied, not released, and goes to the next new
+        session. An engine still inside a call is left to the idle sweep.
+        """
+        entry = self._sessions.get(session)
+        if entry is None or entry.in_flight:
+            return False
+        del self._sessions[session]
+        await self._release(entry.backend)
+        if entry.is_default:
+            await entry.backend.connect()
+        log.info("session %s: ended by the client, engine released", session)
+        return True
+
     async def disconnect(self) -> None:
         """Shutdown: release every session's engine, then the default one."""
         sessions = list(self._sessions.values())
@@ -131,3 +151,39 @@ class SessionBackends:
 
     def __setattr__(self, name, value):
         setattr(self._bound(), name, value)
+
+
+class EndSessionOnDelete:
+    """ASGI wrapper: a successful ``DELETE`` of an MCP session ends its engine too.
+
+    ``router()`` returns the server's ``SessionBackends`` or None (isolation
+    off, a live engine, no lifespan yet). The session id is the
+    ``mcp-session-id`` header, the same key ``SessionBackendMiddleware`` used.
+    """
+
+    def __init__(self, app, router: Callable[[], Any]):
+        self.app = app
+        self._router = router
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http" or scope.get("method") != "DELETE":
+            await self.app(scope, receive, send)
+            return
+        session = None
+        for name, value in scope.get("headers") or ():
+            if name.lower() == b"mcp-session-id":
+                session = value.decode("latin-1")
+        status: list[int] = []
+
+        async def _send(message):
+            if message.get("type") == "http.response.start":
+                status.append(int(message.get("status", 0)))
+            await send(message)
+
+        await self.app(scope, receive, _send)
+        router = self._router()
+        if session and status and 200 <= status[0] < 300 and router is not None:
+            try:
+                await router.end_session(session)
+            except Exception as exc:  # the client's DELETE already succeeded
+                log.warning("session %s: engine release failed: %s", session, exc)

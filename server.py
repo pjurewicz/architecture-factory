@@ -50,7 +50,7 @@ from backends.operations import (
     OperationJournal,
     RequiresReconcileError,
 )
-from backends.session_backends import CURRENT_BACKEND, SessionBackends
+from backends.session_backends import CURRENT_BACKEND, EndSessionOnDelete, SessionBackends
 from backends.session_metrics import SESSION_METRICS, result_text_bytes
 from discovery.aliases import aliases_for, tools_for_command
 from discovery.descriptions import record_wire_description
@@ -255,17 +255,19 @@ def _isolate_sessions(backend, operations):
 def _isolation_key(fastmcp_context) -> str | None:
     """The session that owns an engine, or None for the shared one.
 
-    Stateless HTTP (no ``mcp-session-id`` header) makes a new session for
-    every request, so it has nothing to isolate: it shares the server's engine
-    as it always did.
+    Over HTTP it is the ``mcp-session-id`` header. Stateless HTTP (no header)
+    makes a new session for every request, so it has nothing to isolate: it
+    shares the server's engine as it always did.
     """
     try:
         request = fastmcp_context.request_context.request
     except Exception:  # no request context: a direct call
         request = None
     headers = getattr(request, "headers", None)
-    if headers is not None and not headers.get("mcp-session-id"):
-        return None
+    if headers is not None:
+        # The transport's own id, the one a DELETE ending the session carries
+        # (fastmcp's session_id may be a uuid it minted at initialize).
+        return headers.get("mcp-session-id") or None
     session = _session_key(fastmcp_context)
     return None if session == _NO_SESSION else session
 
@@ -279,7 +281,10 @@ class SessionBackendMiddleware(Middleware):
         router = lifespan.get("backend") if lifespan is not None else None
         if not isinstance(router, SessionBackends):
             return await call_next(context)
-        backend, entry = await router.acquire(_isolation_key(fastmcp_context))
+        # initialize runs before the transport has named the session (no
+        # request in context): it touches no drawing, so it holds no engine.
+        session = None if context.method == "initialize" else _isolation_key(fastmcp_context)
+        backend, entry = await router.acquire(session)
         token = CURRENT_BACKEND.set(backend)
         try:
             return await call_next(context)
@@ -15385,15 +15390,24 @@ preview.register(sys.modules[__name__])
 _orig_http_app = mcp.http_app
 
 
+def _session_router() -> SessionBackends | None:
+    """The running server's per-session router, or None."""
+    lifespan = getattr(mcp, "_lifespan_result", None)
+    backend = lifespan.get("backend") if isinstance(lifespan, dict) else None
+    return backend if isinstance(backend, SessionBackends) else None
+
+
 def _guarded_http_app(*args, **kwargs):
     from starlette.middleware import Middleware as _AsgiMiddleware
 
     guard = _AsgiMiddleware(http_guard.HttpGuard)
+    # A client's DELETE of its MCP session releases that session's engine now.
+    end = _AsgiMiddleware(EndSessionOnDelete, router=_session_router)
     args = list(args)
     if len(args) > 1:  # http_app(path, middleware, ...) positionally
-        args[1] = [guard, *(args[1] or [])]
+        args[1] = [guard, end, *(args[1] or [])]
     else:
-        kwargs["middleware"] = [guard, *(kwargs.get("middleware") or [])]
+        kwargs["middleware"] = [guard, end, *(kwargs.get("middleware") or [])]
     return _orig_http_app(*args, **kwargs)
 
 
