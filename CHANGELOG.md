@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `SESSION_ISOLATION` (default `true`): each MCP session of a headless server
+  gets its own engine (open documents, active document, undo, transactions),
+  so two clients drawing at once no longer write into each other's documents.
+  `SESSION_IDLE_TIMEOUT` (default `3600` s) releases an idle session's engine
+  with its unsaved documents; `0` keeps them until shutdown. The first session
+  keeps the server's own engine, so a single-client server behaves as before.
+  A live AutoCAD backend is still shared (`backends/session_backends.py`).
 - `HIDE_LIVE_ONLY_TOOLS` (default `true`): a headless server no longer offers
   the eight tools that can only fail there (`policy.LIVE_ONLY_TOOLS`: LISP, the
   command line, launch, preferences and the operator prompts). They are left

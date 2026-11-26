@@ -283,6 +283,17 @@ class Settings:
             os.environ.get("HIDE_LIVE_ONLY_TOOLS", "true").lower().strip() != "false"
         )
 
+        # backends/session_backends.py: each MCP session of a headless server
+        # gets its own engine (documents, active document, undo) unless
+        # SESSION_ISOLATION=false; an engine idle SESSION_IDLE_TIMEOUT seconds
+        # is released with its unsaved documents (0 = kept until shutdown).
+        self.session_isolation: bool = (
+            os.environ.get("SESSION_ISOLATION", "true").lower().strip() != "false"
+        )
+        self.session_idle_timeout: float = max(
+            0.0, float(os.environ.get("SESSION_IDLE_TIMEOUT", "3600"))
+        )
+
         # 1.8-18 (security_lisp.py): how system_run_lisp checks an expression.
         # "read" (default) runs what passes the AutoLISP read tier and sends the
         # rest to the 1.7 denylist unchanged; "denylist" is 1.7's behaviour;
