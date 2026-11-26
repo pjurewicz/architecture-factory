@@ -142,8 +142,9 @@ def draw_layout(doc, layout, out, *, plot: bool, vector: bool = False) -> dict:
     """
     import ezdxf
     from ezdxf.addons import acadctb
-    from ezdxf.addons.drawing import Frontend, RenderContext
+    from ezdxf.addons.drawing import RenderContext
     from ezdxf.addons.drawing.config import BackgroundPolicy, Configuration
+    from ezdxf.addons.drawing.frontend import UniversalFrontend
     from ezdxf.addons.drawing.pipeline import color_to_monochrome
     from ezdxf.filemanagement import find_support_file
 
@@ -171,8 +172,68 @@ def draw_layout(doc, layout, out, *, plot: bool, vector: bool = False) -> dict:
         # a monochrome or grey plot is ink on white paper, model space included
         background_policy=BackgroundPolicy.WHITE if mapping else BackgroundPolicy.DEFAULT,
     )
-    Frontend(_PlotContext(doc, ctb=ctb), out, config=config).draw_layout(layout, finalize=True)
+    UniversalFrontend(_PlotContext(doc, ctb=ctb), _glyph_pipeline(out), config=config).draw_layout(
+        layout, finalize=True
+    )
     return {"name": name or None, "ink": ink, "exact": exact}
+
+
+def _glyph_pipeline(out):
+    """ezdxf's 2D pipeline, with text glyphs filled by the font's own winding.
+
+    ezdxf fills every path set after re-nesting its contours by bounding box,
+    which a hatch needs (DXF loops have any orientation) and a glyph does not:
+    a font already orients its contours for the nonzero rule. Re-nested, a
+    glyph built from overlapping contours lost half its counter - the slash of
+    Ø / ⌀ / ∅ pokes out of the ring, so the ring's inside was taken for an
+    outer contour and filled, and the sign drew as a heavier blob than the
+    digits beside it.
+    """
+    from ezdxf.addons.drawing.pipeline import BackendStage2d, RenderPipeline2d
+    from ezdxf.npshapes import to_matplotlib_path
+    from matplotlib.patches import PathPatch
+
+    class _Stage(BackendStage2d):
+        def __init__(self, pipeline, backend, converter):
+            super().__init__(backend, converter)
+            self.pipeline = pipeline
+
+        def draw_filled_paths(self, paths, properties):
+            if not self.pipeline.drawing_text:
+                return super().draw_filled_paths(paths, properties)
+            if not paths:
+                return None
+            props = self.converter(properties)
+            self.backend.ax.add_patch(
+                PathPatch(
+                    to_matplotlib_path(paths),  # no detect_holes: the font's winding
+                    color=props.color,
+                    linewidth=0,
+                    fill=True,
+                    zorder=self.backend._get_z(),
+                )
+            )
+            return None
+
+    class _Pipeline(RenderPipeline2d):
+        drawing_text = False
+
+        def build_render_pipeline(self):
+            clipping = super().build_render_pipeline()
+            stage = clipping
+            while not isinstance(stage.next_stage, BackendStage2d):
+                stage = stage.next_stage
+            stage.next_stage = _Stage(self, self.backend, self.get_backend_properties)
+            return clipping
+
+        def draw_text(self, *args, **kwargs):
+            self.drawing_text = True
+            try:
+                super().draw_text(*args, **kwargs)
+            finally:
+                self.drawing_text = False
+
+    return _Pipeline(out)
 
 
 def render_layout(

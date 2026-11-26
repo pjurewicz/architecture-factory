@@ -162,6 +162,21 @@ async def test_no_region_frames_the_extents_and_says_so(backend):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("sign", ["\u00d8", "\u2300", "\u2205"])  # Ø ⌀ ∅
+async def test_a_diameter_sign_is_a_ring_not_a_half_filled_blob(backend, sign):
+    # The slash pokes out of the ring; re-nested by bounding box, one half of
+    # the counter was filled and the sign drew far heavier than the digits.
+    await backend.entity_create_text(sign, 0, 0, height=10)
+    png = (await backend.view_render(region=[-2, -4, 14, 14], max_px=256))["png"]
+    image = Image.open(io.BytesIO(png)).convert("RGB")
+    background = image.getpixel((0, 0))
+    left, top, right, bottom = _ink_box(png)
+    y = (top + bottom) // 2
+    for f in (0.3, 0.7):  # inside the ring, either side of the slash
+        assert image.getpixel((round(left + f * (right - left)), y)) == background, (sign, f)
+
+
+@pytest.mark.asyncio
 async def test_handle_labels_only_for_entities_in_the_region(backend):
     left = await backend.entity_create_circle(*LEFT, RADIUS)
     await backend.entity_create_circle(*RIGHT, RADIUS)
