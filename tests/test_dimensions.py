@@ -13,6 +13,22 @@ async def test_dimension_linear(backend):
     assert info.type == "DIMENSION"
 
 
+async def test_dimension_linear_tool_places_text_at_the_given_point():
+    # the batch spec took text_at from the contract; the tool must take it too
+    from fastmcp import Client
+
+    import server
+
+    async with Client(server.mcp) as client:
+        await client.call_tool("drawing_new", {})
+        args = {"x1": 0, "y1": 0, "x2": 100, "y2": 0, "dim_x": 50, "dim_y": -20}
+        made = await client.call_tool("dimension_linear", args | {"text_at": [80, -20]})
+        got = await client.call_tool("entity_get", {"handle": made.structured_content["handle"]})
+    props = got.structured_content["properties"]
+    assert props["text_position"] == pytest.approx([80, -20])
+    assert props["defpoint"] == pytest.approx([0, -20])  # the dimension line did not move
+
+
 async def test_dimension_aligned(backend):
     info = await backend.dimension_aligned(0, 0, 100, 50, 50, 60)
     assert info.handle

@@ -3102,6 +3102,11 @@ async def dimension_linear(
         "ISO 286 fit code (e.g. 'H7', 'g6', 'js9'); resolves deviations from the "
         "authored tables for the measured nominal. Mutually exclusive with tol_*.",
     ] = None,
+    text_at: Annotated[
+        tuple[float, float] | None,
+        "Text middle [x, y]; the dimension line stays at dim_x, dim_y (no leader). "
+        "Omitted = the style places it",
+    ] = None,
     ctx: Context = None,
 ) -> dict:
     """Create a linear dimension, optionally toleranced (ISO 129 or ISO 286 fit)."""
@@ -3126,6 +3131,7 @@ async def dimension_linear(
         tol_lower,
         tol_mode,
         text_override,
+        text_at=text_at,
     )
     return _dc(result)
 
