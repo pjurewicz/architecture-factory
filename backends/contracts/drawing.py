@@ -46,7 +46,14 @@ class DrawingContract(ABC):
         "repointed": False}``."""
 
     @abstractmethod
-    async def drawing_export_pdf(self, path: str, layout: str | None = None) -> dict: ...
+    async def drawing_export_pdf(
+        self,
+        path: str,
+        layout: str | None = None,
+        *,
+        plot_style: str | None = None,
+        background: str = "auto",
+    ) -> dict: ...
 
     @abstractmethod
     async def drawing_purge(self) -> dict: ...

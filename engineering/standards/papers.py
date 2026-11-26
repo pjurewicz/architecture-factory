@@ -57,8 +57,11 @@ import math
 import re
 
 __all__ = [
+    "ALL_PENS",
+    "AUTHORED_CTB",
     "BLEEDS",
     "CTB_CATALOG",
+    "CTB_PENS",
     "CTB_RENDERING",
     "DXF_STANDARD_SCALE_TYPE",
     "DXF_STD_SCALES",
@@ -134,22 +137,50 @@ CTB_CATALOG: tuple[str, ...] = (
     "DWF Virtual Pens.ctb",
 )
 
-#: How the headless renderer draws each catalogue table: ``(ink, exact)``, keyed
+#: Plot style tables authored here, not shipped by AutoCAD: the renderer knows
+#: them, AutoCAD finds them only once the file is in its Plot Styles folder.
+#: ``arch_monochrome.ctb`` is monochrome.ctb with the architectural grey pens
+#: (ACI 8, 9, 252-254) screened to 35 % and drawn thin.
+AUTHORED_CTB: tuple[str, ...] = ("arch_monochrome.ctb",)
+
+#: How the headless renderer draws each known table: ``(ink, exact)``, keyed
 #: by the lower-cased name. ``ink`` is ``monochrome`` (every pen black),
-#: ``grayscale`` (the colour's luminance) or ``object`` (the object's own colour);
-#: every table here plots the object's lineweight. ``exact`` is false where the
-#: table does more than the renderer draws: screening, fill patterns, virtual
-#: pens, and Grayscale.ctb's own grey per pen (luminance is an approximation).
+#: ``grayscale`` (the colour's luminance) or ``object`` (the object's own colour).
+#: ``exact`` is false where the table does more than the renderer draws: fill
+#: patterns, virtual pens, and Grayscale.ctb's own grey per pen (luminance is an
+#: approximation). Screening and pen lineweights are in ``CTB_PENS``.
 CTB_RENDERING: dict[str, tuple[str, bool]] = {
     "monochrome.ctb": ("monochrome", True),
     "acad.ctb": ("object", True),
     "grayscale.ctb": ("grayscale", False),
     "screening 100%.ctb": ("object", True),
-    "screening 75%.ctb": ("object", False),
-    "screening 50%.ctb": ("object", False),
-    "screening 25%.ctb": ("object", False),
+    "screening 75%.ctb": ("object", True),
+    "screening 50%.ctb": ("object", True),
+    "screening 25%.ctb": ("object", True),
     "fill patterns.ctb": ("object", False),
     "dwf virtual pens.ctb": ("object", False),
+    "arch_monochrome.ctb": ("monochrome", True),
+}
+
+#: Every ACI pen (1-255): the key ``CTB_PENS`` uses for a table that sets all.
+ALL_PENS = 0
+
+#: The pens a known table sets beyond its ink, by lower-cased name:
+#: ``{aci or ALL_PENS: (screen %, lineweight mm or None for the object's)}``.
+#: Screening is AutoCAD's: the ink's intensity, so a channel ``c`` plots as
+#: ``255 - (255 - c) * screen / 100`` (0 % is white paper). A pen is looked up by
+#: the entity's resolved ACI (ByLayer / ByBlock followed); a true colour has no pen.
+CTB_PENS: dict[str, dict[int, tuple[int, float | None]]] = {
+    "screening 75%.ctb": {ALL_PENS: (75, None)},
+    "screening 50%.ctb": {ALL_PENS: (50, None)},
+    "screening 25%.ctb": {ALL_PENS: (25, None)},
+    "arch_monochrome.ctb": {
+        8: (35, 0.13),
+        252: (35, 0.13),
+        253: (35, 0.13),
+        9: (35, 0.09),
+        254: (35, 0.09),
+    },
 }
 
 #: Label → paper:drawing factor (``None`` = scaled to fit).
@@ -442,7 +473,8 @@ def dxf_scale_label(code, numerator, denominator) -> str:
 
 
 def plot_style_known(name) -> bool:
-    return str(name or "").strip().lower() in {entry.lower() for entry in CTB_CATALOG}
+    known = CTB_CATALOG + AUTHORED_CTB
+    return str(name or "").strip().lower() in {entry.lower() for entry in known}
 
 
 #: Plot paper units — the same codes in DXF group 72 (``plot_paper_units``) and

@@ -129,16 +129,73 @@ MM_TO_PT = 72.0 / 25.4
 VECTOR_MIN_LINEWEIGHT_MM = 0.13
 
 
-def draw_layout(doc, layout, out, *, plot: bool, vector: bool = False) -> dict:
+#: ``background`` values of ``draw_layout``: ``auto`` is white paper under a plot
+#: style that maps ink (monochrome, grey, screening, pens) and the layout's own
+#: background otherwise; ``transparent`` draws no background at all.
+BACKGROUNDS = ("auto", "white", "black", "transparent")
+
+
+def screen_color(rgb: str, screen: int) -> str:
+    """``#rrggbb`` at ``screen`` % ink intensity: 0 % is white paper, 100 % unchanged."""
+    channels = [int(rgb[i : i + 2], 16) for i in (1, 3, 5)]
+    return "#" + "".join(f"{round(255 - (255 - c) * screen / 100):02x}" for c in channels)
+
+
+def _file_pens(ctb) -> dict[int, tuple[tuple[int, int, int] | None, bool, int, float | None]]:
+    """``{aci: (rgb or None, grayscale, screen, lineweight mm or None)}`` of a loaded
+    ctb, only for the pens that change anything."""
+    pens = {}
+    for aci in range(1, 256):
+        style = ctb[aci]
+        pen = (style.color, style.grayscale, style.screen, ctb.get_lineweight(aci))
+        if pen != (None, False, 100, None):
+            pens[aci] = pen
+    return pens
+
+
+def _pen_report(pens: dict) -> list[dict]:
+    """The pens a table sets, grouped by (screen, lineweight), for the result."""
+    from engineering.standards.papers import ALL_PENS
+
+    groups: dict[tuple, list[int]] = {}
+    for aci, (_rgb, _gray, screen, lineweight) in sorted(pens.items()):
+        if screen != 100 or lineweight is not None:
+            groups.setdefault((screen, lineweight), []).append(aci)
+    return [
+        {
+            "aci": "all" if acis == [ALL_PENS] else acis,
+            "screen": screen,
+            "lineweight_mm": lineweight,
+        }
+        for (screen, lineweight), acis in groups.items()
+    ]
+
+
+def draw_layout(
+    doc,
+    layout,
+    out,
+    *,
+    plot: bool,
+    vector: bool = False,
+    plot_style: str | None = None,
+    background: str = "auto",
+) -> dict:
     """Draw ``layout`` through the matplotlib backend ``out``, the way it plots.
 
     Lineweights are drawn at their size in points (on a raster, at least one
-    pixel). With ``plot`` (a PDF, or any paper layout) the layout's plot style
-    table is applied: a catalogue table as ``CTB_RENDERING`` says, any other name
-    loaded from a ctb file ezdxf finds, else the object colours with
-    ``exact: false``. Model space rendered as a screenshot uses object colours, as
-    AutoCAD's screen does. Ink is mapped in the render context, so a wipeout or a
-    text mask keeps the paper colour. Returns ``{name, ink, exact}``.
+    pixel). With ``plot`` (a PDF, or any paper layout) the plot style table is
+    applied - ``plot_style`` when given, else the layout's own: a known table as
+    ``CTB_RENDERING`` and ``CTB_PENS`` say, any other name loaded from a ctb file
+    ezdxf finds, else the object colours with ``exact: false``. Model space
+    rendered as a screenshot uses object colours, as AutoCAD's screen does.
+
+    A pen is chosen by the entity's resolved ACI (ByLayer / ByBlock followed -
+    ezdxf's own lookup reads only an entity's direct colour, and never screens);
+    its colour, grey, screening and lineweight are applied in the render
+    context, so a wipeout or a text mask keeps the paper colour. A pen's
+    lineweight is drawn as the table says, under the 0.13 mm vector floor too.
+    Returns ``{name, ink, exact}``, plus ``pens`` when the table sets any.
     """
     import ezdxf
     from ezdxf.addons import acadctb
@@ -149,23 +206,67 @@ def draw_layout(doc, layout, out, *, plot: bool, vector: bool = False) -> dict:
     from ezdxf.filemanagement import find_support_file
     from ezdxf.tools.text_layout import LayoutError
 
-    from engineering.standards.papers import CTB_RENDERING
+    from engineering.standards.papers import ALL_PENS, CTB_PENS, CTB_RENDERING
 
-    name = str(layout.get_plot_style_filename() or "").strip()
-    plot = plot or not layout.is_modelspace
-    ctb = acadctb.new_ctb()  # every pen "use object": never a silent lookup
-    ink, exact = "object", True
+    if background not in BACKGROUNDS:
+        raise ValueError(f"background must be one of {list(BACKGROUNDS)}, got {background!r}")
+    if plot_style is not None:
+        name, plot = str(plot_style).strip(), True
+    else:
+        name = str(layout.get_plot_style_filename() or "").strip()
+        plot = plot or not layout.is_modelspace
+    ink, exact, pens = "object", True, {}
     if plot and name:
-        ink, exact = CTB_RENDERING.get(name.lower(), ("object", False))
+        key = name.lower()
+        ink, exact = CTB_RENDERING.get(key, ("object", False))
+        pens = {aci: (None, False, s, lw) for aci, (s, lw) in CTB_PENS.get(key, {}).items()}
         found = find_support_file(name, ezdxf.options.support_dirs)
-        if name.lower() not in CTB_RENDERING and os.path.isfile(found):
-            ctb, ink, exact = acadctb.load(found), "file", True
+        if key not in CTB_RENDERING and key.endswith(".ctb") and os.path.isfile(found):
+            ink, exact, pens = "file", True, _file_pens(acadctb.load(found))
     mapping = {"monochrome": lambda c: "#000000", "grayscale": color_to_monochrome}.get(ink)
+    floor = VECTOR_MIN_LINEWEIGHT_MM if vector else None
 
     class _PlotContext(RenderContext):
+        def _pen(self, entity, resolved_layer):
+            if not pens:
+                return None
+            if not entity.dxf.hasattr("true_color"):  # a true colour has no pen
+                pen = pens.get(self.resolve_pen(entity, resolved_layer=resolved_layer))
+                if pen is not None:
+                    return pen
+            return pens.get(ALL_PENS)
+
         def resolve_color(self, entity, *, resolved_layer=None):
             color = super().resolve_color(entity, resolved_layer=resolved_layer)
-            return mapping(color[:7]) + color[7:] if mapping else color
+            rgb, alpha = color[:7], color[7:]
+            pen = self._pen(entity, resolved_layer)
+            if pen is not None and pen[0] is not None:
+                rgb = "#{:02x}{:02x}{:02x}".format(*pen[0])
+            if pen is not None and pen[1]:
+                rgb = color_to_monochrome(rgb)
+            if mapping:
+                rgb = mapping(rgb)
+            if pen is not None and pen[2] != 100:
+                rgb = screen_color(rgb, pen[2])
+            return rgb + alpha
+
+        def resolve_lineweight(self, entity, *, resolved_layer=None):
+            pen = self._pen(entity, resolved_layer)
+            if pen is not None and pen[3] is not None:
+                return pen[3]
+            lineweight = super().resolve_lineweight(entity, resolved_layer=resolved_layer)
+            return max(lineweight, floor) if floor else lineweight
+
+    pen_weights = [pen[3] for pen in pens.values() if pen[3] is not None]
+    if background == "auto":
+        # a mapped plot is ink on white paper, model space included
+        policy = BackgroundPolicy.WHITE if mapping or pens else BackgroundPolicy.DEFAULT
+    else:
+        policy = {
+            "white": BackgroundPolicy.WHITE,
+            "black": BackgroundPolicy.BLACK,
+            "transparent": BackgroundPolicy.OFF,
+        }[background]
 
     class _Frontend(UniversalFrontend):
         def draw_simple_mtext(self, mtext, properties):
@@ -181,14 +282,17 @@ def draw_layout(doc, layout, out, *, plot: bool, vector: bool = False) -> dict:
 
     config = Configuration(
         lineweight_scaling=MM_TO_PT,
-        min_lineweight=VECTOR_MIN_LINEWEIGHT_MM * MM_TO_PT if vector else None,
-        # a monochrome or grey plot is ink on white paper, model space included
-        background_policy=BackgroundPolicy.WHITE if mapping else BackgroundPolicy.DEFAULT,
+        # the floor is applied to object lineweights above; this one lets a pen through
+        min_lineweight=min([floor, *pen_weights]) * MM_TO_PT if floor else None,
+        background_policy=policy,
     )
-    _Frontend(_PlotContext(doc, ctb=ctb), _glyph_pipeline(out), config=config).draw_layout(
-        layout, finalize=True
-    )
-    return {"name": name or None, "ink": ink, "exact": exact}
+    ctx = _PlotContext(doc, ctb=acadctb.new_ctb())  # every ezdxf pen "use object"
+    _Frontend(ctx, _glyph_pipeline(out), config=config).draw_layout(layout, finalize=True)
+    result = {"name": name or None, "ink": ink, "exact": exact}
+    report = _pen_report(pens)
+    if report:
+        result["pens"] = report
+    return result
 
 
 def _glyph_pipeline(out):

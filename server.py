@@ -2474,13 +2474,33 @@ async def drawing_export_pdf(
         "Paper-space layout to plot (default: model space), model content shown "
         "through its viewports.",
     ] = None,
+    plot_style: Annotated[
+        str | None,
+        "Model only: .ctb table for this export (plot_style_list), e.g. "
+        "'Screening 50%.ctb', 'arch_monochrome.ctb'. Default: Model's own.",
+    ] = None,
+    background: Annotated[
+        Literal["auto", "white", "black", "transparent"],
+        "Model only. auto: white under a table that maps ink, else Model's own.",
+    ] = "auto",
     ctx: Context = None,
 ) -> dict:
-    """Export the current drawing (or a paper-space layout) to PDF."""
+    """Export the current drawing (or a paper-space layout) to PDF.
+
+    Pens are applied by the resolved colour (ByLayer followed), with screening.
+    A sheet plots its page setup, so plot_style / background with one is refused.
+    """
     validated = validate_path(path, allow_write=True, kinds=KINDS_PDF)
     await ctx.info(f"Exporting PDF: {validated}")
     await ctx.report_progress(0, 100)
-    result = await _backend(ctx).drawing_export_pdf(str(validated), layout=layout)
+    try:
+        result = await _backend(ctx).drawing_export_pdf(
+            str(validated), layout=layout, plot_style=plot_style, background=background
+        )
+    except ValueError as exc:
+        from engineering.errors import InvalidArgsError
+
+        raise InvalidArgsError(f"invalid_args: {exc}") from exc
     await ctx.report_progress(100, 100)
     return artifact_links.add_link(result, validated)
 
@@ -10137,8 +10157,10 @@ async def page_setup_apply(
 )
 async def plot_style_list(ctx: Context = None) -> dict:
     """The ctb files AutoCAD ships (`monochrome.ctb`, `acad.ctb`, `Grayscale.ctb`,
-    the Screening set, …). `installed` is `null`: there is no installation to
-    scan, and the catalogue is not evidence of one. Never refuses.
+    the Screening set, …), then `source: "authored"` tables the renderer knows
+    but AutoCAD lacks (`arch_monochrome.ctb`: ACI 8/9/252-254 at 35 % grey,
+    0.09-0.13 mm). `installed` is `null`: there is no installation to scan, and
+    the catalogue is not evidence of one. Never refuses.
     """
     backend = _backend(ctx)
     rows = await backend.plot_style_list()

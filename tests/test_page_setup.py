@@ -415,6 +415,103 @@ async def test_a_sheet_plots_its_ctb_and_its_lineweights(backend, tmp_path, ctb,
     assert (inked != {"0 G"}) is expect_colour, colours
 
 
+def _grey(value: int) -> str:
+    return f"{value / 255:.10f}".rstrip("0") + " G"
+
+
+async def test_a_sheet_plots_screening_50_on_bylayer_and_direct_colours(backend, tmp_path):
+    """Screening is ink intensity: channel c plots as 255 - (255 - c) * 0.5.
+
+    Before: Screening 50%.ctb plotted full-strength object colours.
+    """
+    pytest.importorskip("matplotlib", reason="rendering needs the [pdf] extra")
+    await _sheet(backend)
+    await backend.page_setup_apply(
+        SHEET, resolve_page_setup("ISO_A3", "landscape", plot_style="Screening 50%.ctb")
+    )
+    backend._doc.layers.add("RED", color=1)
+    lay = backend._doc.layouts.get(SHEET)
+    lay.add_line((50, 50), (300, 50), dxfattribs={"layer": "RED"})  # ByLayer red
+    lay.add_line((50, 70), (300, 70), dxfattribs={"color": 8})  # (128, 128, 128)
+
+    pdf = tmp_path / "screen.pdf"
+    result = await backend.drawing_export_pdf(str(pdf), layout=SHEET)
+    assert result["plot_style"]["exact"] is True
+    assert result["plot_style"]["pens"] == [{"aci": "all", "screen": 50, "lineweight_mm": None}]
+    _, colours = _pdf_strokes(pdf)
+    assert {"1 0.5019607843 0.5019607843 RG", _grey(192)} <= colours, colours
+    assert "1 0 0 RG" not in colours and _grey(128) not in colours, colours
+
+
+async def test_model_plots_arch_monochrome_grey_pens_thin_by_their_resolved_colour(
+    backend, tmp_path
+):
+    """arch_monochrome.ctb: ACI 8/252/253 at 35 % grey and 0.13 mm, ACI 9/254 at
+    35 % and 0.09 mm (below the 0.13 mm vector floor), every other pen black at
+    its own weight. The grey pens are layer colours: ezdxf's own ctb lookup reads
+    only an entity's direct colour and would miss them."""
+    pytest.importorskip("matplotlib", reason="rendering needs the [pdf] extra")
+    doc = backend._doc
+    doc.layers.add("HATCH-GREY", color=8, lineweight=50)
+    doc.layers.add("FURN", color=254, lineweight=35)
+    doc.layers.add("WALL", color=1, lineweight=50)
+    msp = doc.modelspace()
+    for y, layer in enumerate(("HATCH-GREY", "FURN", "WALL")):
+        msp.add_line((0, 10 * y), (100, 10 * y), dxfattribs={"layer": layer})
+
+    pdf = tmp_path / "model.pdf"
+    result = await backend.drawing_export_pdf(str(pdf), plot_style="arch_monochrome.ctb")
+    assert result["plot_style"]["name"] == "arch_monochrome.ctb"
+    assert result["plot_style"]["ink"] == "monochrome" and result["background"] == "auto"
+    widths, colours = _pdf_strokes(pdf)
+    rounded = {round(w * 25.4 / 72, 3) for w in widths}
+    assert {0.09, 0.13, 0.5} <= rounded, sorted(rounded)
+    assert 0.35 not in rounded, "FURN's 0.35 mm is replaced by its pen's 0.09 mm"
+    assert colours - {"1 G"} == {"0 G", _grey(166)}, colours  # 35 % of black, and black
+
+    # the drawing is not touched: the next Model export plots its own (no) table
+    plain = await backend.drawing_export_pdf(str(tmp_path / "plain.pdf"))
+    assert plain["plot_style"] == {"name": None, "ink": "object", "exact": True}
+
+
+async def test_model_background_white_turns_aci7_black(backend, tmp_path):
+    pytest.importorskip("matplotlib", reason="rendering needs the [pdf] extra")
+    backend._doc.modelspace().add_line((0, 0), (100, 0))  # ACI 7 via layer 0
+    dark, white = tmp_path / "dark.pdf", tmp_path / "white.pdf"
+    await backend.drawing_export_pdf(str(dark))
+    result = await backend.drawing_export_pdf(str(white), background="white")
+    assert result["background"] == "white"
+
+    def line_colours(path) -> set[str]:  # the G set beside a nonzero width: a stroke
+        text = "".join(
+            zlib.decompress(m.group(1)).decode("latin-1")
+            for m in re.finditer(rb"stream\r?\n(.*?)\r?\nendstream", path.read_bytes(), re.S)
+        )
+        return {g for w, g in re.findall(r"([\d.]+) w ([\d.]+ G)", text) if float(w) > 0}
+
+    assert line_colours(dark) == {"1 G"}, "Model's own dark background: ACI 7 is white"
+    assert line_colours(white) == {"0 G"}
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"layout": SHEET, "plot_style": "monochrome.ctb"}, "page_setup_apply"),
+        ({"layout": SHEET, "background": "white"}, "page_setup_apply"),
+        ({"background": "grey"}, "background"),
+        ({"plot_style": "company.stb"}, ".ctb"),
+    ],
+)
+async def test_export_pdf_refuses_model_options_on_a_sheet_and_bad_values(
+    backend, tmp_path, kwargs, match
+):
+    await _sheet(backend)
+    pdf = tmp_path / "x.pdf"
+    with pytest.raises(ValueError, match=re.escape(match)):
+        await backend.drawing_export_pdf(str(pdf), **kwargs)
+    assert not pdf.exists()
+
+
 async def test_apply_full_bleed_a3_round_trips_and_the_pdf_mediabox_agrees(backend, tmp_path):
     """Issue #18 on the headless engine: the full-bleed name is written into
     the LAYOUT's plot settings, read back by page_setup_list, carried by the
@@ -1047,10 +1144,11 @@ async def test_apply_on_a_mm_sheet_warns_of_nothing(backend):
     assert result["warnings"] == [] and "paper_units" not in result["changed"]
 
 
-async def test_plot_style_list_headless_is_the_catalog(backend):
+async def test_plot_style_list_headless_is_the_catalog_then_the_authored_tables(backend):
     rows = await backend.plot_style_list()
-    assert [row["name"] for row in rows] == list(CTB_CATALOG)
-    assert all(row["source"] == "catalog" and row["installed"] is None for row in rows)
+    assert [row["name"] for row in rows] == list(CTB_CATALOG) + ["arch_monochrome.ctb"]
+    assert [row["source"] for row in rows] == ["catalog"] * len(CTB_CATALOG) + ["authored"]
+    assert all(row["installed"] is None for row in rows)
 
 
 async def test_dwt_write_capability_is_declared_false_headlessly(backend):

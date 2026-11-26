@@ -10,7 +10,7 @@ import pytest
 from fastmcp.exceptions import ToolError
 
 import server
-from engineering.standards.papers import CTB_CATALOG, resolve_page_setup
+from engineering.standards.papers import AUTHORED_CTB, CTB_CATALOG, resolve_page_setup
 from engineering.standards.plot import batch_plot, safe_filename
 
 pytestmark = pytest.mark.asyncio
@@ -277,7 +277,7 @@ async def test_page_setup_apply_tool_refuses_before_writing(backend):
 
 async def test_plot_style_list_tool(backend):
     result = await server.plot_style_list(ctx=_Ctx(backend))
-    assert result["ok"] and result["count"] == len(CTB_CATALOG)
+    assert result["ok"] and result["count"] == len(CTB_CATALOG) + len(AUTHORED_CTB)
     assert result["backend"] == "ezdxf"
 
 

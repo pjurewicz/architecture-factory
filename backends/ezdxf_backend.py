@@ -3654,9 +3654,21 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         return await self._async(_sync, readonly=True)
 
     async def drawing_export_pdf(
-        self, path: str, layout: str | None = None, *, document: str | None = None
+        self,
+        path: str,
+        layout: str | None = None,
+        *,
+        document: str | None = None,
+        plot_style: str | None = None,
+        background: str = "auto",
     ) -> dict:
         """Export to PDF via ezdxf's matplotlib backend.
+
+        ``plot_style`` (a ``.ctb`` name) and ``background`` (``auto`` | ``white``
+        | ``black`` | ``transparent``) apply to a Model export only: a sheet
+        plots its own page setup (``page_setup_apply``), so either one with a
+        paper layout is refused. ``plot_style`` replaces the Model layout's own
+        table for this export and is never written to the drawing.
 
         ``document`` (preview.py only) exports another open document, by its
         ``document_id``, in model space; it cannot be combined with ``layout``.
@@ -3684,11 +3696,31 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
 
         if document is not None and layout:
             raise ValueError("drawing_export_pdf: document and layout cannot be combined")
+        from backends.region_render import BACKGROUNDS
+
+        if background not in BACKGROUNDS:
+            raise ValueError(
+                f"drawing_export_pdf: background must be one of {list(BACKGROUNDS)}, "
+                f"got {background!r}"
+            )
+        if plot_style is not None:
+            plot_style = str(plot_style).strip()
+            if not plot_style.lower().endswith(".ctb"):
+                raise ValueError(
+                    "drawing_export_pdf: plot_style must name a .ctb table "
+                    f"(plot_style_list), got {plot_style!r}"
+                )
+        is_sheet = bool(layout) and layout.strip().lower() != "model"
+        if is_sheet and (plot_style is not None or background != "auto"):
+            raise ValueError(
+                "drawing_export_pdf: plot_style and background apply to a Model export; "
+                f"the sheet {layout!r} plots its own page setup - set it with page_setup_apply"
+            )
 
         def _sync():
             doc = self._preview_state(document).doc
             resolved = self._find_layout(layout) if layout else None
-            if layout and layout.strip().lower() != "model":
+            if is_sheet:
                 if resolved is None:
                     return {"ok": False, "error": f"Layout not found: {layout}"}
                 target = doc.layouts.get(resolved)
@@ -3708,13 +3740,35 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 fig = _new_agg_figure(figsize=paper["figsize"] if paper else None)
                 ax = fig.add_axes([0, 0, 1, 1])
                 out = MatplotlibBackend(ax, adjust_figure=paper is None)
-                plot_style = draw_layout(doc, target, out, plot=True, vector=True)
+                applied = draw_layout(
+                    doc,
+                    target,
+                    out,
+                    plot=True,
+                    vector=True,
+                    plot_style=plot_style,
+                    background=background,
+                )
                 if paper is not None:
                     ax.set_xlim(*paper["xlim"])
                     ax.set_ylim(*paper["ylim"])
                     ax.set_aspect("equal", adjustable="box")
-                fig.savefig(path, dpi=150)
-                result = {"ok": True, "path": path, "plot_style": plot_style}
+                fig.savefig(path, dpi=150, transparent=background == "transparent")
+                result = {"ok": True, "path": path, "plot_style": applied}
+                if not is_sheet:
+                    result["background"] = background
+                    warnings = []
+                    if applied["name"] and not applied["exact"]:
+                        warnings.append(
+                            f"plot style {applied['name']!r} is not known here and no such "
+                            "file was found: plotted with object colours"
+                        )
+                    if background == "black" and applied["ink"] in ("monochrome", "grayscale"):
+                        warnings.append(
+                            f"{applied['name']} plots dark ink, which a black background hides"
+                        )
+                    if warnings:
+                        result["warnings"] = warnings
                 if paper is not None:
                     result["paper_mm"] = paper["size_mm"]
                     result["scale"] = paper["scale"]
@@ -5377,9 +5431,11 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         return await self._async(_sync)
 
     async def plot_style_list(self) -> list[dict]:
-        from engineering.standards.papers import CTB_CATALOG
+        from engineering.standards.papers import AUTHORED_CTB, CTB_CATALOG
 
-        return [{"name": name, "source": "catalog", "installed": None} for name in CTB_CATALOG]
+        return [{"name": name, "source": "catalog", "installed": None} for name in CTB_CATALOG] + [
+            {"name": name, "source": "authored", "installed": None} for name in AUTHORED_CTB
+        ]
 
     async def drawing_template_save(self, path, name=None, description=None) -> dict:
         """Save the current drawing as a template — DXF only, headlessly.

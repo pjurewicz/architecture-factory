@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Real plot-style pens in the PDF / PNG renderer: `Screening 75% / 50% / 25%.ctb`
+  screen every colour to that ink intensity (`255 - (255 - c) * s / 100`; they
+  now report `exact: true`), and a ctb file found on disk applies its pens'
+  colour, grey, screening and lineweight. A pen is chosen by the entity's
+  resolved colour (ByLayer / ByBlock followed; ezdxf's own lookup read only a
+  direct ACI and never screened). `plot_style.pens` lists what the table set.
+- `arch_monochrome.ctb` (`plot_style_list` source `authored`): monochrome, with
+  ACI 8, 252 and 253 at 35 % grey and 0.13 mm, ACI 9 and 254 at 35 % and
+  0.09 mm (below the 0.13 mm vector floor, which still holds for object
+  lineweights). AutoCAD itself has no such file.
+- `drawing_export_pdf(plot_style=, background=)` for a Model export: a `.ctb`
+  for this export only (never written to the drawing) and `auto` | `white` |
+  `black` | `transparent`; with a paper layout both are refused (`invalid_args`,
+  the sheet plots its page setup). `auto` is now white paper under any table
+  that maps ink, screening included.
 - Parametric catalogue items: `arch_catalogue_insert(width=, depth=, height=)`
   redraws an item's plan symbol for the given footprint (rails, rims and chairs
   keep their real sizes), within the range each row reports as `size_range`;
