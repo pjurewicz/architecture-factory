@@ -13142,14 +13142,16 @@ async def arch_wall(
     walls: Annotated[
         list[dict],
         Field(
+            default=[],
             description=(
                 "Walls to add: [{id, axis:[[x,y],...] (2+ points, straight segments, WCS mm), "
                 "thickness, justification:'center'|'left'|'right' (side of the axis looking "
                 "along it), material:'brick'|'aac'|'concrete'|'reinforced_concrete'|"
                 "'gypsum_board'|'stone'|'timber'|'generic', closed:bool}]"
-            )
+            ),
         ),
-    ],
+    ] = [],  # noqa: B006 - pydantic copies a default; the body never mutates it
+    polygons: Annotated[list[dict], Field(default=[], description="[{id, points, material}]")] = [],  # noqa: B006
     poche: Annotated[
         bool,
         Field(default=True, description="Hatch the cut wall faces in their material (ISO 128-50)"),
@@ -13176,9 +13178,10 @@ async def arch_wall(
     """
     from engineering.arch.draw import add_walls
 
-    await ctx.info(f"arch_wall: {len(walls)} wall(s)")
+    walls = walls or []
+    await ctx.info(f"arch_wall: {len(walls)} wall(s), {len(polygons or [])} polygon(s)")
     try:
-        return await add_walls(_backend(ctx), walls, poche=poche)
+        return await add_walls(_backend(ctx), walls, poche=poche, polygons=polygons or ())
     except ValueError as exc:
         raise ToolError(str(exc)) from exc
 
@@ -13200,7 +13203,14 @@ async def arch_opening(
         ),
     ],
     width: Annotated[float, Field(description="Clear width of the opening (mm)")],
-    kind: Annotated[str, Field(default="door", description="door | window")] = "door",
+    kind: Annotated[
+        str,
+        Field(
+            default="door",
+            description="door|double_door|sliding_door|garage_door|cased_opening|"
+            "window|curtain_wall",
+        ),
+    ] = "door",
     swing: Annotated[
         str,
         Field(
@@ -13239,9 +13249,9 @@ async def arch_opening(
     The opening removes its width from both wall faces and each edge is closed
     by a jamb. A door is drawn open at 90° - its leaf as long as the opening is
     wide, hinged on `hand`, with a quarter-arc swing on the `swing` side; a
-    window is a frame line on each face and two glazing lines between them. The
-    opening's `ACADMCP_ARCH` record sits on the leaf or the frame, so a schedule
-    reads it back.
+    window is a frame line on each face and two glazing lines between them.
+    Glazed/cased kinds at an L's end run to the corner. The record sits on
+    the first line, so a schedule reads it back.
 
     Refused before anything is drawn or erased: a wall id not on the drawing
     (the drawn ids are named), an opening id already drawn, an opening that
@@ -13387,12 +13397,13 @@ async def arch_dimension_chains(
     Refused by name: a drawing with no walls, an unknown or repeated side, a
     non-positive scale, offset or step.
     """
-    from engineering.arch.draw import draw_chains, read_plan
+    from engineering.arch.draw import draw_chains, read_plan, read_wall_outlines
 
     backend = _backend(ctx)
     try:
         plan = await read_plan(backend)
-        if not plan["walls"]:
+        outlines = await read_wall_outlines(backend, plan)
+        if not plan["walls"] and not outlines:
             raise ValueError(
                 "this drawing carries no architectural walls; draw them with arch_wall"
             )
@@ -13405,6 +13416,7 @@ async def arch_dimension_chains(
             scale=scale,
             first_offset=first_offset,
             step=step,
+            polygons=outlines,
         )
     except ValueError as exc:
         raise ToolError(str(exc)) from exc
@@ -13438,12 +13450,14 @@ async def arch_room(
         float,
         Field(default=50.0, gt=0, description="Plot-scale denominator: 50 is 1:50 (text x 50)."),
     ] = 50.0,
+    align: Literal["left", "center"] = "left",
+    fit: bool = False,
     ctx: Context = None,
 ) -> dict:
     """Label the room around (x, y) with its name, number and MEASURED area.
 
     The area is never typed: the tool reads the wall faces on the `wall` layer
-    of the arch set (LINE and lightweight polyline, both engines; anything else
+    of the arch set and other `A-WALL*` layers (LINE and lightweight polyline, both engines; anything else
     there is listed in `skipped`), finds the closed face
     the point lies in and writes that face's area - net of the wall thickness
     and of any column inside it - into the label and into an `ACADMCP_ARCH`
@@ -13466,7 +13480,7 @@ async def arch_room(
         room["id"] = room_id
     await ctx.info(f"arch_room: {name!r} at ({x}, {y})")
     try:
-        return await label_room(_backend(ctx), room, lang=lang, scale=scale)
+        return await label_room(_backend(ctx), room, lang=lang, scale=scale, align=align, fit=fit)
     except ValueError as exc:
         raise ToolError(str(exc)) from exc
 

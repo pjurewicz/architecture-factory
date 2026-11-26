@@ -28,6 +28,13 @@ DECLARED, not standard:
 * The label text heights (3.5 mm name, 2.5 mm number and area, on paper) are
   two values of the ISO 3098-1 series; which line gets which is this module's
   choice. The line pitch of 1.6 x the text height is this module's choice too.
+* ``align="center"`` centres every line on the label point and the whole
+  stack on it vertically; ``fit=True`` shrinks the stack (never grows it) so
+  its estimated extent fits inside the room around the point, down to
+  ``MIN_FIT_HEIGHT`` on paper. The width of a line is estimated, not measured:
+  ``CHAR_WIDTH_FACTOR`` (0.9 text heights per character, generous for
+  capitals) times its length; the result reports the factor applied and
+  whether the label fits at it.
 * ``MIN_ROOM_WIDTH``: a face whose mean width (2 x area / perimeter) is under
   600 mm is taken for a wall body or an opening reveal, not a room. That is
   this reader's heuristic, not a building rule - a 200 mm wall ring measures
@@ -49,6 +56,7 @@ from engineering.arch.model import (
     Room,
     Stair,
     Wall,
+    WallPolygon,
     decode,
     from_payload,
     room_from_dict,
@@ -66,12 +74,14 @@ __all__ = [
     "CONFIDENCE_FOREIGN",
     "CONFIDENCE_OURS",
     "DEFAULT_MIN_AREA",
+    "ALIGNS",
     "LINE_PITCH",
     "MIN_ROOM_WIDTH",
     "NAME_HEIGHT",
     "TEXT_HEIGHT",
     "WALL_LAYER_KEYWORDS",
     "detect_rooms",
+    "fit_factor",
     "label_room",
     "mean_width",
     "opening_closures",
@@ -84,6 +94,12 @@ __all__ = [
 NAME_HEIGHT = 3.5  # mm on paper (ISO 3098-1 series value)
 TEXT_HEIGHT = 2.5  # mm on paper (ISO 3098-1 series value)
 LINE_PITCH = 1.6  # baseline step, x the height of the line being placed
+MIN_FIT_HEIGHT = 1.8  # mm on paper: the smallest ISO 3098-1 series value fit shrinks to
+#: Character advance in text heights, deliberately generous: room names are capitals,
+#: and over-estimating only makes a fitted label smaller, never spill out of the room.
+CHAR_WIDTH_FACTOR = 0.9
+FIT_MARGIN = 0.9  # the share of the free width / height a fitted label may fill
+ALIGNS: tuple[str, ...] = ("left", "center")
 MIN_ROOM_WIDTH = 600.0  # mm; the wall-body heuristic above
 DEFAULT_MIN_AREA = 1.0e6  # mm^2 = 1 m^2
 CONFIDENCE_OURS = 1.0
@@ -147,27 +163,106 @@ def _positive(value, where: str) -> float:
     return number
 
 
-def room_label_prims(room: Room, *, lang: str = "en", scale=50) -> tuple[Text, ...]:
-    """Name, number (when there is one) and measured area, stacked down from ``room.at``.
-
-    Heights are paper millimetres times the plot-scale denominator: at 1:50 the
-    3.5 mm name is 175 drawing units high. The first baseline is ``room.at``;
-    each next one is 1.6 x its own height lower.
-    """
-    _check_lang(lang)
-    factor = _positive(scale, "scale")
-    x, y = float(room.at[0]), float(room.at[1])
+def _label_lines(room: Room, lang: str, factor: float) -> list[tuple[str, float]]:
     lines = [(room.name, NAME_HEIGHT * factor)]
     if room.number:
         lines.append((str(room.number), TEXT_HEIGHT * factor))
     lines.append((fmt_area_m2(room.area, lang), TEXT_HEIGHT * factor))
-    prims: list[Text] = []
+    return lines
+
+
+def _block_height(lines) -> float:
+    """From the top of the first line to the last baseline."""
+    return lines[0][1] + sum(LINE_PITCH * height for _text, height in lines[1:])
+
+
+def _check_align(align: str) -> str:
+    if align not in ALIGNS:
+        raise ValueError(
+            f"align: {align!r} is not an alignment; alignments are {', '.join(ALIGNS)}"
+        )
+    return align
+
+
+def room_label_prims(
+    room: Room, *, lang: str = "en", scale=50, align: str = "left", shrink: float = 1.0
+) -> tuple[Text, ...]:
+    """Name, number (when there is one) and measured area, stacked down.
+
+    Heights are paper millimetres times the plot-scale denominator (at 1:50 the
+    3.5 mm name is 175 drawing units high), times ``shrink``. ``align="left"``:
+    the first baseline starts at ``room.at`` and each next one is 1.6 x its own
+    height lower. ``align="center"``: every line is centred on ``room.at``'s x
+    and the stack's middle is at its y.
+    """
+    _check_lang(lang)
+    _check_align(align)
+    factor = _positive(scale, "scale") * _positive(shrink, "shrink")
+    x, y = float(room.at[0]), float(room.at[1])
+    lines = _label_lines(room, lang, factor)
     baseline = y
+    if align == "center":
+        baseline = y + _block_height(lines) / 2.0 - lines[0][1]
+    prims: list[Text] = []
     for index, (text, height) in enumerate(lines):
         if index:
             baseline -= LINE_PITCH * height
-        prims.append(Text(at=(x, baseline), text=text, height=height, rotation=0.0, role="room"))
+        prims.append(
+            Text(
+                at=(x, baseline),
+                text=text,
+                height=height,
+                rotation=0.0,
+                role="room",
+                align=align,
+            )
+        )
     return tuple(prims)
+
+
+def _chord(loops, point: Pt, axis: int) -> tuple[float, float]:
+    """The free run through ``point`` along ``axis`` (0 = x) before any edge of ``loops``."""
+    lo, hi = -math.inf, math.inf
+    other = 1 - axis
+    for loop in loops:
+        for i in range(len(loop)):
+            p, q = loop[i], loop[(i + 1) % len(loop)]
+            if (p[other] > point[other]) == (q[other] > point[other]):
+                continue
+            k = (point[other] - p[other]) / (q[other] - p[other])
+            hit = p[axis] + k * (q[axis] - p[axis])
+            if hit <= point[axis]:
+                lo = max(lo, hit)
+            else:
+                hi = min(hi, hit)
+    return lo, hi
+
+
+def fit_factor(room: Room, face: Face, *, lang: str, scale, align: str) -> dict:
+    """How much to shrink the label so its estimated extent fits the face around ``room.at``.
+
+    ``{"factor", "fits", "estimated": True}``: ``factor`` is at most 1 and at
+    least ``MIN_FIT_HEIGHT / NAME_HEIGHT``; ``fits`` is False when even the
+    smallest factor leaves the estimate outside the room.
+    """
+    factor = _positive(scale, "scale")
+    lines = _label_lines(room, lang, factor)
+    width = max(CHAR_WIDTH_FACTOR * height * len(text) for text, height in lines)
+    block = _block_height(lines)
+    x, y = float(room.at[0]), float(room.at[1])
+    loops = (face.loop, *face.holes)
+    left, right = _chord(loops, (x, y), 0)
+    below, above = _chord(loops, (x, y), 1)
+    if align == "center":
+        limits = (2.0 * min(x - left, right - x) / width, 2.0 * min(y - below, above - y) / block)
+    else:
+        # the stack runs from the name's top, one name height above the point,
+        # down to the last baseline
+        top = lines[0][1]
+        limits = ((right - x) / width, (above - y) / top, (y - below) / (block - top))
+    wanted = min(1.0, *(FIT_MARGIN * limit for limit in limits))
+    floor = MIN_FIT_HEIGHT / NAME_HEIGHT
+    return {"factor": max(wanted, floor), "fits": wanted >= floor, "estimated": True}
 
 
 def _face_offsets(wall: Wall) -> tuple[float, float]:
@@ -187,12 +282,29 @@ def opening_closures(walls, openings) -> tuple[tuple[tuple[Pt, Pt], ...], tuple[
     axis it sits on gives the direction ``u`` and the left normal ``n``; each
     face line runs from ``start + n*d`` to ``start + u*width + n*d`` for the
     face's signed offset ``d``. An opening whose wall has no record is returned
-    in ``omitted`` - its gap stays open - never guessed.
+    in ``omitted`` - its gap stays open - never guessed. When the wall engine
+    can rebuild the network, its own cut lines are used instead: a corner
+    window's gap ends on the mitre line, not square to the axis, and only the
+    engine knows where that is.
     """
+    from engineering.arch.walls import wall_geometry
+
     by_id = {wall.id: wall for wall in walls}
     closures: list[tuple[Pt, Pt]] = []
     omitted: list[dict] = []
+    cut_rows: dict[str, dict] = {}
+    hosted = [opening for opening in openings if opening.wall in by_id]
+    if walls:
+        try:
+            geometry = wall_geometry(list(walls), hosted, poche=False)
+            cut_rows = {cut["element"]: cut for cut in geometry.cuts}
+        except ValueError:
+            cut_rows = {}  # a stale record: fall back on each opening's own numbers
     for opening in openings:
+        cut = cut_rows.get(opening.id)
+        if cut is not None:
+            closures.extend((tuple(cut["right"]), tuple(cut["left"])))
+            continue
         wall = by_id.get(opening.wall)
         if wall is None:
             omitted.append(
@@ -220,6 +332,27 @@ def opening_closures(walls, openings) -> tuple[tuple[tuple[Pt, Pt], ...], tuple[
         for d in _face_offsets(wall):
             closures.append(((sx + nx * d, sy + ny * d), (ex + nx * d, ey + ny * d)))
     return tuple(closures), tuple(omitted)
+
+
+def is_wall_outline(face: Face, outlines) -> bool:
+    """True when ``face`` is the inside of a wall outline (a wall polygon is solid wall).
+
+    The face finder sees a wall polygon as one more closed face; it is one when
+    its area is the outline's (within 0.1 %) and its centroid lies inside it.
+    Only ``wall_polygon`` records are passed in: a plain closed polyline on a
+    wall layer may be the inner face of a double-line wall, i.e. a room, and a
+    solid one (a column, a wall body) is already thinner than
+    ``MIN_ROOM_WIDTH``.
+    """
+    for outline in outlines:
+        ring = [(float(x), float(y)) for x, y in outline]
+        area, _perimeter = polygon_area_perimeter([(x, y, 0.0) for x, y in ring], True)
+        if area > 0.0 and abs(face.area - area) <= 1e-3 * area:
+            if face_containing(
+                (Face(loop=tuple(ring), area=area, centroid=face.centroid),), face.centroid
+            ):
+                return True
+    return False
 
 
 def mean_width(face: Face) -> float:
@@ -283,11 +416,23 @@ async def read_records(backend: AutoCADBackend) -> dict:
     """
     from engineering.sheet.bom import all_entities  # lazy: sheet imports stay out of arch
 
-    found: dict[str, list] = {"walls": [], "openings": [], "stairs": [], "rooms": []}
+    found: dict[str, list] = {
+        "walls": [],
+        "openings": [],
+        "stairs": [],
+        "rooms": [],
+        "wall_polygons": [],
+    }
     room_handles: dict[str, str] = {}
     seen: set[tuple[str, str]] = set()
     unreadable = 0
-    buckets = {Wall: "walls", Opening: "openings", Stair: "stairs", Room: "rooms"}
+    buckets = {
+        Wall: "walls",
+        Opening: "openings",
+        Stair: "stairs",
+        Room: "rooms",
+        WallPolygon: "wall_polygons",
+    }
     arch_layers = {name.casefold(): name for name in ARCH_ROLE_LAYER.values()}
     ours = [
         entity
@@ -395,8 +540,31 @@ def _wcs_loop(loop) -> list[list[float]]:
     return [[float(x), float(y)] for x, y in loop]
 
 
+async def wall_layers(backend: AutoCADBackend) -> list[str]:
+    """The arch wall layer and every other layer named ``A-WALL*`` but the poche layer.
+
+    That is where a drafter puts what the wall engine does not draw - a bay, a
+    column, a wall imported from another model - as plain closed polylines.
+    """
+    wall = ARCH_ROLE_LAYER["wall"]
+    hatch = ARCH_ROLE_LAYER["wall_hatch"].casefold()
+    names = [wall]
+    for layer in await backend.layer_list():
+        name = layer.name
+        folded = name.casefold()
+        if folded.startswith("a-wall") and folded != hatch and folded != wall.casefold():
+            names.append(name)
+    return names
+
+
 async def label_room(
-    backend: AutoCADBackend, room_dict: dict, *, lang: str = "en", scale=50
+    backend: AutoCADBackend,
+    room_dict: dict,
+    *,
+    lang: str = "en",
+    scale=50,
+    align: str = "left",
+    fit: bool = False,
 ) -> dict:
     """Label the room around ``room_dict["at"]`` with its name, number and measured area.
 
@@ -417,6 +585,9 @@ async def label_room(
             "room.area: a room's area is measured from its walls, never typed; remove it"
         )
     _check_lang(lang)
+    _check_align(align)
+    if not isinstance(fit, bool):
+        raise ValueError(f"fit: expected true or false, got {fit!r}")
     _positive(scale, "scale")
     records = await read_records(backend)
     taken = {room.id for room in records["rooms"]}
@@ -435,7 +606,8 @@ async def label_room(
         )
 
     wall_layer = ARCH_ROLE_LAYER["wall"]
-    segments, skipped = await read_segments(backend, [wall_layer])
+    layers = await wall_layers(backend)
+    segments, skipped = await read_segments(backend, layers)
     closures, omitted = opening_closures(records["walls"], records["openings"])
     faces = planar_faces(
         [*segments, *((p1, p2, wall_layer) for p1, p2 in closures)], tol=DEFAULT_TOL
@@ -445,8 +617,14 @@ async def label_room(
     if face is None:
         raise ValueError(
             f"room.at: ({x:g}, {y:g}) lies in no closed face of the {len(segments)} wall "
-            f"segment(s) on {wall_layer}; close the walls around it first (arch_wall), or read "
+            f"segment(s) on {', '.join(layers)}; close the walls around it first (arch_wall), or read "
             "a plan drawn by other means with arch_rooms_detect"
+        )
+    polygon_ids = [p.id for p in records["wall_polygons"]]
+    if is_wall_outline(face, [p.points for p in records["wall_polygons"]]):
+        raise ValueError(
+            f"room.at: ({x:g}, {y:g}) lies inside a wall polygon (one of "
+            f"{', '.join(polygon_ids)}), which is solid wall, not a room"
         )
     width = mean_width(face)
     if width < MIN_ROOM_WIDTH:
@@ -470,8 +648,15 @@ async def label_room(
     measured = replace(room, area=face.area)
     from engineering.mech.draw import draw_prims  # lazy: mech.draw imports the arch layer set
 
+    fitted = (
+        fit_factor(measured, face, lang=lang, scale=scale, align=align)
+        if fit
+        else {"factor": 1.0, "fits": None, "estimated": True}
+    )
     drawn = await draw_prims(
-        backend, room_label_prims(measured, lang=lang, scale=scale), role_layer=ARCH_ROLE_LAYER
+        backend,
+        room_label_prims(measured, lang=lang, scale=scale, align=align, shrink=fitted["factor"]),
+        role_layer=ARCH_ROLE_LAYER,
     )
     handle = drawn["handles"][0]
     await backend.entity_set_xdata(handle, APP_ID, to_values(to_payload(measured)))
@@ -489,6 +674,9 @@ async def label_room(
         "handle": handle,
         "handles": list(drawn["handles"]),
         "layer": ARCH_ROLE_LAYER["room"],
+        "align": align,
+        "fit": {**fitted, "name_height_mm": NAME_HEIGHT * fitted["factor"]} if fit else None,
+        "wall_layers": layers,
         "loop": _wcs_loop(face.loop),
         "holes": [_wcs_loop(hole) for hole in face.holes],
         "wall_segments": len(segments),
@@ -548,6 +736,17 @@ async def rooms_detect(
     wall_layer = ARCH_ROLE_LAYER["wall"]
     extra = [(p1, p2, wall_layer) for p1, p2 in closures]
     rooms = detect_rooms([*segments, *extra], min_area=min_area, tol=tol)
+    outlines = [polygon.points for polygon in records["wall_polygons"]]
+    rooms = tuple(
+        room
+        for room in rooms
+        if not is_wall_outline(
+            Face(
+                loop=room["loop"], area=room["area"], centroid=room["centroid"], holes=room["holes"]
+            ),
+            outlines,
+        )
+    )
 
     out: list[dict] = []
     conflicts: list[dict] = []

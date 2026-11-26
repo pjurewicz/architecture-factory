@@ -53,6 +53,7 @@ SPEC_KEYS = (
     "lang",
     "poche",
     "walls",
+    "wall_polygons",
     "openings",
     "stairs",
     "rooms",
@@ -180,7 +181,7 @@ def spec_schema() -> dict:
     item from its builder (``item_schema``), so the advertised syntax is the
     accepted one. Ranges and cross-item rules stay with the validator.
     """
-    from .model import Opening, Room, Stair, Wall, item_schema
+    from .model import Opening, Room, Stair, Wall, WallPolygon, item_schema
 
     point = {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}
     props = {
@@ -196,6 +197,7 @@ def spec_schema() -> dict:
         "lang": {"type": "string", "enum": list(LANGS), "default": "en"},
         "poche": {"type": "boolean", "default": True},
         "walls": {"type": "array", "items": item_schema(Wall), "minItems": 1},
+        "wall_polygons": {"type": "array", "items": item_schema(WallPolygon)},
         "openings": {"type": "array", "items": item_schema(Opening)},
         "stairs": {"type": "array", "items": item_schema(Stair)},
         "rooms": {"type": "array", "items": item_schema(Room)},
@@ -265,6 +267,10 @@ def validate_spec(spec: dict) -> dict:
     if not raw_walls:
         raise ValueError("walls: name at least one wall - a plan without walls has no rooms")
     walls = [wall_from_dict(item, f"walls[{i}]") for i, item in enumerate(raw_walls)]
+    try:
+        polygons = _draw.parse_wall_polygons(_list(spec, "wall_polygons"))
+    except ValueError as exc:
+        raise ValueError(f"wall_{exc}") from exc
     openings = [
         opening_from_dict(item, f"openings[{i}]") for i, item in enumerate(_list(spec, "openings"))
     ]
@@ -325,6 +331,7 @@ def validate_spec(spec: dict) -> dict:
         "lang": lang,
         "poche": poche,
         "walls": walls,
+        "wall_polygons": polygons,
         "openings": openings,
         "omitted": list(geometry.omitted),
         "stairs": stairs,
@@ -366,6 +373,7 @@ async def draw_plan_from_spec(backend: AutoCADBackend, spec: dict) -> dict:
 
     result: dict = {
         "walls": None,
+        "wall_polygons": [],
         "stairs": [],
         "rooms": [],
         "chains": None,
@@ -375,6 +383,9 @@ async def draw_plan_from_spec(backend: AutoCADBackend, spec: dict) -> dict:
         await backend.drawing_apply_iso_layers("arch")
         result["walls"] = await _draw.draw_walls(
             backend, norm["walls"], norm["openings"], poche=norm["poche"]
+        )
+        result["wall_polygons"] = await _draw.draw_wall_polygons(
+            backend, norm["wall_polygons"], poche=norm["poche"]
         )
         for i, stair in enumerate(norm["stairs"]):
             try:
@@ -392,7 +403,12 @@ async def draw_plan_from_spec(backend: AutoCADBackend, spec: dict) -> dict:
                 raise ValueError(f"rooms[{i}]: {exc}") from exc
         if norm["chains"] is not None:
             result["chains"] = await _draw.draw_chains(
-                backend, norm["walls"], norm["openings"], sides=norm["chains"], scale=scale
+                backend,
+                norm["walls"],
+                norm["openings"],
+                sides=norm["chains"],
+                scale=scale,
+                polygons=await _draw.read_wall_outlines(backend),
             )
         for i, item in enumerate(norm["schedules"]):
             try:
@@ -428,6 +444,7 @@ async def draw_plan_from_spec(backend: AutoCADBackend, spec: dict) -> dict:
     skipped = {str(item.get("element")) for item in omitted}
     return {
         "walls": [wall.id for wall in norm["walls"]],
+        "wall_polygons": [polygon.id for polygon in norm["wall_polygons"]],
         "openings": [o.id for o in norm["openings"] if o.id not in skipped],
         "stairs": result["stairs"],
         "rooms": result["rooms"],

@@ -85,6 +85,8 @@ class Text(NamedTuple):
     height: float = 3.5
     rotation: float = 0.0
     role: Role = "text"
+    #: "left": ``at`` is the left end of the baseline; "center": its middle.
+    align: str = "left"
     feature: str = ""
 
 

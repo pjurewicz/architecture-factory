@@ -40,6 +40,14 @@ _VOCAB: dict[str, dict[str, str]] = {
         "out": "OUT",
         "left": "LEFT",
         "right": "RIGHT",
+        "type": "TYPE",
+        "door": "DOOR",
+        "double_door": "DOUBLE DOOR",
+        "sliding_door": "SLIDING DOOR",
+        "garage_door": "GARAGE DOOR",
+        "cased_opening": "CASED OPENING",
+        "window": "WINDOW",
+        "curtain_wall": "CURTAIN WALL",
     },
     "tr": {
         "door_schedule": "KAPI LİSTESİ",
@@ -64,6 +72,14 @@ _VOCAB: dict[str, dict[str, str]] = {
         "out": "DIŞA",
         "left": "SOL",
         "right": "SAĞ",
+        "type": "TİP",
+        "door": "KAPI",
+        "double_door": "ÇİFT KANATLI KAPI",
+        "sliding_door": "SÜRME KAPI",
+        "garage_door": "GARAJ KAPISI",
+        "cased_opening": "KAPISIZ BOŞLUK",
+        "window": "PENCERE",
+        "curtain_wall": "GİYDİRME CEPHE",
     },
 }
 
@@ -85,11 +101,19 @@ def vocab(lang: str) -> dict[str, str]:
 
 
 def tag_prefix(kind: str, lang: str) -> str:
-    """``door`` -> ``D`` / ``K`` (kapı), ``window`` -> ``W`` / ``P`` (pencere)."""
+    """The door family -> ``D`` / ``K`` (kapı), the glazed family -> ``W`` / ``P`` (pencere).
+
+    One prefix per family, so a sliding door and a hinged door share one
+    numbering and one schedule; the schedule's TYPE column tells them apart.
+    """
+    from engineering.arch.model import DOOR_KINDS, OPENING_KINDS, WINDOW_KINDS
+
     table = _TAG_PREFIX[_lang(lang)]
-    if kind not in table:
-        raise ValueError(f"kind: unknown opening kind {kind!r}; kinds are door, window")
-    return table[kind]
+    if kind in DOOR_KINDS:
+        return table["door"]
+    if kind in WINDOW_KINDS:
+        return table["window"]
+    raise ValueError(f"kind: unknown opening kind {kind!r}; kinds are {', '.join(OPENING_KINDS)}")
 
 
 def fmt_number(value: float, lang: str, decimals: int = 2) -> str:

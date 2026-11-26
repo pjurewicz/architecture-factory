@@ -7364,19 +7364,34 @@ class ComBackend(ComCheckpoints, AutoCADBackend):
         layer=None,
         color=None,
         xdata=None,
+        align="left",
     ) -> EntityInfo:
         return await self._run(
-            self._create_text_job(text, x, y, height, rotation, layer, color, xdata)
+            self._create_text_job(text, x, y, height, rotation, layer, color, xdata, align)
         )
 
     def _create_text_job(
-        self, text, x, y, height=2.5, rotation=0.0, layer=None, color=None, xdata=None
+        self,
+        text,
+        x,
+        y,
+        height=2.5,
+        rotation=0.0,
+        layer=None,
+        color=None,
+        xdata=None,
+        align="left",
     ):
         prepared = prepare_xdata(xdata)
+        if align not in ("left", "center"):
+            raise ValueError(f"align: {align!r}; alignments are left, center")
 
         def _sync():
             mspace = _msp()
             txt = mspace.AddText(text, _apoint(x, y), float(height))
+            if align == "center":
+                txt.Alignment = 1  # acAlignmentCenter: TextAlignmentPoint is the anchor
+                txt.TextAlignmentPoint = _apoint(x, y)
             txt.Rotation = deg2rad(rotation)
             _apply_entity_attrs(txt, layer, color, None)
             _attach_xdata(txt, prepared)

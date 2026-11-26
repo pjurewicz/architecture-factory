@@ -273,6 +273,8 @@ async def draw_prims(
                 [[x, y] for x, y in prim.points], prim.closed, layer=layer, **extra
             )
         elif isinstance(prim, Text):
+            if prim.align != "left":
+                extra["align"] = prim.align
             info = await backend.entity_create_text(
                 prim.text,
                 prim.at[0],

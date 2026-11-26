@@ -41,7 +41,17 @@ from engineering.qa_coverage import domain_row
 from engineering.qa_scan import shared_index
 
 from .layers import ARCH_ROLE_LAYER
-from .model import APP_ID, Opening, Room, Stair, Wall, axis_segments, decode, from_payload
+from .model import (
+    APP_ID,
+    Opening,
+    Room,
+    Stair,
+    Wall,
+    WallPolygon,
+    axis_segments,
+    decode,
+    from_payload,
+)
 
 if TYPE_CHECKING:
     from backends.base import AutoCADBackend
@@ -56,7 +66,13 @@ JOIN_TOL_MM = 1.0
 #: Below this, two lengths along a wall are the same length.
 EPS = 1e-9
 
-_BUCKETS = {Wall: "walls", Opening: "openings", Stair: "stairs", Room: "rooms"}
+_BUCKETS = {
+    Wall: "walls",
+    Opening: "openings",
+    Stair: "stairs",
+    Room: "rooms",
+    WallPolygon: "wall_polygons",
+}
 
 
 # ── the index ───────────────────────────────────────────────────────────────
@@ -72,7 +88,14 @@ async def build_index(backend: AutoCADBackend) -> dict:
     """
     from engineering.sheet.bom import all_entities
 
-    index: dict = {"walls": {}, "openings": {}, "stairs": {}, "rooms": {}, "faces": []}
+    index: dict = {
+        "walls": {},
+        "openings": {},
+        "stairs": {},
+        "rooms": {},
+        "wall_polygons": {},
+        "faces": [],
+    }
     for layer in sorted(set(ARCH_ROLE_LAYER.values())):
         entities = await all_entities(backend, layer=layer)
         for entity in entities:
@@ -89,11 +112,11 @@ async def build_index(backend: AutoCADBackend) -> dict:
             bucket = index[_BUCKETS[type(obj)]]
             entry = bucket.setdefault(obj.id, {"obj": obj, "handles": []})
             entry["handles"].append(entity.handle)
-    if index["walls"]:
-        from engineering.arch.rooms import rooms_detect
+    if index["walls"] or index["wall_polygons"]:
+        from engineering.arch.rooms import rooms_detect, wall_layers
 
         try:
-            detected = await rooms_detect(backend, layers=[ARCH_ROLE_LAYER["wall"]])
+            detected = await rooms_detect(backend, layers=await wall_layers(backend))
         except ValueError:
             detected = {"rooms": []}
         index["faces"] = list(detected.get("rooms") or [])
@@ -101,7 +124,9 @@ async def build_index(backend: AutoCADBackend) -> dict:
 
 
 def has_arch_content(index: dict) -> bool:
-    return any(index[bucket] for bucket in ("walls", "openings", "stairs", "rooms"))
+    return any(
+        index[bucket] for bucket in ("walls", "openings", "stairs", "rooms", "wall_polygons")
+    )
 
 
 # ── geometry ────────────────────────────────────────────────────────────────

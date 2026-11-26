@@ -5926,8 +5926,11 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         layer=None,
         color=None,
         xdata=None,
+        align="left",
     ) -> EntityInfo:
         prepared = prepare_xdata(xdata)
+        if align not in ("left", "center"):
+            raise ValueError(f"align: {align!r}; alignments are left, center")
 
         def _sync():
             msp = self._msp()
@@ -5940,6 +5943,10 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     "insert": (float(x), float(y)),
                 },
             )
+            if align == "center":
+                from ezdxf.enums import TextEntityAlignment
+
+                ent.set_placement((float(x), float(y)), align=TextEntityAlignment.CENTER)
             self._apply_attrs(ent, layer, color)
             self._attach_xdata(ent, prepared)
             self._mark_dirty()

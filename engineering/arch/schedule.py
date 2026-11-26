@@ -10,8 +10,11 @@ than assumed - a real ACAD_TABLE live, a composite of rules and MTEXT headless.
 
 Rows:
 
-* doors - tag, width, height, swing, hand, wall; windows - tag, width,
-  height, sill, wall. Sorted by tag, numbers compared as numbers (D2 before
+* doors - tag, type, width, height, swing, hand, wall - every kind of the
+  door family (door, double_door, sliding_door, garage_door, cased_opening);
+  windows - tag, type, width, height, sill, wall - window and curtain_wall.
+  Swing is blank for a kind that does not swing (sliding, cased), hand for
+  every kind but the single-leaf door. Sorted by tag, numbers compared as numbers (D2 before
   D10). An opening without a tag gets the next free ``<prefix><n>`` in wall
   order (the order of ``walls``, then the offset along the wall); an explicit
   tag is never renumbered and a generated one never repeats it.
@@ -35,6 +38,7 @@ from typing import TYPE_CHECKING
 
 from engineering.arch.lang import LANGS, fmt_area_m2, fmt_number, tag_prefix, vocab
 from engineering.arch.layers import ARCH_LAYERS, ARCH_ROLE_LAYER
+from engineering.arch.model import DOOR_KINDS, WINDOW_KINDS
 
 if TYPE_CHECKING:
     from backends.base import AutoCADBackend
@@ -52,8 +56,8 @@ __all__ = [
 SCHEDULE_KINDS: tuple[str, ...] = ("doors", "windows", "rooms")
 
 SCHEDULE_COLUMNS: dict[str, tuple[str, ...]] = {
-    "doors": ("tag", "width", "height", "swing", "hand", "wall"),
-    "windows": ("tag", "width", "height", "sill", "wall"),
+    "doors": ("tag", "type", "width", "height", "swing", "hand", "wall"),
+    "windows": ("tag", "type", "width", "height", "sill", "wall"),
     "rooms": ("number", "name", "area"),
 }
 
@@ -67,6 +71,7 @@ SCHEDULE_TITLES: dict[str, str] = {
 #: Column widths in paper millimetres (x the scale denominator in the drawing).
 COLUMN_WIDTHS: dict[str, float] = {
     "tag": 15.0,
+    "type": 35.0,
     "width": 20.0,
     "height": 20.0,
     "swing": 20.0,
@@ -82,6 +87,10 @@ COLUMN_WIDTHS: dict[str, float] = {
 MAX_ROWS = 198
 
 _OPENING_KIND = {"doors": "door", "windows": "window"}
+_FAMILY = {"doors": DOOR_KINDS, "windows": WINDOW_KINDS}
+#: The door kinds whose swing side / hinge jamb mean something on the schedule.
+_SWINGS = ("door", "double_door", "garage_door")
+_HANDED = ("door",)
 
 
 def _check(kind: str, lang: str) -> None:
@@ -116,7 +125,7 @@ def _opening_rows(kind: str, plan: dict, lang: str) -> tuple[dict, ...]:
     words = vocab(lang)
     wanted = _OPENING_KIND[kind]
     wall_order = {wall.id: index for index, wall in enumerate(plan.get("walls") or ())}
-    openings = [o for o in plan.get("openings") or () if o.kind == wanted]
+    openings = [o for o in plan.get("openings") or () if o.kind in _FAMILY[kind]]
     openings.sort(
         key=lambda o: (wall_order.get(o.wall, len(wall_order)), o.wall, float(o.offset), o.id)
     )
@@ -137,13 +146,15 @@ def _opening_rows(kind: str, plan: dict, lang: str) -> tuple[dict, ...]:
             "id": opening.id,
             "tag": tag,
             "generated": generated,
+            "kind": opening.kind,
+            "type": words[opening.kind],
             "width": _mm(opening.width, lang),
             "height": _mm(opening.height, lang),
             "wall": opening.wall,
         }
         if kind == "doors":
-            row["swing"] = words[opening.swing]
-            row["hand"] = words[opening.hand]
+            row["swing"] = words[opening.swing] if opening.kind in _SWINGS else ""
+            row["hand"] = words[opening.hand] if opening.kind in _HANDED else ""
         else:
             row["sill"] = _mm(opening.sill, lang)
         rows.append(row)

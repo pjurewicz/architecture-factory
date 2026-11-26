@@ -15,6 +15,13 @@ whose outer face no other parallel segment overlapping it lies beyond. Points
 come from the wall engine's own faces, so a chain can never disagree with the
 outline it measures.
 
+Wall outlines that are not in the junction engine - a bay, a column, a wall
+imported as a polygon (``polygons``, tuples of points) - widen the box the
+overall row spans, and one whose outline reaches a facade (a vertex inside an
+exterior wall's body or on the box edge) adds its two extremes along that
+facade to the walls row. A corner opening's jamb is its gap's end on the outer
+face, which at an L is the outer mitre point, not the axis.
+
 ISO 129-1: each measurement appears once. A row whose points are exactly those
 of a farther row (a facade with no opening, a side no wall meets) is not
 emitted; the rows that are keep their places, so the overall row is always at
@@ -139,6 +146,14 @@ def _points(values: set[float]) -> list[float]:
     return out
 
 
+def _anchor(anchors: dict, value: float, default: float) -> float:
+    """The across-facade coordinate recorded for ``value`` (merged within 1e-6 by `_points`)."""
+    for key, across in anchors.items():
+        if abs(key - value) <= 1e-6:
+            return across
+    return default
+
+
 def exterior_chains(
     walls,
     openings=(),
@@ -147,6 +162,7 @@ def exterior_chains(
     first_offset=None,
     step=None,
     scale=50,
+    polygons=(),
 ) -> tuple[DimIntent, ...]:
     """Linear ``DimIntent`` rows outside each named side, nearest first.
 
@@ -163,13 +179,25 @@ def exterior_chains(
         else _positive(first_offset, "first_offset")
     )
     gap = STEP_PAPER_MM * factor if step is None else _positive(step, "step")
-    geometry = wall_geometry(walls, openings, poche=False)
-    if not geometry.faces:
+    outlines = [tuple((float(x), float(y)) for x, y in polygon) for polygon in polygons]
+    geometry = wall_geometry(walls, openings, poche=False) if walls else None
+    faces_drawn = list(geometry.faces) if geometry else []
+    if not faces_drawn and not outlines:
         raise ValueError("walls: there is no wall to dimension")
-    xs = [p[0] for line in geometry.faces for p in (line.p1, line.p2)]
-    ys = [p[1] for line in geometry.faces for p in (line.p1, line.p2)]
+    xs = [p[0] for line in faces_drawn for p in (line.p1, line.p2)]
+    ys = [p[1] for line in faces_drawn for p in (line.p1, line.p2)]
+    xs += [p[0] for outline in outlines for p in outline]
+    ys += [p[1] for outline in outlines for p in outline]
     box = {"bottom": min(ys), "top": max(ys), "left": min(xs), "right": max(xs)}
-    skipped = {entry["element"] for entry in geometry.omitted}
+    # the facade of the walls alone: where a polygon's tied extremes are measured from
+    wx = [p[0] for line in faces_drawn for p in (line.p1, line.p2)] or xs
+    wy = [p[1] for line in faces_drawn for p in (line.p1, line.p2)] or ys
+    facade = {"bottom": min(wy), "top": max(wy), "left": min(wx), "right": max(wx)}
+    # every point a chain may measure from: the wall faces' ends and the outlines' vertices
+    candidates = [p for line in faces_drawn for p in (line.p1, line.p2)]
+    candidates += [p for outline in outlines for p in outline]
+    skipped = {entry["element"] for entry in geometry.omitted} if geometry else set()
+    cuts = {cut["element"]: cut for cut in geometry.cuts} if geometry else {}
     by_id = {wall.id: wall for wall in walls}
 
     intents: list[DimIntent] = []
@@ -178,23 +206,40 @@ def exterior_chains(
         sign = -1.0 if side in ("bottom", "left") else 1.0
         edge = box[side]
         lo, hi = (box["left"], box["right"]) if ai == 0 else (box["bottom"], box["top"])
+        ci = 1 - ai
         exterior = _exterior(walls, ai, sign)
-        hosts = {(item["wall"].id, item["index"]) for item in exterior}
+        hosts = {(item["wall"].id, item["index"]): item for item in exterior}
 
-        jambs = {lo, hi}
+        def extreme(value: float, ai=ai, ci=ci, edge=edge) -> float:
+            """Where across the facade the overall extreme ``value`` is a real point."""
+            near = [p for p in candidates if abs(p[ai] - value) <= 1e-6]
+            return min(near, key=lambda p: abs(p[ci] - edge))[ci]
+
+        # value along the facade -> the coordinate across it of the feature it measures:
+        # a chain's points stay on the walls they dimension, whatever lies farther out
+        jambs = {lo: extreme(lo), hi: extreme(hi)}
         for opening in openings:
             if opening.id in skipped:
                 continue
             wall = by_id[opening.wall]
             index, along = segment_of(wall, float(opening.offset))
-            if (wall.id, index) not in hosts:
+            host = hosts.get((wall.id, index))
+            if host is None:
+                continue
+            cut = cuts.get(opening.id)
+            if cut is not None:
+                outer = min(
+                    (cut["left"], cut["right"]), key=lambda pq: abs(pq[0][ci] - host["outer"])
+                )
+                for point in outer:
+                    jambs.setdefault(point[ai], point[ci])
                 continue
             a, b = wall_segments(wall)[index]
             u = _unit(a, b)
-            jambs.add(a[ai] + u[ai] * along)
-            jambs.add(a[ai] + u[ai] * (along + float(opening.width)))
+            jambs.setdefault(a[ai] + u[ai] * along, host["outer"])
+            jambs.setdefault(a[ai] + u[ai] * (along + float(opening.width)), host["outer"])
 
-        faces = {lo, hi}
+        faces = {lo: jambs[lo], hi: jambs[hi]}
         for wall in walls:
             left, right = face_offsets(wall)
             for a, b in wall_segments(wall):
@@ -203,20 +248,33 @@ def exterior_chains(
                     continue
                 n = (-u[1], u[0])
                 for end in (a, b):
-                    if any(_inside(end, item) for item in exterior):
-                        faces.add(end[ai] + n[ai] * left)
-                        faces.add(end[ai] + n[ai] * right)
+                    met = next((item for item in exterior if _inside(end, item)), None)
+                    if met is not None:
+                        faces.setdefault(end[ai] + n[ai] * left, met["outer"])
+                        faces.setdefault(end[ai] + n[ai] * right, met["outer"])
+        for outline in outlines:
+            on_facade = any(
+                abs(p[ci] - edge) <= _TOL or any(_inside(p, item) for item in exterior)
+                for p in outline
+            )
+            if on_facade:
+                for value in (min(p[ai] for p in outline), max(p[ai] for p in outline)):
+                    tied = [p for p in outline if abs(p[ai] - value) <= 1e-6]
+                    nearest = min(tied, key=lambda p: abs(p[ci] - facade[side]))
+                    faces.setdefault(value, nearest[ci])
 
-        rows = [_points(jambs), _points(faces), _points({lo, hi})]
+        anchors = {**faces, **jambs}
+        rows = [_points(set(jambs)), _points(set(faces)), _points({lo, hi})]
         for r, points in enumerate(rows):
             if any(points == later for later in rows[r + 1 :]):
                 continue
             offset = edge + sign * (first + r * gap)
             for p, q in zip(points, points[1:], strict=False):
+                cp, cq = _anchor(anchors, p, edge), _anchor(anchors, q, edge)
                 if ai == 0:
-                    p1, p2, at = (p, edge), (q, edge), ((p + q) / 2.0, offset)
+                    p1, p2, at = (p, cp), (q, cq), ((p + q) / 2.0, offset)
                 else:
-                    p1, p2, at = (edge, p), (edge, q), (offset, (p + q) / 2.0)
+                    p1, p2, at = (cp, p), (cq, q), (offset, (p + q) / 2.0)
                 intents.append(DimIntent("linear", p1, p2, at, feature=f"{side}:{ROWS[r]}"))
     return tuple(intents)
 
@@ -273,7 +331,7 @@ def chain_text_positions(
 
         def box(i, along, slot):
             intent = intents[i]
-            label = format_value(math.dist(intent.p1, intent.p2), 0, style_vars)
+            label = format_value(abs(intent.p2[ai] - intent.p1[ai]), 0, style_vars)
             half = len(label) * TEXT_WIDTH_FACTOR * h / 2.0
             across = intent.text_at[ci] + slot
             return (along - half, along + half, across - h / 2.0, across + h / 2.0)

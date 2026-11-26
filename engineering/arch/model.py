@@ -21,6 +21,7 @@ from collections.abc import Sequence
 from dataclasses import MISSING, asdict, dataclass
 from dataclasses import fields as dataclass_fields
 
+from engineering.measure import is_self_intersecting, polygon_area_perimeter
 from engineering.mech import xdata as _codec
 
 from .materials import WALL_HATCH_TABLE, WALL_MATERIALS, normalise_material
@@ -28,11 +29,24 @@ from .materials import WALL_HATCH_TABLE, WALL_MATERIALS, normalise_material
 Pt = tuple[float, float]
 
 APP_ID = "ACADMCP_ARCH"
-KINDS: tuple[str, ...] = ("wall", "opening", "stair", "room")
+KINDS: tuple[str, ...] = ("wall", "opening", "stair", "room", "wall_polygon")
 PAYLOAD_VERSION = _codec.PAYLOAD_VERSION
 
 JUSTIFICATIONS: tuple[str, ...] = ("center", "left", "right")
-OPENING_KINDS: tuple[str, ...] = ("door", "window")
+#: The door family: scheduled with the doors, tagged D / K.
+DOOR_KINDS: tuple[str, ...] = (
+    "door",
+    "double_door",
+    "sliding_door",
+    "garage_door",
+    "cased_opening",
+)
+#: The glazed family: scheduled with the windows, tagged W / P.
+WINDOW_KINDS: tuple[str, ...] = ("window", "curtain_wall")
+OPENING_KINDS: tuple[str, ...] = (*DOOR_KINDS, *WINDOW_KINDS)
+#: The kinds that may run into an L junction to the wall corner (a corner
+#: window): a door leaf hinged on a mitre has no jamb to hang on.
+CORNER_KINDS: tuple[str, ...] = ("window", "curtain_wall", "cased_opening")
 SWINGS: tuple[str, ...] = ("in", "out")
 HANDS: tuple[str, ...] = ("left", "right")
 STAIR_KINDS: tuple[str, ...] = ("straight", "l", "u")
@@ -64,6 +78,21 @@ class Opening:
     sill: float | None = None
     height: float | None = None
     tag: str | None = None
+
+
+@dataclass(frozen=True)
+class WallPolygon:
+    """A wall piece given as its outline: a bay, a column, a wall from SketchUp.
+
+    It takes no part in the junction engine and hosts no opening; it is a
+    closed straight-edged outline with a material, drawn as a polyline on the
+    wall layer with its poche, so rooms, chains and schedules read it like the
+    rest of the plan.
+    """
+
+    id: str
+    points: tuple[Pt, ...]
+    material: str | None = None  # None: generic
 
 
 @dataclass(frozen=True)
@@ -191,6 +220,7 @@ _STAIR_FIELDS = (
     "turn",
 )
 _ROOM_FIELDS = ("id", "name", "number", "at")
+_POLYGON_FIELDS = ("id", "points", "material")
 
 
 #: The closed values each builder's ``_choice`` checks, by field.
@@ -199,6 +229,7 @@ _CHOICES: dict[type, dict[str, Sequence[str]]] = {
     Opening: {"kind": OPENING_KINDS, "swing": SWINGS, "hand": HANDS},
     Stair: {"kind": STAIR_KINDS, "turn": TURNS},
     Room: {},
+    WallPolygon: {},
 }
 _POINT_SCHEMA = {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}
 
@@ -215,9 +246,12 @@ def item_schema(model: type) -> dict:
     """
     import typing
 
-    fields = {Wall: _WALL_FIELDS, Opening: _OPENING_FIELDS, Stair: _STAIR_FIELDS}.get(
-        model, _ROOM_FIELDS
-    )
+    fields = {
+        Wall: _WALL_FIELDS,
+        Opening: _OPENING_FIELDS,
+        Stair: _STAIR_FIELDS,
+        WallPolygon: _POLYGON_FIELDS,
+    }.get(model, _ROOM_FIELDS)
     hints = typing.get_type_hints(model)
     defaults = {f.name: f.default for f in dataclass_fields(model)}
     plain = {str: "string", float: "number", int: "integer", bool: "boolean"}
@@ -281,19 +315,49 @@ def wall_from_dict(d: dict, path: str = "wall") -> Wall:
     justification = _choice(
         d.get("justification", "center"), f"{path}.justification", JUSTIFICATIONS
     )
-    material = d.get("material", "brick")
-    if not isinstance(material, str) or normalise_material(material) not in WALL_HATCH_TABLE:
-        raise ValueError(
-            f"{path}.material: unknown wall material {material!r}; "
-            f"wall materials are {', '.join(WALL_MATERIALS)}"
-        )
+    material = _material(d.get("material", "brick"), f"{path}.material")
     return Wall(
         id=wall_id,
         axis=axis,
         thickness=thickness,
         justification=justification,
-        material=normalise_material(material),
+        material=material,
         closed=closed,
+    )
+
+
+def _material(value, where: str) -> str:
+    if not isinstance(value, str) or normalise_material(value) not in WALL_HATCH_TABLE:
+        raise ValueError(
+            f"{where}: unknown wall material {value!r}; "
+            f"wall materials are {', '.join(WALL_MATERIALS)}"
+        )
+    return normalise_material(value)
+
+
+def wall_polygon_from_dict(d: dict, path: str = "wall_polygon") -> WallPolygon:
+    """A validated WallPolygon: 3+ points, no repeated point, no crossing edge, an area."""
+    _known(d, path, _POLYGON_FIELDS)
+    raw = _required(d, "points", path)
+    if isinstance(raw, (str, bytes, dict)) or not isinstance(raw, (list, tuple)):
+        raise ValueError(f"{path}.points: expected a list of [x, y] points, got {raw!r}")
+    points = [_point(p, f"{path}.points[{i}]") for i, p in enumerate(raw)]
+    if len(points) > 3 and math.dist(points[0], points[-1]) <= EPS:
+        points.pop()  # a closing point repeating the first one is the same outline
+    if len(points) < 3:
+        raise ValueError(f"{path}.points: an outline needs at least 3 points, got {len(points)}")
+    for i in range(len(points)):
+        if math.dist(points[i - 1], points[i]) <= EPS:
+            raise ValueError(f"{path}.points[{i}]: repeats the point before it")
+    area, _perimeter = polygon_area_perimeter([(x, y, 0.0) for x, y in points], True)
+    if area <= EPS:
+        raise ValueError(f"{path}.points: the outline encloses no area")
+    if is_self_intersecting(points):
+        raise ValueError(f"{path}.points: the outline crosses itself; give it as a simple polygon")
+    return WallPolygon(
+        id=_text(_required(d, "id", path), f"{path}.id"),
+        points=tuple(points),
+        material=_material(d.get("material") or "generic", f"{path}.material"),
     )
 
 
@@ -456,7 +520,13 @@ def validate_openings(walls: Sequence[Wall], openings: Sequence[Opening]) -> Non
 
 # -- the ACADMCP_ARCH payload --------------------------------------------------
 
-_BY_KIND = {Wall: "wall", Opening: "opening", Stair: "stair", Room: "room"}
+_BY_KIND = {
+    Wall: "wall",
+    Opening: "opening",
+    Stair: "stair",
+    Room: "room",
+    WallPolygon: "wall_polygon",
+}
 
 
 def _jsonable(value):
@@ -466,7 +536,7 @@ def _jsonable(value):
 
 
 def to_payload(obj) -> dict:
-    """``{"v": 1, "kind": "wall"|"opening"|"stair"|"room", **fields}`` - JSON-ready.
+    """``{"v": 1, "kind": "wall"|"opening"|"stair"|"room"|"wall_polygon", **fields}``.
 
     ``Opening.kind`` (door / window) and ``Stair.kind`` (straight / l / u) would
     overwrite the payload's own ``kind``, so they travel as ``opening_kind`` and
@@ -501,6 +571,8 @@ def from_payload(payload: dict):
         return opening_from_dict(fields, where)
     if kind == "stair":
         return stair_from_dict(fields, where)
+    if kind == "wall_polygon":
+        return wall_polygon_from_dict(fields, where)
     if kind == "room":
         area = _number(fields.pop("area", 0.0), f"{where}.area", allow_zero=True)
         room = room_from_dict(fields, where)
@@ -509,7 +581,7 @@ def from_payload(payload: dict):
 
 
 def encode(payload: dict) -> list[tuple[int, str]]:
-    """The mechanical codec with ``app_id=ACADMCP_ARCH`` and the four plan kinds."""
+    """The mechanical codec with ``app_id=ACADMCP_ARCH`` and the plan kinds."""
     return _codec.encode(payload, app_id=APP_ID, kinds=KINDS)
 
 

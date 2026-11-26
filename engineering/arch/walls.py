@@ -27,7 +27,14 @@ that no single segment covers; it is a region of its own, so the poche has no
 hole in it.
 
 An opening removes its width from both faces and each edge is closed by a jamb;
-a free wall end is closed by a jamb too. Every solid piece - one axis segment's
+a free wall end is closed by a jamb too. A *corner opening* - a window, a
+curtain wall or a cased opening whose span starts at offset 0 or ends at the
+axis end, where the wall turns at an L - runs into the junction: its face lines
+stop on the L's mitre line instead of a jamb, so a window on each of the two
+walls meets its neighbour at the corner with no post between them. When only
+one of the two walls is open there, the other one is closed by a jamb along
+that mitre line. A corner at a T or an X (three or more ends at the node) is
+not one wall corner and stays in ``omitted``. Every solid piece - one axis segment's
 stretch between junctions, openings and free ends, plus each hub - is one CCW
 region and, with ``poche=True``, one ``HatchArea`` in the wall's material.
 
@@ -48,7 +55,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from engineering.arch.materials import wall_hatch
-from engineering.arch.model import Opening, Wall, segment_of, validate_openings
+from engineering.arch.model import CORNER_KINDS, Opening, Wall, segment_of, validate_openings
 from engineering.measure import is_self_intersecting, polygon_area_perimeter
 from engineering.mech.primitives import HatchArea, Line, Pt
 
@@ -81,6 +88,11 @@ class WallGeometry:
     #: Each opening's two face lines across its gap. Never drawn: they are what
     #: `room_segments` adds so a doorway does not merge two rooms into one face.
     thresholds: tuple[Line, ...] = ()
+    #: One row per cut opening: ``{"element", "left": (p, q), "right": (p, q),
+    #: "corner": ["start"|"end", ...]}`` - its gap on the wall's left and right
+    #: face, from the near jamb to the far one (a corner end on the mitre line).
+    #: The symbols and the dimension chains read the opening's ends from here.
+    cuts: tuple[dict, ...] = ()
 
 
 # -- vectors ------------------------------------------------------------------
@@ -212,6 +224,7 @@ class _Piece:
     b: Pt
     s0: float
     corners: dict = field(default_factory=dict)  # (end 0|1, "left"|"right") -> Pt
+    nodes: dict = field(default_factory=dict)  # end 0|1 -> index of its node
 
 
 def _validate(walls: Sequence[Wall], openings: Sequence[Opening], join_tol: float) -> None:
@@ -402,6 +415,7 @@ def _build(walls: Sequence[Wall], openings: Sequence[Opening], join_tol: float) 
     faces: list[tuple[Line, str]] = []
     jambs: list[tuple[Line, str]] = []
     thresholds: list[tuple[Line, str]] = []
+    cuts: list[tuple[dict, str]] = []
     regions: list[tuple[tuple[Pt, ...], str]] = []
     omitted: list[tuple[dict, str]] = []
 
@@ -413,8 +427,10 @@ def _build(walls: Sequence[Wall], openings: Sequence[Opening], join_tol: float) 
             for k, node in enumerate(nodes):
                 if math.dist(point, node) <= join_tol:
                     ends[k].append((piece, end))
+                    piece.nodes[end] = k
                     break
             else:
+                piece.nodes[end] = len(nodes)
                 nodes.append(point)
                 ends.append([(piece, end)])
 
@@ -489,7 +505,8 @@ def _build(walls: Sequence[Wall], openings: Sequence[Opening], join_tol: float) 
     # -- the openings -----------------------------------------------------------
     by_id = {wall.id: i for i, wall in enumerate(walls)}
     by_seg = {(seg.wall, seg.index): seg for seg in segs}
-    cut_in: dict[int, list[tuple[float, float]]] = {}
+    cut_in: dict[int, list[tuple[float, float, bool, bool, str]]] = {}
+    open_ends: set[tuple[int, int]] = set()  # (id(piece), end) a corner opening runs into
     for opening in openings:
         wi = by_id[opening.wall]
         wall = walls[wi]
@@ -524,7 +541,29 @@ def _build(walls: Sequence[Wall], openings: Sequence[Opening], join_tol: float) 
             _dot(_sub(host.corners[(0, side)], host.a), u) for side in ("left", "right")
         )
         clear_to = min(_dot(_sub(host.corners[(1, side)], host.a), u) for side in ("left", "right"))
-        if d0 < clear_from - _EPS or d1 > clear_to + _EPS:
+        host_length = math.dist(host.a, host.b)
+        corner0 = d0 <= _EPS and clear_from > _EPS
+        corner1 = d1 >= host_length - _EPS and clear_to < host_length - _EPS
+        refusal = None
+        for flag, end in ((corner0, 0), (corner1, 1)):
+            if not flag:
+                continue
+            size = len(ends[host.nodes[end]])
+            if opening.kind not in CORNER_KINDS:
+                refusal = (
+                    f"a {opening.kind} cannot run into the junction of wall {wall.id!r} - "
+                    f"only {', '.join(CORNER_KINDS)} may run to the corner; "
+                    "end it where the solid wall starts"
+                )
+            elif size != 2:
+                refusal = (
+                    f"it runs to a node of wall {wall.id!r} where {size} wall ends meet; "
+                    "a corner opening runs to an L (two ends), not into a T or an X"
+                )
+        if refusal is not None:
+            omitted.append(({"element": opening.id, "reason": refusal}, wall.id))
+            continue
+        if (d0 < clear_from - _EPS and not corner0) or (d1 > clear_to + _EPS and not corner1):
             omitted.append(
                 (
                     {
@@ -538,7 +577,11 @@ def _build(walls: Sequence[Wall], openings: Sequence[Opening], join_tol: float) 
                 )
             )
             continue
-        cut_in.setdefault(id(host), []).append((d0, d1))
+        cut_in.setdefault(id(host), []).append((d0, d1, corner0, corner1, opening.id))
+        if corner0:
+            open_ends.add((id(host), 0))
+        if corner1:
+            open_ends.add((id(host), 1))
 
     # -- faces, jambs and regions, piece by piece ---------------------------------
     for piece in pieces:
@@ -550,19 +593,29 @@ def _build(walls: Sequence[Wall], openings: Sequence[Opening], join_tol: float) 
         def at(s: float, offset: float, piece=piece, u=u, n=n) -> Pt:
             return _add(_add(piece.a, _mul(u, s)), _mul(n, offset))
 
-        cur_l = piece.corners[(0, "left")]
-        cur_r = piece.corners[(0, "right")]
+        cur: tuple[Pt, Pt] | None = (piece.corners[(0, "left")], piece.corners[(0, "right")])
         runs: list[tuple[Pt, Pt, Pt, Pt]] = []
-        for d0, d1 in sorted(cut_in.get(id(piece), [])):
-            la, ra = at(d0, seg.left), at(d0, seg.right)
-            lb, rb = at(d1, seg.left), at(d1, seg.right)
-            runs.append((cur_l, cur_r, la, ra))
-            jambs.append((Line(la, ra, "wall"), owner))
-            jambs.append((Line(lb, rb, "wall"), owner))
+        for d0, d1, corner0, corner1, element in sorted(cut_in.get(id(piece), [])):
+            if corner0:  # the gap starts on the mitre line: no solid run, no jamb before it
+                la, ra = piece.corners[(0, "left")], piece.corners[(0, "right")]
+            else:
+                la, ra = at(d0, seg.left), at(d0, seg.right)
+                runs.append((cur[0], cur[1], la, ra))
+                jambs.append((Line(la, ra, "wall"), owner))
+            if corner1:
+                lb, rb = piece.corners[(1, "left")], piece.corners[(1, "right")]
+            else:
+                lb, rb = at(d1, seg.left), at(d1, seg.right)
+                jambs.append((Line(lb, rb, "wall"), owner))
             thresholds.append((Line(la, lb, "wall"), owner))
             thresholds.append((Line(ra, rb, "wall"), owner))
-            cur_l, cur_r = lb, rb
-        runs.append((cur_l, cur_r, piece.corners[(1, "left")], piece.corners[(1, "right")]))
+            corner = [name for flag, name in ((corner0, "start"), (corner1, "end")) if flag]
+            cuts.append(
+                ({"element": element, "left": (la, lb), "right": (ra, rb), "corner": corner}, owner)
+            )
+            cur = None if corner1 else (lb, rb)
+        if cur is not None:
+            runs.append((cur[0], cur[1], piece.corners[(1, "left")], piece.corners[(1, "right")]))
         for sl, sr, el, er in runs:
             if math.dist(sl, el) > _EPS:
                 faces.append((Line(sl, el, "wall"), owner))
@@ -578,11 +631,25 @@ def _build(walls: Sequence[Wall], openings: Sequence[Opening], join_tol: float) 
             if polygon:
                 regions.append((polygon, owner))
 
+    # A wall left solid at an L whose other wall a corner opening runs into ends
+    # on the mitre line, and is closed there by a jamb along it.
+    for members in ends:
+        if len(members) != 2:
+            continue
+        opened = [(piece, end) for piece, end in members if (id(piece), end) in open_ends]
+        if len(opened) != 1:
+            continue
+        piece, end = next(m for m in members if (id(m[0]), m[1]) not in open_ends)
+        left, right = piece.corners[(end, "left")], piece.corners[(end, "right")]
+        if math.dist(left, right) > _EPS:
+            jambs.append((Line(left, right, "wall"), walls[piece.seg.wall].id))
+
     return {
         "walls": walls,
         "faces": _merge_collinear(faces, jambs),
         "jambs": jambs,
         "thresholds": thresholds,
+        "cuts": cuts,
         "regions": regions,
         "omitted": omitted,
     }
@@ -640,6 +707,7 @@ def _assemble(parts: dict, poche: bool, owner: str | None) -> WallGeometry:
         hatches=hatches,
         omitted=tuple(mine(parts["omitted"])),
         thresholds=tuple(mine(parts["thresholds"])),
+        cuts=tuple(mine(parts["cuts"])),
     )
 
 

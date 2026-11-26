@@ -166,7 +166,11 @@ class EntityCreationContract(ABC):
         layer: str | None = None,
         color: int | None = None,
         xdata: dict[str, list] | None = None,
-    ) -> EntityInfo: ...
+        align: str = "left",
+    ) -> EntityInfo:
+        """``align`` (1.8.0): ``"left"`` puts the baseline's left end at (x, y),
+        ``"center"`` its middle (AutoCAD's Center justification)."""
+        ...
 
     @abstractmethod
     async def entity_create_mtext(

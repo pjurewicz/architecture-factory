@@ -70,6 +70,8 @@ def test_door_rows_generate_missing_tags_in_wall_order_and_sort_by_tag():
         "id": "db",
         "tag": "D1",
         "generated": True,
+        "kind": "door",
+        "type": en["door"],
         "width": "912.5",
         "height": "2100",
         "swing": en["in"],
@@ -98,6 +100,8 @@ def test_window_rows_carry_sill_and_no_swing():
         "id": "wa",
         "tag": "W1",
         "generated": True,
+        "kind": "window",
+        "type": "WINDOW",
         "width": "1200",
         "height": "1200",
         "sill": "900",
@@ -168,8 +172,8 @@ async def test_a_door_schedule_is_a_table_with_title_header_and_one_row_per_door
     assert result["representation"] == "composite"
     assert result["layer"] == ARCH_ROLE_LAYER["symbol"]
     assert result["title"] == vocab("en")["door_schedule"]
-    # 1:50: widths 15+20+20+20+20+20 = 115 mm -> 5750; rows 5 x 7 mm x 50 = 1750
-    assert result["bbox"] == {"min": [10_000.0, 3_250.0], "max": [15_750.0, 5_000.0]}
+    # 1:50: widths 15+35+20+20+20+20+20 = 150 mm -> 7500; rows 5 x 7 mm x 50 = 1750
+    assert result["bbox"] == {"min": [10_000.0, 3_250.0], "max": [17_500.0, 5_000.0]}
     cells = {
         e.properties["text"]
         for e in await backend.entity_list(

@@ -20,7 +20,6 @@ Every refusal fires before the first entity is created or erased.
 from __future__ import annotations
 
 import logging
-import math
 from dataclasses import replace
 
 from engineering.arch.dimension import chain_text_positions, exterior_chains
@@ -32,6 +31,7 @@ from engineering.arch.model import (
     Room,
     Stair,
     Wall,
+    WallPolygon,
     decode,
     from_payload,
     opening_from_dict,
@@ -39,11 +39,13 @@ from engineering.arch.model import (
     to_payload,
     to_values,
     wall_from_dict,
+    wall_polygon_from_dict,
 )
 from engineering.arch.openings import opening_prims
 from engineering.arch.stairs import blondel, stair_prims
 from engineering.arch.walls import WallGeometry, wall_geometry_by_wall
 from engineering.mech.draw import draw_prims
+from engineering.mech.primitives import HatchArea, Poly
 
 log = logging.getLogger(__name__)
 
@@ -51,11 +53,22 @@ log = logging.getLogger(__name__)
 HANDLES_APP = "ACADMCP_ARCH_H"
 
 #: The layers `read_plan` scans for records - never the poche or the dimensions.
-RECORD_ROLES: tuple[str, ...] = ("wall", "door", "window", "stair", "room")
+#: A cased opening has no leaf: its record sits on its head line, on the overhead layer.
+RECORD_ROLES: tuple[str, ...] = ("wall", "door", "window", "stair", "room", "overhead")
 
 #: Model class -> the record kind, read off the object rather than the payload,
 #: so the reader does not depend on how a payload spells its own kind.
-_KIND = {Wall: "wall", Opening: "opening", Stair: "stair", Room: "room"}
+_KIND = {
+    Wall: "wall",
+    Opening: "opening",
+    Stair: "stair",
+    Room: "room",
+    WallPolygon: "wall_polygon",
+}
+
+#: Layers whose name starts with this are wall layers: a closed straight-edged
+#: polyline on one of them is a wall outline, ours or the drafter's own.
+WALL_LAYER_PREFIX = "A-WALL"
 
 
 # -- layers -----------------------------------------------------------------------
@@ -95,7 +108,14 @@ async def read_plan(backend) -> dict:
     ``carriers`` maps ``"<kind>:<id>"`` to the entity that carries the record.
     Reads only; the drawing is never modified.
     """
-    plan: dict = {"walls": [], "openings": [], "stairs": [], "rooms": [], "carriers": {}}
+    plan: dict = {
+        "walls": [],
+        "openings": [],
+        "stairs": [],
+        "rooms": [],
+        "wall_polygons": [],
+        "carriers": {},
+    }
     for role in RECORD_ROLES:
         for info in await backend.entity_list(layer_filter=ARCH_ROLE_LAYER[role], limit=100000):
             raw = await backend.entity_get_xdata(info.handle, APP_ID)
@@ -158,7 +178,10 @@ def _signature(geometry: WallGeometry) -> tuple:
 async def _draw_wall(backend, wall, geometry: WallGeometry, openings) -> dict:
     """One wall's faces, jambs, poche and hosted symbols, with their records."""
     skipped = {entry["element"] for entry in geometry.omitted}
-    symbols = [(op, opening_prims(wall, op)) for op in openings if op.id not in skipped]
+    cuts = {cut["element"]: cut for cut in geometry.cuts}
+    symbols = [
+        (op, opening_prims(wall, op, cuts.get(op.id))) for op in openings if op.id not in skipped
+    ]
     # Faces first, so owned[0] - the record carrier - is the wall's first face line;
     # the poche follows on the wall-hatch layer, in each material's pattern.
     drawn = await draw_prims(
@@ -218,12 +241,104 @@ async def draw_walls(backend, walls, openings=(), *, poche=True) -> dict:
     return {**_collect(results), "backend": backend.name}
 
 
-async def add_walls(backend, walls, *, poche=True) -> dict:
-    """Add walls to the plan on the drawing, redrawing the drawn walls they join."""
-    if isinstance(walls, dict) or not isinstance(walls, (list, tuple)) or not walls:
-        raise ValueError("walls: give a list of at least one wall {id, axis, thickness, ...}")
+# -- wall polygons ----------------------------------------------------------------
+
+
+def wall_polygon_prims(polygon: WallPolygon, *, poche: bool = True) -> tuple:
+    """The outline as one closed polyline on the wall layer, then its poche."""
+    outline = Poly(tuple(polygon.points), True, "wall")
+    if not poche:
+        return (outline,)
+    return (outline, HatchArea((tuple(polygon.points),), polygon.material or "generic"))
+
+
+async def draw_wall_polygons(backend, polygons, *, poche: bool = True) -> list[dict]:
+    """Each outline and its poche, with the record on the polyline."""
+    out: list[dict] = []
+    for polygon in polygons:
+        drawn = await draw_prims(
+            backend, wall_polygon_prims(polygon, poche=poche), role_layer=ARCH_ROLE_LAYER
+        )
+        await _write_record(backend, drawn["handles"][0], polygon, drawn["handles"])
+        out.append(
+            {"id": polygon.id, "record": drawn["handles"][0], "handles": list(drawn["handles"])}
+        )
+    return out
+
+
+def parse_wall_polygons(polygons, taken=()) -> list[WallPolygon]:
+    """Validated polygons, refusing an id used twice or already on the drawing."""
+    if isinstance(polygons, (dict, str)) or not isinstance(polygons, (list, tuple)):
+        raise ValueError("polygons: give a list of {id, points, material}")
+    out: list[WallPolygon] = []
+    seen = set(taken)
+    for i, item in enumerate(polygons):
+        polygon = wall_polygon_from_dict(item, f"polygons[{i}]")
+        if polygon.id in seen:
+            raise ValueError(f"polygons[{i}].id: {polygon.id!r} is already used; choose a new id")
+        seen.add(polygon.id)
+        out.append(polygon)
+    return out
+
+
+async def read_wall_outlines(backend, plan: dict | None = None) -> list[tuple]:
+    """Every wall outline on the drawing as a tuple of points.
+
+    The ``wall_polygon`` records first, then every closed polyline without a
+    bulge on a layer named ``A-WALL*`` that carries no record - a bay, a
+    column or a wall imported from another model, drawn by hand. Reads only.
+    """
+    from engineering.sheet.bom import all_entities  # lazy: sheet imports stay out of arch
+
+    plan = plan if plan is not None else await read_plan(backend)
+    outlines = [tuple(polygon.points) for polygon in plan["wall_polygons"]]
+    carriers = set(plan["carriers"].values())
+    hatch_layer = ARCH_ROLE_LAYER["wall_hatch"].casefold()
+    for layer in await backend.layer_list():
+        name = layer.name.casefold()
+        if not name.startswith(WALL_LAYER_PREFIX.casefold()) or name == hatch_layer:
+            continue
+        for entity in await all_entities(backend, layer=layer.name):
+            props = entity.properties or {}
+            if entity.handle in carriers or str(entity.type).upper() not in (
+                "LWPOLYLINE",
+                "POLYLINE",
+            ):
+                continue
+            points = [tuple(float(v) for v in p[:2]) for p in props.get("points") or ()]
+            bulges = [float(b) for b in props.get("bulges") or ()]
+            if props.get("closed") and len(points) >= 3 and not any(abs(b) > 1e-12 for b in bulges):
+                outlines.append(tuple(points))
+    return outlines
+
+
+async def add_walls(backend, walls, *, poche=True, polygons=()) -> dict:
+    """Add walls and wall polygons to the plan, redrawing the drawn walls the walls join."""
+    if isinstance(walls, dict) or not isinstance(walls, (list, tuple)):
+        raise ValueError("walls: give a list of walls {id, axis, thickness, ...}")
+    if not walls and not polygons:
+        raise ValueError(
+            "walls: give at least one wall {id, axis, thickness, ...} or one polygon "
+            "{id, points, material}"
+        )
     new = [wall_from_dict(item, f"walls[{i}]") for i, item in enumerate(walls)]
     plan = await read_plan(backend)
+    outlines = parse_wall_polygons(
+        polygons, taken=[polygon.id for polygon in plan["wall_polygons"]]
+    )
+    if not new:
+        drawn_polygons = await draw_wall_polygons(backend, outlines, poche=poche)
+        return {
+            "walls": [],
+            "openings": [],
+            "polygons": drawn_polygons,
+            "handles": [h for item in drawn_polygons for h in item["handles"]],
+            "omitted": [],
+            "added": [polygon.id for polygon in outlines],
+            "redrawn": [],
+            "already_erased": [],
+            "backend": backend.name,
+        }
     drawn = {wall.id for wall in plan["walls"]}
     for i, wall in enumerate(new):
         if wall.id in drawn:
@@ -268,9 +383,16 @@ async def add_walls(backend, walls, *, poche=True) -> dict:
         )
         for wall_id in targets
     ]
+    drawn_polygons = await draw_wall_polygons(backend, outlines, poche=poche)
+    collected = _collect(results)
     return {
-        **_collect(results),
-        "added": [wall.id for wall in new],
+        **collected,
+        "polygons": drawn_polygons,
+        "handles": [
+            *collected["handles"],
+            *(h for item in drawn_polygons for h in item["handles"]),
+        ],
+        "added": [wall.id for wall in new] + [polygon.id for polygon in outlines],
         "redrawn": changed,
         "already_erased": missing,
         "backend": backend.name,
@@ -373,7 +495,15 @@ async def add_stair(backend, stair: dict, *, lang: str = "en", scale=50) -> dict
 
 
 async def draw_chains(
-    backend, walls, openings, *, sides=("bottom", "left"), scale=50, first_offset=None, step=None
+    backend,
+    walls,
+    openings,
+    *,
+    sides=("bottom", "left"),
+    scale=50,
+    first_offset=None,
+    step=None,
+    polygons=(),
 ) -> dict:
     """The exterior chains as real linear DIMENSIONs on the dimension layer.
 
@@ -384,7 +514,13 @@ async def draw_chains(
     units - 0.05 mm on the sheet, which is no text at all.
     """
     intents = exterior_chains(
-        walls, openings, sides=sides, first_offset=first_offset, step=step, scale=scale
+        walls,
+        openings,
+        sides=sides,
+        first_offset=first_offset,
+        step=step,
+        scale=scale,
+        polygons=polygons,
     )
     layer = ARCH_ROLE_LAYER["dim"]
     await ensure_arch_layers(backend, [layer])
@@ -417,7 +553,9 @@ async def draw_chains(
             style_vars={k: v for k, v in style.items() if v is not None},
         )
         for intent, text_at in zip(intents, texts, strict=True):
-            horizontal = abs(intent.p2[1] - intent.p1[1]) <= abs(intent.p2[0] - intent.p1[0])
+            # the side names the direction: a chain's two points may lie on different
+            # features (a wall face and a bay vertex), so their offset says nothing
+            horizontal = intent.feature.split(":")[0] in ("bottom", "top")
             info = await backend.dimension_linear(
                 intent.p1[0],
                 intent.p1[1],
@@ -435,7 +573,9 @@ async def draw_chains(
                     "row": intent.feature,
                     "from": list(intent.p1),
                     "to": list(intent.p2),
-                    "value": math.dist(intent.p1, intent.p2),
+                    "value": abs(
+                        intent.p2[0 if horizontal else 1] - intent.p1[0 if horizontal else 1]
+                    ),
                     "text_at": list(text_at),
                 }
             )
