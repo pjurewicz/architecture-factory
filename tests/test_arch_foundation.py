@@ -161,6 +161,18 @@ def test_the_periods_on_a_1_to_50_sheet_are_the_documented_ones():
         assert round(_period(row["pattern"]) * row["scale"] / 50.0, 3) == paper, material
 
 
+def test_the_pattern_scale_follows_the_plot_scale():
+    # AR-SAND's dots lie about 20 mm apart at scale 1: on a 1:100 sheet they keep
+    # the 1:50 paper spacing (0.4 mm) only at scale 2, not 0.2 mm at the table's 1.0
+    assert wall_hatch("gypsum_board", 100)["scale"] == 2.0
+    assert wall_hatch("brick", 100)["scale"] == 40.0
+    assert wall_hatch("brick", 20)["scale"] == 8.0
+    assert wall_hatch("gypsum_board") == wall_hatch("gypsum_board", 50)
+    for bad in (0, -50, float("nan"), True, "100"):
+        with pytest.raises(ValueError, match="scale: must be a finite number above zero"):
+            wall_hatch("brick", bad)
+
+
 def test_aac_is_the_lighter_diagonal_of_brick():
     assert wall_hatch("aac")["pattern"] == wall_hatch("brick")["pattern"]
     assert wall_hatch("aac")["scale"] == 2 * wall_hatch("brick")["scale"]

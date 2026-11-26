@@ -12363,13 +12363,24 @@ async def arch_wall(
         bool,
         Field(default=True, description="Hatch the cut wall faces in their material (ISO 128-50)"),
     ] = True,
+    scale: Annotated[
+        float,
+        Field(
+            default=50.0,
+            gt=0,
+            description="Plot-scale denominator: 50 is 1:50; the poche's pattern scale follows it.",
+        ),
+    ] = 50.0,
     ctx: Context = None,
 ) -> dict:
     """Add walls to the plan network already on the drawing and resolve every junction.
 
     Two ends at one point mitre into a clean L; an end inside another wall is a
     T (the stem stops on the crossing wall's near face, which is cut there); two
-    axes crossing are an X (all four faces cut). A drawn wall whose outline the
+    axes crossing are an X (all four faces cut). A wall of another material
+    ending on a T or an X gets a seam line across its end. The poche follows
+    `scale`: the material table is set for 1:50, so 1:100 doubles every pattern
+    scale (AR-SAND on gypsum board 1.0 -> 2.0). A drawn wall whose outline the
     new walls change is taken back out and redrawn with its openings - the
     result lists it under `redrawn` - and a wall they do not touch is left alone.
     Every wall carries an `ACADMCP_ARCH` record, so later calls find it by id.
@@ -12388,7 +12399,9 @@ async def arch_wall(
     walls = walls or []
     await ctx.info(f"arch_wall: {len(walls)} wall(s), {len(polygons or [])} polygon(s)")
     try:
-        return await add_walls(_backend(ctx), walls, poche=poche, polygons=polygons or ())
+        return await add_walls(
+            _backend(ctx), walls, poche=poche, polygons=polygons or (), scale=scale
+        )
     except ValueError as exc:
         raise ToolError(str(exc)) from exc
 
@@ -12449,6 +12462,14 @@ async def arch_opening(
     poche: Annotated[
         bool, Field(default=True, description="Hatch the redrawn wall's cut faces")
     ] = True,
+    scale: Annotated[
+        float,
+        Field(
+            default=50.0,
+            gt=0,
+            description="Plot-scale denominator: 50 is 1:50; the poche's pattern scale follows it.",
+        ),
+    ] = 50.0,
     ctx: Context = None,
 ) -> dict:
     """A door or a window in a wall already drawn, found by its id; the wall is redrawn cut.
@@ -12484,7 +12505,11 @@ async def arch_opening(
     await ctx.info(f"arch_opening: {kind} in wall {wall}")
     try:
         return await add_opening(
-            _backend(ctx), {k: v for k, v in spec.items() if v is not None}, lang=lang, poche=poche
+            _backend(ctx),
+            {k: v for k, v in spec.items() if v is not None},
+            lang=lang,
+            poche=poche,
+            scale=scale,
         )
     except ValueError as exc:
         raise ToolError(str(exc)) from exc

@@ -63,6 +63,19 @@ async def test_draw_walls_puts_faces_jambs_and_poche_on_their_layers(backend):
     assert result["omitted"] == []
 
 
+async def test_a_gypsum_t_at_1_100_is_hatched_at_plot_scale_and_seamed(backend):
+    brick = {**WALL_A, "material": "brick"}
+    gypsum = {**WALL_B, "thickness": 120.0, "material": "gypsum_board"}
+    await add_walls(backend, [brick], scale=100)
+    result = await add_walls(backend, [gypsum], scale=100)
+    assert result["redrawn"] == ["a"]  # the brick wall is cut by the T and redrawn
+    hatches = [backend._doc.entitydb[h.handle] for h in await on(backend, "wall_hatch", "HATCH")]
+    scales = {(e.dxf.pattern_name, round(e.dxf.pattern_scale, 9)) for e in hatches}
+    assert scales == {("ANSI31", 40.0), ("AR-SAND", 2.0)}
+    lines = {ends(e) for e in await on(backend, "wall", "LINE")}
+    assert ((2440.0, 100.0), (2560.0, 100.0)) in lines  # the seam on a's near face
+
+
 async def test_the_records_round_trip_through_xdata(backend):
     wall = Wall(id="a", axis=((0.0, 0.0), (5000.0, 0.0)), thickness=200.0, material="aac")
     window = Opening(id="w1", wall="a", kind="window", offset=2000.0, width=1200.0, tag="W1")

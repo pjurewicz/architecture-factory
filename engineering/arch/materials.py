@@ -25,15 +25,20 @@ SOURCE, stated row by row because it is not one document:
   be indistinguishable from brick on the sheet.
 
 ``scale`` is chosen for a 1:50 plan, the default plot scale of every ``arch``
-tool (``wall_hatch`` takes no scale, as pinned): brick lines 3.175 x 20 =
+tool, and ``wall_hatch(material, scale)`` multiplies it by ``scale / 50`` so the
+sheet shows the same density at any plot scale: brick lines 3.175 x 20 =
 63.5 mm apart, 1.27 mm on a 1:50 sheet; aac 2.54 mm; reinforced concrete one
 triple-line group every 150 mm (3.0 mm on the sheet); stone 75 mm (1.5 mm);
 timber 0.7071 x 90 = 63.6 mm (1.27 mm). AR-CONC and AR-SAND are defined in
-building millimetres and ship at 1.0. The periods are recomputed from ezdxf's
+building millimetres and ship at 1.0 at 1:50; they follow the plot scale too,
+because at 1:100 AR-SAND's dots (about 20 mm apart in the building) would be
+0.2 mm apart on the sheet and a 120 mm gypsum board wall would print grey. The periods are recomputed from ezdxf's
 own pattern definitions by ``tests/test_arch_foundation.py``, not trusted here.
 """
 
 from __future__ import annotations
+
+import math
 
 WALL_MATERIALS: tuple[str, ...] = (
     "brick",
@@ -109,8 +114,23 @@ def normalise_material(material: str) -> str:
     return material.strip().lower().replace("-", "_").replace(" ", "_")
 
 
-def wall_hatch(material: str) -> dict:
-    """``{"pattern", "angle", "scale"}`` for a wall material. Unknown names are refused."""
+#: The plot scale denominator the table's ``scale`` column is chosen for.
+TABLE_PLOT_SCALE = 50.0
+
+
+def wall_hatch(material: str, scale: float = TABLE_PLOT_SCALE) -> dict:
+    """``{"pattern", "angle", "scale"}`` for a wall material on a ``1:scale`` plan.
+
+    The pattern scale is the table's (chosen for 1:50) times ``scale / 50``.
+    Unknown names and a scale that is not a finite number above zero are refused.
+    """
+    if (
+        isinstance(scale, bool)
+        or not isinstance(scale, (int, float))
+        or not math.isfinite(scale)
+        or scale <= 0
+    ):
+        raise ValueError(f"scale: must be a finite number above zero (50 = 1:50), got {scale!r}")
     if not isinstance(material, str):
         raise ValueError(
             f"material: expected a name, got {type(material).__name__}; "
@@ -122,4 +142,8 @@ def wall_hatch(material: str) -> dict:
             f"material: unknown wall material {material!r}; "
             f"wall materials are {', '.join(WALL_MATERIALS)}"
         )
-    return {"pattern": row["pattern"], "angle": row["angle"], "scale": row["scale"]}
+    return {
+        "pattern": row["pattern"],
+        "angle": row["angle"],
+        "scale": row["scale"] * float(scale) / TABLE_PLOT_SCALE,
+    }

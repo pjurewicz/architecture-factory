@@ -410,10 +410,10 @@ async def draw_plan_from_spec(backend: AutoCADBackend, spec: dict) -> dict:
     try:
         await backend.drawing_apply_iso_layers("arch")
         result["walls"] = await _draw.draw_walls(
-            backend, norm["walls"], norm["openings"], poche=norm["poche"]
+            backend, norm["walls"], norm["openings"], poche=norm["poche"], scale=norm["scale"]
         )
         result["wall_polygons"] = await _draw.draw_wall_polygons(
-            backend, norm["wall_polygons"], poche=norm["poche"]
+            backend, norm["wall_polygons"], poche=norm["poche"], scale=norm["scale"]
         )
         for i, stair in enumerate(norm["stairs"]):
             try:

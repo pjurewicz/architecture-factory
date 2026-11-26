@@ -24,7 +24,10 @@ outgoing directions and sorted by angle, and the left face of each end meets
 the right face of the next one counter-clockwise. A node of three or more ends
 leaves a *hub* - the square an X crosses in, the triangle a centred T leaves -
 that no single segment covers; it is a region of its own, so the poche has no
-hole in it.
+hole in it. The hub belongs to the wall that runs straight through the node
+(the crossing wall of a T; the first of the two at an X), and a wall of another
+material ending on it gets a *seam* - a line across its end, on the crossing
+wall's near face - so two poches never meet without a line between them.
 
 An opening removes its width from both faces and each edge is closed by a jamb;
 a free wall end is closed by a jamb too. A *corner opening* - a window, a
@@ -50,11 +53,12 @@ junction is returned in ``omitted``, never dropped.
 
 from __future__ import annotations
 
+import itertools
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
-from engineering.arch.materials import wall_hatch
+from engineering.arch.materials import normalise_material, wall_hatch
 from engineering.arch.model import CORNER_KINDS, Opening, Wall, segment_of, validate_openings
 from engineering.measure import is_self_intersecting, polygon_area_perimeter
 from engineering.mech.primitives import HatchArea, Line, Pt
@@ -93,6 +97,11 @@ class WallGeometry:
     #: face, from the near jamb to the far one (a corner end on the mitre line).
     #: The symbols and the dimension chains read the opening's ends from here.
     cuts: tuple[dict, ...] = ()
+    #: Where a wall of one material ends on the hub of a T or an X owned by a
+    #: wall of another: the line across its end that parts the two poches. It
+    #: belongs to the wall whose end it closes. Drawn, but not a room boundary:
+    #: it lies inside the wall solid.
+    seams: tuple[Line, ...] = ()
 
 
 # -- vectors ------------------------------------------------------------------
@@ -417,6 +426,7 @@ def _build(walls: Sequence[Wall], openings: Sequence[Opening], join_tol: float) 
     thresholds: list[tuple[Line, str]] = []
     cuts: list[tuple[dict, str]] = []
     regions: list[tuple[tuple[Pt, ...], str]] = []
+    seams: list[tuple[Line, str]] = []
     omitted: list[tuple[dict, str]] = []
 
     # -- the nodes ------------------------------------------------------------
@@ -499,8 +509,25 @@ def _build(walls: Sequence[Wall], openings: Sequence[Opening], join_tol: float) 
                     "clean outline - its middle turns inside out; move the walls' ends apart."
                 )
             if polygon:
-                owner = min(piece.seg.wall for piece, _end in ordered)
+                # the wall that runs straight through the node owns its hub (the
+                # crossing wall of a T); with none, or two at an X, the first one
+                through = [
+                    pi.seg.wall
+                    for (pi, ei), (pj, ej) in itertools.combinations(ordered, 2)
+                    if pi.seg.wall == pj.seg.wall
+                    and _dot(_outgoing(pi, ei)[1], _outgoing(pj, ej)[1]) < -1.0 + 1e-9
+                ]
+                owner = min(through or [piece.seg.wall for piece, _end in ordered])
                 regions.append((polygon, walls[owner].id))
+                # a piece of another material ends on the hub: its end is a seam
+                hub_material = normalise_material(walls[owner].material)
+                for piece, end in ordered:
+                    wall = walls[piece.seg.wall]
+                    if normalise_material(wall.material) == hub_material:
+                        continue
+                    left, right = piece.corners[(end, "left")], piece.corners[(end, "right")]
+                    if math.dist(left, right) > _EPS:
+                        seams.append((Line(left, right, "wall"), wall.id))
 
     # -- the openings -----------------------------------------------------------
     by_id = {wall.id: i for i, wall in enumerate(walls)}
@@ -651,6 +678,7 @@ def _build(walls: Sequence[Wall], openings: Sequence[Opening], join_tol: float) 
         "thresholds": thresholds,
         "cuts": cuts,
         "regions": regions,
+        "seams": seams,
         "omitted": omitted,
     }
 
@@ -708,6 +736,7 @@ def _assemble(parts: dict, poche: bool, owner: str | None) -> WallGeometry:
         omitted=tuple(mine(parts["omitted"])),
         thresholds=tuple(mine(parts["thresholds"])),
         cuts=tuple(mine(parts["cuts"])),
+        seams=tuple(mine(parts["seams"])),
     )
 
 
@@ -721,8 +750,9 @@ def wall_geometry_by_wall(
 ) -> dict[str, WallGeometry]:
     """The same geometry, split by the wall each element belongs to.
 
-    A hub (the middle of a T or an X) belongs to the first of its walls in the
-    order given. `engineering.arch.draw` uses the split to redraw only the walls
+    A hub (the middle of a T or an X) belongs to the wall running straight
+    through it - the first of them in the order given, or the first wall at a
+    node no wall runs through. `engineering.arch.draw` uses the split to redraw only the walls
     whose outline a new wall or opening changes.
     """
     parts = _build(walls, openings, join_tol)

@@ -169,13 +169,17 @@ def _signature(geometry: WallGeometry) -> tuple:
     return (
         frozenset(seg(line) for line in geometry.faces),
         frozenset(seg(line) for line in geometry.jambs),
+        frozenset(seg(line) for line in geometry.seams),
         frozenset(ring(region) for region in geometry.regions),
         frozenset(entry["element"] for entry in geometry.omitted),
     )
 
 
-async def _draw_wall(backend, wall, geometry: WallGeometry, openings) -> dict:
-    """One wall's faces, jambs, poche and hosted symbols, with their records."""
+async def _draw_wall(backend, wall, geometry: WallGeometry, openings, scale=50) -> dict:
+    """One wall's faces, jambs, seams, poche and hosted symbols, with their records.
+
+    The poche's pattern scale follows the plot scale ``scale`` (50 = 1:50).
+    """
     skipped = {entry["element"] for entry in geometry.omitted}
     cuts = {cut["element"]: cut for cut in geometry.cuts}
     symbols = [
@@ -185,8 +189,9 @@ async def _draw_wall(backend, wall, geometry: WallGeometry, openings) -> dict:
     # the poche follows on the wall-hatch layer, in each material's pattern.
     drawn = await draw_prims(
         backend,
-        [*geometry.faces, *geometry.jambs, *geometry.hatches],
+        [*geometry.faces, *geometry.jambs, *geometry.seams, *geometry.hatches],
         role_layer=ARCH_ROLE_LAYER,
+        plot_scale=scale,
     )
     owned = list(drawn["handles"])
     done: list[dict] = []
@@ -222,7 +227,7 @@ def _collect(results: list[dict]) -> dict:
     }
 
 
-async def draw_walls(backend, walls, openings=(), *, poche=True) -> dict:
+async def draw_walls(backend, walls, openings=(), *, poche=True, scale=50) -> dict:
     """Draw a wall network and its openings, writing every record. Refusals first."""
     walls = list(walls)
     openings = list(openings)
@@ -233,7 +238,11 @@ async def draw_walls(backend, walls, openings=(), *, poche=True) -> dict:
                 opening_prims(wall, op)
     results = [
         await _draw_wall(
-            backend, wall, geometry[wall.id], [op for op in openings if op.wall == wall.id]
+            backend,
+            wall,
+            geometry[wall.id],
+            [op for op in openings if op.wall == wall.id],
+            scale,
         )
         for wall in walls
     ]
@@ -251,12 +260,15 @@ def wall_polygon_prims(polygon: WallPolygon, *, poche: bool = True) -> tuple:
     return (outline, HatchArea((tuple(polygon.points),), polygon.material or "generic"))
 
 
-async def draw_wall_polygons(backend, polygons, *, poche: bool = True) -> list[dict]:
+async def draw_wall_polygons(backend, polygons, *, poche: bool = True, scale=50) -> list[dict]:
     """Each outline and its poche, with the record on the polyline."""
     out: list[dict] = []
     for polygon in polygons:
         drawn = await draw_prims(
-            backend, wall_polygon_prims(polygon, poche=poche), role_layer=ARCH_ROLE_LAYER
+            backend,
+            wall_polygon_prims(polygon, poche=poche),
+            role_layer=ARCH_ROLE_LAYER,
+            plot_scale=scale,
         )
         await _write_record(backend, drawn["handles"][0], polygon, drawn["handles"])
         out.append(
@@ -311,7 +323,7 @@ async def read_wall_outlines(backend, plan: dict | None = None) -> list[tuple]:
     return outlines
 
 
-async def add_walls(backend, walls, *, poche=True, polygons=()) -> dict:
+async def add_walls(backend, walls, *, poche=True, polygons=(), scale=50) -> dict:
     """Add walls and wall polygons to the plan, redrawing the drawn walls the walls join."""
     if isinstance(walls, dict) or not isinstance(walls, (list, tuple)):
         raise ValueError("walls: give a list of walls {id, axis, thickness, ...}")
@@ -326,7 +338,7 @@ async def add_walls(backend, walls, *, poche=True, polygons=()) -> dict:
         polygons, taken=[polygon.id for polygon in plan["wall_polygons"]]
     )
     if not new:
-        drawn_polygons = await draw_wall_polygons(backend, outlines, poche=poche)
+        drawn_polygons = await draw_wall_polygons(backend, outlines, poche=poche, scale=scale)
         return {
             "walls": [],
             "openings": [],
@@ -379,10 +391,11 @@ async def add_walls(backend, walls, *, poche=True, polygons=()) -> dict:
             by_id[wall_id],
             after[wall_id],
             [op for op in plan["openings"] if op.wall == wall_id],
+            scale,
         )
         for wall_id in targets
     ]
-    drawn_polygons = await draw_wall_polygons(backend, outlines, poche=poche)
+    drawn_polygons = await draw_wall_polygons(backend, outlines, poche=poche, scale=scale)
     collected = _collect(results)
     return {
         **collected,
@@ -418,7 +431,9 @@ def assign_tags(openings, existing=(), *, lang: str = "en") -> tuple[Opening, ..
     return tuple(out)
 
 
-async def add_opening(backend, opening: dict, *, lang: str = "en", poche: bool = True) -> dict:
+async def add_opening(
+    backend, opening: dict, *, lang: str = "en", poche: bool = True, scale=50
+) -> dict:
     """Host a door or a window in a drawn wall, found by id, and redraw that wall cut."""
     if not isinstance(opening, dict):
         raise ValueError(f"opening: expected a dict, got {type(opening).__name__}")
@@ -446,7 +461,7 @@ async def add_opening(backend, opening: dict, *, lang: str = "en", poche: bool =
     for other in hosted:
         opening_prims(wall, other)
     missing = await _erase(backend, plan, op.wall)
-    result = await _draw_wall(backend, wall, geometry[op.wall], hosted)
+    result = await _draw_wall(backend, wall, geometry[op.wall], hosted, scale)
     return {
         **_collect([result]),
         "opening": op.id,

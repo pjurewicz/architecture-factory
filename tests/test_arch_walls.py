@@ -405,6 +405,39 @@ def test_one_hatch_per_region_in_the_wall_material_and_none_without_poche():
     assert len(bare.regions) == 4
 
 
+@pytest.mark.parametrize("stem_first", [True, False])
+def test_a_t_of_two_materials_gets_a_seam_on_the_near_face(stem_first):
+    # a 120 mm gypsum board stem into a 200 mm brick wall: the hub is the brick
+    # wall's (it runs through), whatever the order, and the stem's end parts the poches
+    a = wall("a", (-3000, 0), (3000, 0))
+    b = wall("b", (0, 0), (0, 2500), thickness=120.0, material="gypsum_board")
+    walls = [b, a] if stem_first else [a, b]
+    geo = wall_geometry(walls)
+    assert segs(geo.seams) == {S(-60, 100, 60, 100)}
+    hub = ring([(60, 100), (-60, 100), (0, -100)])
+    (hub_hatch,) = [h for h in geo.hatches if ring(h.loops[0]) == hub]
+    assert hub_hatch.material == "brick"
+    split = wall_geometry_by_wall(walls)
+    assert segs(split["b"].seams) == {S(-60, 100, 60, 100)}
+    assert split["a"].seams == ()
+    assert len(split["a"].regions) == 3  # two arms and the hub
+    # the seam lies inside the wall solid: it is not a room boundary
+    assert len(room_segments(geo)) == len(geo.faces) + len(geo.jambs)
+
+
+def test_a_t_of_one_material_and_an_x_of_two():
+    same = wall_geometry([wall("a", (-3000, 0), (3000, 0)), wall("b", (0, 0), (0, 2500))])
+    assert same.seams == ()
+    x = wall_geometry(
+        [
+            wall("a", (-3000, 0), (3000, 0)),
+            wall("b", (0, -2500), (0, 2500), material="concrete"),
+        ]
+    )
+    # a is first of the two through walls: b's two arms end on a's hub
+    assert segs(x.seams) == {S(-100, 100, 100, 100), S(-100, -100, 100, -100)}
+
+
 def test_by_wall_splits_every_element_to_its_owner():
     walls = [wall("a", (-3000, 0), (3000, 0)), wall("b", (0, 0), (0, 2500))]
     split = wall_geometry_by_wall(walls)

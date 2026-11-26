@@ -27,7 +27,7 @@ Headless through ezdxf on any OS: DXF natively, DWG through the ODA File Convert
 
 </div>
 
-> **v1.8 release snapshot:** 242 tools · 13 resources · 5 prompt templates · 6585 collected tests.
+> **v1.8 release snapshot:** 242 tools · 13 resources · 5 prompt templates · 6590 collected tests.
 > 242 is the **registered** count. Since 1.8.0 a default install lists six over `tools/list`
 > (`DISCOVERY_MODE=search`: `search_tools`, `describe_tool`, `call_tool` and the three
 > `DISCOVERY_PINNED` tools), and every tool the profile and packs allow stays callable by name;

@@ -182,19 +182,22 @@ def _layer_of(prim, role_layer: Mapping[str, str] | None) -> str:
         ) from None
 
 
-def _hatch_style(material: str, role_layer: Mapping[str, str] | None) -> dict:
+def _hatch_style(
+    material: str, role_layer: Mapping[str, str] | None, plot_scale: float = 50.0
+) -> dict:
     """The pattern a HatchArea is filled with.
 
     The architectural map (the one that carries ``wall_hatch``) resolves wall
     materials through ``engineering/arch/materials.py::wall_hatch`` - brick,
-    aac, reinforced concrete ... at plan scale. Every other map, and no map,
+    aac, reinforced concrete ... at the plan's ``plot_scale`` (50 = 1:50).
+    Every other map, and no map,
     keeps the mechanical ISO 128-50 section map, so a mechanical caller is
     unchanged.
     """
     if role_layer is not None and "wall_hatch" in role_layer:
         from engineering.arch.materials import wall_hatch
 
-        return wall_hatch(material)
+        return wall_hatch(material, plot_scale)
     return hatch_for(material)
 
 
@@ -208,6 +211,7 @@ async def draw_prims(
     role_layer: Mapping[str, str] | None = None,
     feature_tag: Mapping[str, str] | None = None,
     indices: tuple[int, ...] | list[int] | None = None,
+    plot_scale: float = 50.0,
 ) -> dict:
     """Draw primitive descriptions, turned by ``rotation`` about their origin, then placed at ``at``.
 
@@ -225,6 +229,9 @@ async def draw_prims(
     ordinal in this call - or, when ``indices`` is given (one per primitive),
     that ordinal: ``mech_part_revise`` draws one primitive of a view at a time
     and tags it with its place in the whole view.
+
+    ``plot_scale`` (a denominator) scales the architectural wall poche only;
+    the mechanical section map ignores it.
     """
     placed = tuple(prims)
     if indices is not None and len(indices) != len(placed):
@@ -235,7 +242,7 @@ async def draw_prims(
     targets = [f"{layer_prefix}{_layer_of(p, role_layer)}" for p in placed]
     for prim in placed:
         if isinstance(prim, HatchArea):
-            _hatch_style(prim.material, role_layer)
+            _hatch_style(prim.material, role_layer, plot_scale)
     await _ensure_layers(backend, sorted(set(targets)))
     if abs(float(rotation)) > 1e-12:
         placed = rotate(placed, float(rotation), (0.0, 0.0))
@@ -285,7 +292,7 @@ async def draw_prims(
                 **extra,
             )
         elif isinstance(prim, HatchArea):
-            style = _hatch_style(prim.material, role_layer)
+            style = _hatch_style(prim.material, role_layer, plot_scale)
             info = await backend.entity_create_hatch(
                 style["pattern"],
                 [[x, y] for x, y in prim.loops[0]],
