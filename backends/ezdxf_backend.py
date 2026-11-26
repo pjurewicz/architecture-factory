@@ -6528,7 +6528,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         y2,
         dim_x,
         dim_y,
-        rotation=0.0,
+        rotation=None,
         layer=None,
         tol_upper=None,
         tol_lower=None,
@@ -6539,6 +6539,9 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         text_at=None,
     ) -> EntityInfo:
         prepared = prepare_xdata(xdata)
+        from backends.contracts.dimensions import linear_rotation
+
+        rotation = linear_rotation(x1, y1, x2, y2, dim_x, dim_y, rotation)
 
         def _sync():
             from engineering.tolerances import build_dim_override

@@ -25,6 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `entity_batch_create`: `radius`, `start_angle`, `end_angle`, `rotation`.
   The old `r`, `start_deg`, `end_deg`, `rotation_deg` are refused as unknown
   keys. `dimstyle_create(preset=)` also accepts `iso` for `iso-25`.
+- `dimension_linear` without `rotation` orients itself like AutoCAD's
+  DIMLINEAR: two points on one vertical (`x1 == x2`) are dimensioned
+  vertically instead of as a horizontal 0, and otherwise a dimension line
+  beside the points' Y span is vertical, any other horizontal. An explicit
+  `rotation` is unchanged; the same rule applies to `entity_batch_create`'s
+  `dimension_linear` and to the nominal an ISO 286 `fit` is resolved for.
 
 ### Removed
 

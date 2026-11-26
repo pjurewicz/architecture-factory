@@ -3076,7 +3076,11 @@ async def dimension_linear(
     y2: Annotated[float, "Second extension line origin Y"],
     dim_x: Annotated[float, "Dimension line position X"],
     dim_y: Annotated[float, "Dimension line position Y"],
-    rotation: Annotated[float, "Angle of the measured dimension (0=horizontal, 90=vertical)"] = 0.0,
+    rotation: Annotated[
+        float | None,
+        "Angle measured along (0=horizontal, 90=vertical); omitted = DIMLINEAR auto: "
+        "vertical when x1 == x2 or the dimension line is beside the points",
+    ] = None,
     layer: Annotated[str | None, "Layer name"] = None,
     tol_upper: Annotated[float | None, "Upper deviation (mm), e.g. 0.02 for +0.02"] = None,
     tol_lower: Annotated[float | None, "Lower deviation (mm), e.g. 0.01 for -0.01"] = None,
@@ -3099,6 +3103,9 @@ async def dimension_linear(
     ctx: Context = None,
 ) -> dict:
     """Create a linear dimension, optionally toleranced (ISO 129 or ISO 286 fit)."""
+    from backends.contracts.dimensions import linear_rotation
+
+    rotation = linear_rotation(x1, y1, x2, y2, dim_x, dim_y, rotation)
     angle = math.radians(rotation)
     nominal = abs((x2 - x1) * math.cos(angle) + (y2 - y1) * math.sin(angle))
     tol_upper, tol_lower, tol_mode, text_override = _fit_to_tolerances(

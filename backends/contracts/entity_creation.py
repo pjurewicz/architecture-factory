@@ -340,7 +340,15 @@ class EntityCreationContract(ABC):
             spec = dict(spec)
             fit = spec.pop("fit")
             try:
-                angle = math.radians(float(spec.get("rotation", 0.0)))
+                from backends.contracts.dimensions import linear_rotation
+
+                rotation = linear_rotation(
+                    *(spec[k] for k in ("x1", "y1", "x2", "y2")),
+                    spec.get("dim_x", 0.0),
+                    spec.get("dim_y", 0.0),
+                    spec.get("rotation"),
+                )
+                angle = math.radians(rotation)
                 nominal = abs(
                     (spec["x2"] - spec["x1"]) * math.cos(angle)
                     + (spec["y2"] - spec["y1"]) * math.sin(angle)

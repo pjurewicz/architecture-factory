@@ -14,6 +14,23 @@ if TYPE_CHECKING:
     from backends.base import EntityInfo
 
 
+def linear_rotation(x1, y1, x2, y2, dim_x, dim_y, rotation=None) -> float:
+    """The rotation a linear dimension measures along: ``rotation`` when given,
+    else DIMLINEAR's choice. Two points on one vertical (or horizontal) are
+    dimensioned vertical (horizontal); otherwise a dimension line beside the
+    points' Y span, outside their X span, is vertical, and any other is
+    horizontal."""
+    if rotation is not None:
+        return float(rotation)
+    dx, dy = abs(float(x2) - float(x1)), abs(float(y2) - float(y1))
+    eps = 1e-9 * max(dx, dy, 1.0)
+    if dx <= eps or dy <= eps:
+        return 90.0 if dx <= eps < dy else 0.0
+    beside_x = not min(x1, x2) <= dim_x <= max(x1, x2)
+    within_y = min(y1, y2) <= dim_y <= max(y1, y2)
+    return 90.0 if beside_x and within_y else 0.0
+
+
 class DimensionContract(ABC):
     # ``xdata={app: values}`` (v1.8.0, plan item 1.8-06; the B17 pattern of
     # ``EntityCreationContract``): linear, aligned, radius and diameter - the
@@ -31,7 +48,7 @@ class DimensionContract(ABC):
         y2: float,
         dim_x: float,
         dim_y: float,
-        rotation: float = 0.0,
+        rotation: float | None = None,
         layer: str | None = None,
         tol_upper: float | None = None,
         tol_lower: float | None = None,
@@ -41,9 +58,10 @@ class DimensionContract(ABC):
         *,
         text_at: tuple[float, float] | None = None,
     ) -> EntityInfo:
-        """``text_at`` places the text's middle there and leaves the dimension
-        line where ``dim_x, dim_y`` put it (DIMTMOVE 2: no leader); None lets
-        the style place it."""
+        """``rotation`` None picks horizontal or vertical like DIMLINEAR
+        (:func:`linear_rotation`). ``text_at`` places the text's middle there and
+        leaves the dimension line where ``dim_x, dim_y`` put it (DIMTMOVE 2: no
+        leader); None lets the style place it."""
 
     @abstractmethod
     async def dimension_aligned(

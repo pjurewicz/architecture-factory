@@ -576,3 +576,21 @@ async def test_the_v9_dimension_lie_detect_task_passes_headlessly(tmp_path):
         await adapter.cleanup()
     assert result.status == "pass", result.metrics
     assert result.metrics["displayed_text"] == "20"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("points", "at", "expected"),
+    [
+        ((0, 0, 0, 30), (-10, 15), 30.0),  # x1 == x2: vertical, not ΔX = 0
+        ((0, 0, 40, 0), (20, -10), 40.0),  # y1 == y2: horizontal
+        ((0, 0, 40, 30), (50, 15), 30.0),  # beside the Y span: vertical
+        ((0, 0, 40, 30), (20, -10), 40.0),  # below: horizontal
+    ],
+)
+async def test_a_linear_dimension_without_rotation_orients_like_dimlinear(
+    backend, points, at, expected
+):
+    dim = await backend.dimension_linear(*points, *at)
+    entity = backend._doc.entitydb[dim.handle]
+    assert entity.get_measurement() == pytest.approx(expected)
