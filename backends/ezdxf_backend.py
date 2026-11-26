@@ -84,9 +84,11 @@ from .quarantine import (
 )
 from .region_render import (
     DEFAULT_MAX_PX,
+    PAPERSPACE_LAST,
     check_max_px,
     draw_layout,
     normalize_region,
+    paperspace_last,
     render_layout,
 )
 from .vertices import (
@@ -6173,6 +6175,131 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     },
                 },
             )
+
+        return await self._async(_sync)
+
+    async def callout(
+        self,
+        target,
+        landing,
+        text=None,
+        number=None,
+        style="dot",
+        mask=True,
+        text_height=2.5,
+        layer="DIM",
+        layout=None,
+    ) -> dict:
+        from ezdxf.enums import TextEntityAlignment
+
+        from engineering.callout import plan_callout
+
+        try:
+            plan = plan_callout(
+                target,
+                landing,
+                text=text,
+                number=number,
+                style=style,
+                mask=bool(mask),
+                text_height=text_height,
+            )
+        except ValueError as exc:
+            raise InvalidArgsError(f"invalid_args: callout: {exc}") from exc
+        layer = str(layer or "DIM")
+
+        def _sync():
+            doc = self._require_doc()
+            if layout:
+                name = self._find_layout(layout)
+                if name is None:
+                    raise InvalidArgsError(
+                        f"invalid_args: callout: layout {layout!r} does not exist "
+                        f"(have: {', '.join(doc.layouts.names())})"
+                    )
+                space = doc.modelspace() if name == "Model" else doc.layouts.get(name)
+            else:
+                space = self._msp()
+            if layer not in doc.layers:
+                doc.layers.add(layer)
+            attribs = {"layer": layer}
+            parts: dict[str, str] = {}
+
+            frame = sheet_order = None
+            if plan.mask is not None:
+                # A WIPEOUT shows and plots its frame unless WIPEOUTFRAME says
+                # otherwise; a drawing that never set it gets 0, one that did
+                # keeps its own choice.
+                variables = doc.rootdict.get("AcDbVariableDictionary")
+                existing = variables.get("WIPEOUTFRAME") if variables is not None else None
+                if existing is None:
+                    doc.set_wipeout_variables(frame=0)
+                    frame = {"value": 0, "set": True}
+                else:
+                    frame = {"value": int(str(existing.value) or 0), "set": False}
+                if not space.is_modelspace:
+                    # AutoCAD stacks a viewport by "Plot paperspace last", not
+                    # by draw order: clear, the model seen through a viewport
+                    # covers a paper-space mask. A fresh layout is written with 0.
+                    was = paperspace_last(space)
+                    if not was:
+                        dxf = space.dxf_layout.dxf
+                        dxf.plot_layout_flags = (
+                            int(dxf.get("plot_layout_flags", 0)) | PAPERSPACE_LAST
+                        )
+                    sheet_order = {"paperspace_last": True, "set": not was}
+                # First, so the leader and the lettering lie on top of it.
+                parts["mask"] = space.add_wipeout(plan.mask, dxfattribs=attribs).dxf.handle
+
+            parts["leader"] = space.add_lwpolyline(plan.leader, dxfattribs=attribs).dxf.handle
+            fill = space.add_hatch(dxfattribs=attribs)
+            fill.set_solid_fill(color=256)
+            if plan.arrow is not None:
+                fill.paths.add_polyline_path(plan.arrow, is_closed=True)
+            else:
+                (cx, cy), radius = plan.dot
+                fill.paths.add_edge_path().add_arc((cx, cy), radius, 0.0, 360.0)
+            parts["terminator"] = fill.dxf.handle
+
+            if plan.kind == "text":
+                note = space.add_mtext(
+                    plan.content, dxfattribs={**attribs, "char_height": plan.height}
+                )
+                note.set_location(plan.content_at, attachment_point=MTEXT_ALIGN[plan.content_align])
+                parts["text"] = note.dxf.handle
+            else:
+                (cx, cy), radius = plan.circle
+                parts["circle"] = space.add_circle((cx, cy), radius, dxfattribs=attribs).dxf.handle
+                numeral = space.add_text(
+                    plan.content, height=plan.height, dxfattribs=attribs
+                ).set_placement(plan.content_at, align=TextEntityAlignment.MIDDLE_CENTER)
+                parts["text"] = numeral.dxf.handle
+            self._mark_dirty()
+
+            xs = [p[0] for p in plan.leader] + [p[0] for p in plan.mask or ()]
+            ys = [p[1] for p in plan.leader] + [p[1] for p in plan.mask or ()]
+            if plan.circle is not None:
+                (cx, cy), radius = plan.circle
+                xs += [cx - radius, cx + radius]
+                ys += [cy - radius, cy + radius]
+            return {
+                "ok": True,
+                "handle": parts["leader"],
+                "kind": plan.kind,
+                "style": plan.style,
+                "side": plan.side,
+                "text": plan.content.replace("\\P", "\n"),
+                "text_height": plan.height,
+                "layer": layer,
+                "layout": space.name,
+                "parts": parts,
+                "handles": list(parts.values()),
+                "leader": [list(p) for p in plan.leader],
+                "mask": None if plan.mask is None else [list(p) for p in plan.mask],
+                "wipeout_frame": frame,
+                "sheet_order": sheet_order,
+                "bounds": {"min": [min(xs), min(ys)], "max": [max(xs), max(ys)]},
+            }
 
         return await self._async(_sync)
 

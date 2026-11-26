@@ -3,7 +3,7 @@
   "schema_version": 2,
   "package_version": "1.8.0",
   "totals": {
-    "tools": 247,
+    "tools": 248,
     "resources": 13,
     "prompts": 5,
     "groups": 27
@@ -17,7 +17,7 @@
     "dimensions": 6,
     "drawing": 11,
     "engineering": 10,
-    "entity_creation": 18,
+    "entity_creation": 19,
     "entity_modification": 18,
     "entity_query": 9,
     "environment": 16,
@@ -1076,6 +1076,32 @@
         "title": "Batch: Run Tools",
         "readOnlyHint": false,
         "destructiveHint": true
+      }
+    },
+    {
+      "name": "callout",
+      "group": "entity_creation",
+      "cost": "mutate",
+      "summary": "Add a masked callout: dot or arrow, leader, note or numbered circle.",
+      "acad": [],
+      "synonyms": [
+        "callout",
+        "masked callout",
+        "note with background mask",
+        "numbered callout",
+        "reference note",
+        "odnosnik",
+        "opis z maska"
+      ],
+      "tags": [
+        "annotation",
+        "create",
+        "entity",
+        "leader"
+      ],
+      "annotations": {
+        "title": "Create Callout",
+        "readOnlyHint": false
       }
     },
     {

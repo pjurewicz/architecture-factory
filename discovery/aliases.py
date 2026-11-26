@@ -1538,6 +1538,17 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "balloon",
         ),
     ),
+    "callout": ToolAliases(
+        synonyms=(
+            "callout",
+            "masked callout",
+            "note with background mask",
+            "numbered callout",
+            "reference note",
+            "odnosnik",
+            "opis z maska",
+        ),
+    ),
     # ── Snap points ─────────────────────────────────────────────────────────
     "point_from_snap": ToolAliases(
         synonyms=(

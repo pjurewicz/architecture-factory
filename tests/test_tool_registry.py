@@ -653,7 +653,7 @@ async def test_tool_group_sizes_are_unchanged():
         "dimensions": 6,  # + dimension_chain
         "drawing": 11,
         "engineering": 10,
-        "entity_creation": 18,
+        "entity_creation": 19,  # + callout
         "entity_modification": 18,  # + entity_modify_where (1.8-12), draw_order
         "entity_query": 9,
         "environment": 16,
@@ -673,4 +673,4 @@ async def test_tool_group_sizes_are_unchanged():
         "validation": 1,
         "view": 2,
     }
-    assert sum(sizes.values()) == 247
+    assert sum(sizes.values()) == 248

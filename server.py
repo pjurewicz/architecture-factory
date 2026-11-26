@@ -2598,7 +2598,7 @@ async def drawing_redo(ctx: Context = None) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 2: Entity Creation (19 tools) ───────────────────────────────────
+# ── SECTION 2: Entity Creation (20 tools) ───────────────────────────────────
 # ---------------------------------------------------------------------------
 
 
@@ -2825,6 +2825,62 @@ async def leader_create_mleader(
         points, text, text_height, landing_gap, arrow_size, layer
     )
     return _dc(result)
+
+
+@cad_tool(
+    summary="Add a masked callout: dot or arrow, leader, note or numbered circle.", cost="mutate"
+)
+@mcp.tool(
+    annotations={"title": "Create Callout", "readOnlyHint": False},
+    tags={"entity", "create", "annotation", "leader"},
+)
+async def callout(
+    target: Annotated[list[float], Field(description="[x, y] the terminator touches (WCS).")],
+    landing: Annotated[
+        list[float],
+        Field(description="[x, y] of the knee; the shelf runs from it away from the target."),
+    ],
+    text: Annotated[
+        str | None, Field(default=None, description="Note; newlines make lines. Or number.")
+    ] = None,
+    number: Annotated[
+        int | str | None,
+        Field(default=None, description="Item number in a circle. Exactly one of text / number."),
+    ] = None,
+    style: Annotated[str, Field(default="dot", description="'dot' or 'arrow' (filled).")] = "dot",
+    mask: Annotated[
+        bool, Field(default=True, description="WIPEOUT under the note or circle.")
+    ] = True,
+    text_height: Annotated[float, Field(default=2.5, gt=0)] = 2.5,
+    layer: Annotated[str, Field(default="DIM")] = "DIM",
+    layout: Annotated[str, Field(default="", description="Layout name; '' = current space.")] = "",
+    ctx: Context = None,
+) -> dict:
+    """One technical callout: a filled dot (inside an outline) or arrow (on
+    one) at `target`, a leader to `landing`, a horizontal shelf of 2 text
+    heights away from the target, then a note or a numbered circle.
+
+    With `mask` a WIPEOUT is drawn first under the note or the circle, so
+    geometry beneath is hidden in model space, through a paper-space
+    viewport and on a layout over a viewport; a drawing without WIPEOUTFRAME
+    gets 0 (no frame), reported in `wipeout_frame`. On a layout the sheet's
+    "Plot paperspace last" is switched on (`sheet_order`): AutoCAD otherwise
+    draws the viewport's model over the mask. Native entities (WIPEOUT,
+    LWPOLYLINE, SOLID HATCH, MTEXT or CIRCLE + TEXT), listed in `parts`.
+    Refused before drawing: both or neither of text / number, an unknown
+    style, a leader not longer than its terminator, an unknown layout.
+    """
+    return await _backend(ctx).callout(
+        target,
+        landing,
+        text=text,
+        number=number,
+        style=style,
+        mask=mask,
+        text_height=text_height,
+        layer=layer,
+        layout=layout or None,
+    )
 
 
 @cad_tool(

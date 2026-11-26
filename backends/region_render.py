@@ -201,8 +201,9 @@ def draw_layout(
     from ezdxf.addons import acadctb
     from ezdxf.addons.drawing import RenderContext
     from ezdxf.addons.drawing.config import BackgroundPolicy, Configuration
-    from ezdxf.addons.drawing.frontend import UniversalFrontend
+    from ezdxf.addons.drawing.frontend import UniversalFrontend, _draw_viewports
     from ezdxf.addons.drawing.pipeline import color_to_monochrome
+    from ezdxf.entities import Viewport
     from ezdxf.filemanagement import find_support_file
     from ezdxf.tools.text_layout import LayoutError
 
@@ -280,6 +281,19 @@ def draw_layout(
                     pass
             return super().draw_simple_mtext(mtext, properties)
 
+        def draw_entities(self, entities, *, filter_func=None):
+            # ezdxf draws a layout's viewports after all of its paper-space
+            # objects, whatever the sheet says. AutoCAD ignores draw order
+            # between a viewport and paper space and follows "Plot paperspace
+            # last": set, the viewports go first and a paper-space note or
+            # WIPEOUT lies on top of the model seen through them; clear,
+            # ezdxf's order is right.
+            if not paperspace_last(layout):
+                return super().draw_entities(entities, filter_func=filter_func)
+            entities = [e for e in entities if filter_func is None or filter_func(e)]
+            _draw_viewports(self, [e for e in entities if isinstance(e, Viewport)])
+            super().draw_entities([e for e in entities if not isinstance(e, Viewport)])
+
     config = Configuration(
         lineweight_scaling=MM_TO_PT,
         # the floor is applied to object lineweights above; this one lets a pen through
@@ -293,6 +307,19 @@ def draw_layout(
     if report:
         result["pens"] = report
     return result
+
+
+#: PLOTSETTINGS flag "Plot paperspace last" (DXF 70, bit 512).
+PAPERSPACE_LAST = 512
+
+
+def paperspace_last(layout) -> bool:
+    """Whether AutoCAD draws ``layout``'s viewports under its paper-space objects."""
+    if layout.is_modelspace:
+        return False
+    # Unset reads as ezdxf's default 688 but is written as 0 (LAYOUT export
+    # rebuilds the flags from ``get(..., 0)``): 0 is what AutoCAD opens.
+    return bool(int(layout.dxf_layout.dxf.get("plot_layout_flags", 0)) & PAPERSPACE_LAST)
 
 
 def _glyph_pipeline(out):

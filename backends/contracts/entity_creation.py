@@ -244,6 +244,26 @@ class EntityCreationContract(ABC):
     ) -> EntityInfo: ...
 
     @abstractmethod
+    async def callout(
+        self,
+        target: list[float],
+        landing: list[float],
+        text: str | None = None,
+        number: int | str | None = None,
+        style: str = "dot",
+        mask: bool = True,
+        text_height: float = 2.5,
+        layer: str = "DIM",
+        layout: str | None = None,
+    ) -> dict:
+        """One technical callout (``engineering/callout.py``): a dot or a filled
+        arrow on ``target``, a leader to ``landing`` and a horizontal shelf,
+        then a note (``text``) or a numbered circle (``number``), over a WIPEOUT
+        mask when ``mask``. Drawn into ``layout`` (None: the current space) in
+        one call; every refusal fires before the first entity."""
+        ...
+
+    @abstractmethod
     async def entity_create_hatch(
         self,
         pattern: str,
