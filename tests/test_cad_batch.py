@@ -1292,6 +1292,37 @@ async def test_rollback_restores_the_document_on_ezdxf(client):
     assert atomicity["before"] == atomicity["after"]
 
 
+async def test_rollback_puts_the_target_space_back(client, tmp_path):
+    """A batch that switched to a sheet and then failed must leave the target
+    where it was: the fingerprint after the rollback is read in the target
+    space, so a target left on the sheet reported a false ROLLBACK NOT VERIFIED
+    (``after.entity_count`` 0 against the model's count)."""
+    await client.call_tool("entity_create_circle", {"cx": 0, "cy": 0, "radius": 1})
+    await client.call_tool("layout_create", {"name": "A1"})
+    occupied = tmp_path / "open.dxf"
+    await client.call_tool("drawing_save_as", {"path": str(occupied)})
+    await client.call_tool("drawing_new", {})
+    await client.call_tool("entity_create_circle", {"cx": 0, "cy": 0, "radius": 1})
+    await client.call_tool("entity_create_circle", {"cx": 5, "cy": 0, "radius": 1})
+    await client.call_tool("layout_create", {"name": "A1"})
+    result = await _batch(
+        client,
+        [
+            {"tool": "layout_set_current", "args": {"name": "A1"}},
+            _line(),
+            {"tool": "drawing_save_as", "args": {"path": str(occupied)}},
+        ],
+    )
+    assert result["ok"] is False, result["results"]
+    atomicity = result["atomicity"]
+    assert atomicity["rolled_back"] is True
+    assert atomicity["verified"] is True, atomicity
+    assert atomicity["after"]["entity_count"] == 2
+    layouts = (await client.call_tool("layout_list", {})).structured_content
+    assert layouts["current"] == "Model", layouts
+    assert await _entity_count(client) == 2
+
+
 async def test_a_successful_rollback_batch_commits_and_keeps_its_work(client):
     result = await _batch(client, [_line(), _line(y1=4.0, y2=4.0)], on_error="rollback")
     assert result["ok"] is True

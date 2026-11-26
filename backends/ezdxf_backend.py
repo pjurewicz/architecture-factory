@@ -1733,6 +1733,9 @@ class _DocState:
     parked_redo: dict[str, list[Path]] = field(default_factory=dict)
     snapshot_revs: dict[str, int] = field(default_factory=dict)
     transaction_revs: dict[str, tuple] = field(default_factory=dict)
+    # The target space at each open transaction's begin: a rollback restores
+    # the DXF snapshot, and the space a step's layout_set_current chose with it.
+    transaction_spaces: dict[str, str] = field(default_factory=dict)
 
     @property
     def label(self) -> str:
@@ -9524,6 +9527,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     pass
                 raise
             self._transaction_stack.append(Path(tmp_path))
+            self._state.transaction_spaces[tmp_path] = self._current_space
             # 1.8-08: the revision the snapshot holds; it becomes a checkpoint
             # when the transaction closes.
             self._cp_transaction_opened(self._state, Path(tmp_path))
@@ -9531,6 +9535,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             while len(self._transaction_stack) > max_stack:
                 old = self._transaction_stack.pop(0)
                 self._state.transaction_revs.pop(str(old), None)
+                self._state.transaction_spaces.pop(str(old), None)
                 try:
                     old.unlink()
                 except OSError:
@@ -9546,6 +9551,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             if not self._transaction_stack:
                 return {"ok": False, "error": "No active transaction"}
             p = self._transaction_stack.pop()
+            self._state.transaction_spaces.pop(str(p), None)
             # 1.8-08: the begin's snapshot is kept as a checkpoint (the batch
             # boundary drawing_undo steps back to), not deleted.
             row = self._cp_transaction_closed(self._state, p, "transaction_commit")
@@ -9567,10 +9573,14 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 return {"ok": False, "error": "No active transaction to rollback"}
             p = self._transaction_stack.pop()
             state = self._state
+            space = state.transaction_spaces.pop(str(p), None)
             try:
                 self._doc = ezdxf.readfile(str(p))
                 _normalise_dimstyle_rounding(self._doc)
                 self._current_layer = str(self._doc.header.get("$CLAYER", "0"))
+                if space is not None:
+                    self._current_space = space
+                    self._resync_space()
                 self._dirty = True
             except BaseException:
                 state.transaction_revs.pop(str(p), None)
