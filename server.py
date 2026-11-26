@@ -333,7 +333,7 @@ async def _logged_call(context: MiddlewareContext, call_next, backend):
     message = context.message
     arguments = dict(getattr(message, "arguments", None) or {})
     tool = _effective_tool(str(getattr(message, "name", "?")), arguments)
-    started, start = time.time(), time.monotonic()
+    started, start = time.time(), time.perf_counter()
     result, ok = None, False
     try:
         result = await call_next(context)
@@ -354,7 +354,7 @@ async def _logged_call(context: MiddlewareContext, call_next, backend):
                 {
                     "tool": tool,
                     "started": started,
-                    "ms": round((time.monotonic() - start) * 1000.0, 1),
+                    "ms": round((time.perf_counter() - start) * 1000.0, 3),
                     "ok": ok,
                     "revision": revision,
                     "bytes_in": len(json.dumps(arguments, default=str).encode("utf-8")),
