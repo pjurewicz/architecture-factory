@@ -31,8 +31,7 @@ the live engine* below); `AUTOCAD_MCP_BACKEND=com` already fails startup.
 - **Upstream is cherry-picked, not merged.** Upstream adds most features to both
   engines in one commit, so once the live engine is gone a merge would bring it
   back piece by piece. Upstream commits are reviewed and taken one by one with
-  `git cherry-pick -x`; the procedure is written down here when the removal is
-  done. Changes still go in as small, self-contained commits that keep the gates
+  `git cherry-pick -x` (*Taking changes from upstream*, below). Changes still go in as small, self-contained commits that keep the gates
   green (`scripts/check_doc_numbers.py`, `benchmarks.token_suite --budget`,
   `benchmarks.call_budget`, ruff). The last commit shared with upstream is
   `6f6a538` (2026-11-06); the tag `pre-com-removal` marks the fork before the
@@ -75,9 +74,65 @@ Decided 2026-11-26. In order, each stage its own commit with the suite green:
    `environment_blocked`.
 6. Documentation: CLAUDE.md, README, the skill, the plugin, and the tool
    docstrings that still describe the live engine. **Done.**
-7. The cherry-pick procedure, with the upstream commit reviewed up to.
+7. The cherry-pick procedure, with the upstream commit reviewed up to. **Done**
+   (*Taking changes from upstream*, below).
 
 The package name and version scheme stay as they are.
+
+## Taking changes from upstream
+
+Upstream (`https://github.com/U-C4N/Autocad-MCP`, remote `upstream`) is never
+merged. Each commit is reviewed and taken with `git cherry-pick -x`, adapted, or
+skipped.
+
+**Reviewed up to:** `6f6a538` (2026-11-06, "fix(ci): the three failures
+GitHub's lanes found in 8502194"), the last commit shared with upstream.
+
+1. List what is new since the reviewed commit:
+
+   ```sh
+   git fetch upstream
+   git log --oneline --reverse 6f6a538..upstream/main
+   git show --stat <sha>        # which files each commit touches
+   ```
+
+2. Decide per commit:
+   - **Take**: it touches only shared code (ezdxf engine, `engineering/`,
+     tools that exist here, tests, benchmarks). `git cherry-pick -x <sha>`.
+   - **Adapt**: it adds a feature to both engines in one commit.
+     `git cherry-pick -x --no-commit <sha>`, then drop the live half (below)
+     and commit with the original message plus the `(cherry picked from …)`
+     line.
+   - **Skip**: it only touches the live engine (`backends/com_backend.py`,
+     `scripts/smoke_*_com.py`, `scripts/live/`, the removed tools, the Windows
+     lanes, `benchmarks/results/live/`). Record it in the table below.
+
+3. Dropping the live half of a conflict:
+   - A file deleted here and modified upstream (`deleted by us`):
+     `git rm <file>`. It stays deleted.
+   - A `name == "com"` branch, a `ComBackend` test or fake, a second
+     capability map entry, a `[com]` / `pywin32` line, a `COM_*` setting or a
+     COM-only error kind: delete it.
+   - A docstring sentence about the live engine ("On the live engine …",
+     "a .dwg on a live seat"): delete it; tool docstrings are paid every turn.
+   - A new `@capability` key: declare it in `EzdxfBackend.capabilities()`.
+   - A benchmark task or matrix change: take it as is; a task only the live
+     engine can run is `environment_blocked`.
+
+4. Before each commit, the gates: `pytest`, `ruff check .`,
+   `ruff format --check .`, `scripts/check_doc_numbers.py` (fix the README test
+   count it reports), `scripts/generate_tool_inventory.py --check`,
+   `scripts/build_plugin.py --check`,
+   `benchmarks.token_suite --lanes idle,task --budget benchmarks/token_budget.json`
+   and `benchmarks.call_budget`. Add a CHANGELOG *Unreleased* bullet for what
+   reaches users.
+
+5. Move **Reviewed up to** to the last commit decided, in the same commit as
+   the last pick, so the next review starts there.
+
+| Upstream commit | Decision | Note |
+|---|---|---|
+| (none since `6f6a538`) | | |
 
 ## Known gaps
 
