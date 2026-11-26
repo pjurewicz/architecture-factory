@@ -32,8 +32,10 @@ Conventions (this repository's, stated because plan symbols vary by office):
 * ``window``: a frame line on each wall face across the opening and two glazing
   lines between them at the thirds of the wall thickness.
 * ``curtain_wall``: two glazing lines at 40 % and 60 % of the thickness and a
-  mullion across the full thickness at both ends and between panels no wider
-  than ``CURTAIN_PANEL_MAX``.
+  mullion across the full thickness between panels no wider than
+  ``CURTAIN_PANEL_MAX``. Its ends get no mullion: the wall engine closes them
+  with a jamb (or, at a corner, a jamb along the mitre line or nothing), and a
+  mullion there would be the same line drawn twice.
 
 The overlap, the panel width and the fractions are drafting conventions of this
 module, not standards. The first primitive is the one `draw.py` writes the
@@ -121,7 +123,7 @@ def opening_prims(wall: Wall, opening: Opening, cut: dict | None = None) -> tupl
         panels = max(1, math.ceil(width / CURTAIN_PANEL_MAX - 1e-9))
         mullions = tuple(
             Line(_lerp(ra, rb, i / panels), _lerp(la, lb, i / panels), "window")
-            for i in range(panels + 1)
+            for i in range(1, panels)
         )
         return (across(0.6), across(0.4), *mullions)
     if kind == "cased_opening":

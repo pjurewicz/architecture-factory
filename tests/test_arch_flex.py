@@ -103,7 +103,8 @@ def test_a_curtain_wall_puts_a_mullion_at_least_every_1500():
         WALL, Opening(id="w", wall="a", kind="curtain_wall", offset=500.0, width=3200.0)
     )
     mullions = sorted(pt(p.p1)[0] for p in prims if pt(p.p1)[0] == pt(p.p2)[0])
-    assert mullions == pytest.approx([500.0, 500.0 + 3200 / 3, 500.0 + 6400 / 3, 3700.0])
+    # the ends are the wall's jambs, not mullions (they would be duplicates)
+    assert mullions == pytest.approx([500.0 + 3200 / 3, 500.0 + 6400 / 3])
 
 
 # -- the tools ---------------------------------------------------------------------
@@ -132,6 +133,24 @@ ROOM_BOX = [
         "closed": True,
     }
 ]
+
+
+@pytest.mark.parametrize(
+    "openings",
+    [
+        [{"offset": 500, "width": 3200}],  # mid-wall: both ends on the wall's jambs
+        [{"offset": 5000, "width": 1000}],  # one corner, the other wall solid there
+        [{"offset": 5000, "width": 1000}, {"offset": 6000, "width": 1000}],  # glazed corner
+    ],
+)
+@pytest.mark.asyncio
+async def test_a_curtain_wall_draws_no_line_over_the_walls_own(client, openings):
+    await call(client, "arch_wall", {"walls": ROOM_BOX})
+    for opening in openings:
+        placed = await call(client, "arch_opening", {"wall": "S", "kind": "curtain_wall", **opening})
+        assert "error" not in placed and not placed.get("omitted")
+    critique = await call(client, "drawing_critique", {"focus": ["duplicate_entities"]})
+    assert critique["result"] == []
 
 
 @pytest.mark.asyncio
