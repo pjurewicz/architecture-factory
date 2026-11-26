@@ -32,7 +32,7 @@ enum — one numbering, shared by the file and by AutoCAD's object model:
   declares ``ac1_5=19`` too, but AutoCAD 2026 refuses
   ``Layout.StandardScale = 19`` with "Invalid input" in every condition tried
   (PaperUnits mm and inches, UseStandardScale True and False; measured live
-  2026-09-17), so 1:5 is not in ``ACTIVEX_PLOT_SCALE`` and AutoCAD takes the
+  2026-09-17), so AutoCAD takes the
   custom route (``SetCustomScale(1, 5)`` reads back ``1:5``). The headless
   writer mirrors that — 1:5 is not in ``DXF_STANDARD_SCALE_TYPE`` either, so it
   stores 1:5 as AutoCAD does (custom, 142/143 = 1/5) — while the reader knows
@@ -57,7 +57,6 @@ import math
 import re
 
 __all__ = [
-    "ACTIVEX_PLOT_SCALE",
     "BLEEDS",
     "CTB_CATALOG",
     "CTB_RENDERING",
@@ -73,7 +72,6 @@ __all__ = [
     "PLOT_TYPE_NAMES",
     "REQUIRED_SETUP_KEYS",
     "SCALES",
-    "activex_scale_label",
     "canonical_media_name",
     "center_applies",
     "dxf_scale_label",
@@ -242,22 +240,6 @@ DXF_STANDARD_SCALE_TYPE: dict[str, int] = {
     "2:1": 28,
     "10:1": 31,
 }
-
-#: AutoCAD's ``AcPlotScale`` (AutoCAD 2026 typelib), reported as
-#: ``activex_standard_scale``. Labels missing here use SetCustomScale.
-#: No ``"1:5"``: the typelib's ``ac1_5 = 19`` is refused by AutoCAD 2026 (module docstring).
-ACTIVEX_PLOT_SCALE: dict[str, int] = {
-    "fit": 0,
-    "1:1": 16,
-    "1:2": 17,
-    "1:10": 21,
-    "1:20": 23,
-    "1:50": 26,
-    "1:100": 27,
-    "2:1": 28,
-    "10:1": 31,
-}
-_ACTIVEX_SCALE_LABEL = {code: label for label, code in ACTIVEX_PLOT_SCALE.items()}
 
 #: Plot area → DXF/AutoCAD plot type (``AcPlotType``: acExtents=1, acLayout=5).
 PLOT_AREAS: dict[str, int] = {"layout": 5, "extents": 1}
@@ -457,11 +439,6 @@ def dxf_scale_label(code, numerator, denominator) -> str:
     if label is not None:
         return label
     return scale_label(numerator, denominator)
-
-
-def activex_scale_label(code) -> str:
-    """The AcPlotScale label of ``code``, else ``standard:<code>``."""
-    return _ACTIVEX_SCALE_LABEL.get(int(code), f"standard:{int(code)}")
 
 
 def plot_style_known(name) -> bool:
@@ -670,7 +647,6 @@ def resolve_page_setup(
         "scale_factor": SCALES[label],
         "scale_ratio": [ratio[0], ratio[1]],
         "dxf_standard_scale_type": DXF_STANDARD_SCALE_TYPE.get(label),
-        "activex_standard_scale": ACTIVEX_PLOT_SCALE.get(label),
         "plot_area": plot_area,
         "plot_type": plot_type,
         "device": device_name,
@@ -692,7 +668,6 @@ REQUIRED_SETUP_KEYS: tuple[str, ...] = (
     "scale",
     "scale_ratio",
     "dxf_standard_scale_type",
-    "activex_standard_scale",
     "plot_area",
     "plot_type",
     "device",

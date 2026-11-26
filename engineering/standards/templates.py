@@ -153,7 +153,7 @@ def template_rows() -> list[dict]:
     return rows
 
 
-def resolve_template(name_or_path: str, engine: str) -> tuple[str, str]:
+def resolve_template(name_or_path: str) -> tuple[str, str]:
     """``(path, source)`` for a catalogue name or a template file path.
 
     A catalogue name resolves to ``templates/<name>.dxf``. Anything

@@ -36,6 +36,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Dead live-engine code is gone: `cad_batch` and `entity_delete_many` no
+  longer have the `best_effort_undo` rollback guarantee or the CMDACTIVE
+  check (`BATCH_ROLLBACK_GUARANTEES` is `snapshot` / `unverified` / `none`),
+  `resolve_page_setup` no longer reports `activex_standard_scale`, and the
+  unused `split_by_app` XDATA decoder and the `engine` argument of
+  `resolve_template` are removed.
 - Refusals no longer send callers to the live COM backend: a `.dwg`
   `drawing_save_as` names `drawing_export_dwg`, and the ACIS area, opaque
   explode, registry variable, summary properties and xref reload / bind

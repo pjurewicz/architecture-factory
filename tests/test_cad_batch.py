@@ -1168,43 +1168,6 @@ async def test_a_rollback_is_evidenced_by_the_pre_checks_handles(client):
     assert await _start(client, line) == [0.0, 0.0]
 
 
-async def test_a_live_rollback_is_not_judged_while_autocad_is_busy():
-    """best_effort_undo: the evidence is read only once CMDACTIVE is 0."""
-
-    class _Busy:
-        async def system_get_variable(self, name):
-            assert name == "CMDACTIVE"
-            return 1
-
-    verified, extra = await server._batch_rollback_evidence(
-        _Busy(), "best_effort_undo", True, {"1F": "abc"}
-    )
-    assert verified is None
-    assert extra == {"cmdactive": 1}
-
-
-async def test_a_live_rollback_with_an_unreadable_cmdactive_is_not_claimed_verified(
-    monkeypatch,
-):
-    """An unreadable CMDACTIVE is not idleness: verified None, nothing compared."""
-    from engineering.changes import precheck
-
-    class _Rejected:
-        async def system_get_variable(self, name):
-            raise RuntimeError("Call was rejected by callee")
-
-    async def unchanged(backend, before, *, exact):  # pragma: no cover - must not run
-        raise AssertionError("the evidence must not be read on an unknown seat state")
-
-    monkeypatch.setattr(precheck, "changed_since", unchanged)
-    verified, extra = await server._batch_rollback_evidence(
-        _Rejected(), "best_effort_undo", True, {"3D": "x"}
-    )
-    assert verified is None
-    assert extra == {"cmdactive": None}
-    assert "could not be read" in server._batch_not_idle_note(None)
-
-
 async def _declining_begin(monkeypatch):
     """Give the headless engine a declining rule for a second begin
     ({"ok": False, "error": "A transaction is already active"}) instead of
@@ -1256,25 +1219,15 @@ async def test_auto_opens_no_checkpoint_around_a_transaction_step(client, tool):
     assert tool in result["atomicity"]["note"]
 
 
-async def test_a_live_rollback_compares_the_handles_exactly(monkeypatch):
+async def test_a_rollback_compares_handle_presence(monkeypatch):
     from engineering.changes import precheck
-
-    class _Idle:
-        async def system_get_variable(self, name):
-            return 0
 
     async def after(backend, handles):
         return {"1F": "abc", "20": "changed"}
 
     monkeypatch.setattr(precheck, "entity_fingerprints", after)
     verified, extra = await server._batch_rollback_evidence(
-        _Idle(), "best_effort_undo", True, {"1F": "abc", "20": "def"}
-    )
-    assert verified is False
-    assert extra == {"cmdactive": 0, "handles_checked": 2, "handles_changed": ["20"]}
-    # The same reads headless compare presence only (see precheck's docstring).
-    verified, extra = await server._batch_rollback_evidence(
-        _Idle(), "snapshot", True, {"1F": "abc", "20": "def"}
+        object(), "snapshot", True, {"1F": "abc", "20": "def"}
     )
     assert verified is True and extra == {"handles_checked": 2}
 
@@ -1307,14 +1260,10 @@ async def test_a_snapshot_backend_is_reported_as_a_snapshot_guarantee():
     assert "snapshot" in note.lower()
 
 
-async def test_an_undo_mark_backend_is_never_called_atomic():
-    """An undo mark ends the undo group and fires ``_UNDO _B`` without confirming it landed."""
+async def test_an_unknown_transaction_mode_is_unverified():
     guarantee, note = server._batch_rollback_guarantee(_Caps("undo_mark"))
-    assert guarantee == "best_effort_undo"
-    lowered = note.lower()
-    assert "not atomic" in lowered, "it must say so, not merely omit the word"
-    assert "best-effort" in lowered
-    assert "does not confirm" in lowered
+    assert guarantee == "unverified"
+    assert "no claim" in note.lower()
 
 
 async def test_a_backend_without_transactions_gets_no_guarantee():

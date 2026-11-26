@@ -12,7 +12,6 @@ import zlib
 import pytest
 
 from engineering.standards.papers import (
-    ACTIVEX_PLOT_SCALE,
     CTB_CATALOG,
     DXF_STANDARD_SCALE_TYPE,
     DXF_STD_SCALES,
@@ -147,7 +146,7 @@ def test_resolve_page_setup_defaults():
     assert setup["canonical_media_name"] == "ISO_A3_(420.00_x_297.00_MM)"
     assert setup["plot_style"] == "monochrome.ctb" and setup["plot_style_known"] is True
     assert setup["scale"] == "fit"
-    assert setup["dxf_standard_scale_type"] == 0 and setup["activex_standard_scale"] == 0
+    assert setup["dxf_standard_scale_type"] == 0
     assert setup["scale_ratio"] == [1.0, 1.0]
     assert setup["plot_area"] == "layout" and setup["plot_type"] == 5
     assert setup["device"] == "DWG To PDF.pc3"
@@ -180,16 +179,13 @@ def test_resolve_page_setup_scale_codes():
     # by AutoCAD 2026 ("Invalid input", measured live), so both engines store
     # 1:5 the same way: the custom route, 142/143 = 1/5.
     assert one_to_five["dxf_standard_scale_type"] is None
-    assert one_to_five["activex_standard_scale"] is None
     assert one_to_five["scale_ratio"] == [1.0, 5.0]
     five_to_one = resolve_page_setup("ISO_A3", scale="5:1")
     assert five_to_one["dxf_standard_scale_type"] is None
-    assert five_to_one["activex_standard_scale"] is None
     assert five_to_one["scale_ratio"] == [5.0, 1.0]
     # One numbering: AutoCAD 2026 saves StandardScale = 26 (ac1_50) as
     # group 75 = 26 (measured, COM SaveAs DXF) — not ezdxf's 25.
     assert resolve_page_setup("ISO_A3", scale="1:50")["dxf_standard_scale_type"] == 26
-    assert resolve_page_setup("ISO_A3", scale="1:50")["activex_standard_scale"] == 26
 
 
 def test_dxf_standard_scale_codes_are_the_enum_autocad_writes():
@@ -202,10 +198,7 @@ def test_dxf_standard_scale_codes_are_the_enum_autocad_writes():
     measured = {"fit": 0, "1:1": 16, "1:2": 17, "1:10": 21, "1:50": 26, "2:1": 28, "10:1": 31}
     for label, code in measured.items():
         assert DXF_STANDARD_SCALE_TYPE[label] == code, label
-    # Every code the writer uses is the ActiveX code for the same label …
-    for label, code in DXF_STANDARD_SCALE_TYPE.items():
-        assert ACTIVEX_PLOT_SCALE[label] == code, label
-    # … and its authored ratio is the catalogue factor.
+    # Every code's authored ratio is the catalogue factor.
     for label, code in DXF_STANDARD_SCALE_TYPE.items():
         if code:
             numerator, denominator = DXF_STD_SCALES[code]

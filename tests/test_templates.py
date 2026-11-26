@@ -79,19 +79,19 @@ def test_template_rows_report_files():
 
 
 def test_resolve_template_bundled_path_and_unknown(tmp_path):
-    path, source = resolve_template("iso_a3_mech", "ezdxf")
+    path, source = resolve_template("iso_a3_mech")
     assert source == "bundled" and path == str(TEMPLATES_DIR / "iso_a3_mech.dxf")
-    path, source = resolve_template("ISO_A3_MECH", "ezdxf")
+    path, source = resolve_template("ISO_A3_MECH")
     assert source == "bundled"
     explicit = tmp_path / "mine.dwt"
-    assert resolve_template(str(explicit), "ezdxf") == (str(explicit), "path")
-    assert resolve_template("sheet.dxf", "ezdxf") == ("sheet.dxf", "path")
+    assert resolve_template(str(explicit)) == (str(explicit), "path")
+    assert resolve_template("sheet.dxf") == ("sheet.dxf", "path")
     with pytest.raises(
         ValueError, match="iso_a3_mech, iso_a1_arch, iso_a3_pid, ansi_b_mech, ansi_d_arch"
     ):
-        resolve_template("iso_a2_mech", "ezdxf")
+        resolve_template("iso_a2_mech")
     with pytest.raises(ValueError, match="template"):
-        resolve_template("", "ezdxf")
+        resolve_template("")
 
 
 # ── the build ───────────────────────────────────────────────────────────────

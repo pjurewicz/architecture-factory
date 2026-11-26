@@ -9,7 +9,7 @@ the previews use - the in-memory document) over every
 literal handle, and a single missing one refuses the whole call with
 :class:`engineering.errors.UnknownHandleError` (kind ``unknown_handle``) naming
 each missing reference. Nothing is written, so neither engine has to undo
-anything - the scenario is exact on both without relying on AutoCAD's UNDO.
+anything.
 
 The read is also the "before" of a rollback's evidence: :func:`changed_since`
 reads the same handles again after a rollback and names those that differ.
@@ -90,15 +90,10 @@ async def require_handles(backend, refs: Iterable[dict], *, subject: str, **fiel
     return fingerprints
 
 
-async def changed_since(backend, before: dict[str, str], *, exact: bool) -> list[str]:
-    """The handles of ``before`` whose state differs now (sorted).
-
-    ``exact`` compares the fingerprints; otherwise only whether each handle
-    exists (see the module docstring for why the headless engine needs that).
-    """
+async def changed_since(backend, before: dict[str, str]) -> list[str]:
+    """The handles of ``before`` whose presence differs now (sorted); see the
+    module docstring for why the comparison is presence only."""
     if not before:
         return []
     now = await read_handles(backend, list(before))
-    if exact:
-        return sorted(h for h, value in before.items() if now.get(h) != value)
     return sorted(h for h, value in before.items() if (now.get(h) == MISSING) != (value == MISSING))

@@ -11,7 +11,6 @@ from backends.xdata_specs import (
     check_entity_budget,
     decode_values,
     encode_values,
-    split_by_app,
     validate_app_name,
 )
 
@@ -125,12 +124,6 @@ def test_entity_budget_counts_every_app_and_the_markers():
 def test_bad_app_names_are_refused(bad):
     with pytest.raises(ValueError):
         validate_app_name(bad)
-
-
-def test_split_by_app_groups_a_flat_activex_stream():
-    codes = [1001, 1000, 1071, 1001, 1040]
-    values = ["APP_A", "hello", 3, "APP_B", 1.5]
-    assert split_by_app(codes, values) == {"APP_A": ["hello", 3], "APP_B": [1.5]}
 
 
 # ── headless engine ─────────────────────────────────────────────────────────

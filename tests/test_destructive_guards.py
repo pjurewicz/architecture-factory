@@ -104,7 +104,7 @@ async def test_a_rollback_whose_evidence_cannot_be_read_is_not_claimed_verified(
             raise RuntimeError("the entity is on a locked layer")
         return await real(self, handle)
 
-    async def unreadable(backend, before, *, exact):
+    async def unreadable(backend, before):
         raise RuntimeError("the export broke")
 
     monkeypatch.setattr(EzdxfBackend, "entity_delete", flaky)

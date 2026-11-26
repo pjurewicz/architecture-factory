@@ -2261,7 +2261,7 @@ async def drawing_new(
     template_info: dict | None = None
     if template is not None:
         try:
-            resolved, source = resolve_template(template, backend.name)
+            resolved, source = resolve_template(template)
         except ValueError as exc:
             raise ToolError(f"drawing_new: {exc}") from exc
         if source == "path":
@@ -4198,8 +4198,6 @@ async def entity_delete_many(
                     verified = None
                 result["verified"] = verified
                 result.update(evidence)
-                if "cmdactive" in evidence and evidence["cmdactive"] != 0:
-                    result["note"] = _batch_not_idle_note(evidence["cmdactive"])
         else:
             await b.transaction_commit()
     await anyio.lowlevel.checkpoint_if_cancelled()
@@ -5202,7 +5200,7 @@ _BATCH_TRANSACTION_STEPS = frozenset(
 BATCH_ERROR_KINDS = ERROR_KINDS
 
 #: What a rollback is actually worth, per backend transaction implementation.
-BATCH_ROLLBACK_GUARANTEES = ("snapshot", "best_effort_undo", "unverified", "none")
+BATCH_ROLLBACK_GUARANTEES = ("snapshot", "unverified", "none")
 
 #: A hard ceiling on one batch. Steps run sequentially inside a single tool
 #: call that no client can cancel midway, so an unbounded list is a foot-gun
@@ -5521,14 +5519,6 @@ _BATCH_GUARANTEE_NOTES = {
         "before/after fingerprint below is checked. Cost: the checkpoint writes the "
         "whole document to a temporary DXF, so it scales with drawing size."
     ),
-    "best_effort_undo": (
-        "Rollback ends the AutoCAD undo group and sends '_UNDO _B' (back to the UNDO "
-        "Mark transaction_begin set) to the command line. "
-        "AutoCAD executes that asynchronously and does not confirm it landed, so this "
-        "is best-effort, NOT atomic. The before/after fingerprint below is the only "
-        "evidence available; treat a mismatch as 'the undo has not landed (yet)' and "
-        "check the drawing."
-    ),
     "unverified": (
         "This backend reports a transaction implementation this server does not "
         "recognise, so no claim is made about what rollback restores. The before/after "
@@ -5556,9 +5546,7 @@ def _batch_rollback_guarantee(backend) -> tuple[str, str]:
         return "unverified", _BATCH_GUARANTEE_NOTES["unverified"]
     if feature is None or not feature.supported:
         return "none", _BATCH_GUARANTEE_NOTES["none"]
-    guarantee = {"snapshot": "snapshot", "undo_mark": "best_effort_undo"}.get(
-        feature.mode or "", "unverified"
-    )
+    guarantee = "snapshot" if feature.mode == "snapshot" else "unverified"
     return guarantee, _BATCH_GUARANTEE_NOTES[guarantee]
 
 
@@ -5728,59 +5716,22 @@ async def _batch_fingerprint(backend) -> dict | None:
     }
 
 
-async def _batch_undo_idle(backend) -> int | None:
-    """CMDACTIVE after a live rollback (1.8-09), or None when it cannot be read.
-
-    ``transaction_rollback`` sends ``_UNDO _B`` through ``_safe_send_command``,
-    which waits for the command to finish; the before/after evidence is read
-    only once AutoCAD is idle, or it would judge an undo still in flight.
-    """
-    try:
-        return int(await backend.system_get_variable("CMDACTIVE"))
-    except Exception as exc:  # evidence only
-        log.debug("CMDACTIVE unreadable after the rollback: %s", exc)
-        return None
-
-
-def _batch_not_idle_note(cmdactive: int | None) -> str:
-    """Why a live rollback carries ``verified: None`` (busy or unreadable seat)."""
-    if cmdactive is None:
-        return (
-            "ROLLBACK NOT VERIFIED - CMDACTIVE could not be read after the UNDO, so "
-            "AutoCAD was not known to be idle and the evidence was not read."
-        )
-    return (
-        f"ROLLBACK NOT VERIFIED - AutoCAD was not idle after the UNDO "
-        f"(CMDACTIVE={cmdactive}), so the evidence was not read."
-    )
-
-
 async def _batch_rollback_evidence(
     backend, guarantee: str, verified: bool | None, handles_before: dict
 ) -> tuple[bool | None, dict]:
     """Strengthen a rollback's ``verified`` with the pre-check's handle fingerprints.
 
-    1.8-09: the literal handles read before step 1 are read again. Live
-    (``best_effort_undo``) the comparison is exact and runs only while
-    CMDACTIVE is 0; headless (``snapshot``) it is presence only (see
-    engineering/changes/precheck.py). Returns the new ``verified`` and the
-    extra atomicity keys. A CMDACTIVE that cannot be read (``cmdactive:
-    None``) is not idleness: like a busy seat it answers ``verified: None``.
+    1.8-09: the literal handles read before step 1 are read again, presence
+    only (see engineering/changes/precheck.py). Returns the new ``verified``
+    and the extra atomicity keys.
     """
     from engineering.changes.precheck import changed_since
 
     extra: dict = {}
-    if guarantee == "best_effort_undo":
-        idle = await _batch_undo_idle(backend)
-        extra["cmdactive"] = idle
-        if idle != 0:  # busy, or unreadable (None): never judged, never claimed
-            return None, extra
     if not handles_before:
         return verified, extra
     try:
-        changed = await changed_since(
-            backend, handles_before, exact=guarantee == "best_effort_undo"
-        )
+        changed = await changed_since(backend, handles_before)
     except Exception as exc:  # evidence only; the count/extents check stands
         log.debug("handle evidence unreadable after the rollback: %s", exc)
         return verified, extra
@@ -6627,8 +6578,6 @@ async def cad_batch(
             "ROLLBACK NOT VERIFIED - the document fingerprint differs from the one "
             f"taken before step 1{what}. {note}"
         )
-    elif rolled_back and "cmdactive" in evidence and evidence["cmdactive"] != 0:
-        payload["atomicity"]["note"] = _batch_not_idle_note(evidence["cmdactive"]) + f" {note}"
     elif base_depth is not None and depth_left is not None and depth_left > base_depth:
         payload["atomicity"]["note"] = (
             f"CHECKPOINT LEFT OPEN - transaction_depth is {depth_left} after closing "

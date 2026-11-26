@@ -202,21 +202,3 @@ def decode_values(tags) -> list:
         else:
             out.append(str(value))
     return out
-
-
-def split_tags_by_app(codes, values) -> dict[str, list[Tag]]:
-    """A flat XDATA stream (1001 markers inline, as AutoCAD's GetXData returns it) → {app: raw tags}."""
-    out: dict[str, list[Tag]] = {}
-    current: str | None = None
-    for code, value in zip(codes, values, strict=True):
-        if code == 1001:
-            current = str(value)
-            out.setdefault(current, [])
-        elif current is not None:
-            out[current].append((code, value))
-    return out
-
-
-def split_by_app(codes, values) -> dict[str, list]:
-    """A flat XDATA stream (1001 markers inline) → {app: values}."""
-    return {app: decode_values(tags) for app, tags in split_tags_by_app(codes, values).items()}
