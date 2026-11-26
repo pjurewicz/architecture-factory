@@ -109,16 +109,27 @@ async def test_the_iso_critique_catches_sub_iso_dimension_text(backend):
     assert any("2.5" in issue.message for issue in issues)
 
 
-async def test_the_iso_critique_catches_a_comma_decimal_marker(backend):
+@pytest.mark.parametrize(
+    ("dimdsep", "reported"),
+    [
+        (ord(","), False),  # ISO 80000-1 allows the comma; ISO-25 / acadiso.dwt set it
+        (ord("."), False),
+        (0, True),  # unset: ezdxf silently falls back to a comma
+        (ord(";"), True),
+    ],
+)
+async def test_the_iso_critique_accepts_a_comma_or_a_point_decimal_marker(
+    backend, dimdsep, reported
+):
     from engineering.critique import run_critique
 
-    backend._doc.dimstyles.get("Standard").dxf.dimdsep = ord(",")
-    await backend.system_set_variable("DIMDSEP", ord(","))
+    backend._doc.dimstyles.get("Standard").dxf.dimdsep = dimdsep
+    backend._doc.header["$DIMDSEP"] = dimdsep
     await backend.dimension_linear(0, 0, 33.333, 0, 16, -20, layer="DIM")
 
     issues = await run_critique(backend, focus=["iso128"])
 
-    assert any("decimal" in issue.message.lower() for issue in issues)
+    assert any("decimal" in issue.message.lower() for issue in issues) is reported
 
 
 async def test_a_conformant_drawing_still_critiques_clean(backend):

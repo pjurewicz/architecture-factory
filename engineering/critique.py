@@ -88,6 +88,9 @@ async def _check_iso128(backend: AutoCADBackend, shared: dict | None = None) -> 
 #: ISO 3098 minimum lettering height for technical drawings, in mm.
 ISO_3098_MIN_TEXT_MM = 2.5
 
+#: DIMDSEP codes ISO 80000-1 (7.3.2) allows as a decimal marker: a comma or a point.
+DECIMAL_MARKERS = frozenset({ord(","), ord(".")})
+
 #: The legibility lane's name in the coverage ledger.
 LEGIBILITY_LANE = "dimension_legibility"
 
@@ -267,7 +270,7 @@ async def _plot_scale_rows(backend: AutoCADBackend, shared: dict, ledger) -> lis
 
 
 def _check_dimension_legibility(backend: AutoCADBackend, ledger=None) -> list[Issue]:
-    """Dimension text must be readable and use an ISO 129 decimal marker.
+    """Dimension text must be readable and use an ISO 80000-1 decimal marker.
 
     This lane was blind: `iso128` checked layer lineweights only, so a sheet
     whose dimensions rendered at ezdxf's bare 1.0 mm with a comma separator
@@ -326,15 +329,19 @@ def _check_dimension_legibility(backend: AutoCADBackend, ledger=None) -> list[Is
                 detail={"dimtxt": height, "minimum": ISO_3098_MIN_TEXT_MM},
             )
         )
-    # DIMDSEP 0 is not "unset" — ezdxf's `get_decimal_separator` renders it as a
-    # comma — so it is the violation, not an excuse to skip the check.
-    marker = "," if separator == 0 else chr(separator)
-    if marker != ".":
+    # ISO 80000-1 (7.3.2) allows a comma or a point, and the ISO-25 preset (like
+    # acadiso.dwt) sets the comma. DIMDSEP 0 is no choice at all: ezdxf's
+    # `get_decimal_separator` falls back to a comma, so it is still reported.
+    if separator not in DECIMAL_MARKERS:
+        marker = "unset (ezdxf falls back to ',')" if separator == 0 else repr(chr(separator))
         issues.append(
             Issue(
                 severity="warning",
                 focus="iso128",
-                message=(f"Dimension decimal marker is {marker!r}; ISO 129 uses a point."),
+                message=(
+                    f"Dimension decimal marker is {marker}; ISO 80000-1 allows a comma "
+                    "or a point - set DIMDSEP to one of them."
+                ),
                 detail={"dimdsep": separator},
             )
         )
