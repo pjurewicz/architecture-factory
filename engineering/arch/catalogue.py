@@ -80,7 +80,7 @@ def _line(x1: float, y1: float, x2: float, y2: float) -> dict:
 
 
 def _circle(cx: float, cy: float, r: float) -> dict:
-    return {"type": "circle", "cx": float(cx), "cy": float(cy), "r": float(r), "layer": "0"}
+    return {"type": "circle", "cx": float(cx), "cy": float(cy), "radius": float(r), "layer": "0"}
 
 
 def _arc(cx: float, cy: float, r: float, start_deg: float, end_deg: float) -> dict:
@@ -88,9 +88,9 @@ def _arc(cx: float, cy: float, r: float, start_deg: float, end_deg: float) -> di
         "type": "arc",
         "cx": float(cx),
         "cy": float(cy),
-        "r": float(r),
-        "start_deg": float(start_deg),
-        "end_deg": float(end_deg),
+        "radius": float(r),
+        "start_angle": float(start_deg),
+        "end_angle": float(end_deg),
         "layer": "0",
     }
 

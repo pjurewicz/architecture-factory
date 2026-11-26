@@ -53,7 +53,7 @@ async def test_each_type_keeps_its_own_optional_keys():
     specs = validate_entity_specs(
         [
             {"type": "polyline", "points": [[0, 0], [1, 1]], "closed": False, "bulges": [0, 0]},
-            {"type": "text", "text": "A", "x": 0, "y": 0, "height": 2, "rotation_deg": 90},
+            {"type": "text", "text": "A", "x": 0, "y": 0, "height": 2, "rotation": 90},
             {**LINE, "layer": "GEOMETRY"},
         ]
     )

@@ -662,7 +662,7 @@ async def test_lean_carries_the_two_set_current_tools_and_apply_standard_only():
 async def test_dimstyle_preset_takes_any_case_and_the_iso_alias():
     """`iso` is drawing_apply_standard's name for the same preset; nothing else is guessed."""
     base = resolve_dimstyle("iso-25", None)
-    for spelling in ("ISO-25", "iso", "ISO", " iso25 "):
+    for spelling in ("ISO-25", "iso", " ISO "):
         assert resolve_dimstyle(spelling, None) == base
     with pytest.raises(ValueError, match="unknown value 'din'"):
         resolve_dimstyle("din", None)

@@ -146,14 +146,14 @@ def test_hex_top_view_uses_the_three_quarter_minor_arc():
     ents = spec["entities"]
     assert len(ents) == 5
     assert ents[0]["type"] == "polyline" and len(ents[0]["points"]) == 6
-    assert ents[1] == {"type": "circle", "cx": 0.0, "cy": 0.0, "r": 6.0, "layer": "GEOMETRY"}
+    assert ents[1] == {"type": "circle", "cx": 0.0, "cy": 0.0, "radius": 6.0, "layer": "GEOMETRY"}
     assert ents[2] == {
         "type": "arc",
         "cx": 0.0,
         "cy": 0.0,
-        "r": MINOR12,
-        "start_deg": 90.0,
-        "end_deg": 360.0,
+        "radius": MINOR12,
+        "start_angle": 90.0,
+        "end_angle": 360.0,
         "layer": "GEOMETRY",
     }
     assert ents[3]["layer"] == "CENTER" and ents[4]["layer"] == "CENTER"
@@ -203,7 +203,7 @@ def test_the_socket_head_views_agree_on_the_head_diameter():
     """The socket screw's silhouette is dk in both views; its hexagon is the key socket."""
     elevation = _height(_hexagon(block_spec("ISO 4762 - M12x60", "side")))
     plan = block_spec("ISO 4762 - M12x60", "top")["entities"]
-    assert plan[0]["type"] == "circle" and 2.0 * plan[0]["r"] == pytest.approx(elevation)
+    assert plan[0]["type"] == "circle" and 2.0 * plan[0]["radius"] == pytest.approx(elevation)
     socket = plan[1]["points"]
     assert _height(socket) > _width(socket)  # same orientation as every other hexagon here
 
@@ -227,10 +227,10 @@ def test_washer_views():
         "type": "circle",
         "cx": 0.0,
         "cy": 0.0,
-        "r": 12.0,
+        "radius": 12.0,
         "layer": "GEOMETRY",
     }
-    assert top["entities"][1]["r"] == 6.5
+    assert top["entities"][1]["radius"] == 6.5
 
 
 def test_socket_head_screw_views():
@@ -239,7 +239,7 @@ def test_socket_head_screw_views():
     assert side["dims"]["b"] == pytest.approx(28.0)
     assert side["entities"][0]["points"][0] == [-8.0, -6.5]  # k = 8, dk/2 = 6.5
     top = block_spec("ISO 4762 - M8x30", "top")
-    assert top["entities"][0]["r"] == 6.5
+    assert top["entities"][0]["radius"] == 6.5
     assert len(top["entities"][1]["points"]) == 6  # the hexagon socket, s = 6
 
 
@@ -276,7 +276,7 @@ def test_bearing_detailed_draws_the_element_symbol():
         "type": "circle",
         "cx": 0.0,
         "cy": 19.25,
-        "r": 4.05,
+        "radius": 4.05,
         "layer": "GEOMETRY",
     }
     assert ents[3]["cy"] == -19.25

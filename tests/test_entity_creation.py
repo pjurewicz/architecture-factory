@@ -103,7 +103,7 @@ async def test_create_entity_appears_in_list(backend):
 async def test_batch_create_draws_every_basic_type_in_one_call(backend):
     await backend.block_define(
         "VALVE",
-        [{"type": "circle", "cx": 0, "cy": 0, "r": 2}],
+        [{"type": "circle", "cx": 0, "cy": 0, "radius": 2}],
         [{"tag": "TAG", "x": 0, "y": 3, "height": 1}],
     )
     specs = [

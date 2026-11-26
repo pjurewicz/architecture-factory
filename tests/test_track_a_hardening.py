@@ -920,7 +920,7 @@ async def test_set_attributes_refuses_by_tag_and_leaves_the_value_alone(backend)
 
 # ── Task 4: block_define validates the base point and the layer table ────────
 
-CIRC = [{"type": "circle", "cx": 0, "cy": 0, "r": 1}]
+CIRC = [{"type": "circle", "cx": 0, "cy": 0, "radius": 1}]
 ON_LAYER = [{"type": "line", "x1": 0, "y1": 0, "x2": 1, "y2": 1, "layer": "NOT_A_LAYER"}]
 
 

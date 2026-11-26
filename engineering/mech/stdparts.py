@@ -126,7 +126,7 @@ def _line(x1, y1, x2, y2, layer: str = LAYER_VISIBLE) -> dict:
 
 
 def _circle(cx, cy, r, layer: str = LAYER_VISIBLE) -> dict:
-    return {"type": "circle", "cx": float(cx), "cy": float(cy), "r": float(r), "layer": layer}
+    return {"type": "circle", "cx": float(cx), "cy": float(cy), "radius": float(r), "layer": layer}
 
 
 def _arc(cx, cy, r, start_deg, end_deg, layer: str = LAYER_VISIBLE) -> dict:
@@ -134,9 +134,9 @@ def _arc(cx, cy, r, start_deg, end_deg, layer: str = LAYER_VISIBLE) -> dict:
         "type": "arc",
         "cx": float(cx),
         "cy": float(cy),
-        "r": float(r),
-        "start_deg": float(start_deg),
-        "end_deg": float(end_deg),
+        "radius": float(r),
+        "start_angle": float(start_deg),
+        "end_angle": float(end_deg),
         "layer": layer,
     }
 
@@ -1001,8 +1001,8 @@ def place_prims(prims, at, rotation: float = 0.0) -> tuple[dict, ...]:
             moved["cx"], moved["cy"] = point(prim["cx"], prim["cy"])
         elif kind == "arc":
             moved["cx"], moved["cy"] = point(prim["cx"], prim["cy"])
-            moved["start_deg"] = prim["start_deg"] + degrees
-            moved["end_deg"] = prim["end_deg"] + degrees
+            moved["start_angle"] = prim["start_angle"] + degrees
+            moved["end_angle"] = prim["end_angle"] + degrees
         elif kind == "polyline":
             moved["points"] = [list(point(px, py)) for px, py in prim["points"]]
         else:  # pragma: no cover - the builders emit nothing else
@@ -1039,11 +1039,11 @@ async def draw_std_feature(
             )
         elif prim["type"] == "circle":
             info = await backend.entity_create_circle(
-                prim["cx"], prim["cy"], prim["r"], layer=target
+                prim["cx"], prim["cy"], prim["radius"], layer=target
             )
         elif prim["type"] == "arc":
             info = await backend.entity_create_arc(
-                prim["cx"], prim["cy"], prim["r"], prim["start_deg"], prim["end_deg"], layer=target
+                prim["cx"], prim["cy"], prim["radius"], prim["start_angle"], prim["end_angle"], layer=target
             )
         else:
             info = await backend.entity_create_polyline(prim["points"], prim["closed"], target)

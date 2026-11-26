@@ -16,7 +16,7 @@ def line(x1: float, y1: float, x2: float, y2: float) -> dict:
 
 
 def circle(cx: float, cy: float, r: float) -> dict:
-    return {"type": "circle", "cx": float(cx), "cy": float(cy), "r": float(r)}
+    return {"type": "circle", "cx": float(cx), "cy": float(cy), "radius": float(r)}
 
 
 def arc(cx: float, cy: float, r: float, start_deg: float, end_deg: float) -> dict:
@@ -24,9 +24,9 @@ def arc(cx: float, cy: float, r: float, start_deg: float, end_deg: float) -> dic
         "type": "arc",
         "cx": float(cx),
         "cy": float(cy),
-        "r": float(r),
-        "start_deg": float(start_deg),
-        "end_deg": float(end_deg),
+        "radius": float(r),
+        "start_angle": float(start_deg),
+        "end_angle": float(end_deg),
     }
 
 
@@ -47,7 +47,7 @@ def text(
     y: float,
     height: float,
     align: str = "middle_center",
-    rotation_deg: float = 0.0,
+    rotation: float = 0.0,
 ) -> dict:
     return {
         "type": "text",
@@ -56,7 +56,7 @@ def text(
         "y": float(y),
         "height": float(height),
         "align": align,
-        "rotation_deg": float(rotation_deg),
+        "rotation": float(rotation),
     }
 
 
@@ -170,9 +170,9 @@ def scan_hits(primitives, axis: str, c: float, eps: float = 1e-9) -> list[float]
         if kind == "line":
             segment(p["x1"], p["y1"], p["x2"], p["y2"])
         elif kind == "circle":
-            circle_arc(p["cx"], p["cy"], p["r"], 0.0, 360.0)
+            circle_arc(p["cx"], p["cy"], p["radius"], 0.0, 360.0)
         elif kind == "arc":
-            circle_arc(p["cx"], p["cy"], p["r"], p["start_deg"], p["end_deg"])
+            circle_arc(p["cx"], p["cy"], p["radius"], p["start_angle"], p["end_angle"])
         elif kind in ("polyline", "solid"):
             if kind == "polyline" and p.get("bulges"):
                 raise ValueError("scan_hits: bulged polylines are not supported")
@@ -194,10 +194,10 @@ def bbox_of(primitives) -> tuple[float, float, float, float]:
             xs += [p["x1"], p["x2"]]
             ys += [p["y1"], p["y2"]]
         elif kind == "circle":
-            xs += [p["cx"] - p["r"], p["cx"] + p["r"]]
-            ys += [p["cy"] - p["r"], p["cy"] + p["r"]]
+            xs += [p["cx"] - p["radius"], p["cx"] + p["radius"]]
+            ys += [p["cy"] - p["radius"], p["cy"] + p["radius"]]
         elif kind == "arc":
-            for x, y in _arc_extent(p["cx"], p["cy"], p["r"], p["start_deg"], p["end_deg"]):
+            for x, y in _arc_extent(p["cx"], p["cy"], p["radius"], p["start_angle"], p["end_angle"]):
                 xs.append(x)
                 ys.append(y)
         elif kind in ("polyline", "solid"):

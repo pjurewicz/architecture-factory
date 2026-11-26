@@ -41,14 +41,6 @@ _OPTIONAL = {
     "text": ("rotation", "align"),
     "solid": (),
 }
-#: The spellings ``block_define`` took before 1.8.1, still read as the
-#: ``entity_create_*`` name they stand for; giving both is refused.
-LEGACY_KEYS = {
-    "r": "radius",
-    "start_deg": "start_angle",
-    "end_deg": "end_angle",
-    "rotation_deg": "rotation",
-}
 _ATTDEF_KEYS = (
     "tag",
     "prompt",
@@ -156,19 +148,6 @@ def _one_line(value, where: str) -> str:
     return value
 
 
-def _canonical_keys(spec: dict, where: str) -> dict:
-    """``spec`` with every :data:`LEGACY_KEYS` spelling renamed to its canonical key."""
-    if not any(key in LEGACY_KEYS for key in spec):
-        return spec
-    out = {}
-    for key, value in spec.items():
-        name = LEGACY_KEYS.get(key, key)
-        if name in out or (name != key and name in spec):
-            raise TypeError(f"{where}: give {name!r} or its older spelling {key!r}, not both")
-        out[name] = value
-    return out
-
-
 def _refuse_unknown_keys(spec: dict, allowed: set[str], where: str, what: str) -> None:
     """A key nobody reads is refused by name, never dropped (backlog W1-T2-03)."""
     unknown = sorted(str(key) for key in spec if key not in allowed)
@@ -206,7 +185,6 @@ def validate_entity_specs(entities) -> list[dict]:
         where = f"entities[{i}]"
         if not isinstance(spec, dict):
             raise TypeError(f"{where}: must be an object")
-        spec = _canonical_keys(spec, where)
         kind = spec.get("type")
         if kind not in ALLOWED_TYPES:
             raise TypeError(
@@ -266,7 +244,6 @@ def validate_attdef_specs(attdefs) -> list[dict]:
         where = f"attdefs[{i}]"
         if not isinstance(spec, dict):
             raise TypeError(f"{where}: must be an object")
-        spec = _canonical_keys(spec, where)
         _refuse_unknown_keys(spec, set(_ATTDEF_KEYS), where, "an ATTDEF")
         tag = spec.get("tag")
         if not isinstance(tag, str) or not ATTDEF_TAG_RE.fullmatch(tag):

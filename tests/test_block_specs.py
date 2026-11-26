@@ -26,8 +26,8 @@ def test_each_type_normalises_to_floats_and_layer_zero():
     out = validate_entity_specs(
         [
             {"type": "line", "x1": 0, "y1": 0, "x2": 1, "y2": 0},
-            {"type": "circle", "cx": 0, "cy": 0, "r": 2},
-            {"type": "arc", "cx": 0, "cy": 0, "r": 2, "start_deg": 0, "end_deg": 180},
+            {"type": "circle", "cx": 0, "cy": 0, "radius": 2},
+            {"type": "arc", "cx": 0, "cy": 0, "radius": 2, "start_angle": 0, "end_angle": 180},
             {"type": "polyline", "points": [[0, 0], [1, 0], [1, 1]], "closed": True},
             {"type": "text", "text": "M", "x": 0, "y": 0, "height": 2},
             {"type": "solid", "points": [[0, 0], [1, 0], [0, 1]]},
@@ -46,8 +46,9 @@ def test_each_type_normalises_to_floats_and_layer_zero():
     [
         ({"type": "square"}, "type"),
         ({"type": "line", "x1": 0, "y1": 0, "x2": 1}, "y2"),
-        ({"type": "circle", "cx": 0, "cy": 0, "r": 0}, "r"),
-        ({"type": "circle", "cx": 0, "cy": 0, "r": float("nan")}, "finite"),
+        ({"type": "circle", "cx": 0, "cy": 0, "radius": 0}, "radius"),
+        ({"type": "circle", "cx": 0, "cy": 0, "r": 2}, "unknown key(s) 'r'"),
+        ({"type": "circle", "cx": 0, "cy": 0, "radius": float("nan")}, "finite"),
         ({"type": "text", "text": "M", "x": 0, "y": 0, "height": -1}, "height"),
         ({"type": "text", "text": 5, "x": 0, "y": 0, "height": 1}, "text"),
         ({"type": "text", "text": "A\nB", "x": 0, "y": 0, "height": 1}, "'text'"),
@@ -211,30 +212,3 @@ def test_solid_vertices_use_dxf_bowtie_order():
     tri = [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)]
     assert solid_vertices(tri) == tri
 
-
-def test_block_define_takes_the_entity_create_key_names():
-    """One vocabulary with entity_batch_create; the pre-1.8.1 spellings still read."""
-    new = validate_entity_specs(
-        [
-            {"type": "circle", "cx": 0, "cy": 0, "radius": 2},
-            {"type": "arc", "cx": 0, "cy": 0, "radius": 3, "start_angle": 10, "end_angle": 200},
-            {"type": "text", "text": "M", "x": 0, "y": 0, "height": 2, "rotation": 90},
-        ]
-    )
-    old = validate_entity_specs(
-        [
-            {"type": "circle", "cx": 0, "cy": 0, "r": 2},
-            {"type": "arc", "cx": 0, "cy": 0, "r": 3, "start_deg": 10, "end_deg": 200},
-            {"type": "text", "text": "M", "x": 0, "y": 0, "height": 2, "rotation_deg": 90},
-        ]
-    )
-    assert new == old
-    assert (new[1]["radius"], new[1]["start_angle"], new[1]["end_angle"]) == (3.0, 10.0, 200.0)
-    assert new[2]["rotation"] == 90.0
-    [att] = validate_attdef_specs([{"tag": "T", "x": 0, "y": 0, "height": 2, "rotation": 45}])
-    assert att["rotation"] == 45.0
-
-
-def test_a_key_and_its_older_spelling_together_are_refused():
-    with pytest.raises(TypeError, match=r"entities\[0\]: give 'radius' or its older spelling 'r'"):
-        validate_entity_specs([{"type": "circle", "cx": 0, "cy": 0, "r": 2, "radius": 3}])

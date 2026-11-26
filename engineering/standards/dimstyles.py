@@ -115,7 +115,7 @@ ANSI: dict[str, Any] = {
 PRESETS: dict[str, dict[str, Any]] = {"iso-25": ISO_25, "ansi": ANSI}
 #: Other spellings of a preset: ``iso`` is the name ``drawing_apply_standard``
 #: and ``mleaderstyle_create`` use for the same standard.
-PRESET_ALIASES: dict[str, str] = {"iso": "iso-25", "iso25": "iso-25", "iso_25": "iso-25"}
+PRESET_ALIASES: dict[str, str] = {"iso": "iso-25"}
 
 PRESET_SOURCES: dict[str, str] = {
     "iso-25": (

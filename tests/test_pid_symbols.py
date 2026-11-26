@@ -279,10 +279,10 @@ def _axis_top(primitives) -> float:
         if kind == "line" and p["x1"] == 0.0 == p["x2"]:
             ys += [p["y1"], p["y2"]]
         elif kind == "circle" and p["cx"] == 0.0:
-            ys.append(p["cy"] + p["r"])
+            ys.append(p["cy"] + p["radius"])
         elif kind == "arc" and p["cx"] == 0.0:
-            if (90.0 - p["start_deg"]) % 360.0 <= (p["end_deg"] - p["start_deg"]) % 360.0:
-                ys.append(p["cy"] + p["r"])
+            if (90.0 - p["start_angle"]) % 360.0 <= (p["end_angle"] - p["start_angle"]) % 360.0:
+                ys.append(p["cy"] + p["radius"])
         elif kind == "polyline":
             pts = list(p["points"]) + ([p["points"][0]] if p["closed"] else [])
             for (x1, y1), (x2, y2) in zip(pts, pts[1:], strict=False):
@@ -459,12 +459,12 @@ def _distance_to_outline(x: float, y: float, primitives) -> float:
         if kind == "line":
             best = min(best, to_segment(p["x1"], p["y1"], p["x2"], p["y2"]))
         elif kind == "arc":
-            cx, cy, r = p["cx"], p["cy"], p["r"]
-            sweep = (p["end_deg"] - p["start_deg"]) % 360.0 or 360.0
-            rel = (math.degrees(math.atan2(y - cy, x - cx)) - p["start_deg"]) % 360.0
+            cx, cy, r = p["cx"], p["cy"], p["radius"]
+            sweep = (p["end_angle"] - p["start_angle"]) % 360.0 or 360.0
+            rel = (math.degrees(math.atan2(y - cy, x - cx)) - p["start_angle"]) % 360.0
             if rel <= sweep + 1e-9:
                 best = min(best, abs(math.hypot(x - cx, y - cy) - r))
-            for deg in (p["start_deg"], p["end_deg"]):
+            for deg in (p["start_angle"], p["end_angle"]):
                 a = math.radians(deg)
                 best = min(best, math.hypot(x - (cx + r * math.cos(a)), y - (cy + r * math.sin(a))))
         elif kind == "polyline":
@@ -662,10 +662,10 @@ def test_the_diaphragm_dome_sits_on_the_bow_tie():
     dome = next(p for p in spec.primitives if p["type"] == "arc")
     ends = [
         (
-            dome["cx"] + dome["r"] * math.cos(math.radians(angle)),
-            dome["cy"] + dome["r"] * math.sin(math.radians(angle)),
+            dome["cx"] + dome["radius"] * math.cos(math.radians(angle)),
+            dome["cy"] + dome["radius"] * math.sin(math.radians(angle)),
         )
-        for angle in (dome["start_deg"], dome["end_deg"])
+        for angle in (dome["start_angle"], dome["end_angle"])
     ]
     edges = []
     for p in spec.primitives:
@@ -674,7 +674,7 @@ def test_the_diaphragm_dome_sits_on_the_bow_tie():
             edges += list(zip(pts, pts[1:], strict=False))
     for end in ends:
         assert any(_on_segment(end, a, b) for a, b in edges), f"{end} floats off the bow-tie"
-    assert spec.bbox[3] == pytest.approx(dome["cy"] + dome["r"])
+    assert spec.bbox[3] == pytest.approx(dome["cy"] + dome["radius"])
 
 
 def test_the_spectacle_blind_cites_pip_pic001():
@@ -693,4 +693,4 @@ def test_the_air_cooler_fan_cross_stays_inside_its_circle():
         if p["type"] != "line":
             continue
         for x, y in ((p["x1"], p["y1"]), (p["x2"], p["y2"])):
-            assert math.hypot(x - fan["cx"], y - fan["cy"]) <= fan["r"] + 1e-9
+            assert math.hypot(x - fan["cx"], y - fan["cy"]) <= fan["radius"] + 1e-9

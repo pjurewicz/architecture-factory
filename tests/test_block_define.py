@@ -9,8 +9,8 @@ pytestmark = pytest.mark.asyncio
 VALVE = [
     {"type": "polyline", "points": [[-4, -2], [-4, 2], [0, 0]], "closed": True},
     {"type": "polyline", "points": [[4, -2], [4, 2], [0, 0]], "closed": True},
-    {"type": "circle", "cx": 0, "cy": 0, "r": 1.5},
-    {"type": "arc", "cx": 0, "cy": 2, "r": 2, "start_deg": 0, "end_deg": 180},
+    {"type": "circle", "cx": 0, "cy": 0, "radius": 1.5},
+    {"type": "arc", "cx": 0, "cy": 2, "radius": 2, "start_angle": 0, "end_angle": 180},
     {"type": "line", "x1": 0, "y1": 0, "x2": 0, "y2": 4},
     {"type": "text", "text": "M", "x": 0, "y": 6, "height": 2, "align": "middle_center"},
     {"type": "solid", "points": [[0, 0], [-3, 1.2], [-3, -1.2]]},
@@ -81,7 +81,7 @@ async def test_overwrite_keeps_existing_inserts_pointing_at_the_name(backend):
     await backend.block_define("PID_X", VALVE)
     ref = await backend.block_insert("PID_X", 0, 0)
     await backend.block_define(
-        "PID_X", [{"type": "circle", "cx": 0, "cy": 0, "r": 9}], overwrite=True
+        "PID_X", [{"type": "circle", "cx": 0, "cy": 0, "radius": 9}], overwrite=True
     )
     info = await backend.entity_get(ref.handle)
     assert info.properties["block_name"] == "PID_X"

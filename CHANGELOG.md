@@ -19,6 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `dining_table_8`, `induction_hob`, `oven_tall_unit`, `dishwasher`,
   `walk_in_shower`, `freestanding_bathtub`, `countertop_basin`.
 
+### Changed
+
+- `block_define` primitives and ATTDEFs use the key names of `entity_create_*`
+  and `entity_batch_create`: `radius`, `start_angle`, `end_angle`, `rotation`.
+  The old `r`, `start_deg`, `end_deg`, `rotation_deg` are refused as unknown
+  keys. `dimstyle_create(preset=)` also accepts `iso` for `iso-25`.
+
 ### Removed
 
 - The live AutoCAD (COM) engine can no longer be selected: the server always

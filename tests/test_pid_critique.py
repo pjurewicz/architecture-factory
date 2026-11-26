@@ -127,7 +127,7 @@ async def test_incompatible_is_silent_on_a_foreign_blocks_inferred_port(backend)
         [
             {"type": "polyline", "points": [[-6, -3], [6, 3], [6, -3], [-6, 3]], "closed": True},
             {"type": "line", "x1": 0, "y1": 0, "x2": 0, "y2": 6},
-            {"type": "arc", "cx": 0, "cy": 6, "r": 3, "start_deg": 0, "end_deg": 180},
+            {"type": "arc", "cx": 0, "cy": 6, "radius": 3, "start_angle": 0, "end_angle": 180},
         ],
         attdefs=[{"tag": "TAG", "x": 0, "y": 12, "height": 2.5}],
     )
@@ -181,7 +181,7 @@ async def _bolt_with_note_leader(backend):
     await backend.block_define(
         "BOLT_M10",
         [
-            {"type": "circle", "cx": 0, "cy": 0, "r": 5},
+            {"type": "circle", "cx": 0, "cy": 0, "radius": 5},
             {"type": "polyline", "points": [[-5, -5], [5, -5], [5, 5], [-5, 5]], "closed": True},
         ],
     )

@@ -29,10 +29,10 @@ def _spec_points(spec: dict) -> list[tuple[float, float]]:
     if kind == "line":
         return [(spec["x1"], spec["y1"]), (spec["x2"], spec["y2"])]
     if kind == "circle":
-        cx, cy, r = spec["cx"], spec["cy"], spec["r"]
+        cx, cy, r = spec["cx"], spec["cy"], spec["radius"]
         return [(cx - r, cy), (cx + r, cy), (cx, cy - r), (cx, cy + r)]
     if kind == "arc":
-        arc = Arc((spec["cx"], spec["cy"]), spec["r"], spec["start_deg"], spec["end_deg"])
+        arc = Arc((spec["cx"], spec["cy"]), spec["radius"], spec["start_angle"], spec["end_angle"])
         return list(points_of(arc))
     if kind == "polyline":
         return [tuple(p) for p in spec["points"]]
@@ -117,7 +117,7 @@ def test_every_outline_reaches_its_declared_size():
 def test_the_wc_bowl_is_a_semicircle_joining_its_two_sides():
     spec = block_spec("wc")
     arc = next(e for e in spec["entities"] if e["type"] == "arc")
-    assert (arc["cx"], arc["cy"], arc["r"], arc["start_deg"], arc["end_deg"]) == (
+    assert (arc["cx"], arc["cy"], arc["radius"], arc["start_angle"], arc["end_angle"]) == (
         190.0,
         530.0,
         150.0,
