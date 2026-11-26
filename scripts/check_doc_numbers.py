@@ -19,9 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
-import subprocess
 import sys
 from pathlib import Path
 
@@ -40,32 +38,6 @@ def _read(relative: str) -> str:
 
 def _json(relative: str) -> dict:
     return json.loads(_read(relative))
-
-
-def _collected_tests() -> int:
-    """How many tests pytest actually collects.
-
-    On the same README line as tools/resources/prompts, and the only number on
-    it that nothing derived -- so it drifted by 95 while its neighbours stayed
-    exact. Collection only; running the suite here would make the gate cost a
-    minute.
-    """
-    env = dict(os.environ, AUTOCAD_MCP_BACKEND="ezdxf")
-    result = subprocess.run(
-        [sys.executable, "-m", "pytest", "--collect-only", "-q"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        env=env,
-        timeout=300,
-    )
-    match = re.search(r"(\d+) tests collected", result.stdout)
-    if not match:
-        raise SystemExit(
-            "check_doc_numbers: could not read a collected-test count from pytest.\n"
-            + result.stdout[-2000:]
-        )
-    return int(match.group(1))
 
 
 def matrix_tasks() -> int:
@@ -92,7 +64,6 @@ def derived() -> dict[str, object]:
     from benchmarks import correctness_suite
 
     return {
-        "collected_tests": _collected_tests(),
         "tools": inventory["tools"],
         "resources": inventory["resources"],
         "prompts": inventory["prompts"],
@@ -153,12 +124,6 @@ CHECKS: list[tuple[str, str, str, str]] = [
         "A/B suite denominator",
         r"\*\*" + AB_BASELINE_LABEL + r"\*\* \(baseline\)\s*\| \d+ / (\d+)",
         "ab_total",
-    ),
-    (
-        "README.md",
-        "release snapshot collected tests",
-        r"release snapshot:.*?(\d+) collected tests",
-        "collected_tests",
     ),
     (
         "README.md",

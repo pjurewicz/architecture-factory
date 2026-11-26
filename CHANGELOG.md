@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- The collected-test count on README's release-snapshot line and its
+  `scripts/check_doc_numbers.py` row: it moved with every test added, so any
+  two branches that each added a test conflicted on it, and it said nothing
+  about the release.
 - The live AutoCAD (COM) engine can no longer be selected: the server always
   runs the headless ezdxf engine. `AUTOCAD_MCP_BACKEND` accepts `auto` (the
   default) and `ezdxf`; any other value, `com` included, fails startup with a
