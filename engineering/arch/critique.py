@@ -40,6 +40,7 @@ from engineering.plan_spec import Issue
 from engineering.qa_coverage import domain_row
 from engineering.qa_scan import shared_index
 
+from .lang import fmt_area_m2
 from .layers import ARCH_ROLE_LAYER
 from .model import (
     APP_ID,
@@ -422,7 +423,7 @@ def _room_unlabelled(index: dict) -> list[Issue]:
             Issue(
                 "warning",
                 "arch_room_unlabelled",
-                f"A closed face of {float(face['area']) / 1.0e6:.2f} m² around "
+                f"A closed face of {fmt_area_m2(face['area'], 'en')} around "
                 f"({float(centroid[0]):.0f}, {float(centroid[1]):.0f}) carries no room label; "
                 "label it with arch_room so its measured area reaches the room schedule.",
                 [],

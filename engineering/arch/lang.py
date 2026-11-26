@@ -14,6 +14,7 @@ POMIESZCZEŃ``, ``RZĘDNA``, ``DRZWI LEWE``). Both are vocabulary, not a standar
 from __future__ import annotations
 
 import math
+from decimal import ROUND_HALF_UP, Decimal
 
 LANGS: tuple[str, ...] = ("en", "tr", "pl")
 
@@ -165,7 +166,10 @@ def fmt_number(value: float, lang: str, decimals: int = 2) -> str:
         raise ValueError(f"value: expected a number, got {value!r}") from None
     if not math.isfinite(number):
         raise ValueError(f"value: must be finite, got {value!r}")
-    text = f"{number:.{decimals}f}"
+    # Half away from zero on the decimal the caller wrote (repr), not on the
+    # binary float: 13.395 is stored as 13.39499..., which ``:.2f`` rounds down.
+    exact = value if isinstance(value, Decimal) else Decimal(repr(number))
+    text = f"{exact.quantize(Decimal(1).scaleb(-decimals), rounding=ROUND_HALF_UP):f}"
     if text.startswith("-") and float(text) == 0.0:
         text = text[1:]  # never print "-0.00"
     return text.replace(".", ",") if code in _DECIMAL_COMMA else text
@@ -179,4 +183,4 @@ def fmt_area_m2(area_mm2: float, lang: str) -> str:
         raise ValueError(f"area: expected a number, got {area_mm2!r}") from None
     if not math.isfinite(area) or area < 0.0:
         raise ValueError(f"area: must be finite and not negative, got {area_mm2!r}")
-    return f"{fmt_number(area / 1.0e6, lang, 2)} m²"
+    return f"{fmt_number(Decimal(repr(area)).scaleb(-6), lang, 2)} m²"

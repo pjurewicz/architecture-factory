@@ -262,6 +262,10 @@ def test_turkish_and_polish_switch_the_decimal_separator_to_a_comma():
     assert fmt_number(-3.125, "pl", 1) == "-3,1"
     assert fmt_area_m2(24_500_000.0, "pl") == "24,50 m²"
     assert fmt_area_m2(20_000_000.0, "en") == "20.00 m²"
+    # Half up on the decimal value, not banker's or the binary float's rounding.
+    assert fmt_area_m2(13_395_000.0, "pl") == "13,40 m²"
+    assert fmt_area_m2(13_385_000.0, "pl") == "13,39 m²"
+    assert fmt_number(2.675, "en") == "2.68"
 
 
 def test_an_unknown_language_is_refused_with_the_list():
