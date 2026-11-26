@@ -49,3 +49,8 @@ words and the decimal comma; any other language is refused with the list.
 `arch_schedule` draws door / window / room schedules as real TABLEs read from
 the `ACADMCP_ARCH` records; `arch_dimension_chains` adds exterior chains.
 Furniture and sanitary blocks carry nominal catalogue sizes and say so.
+`arch_catalogue_insert` takes `width` / `depth` / `height` (mm) within each
+item's `size_range` (from `arch_catalogue_list`): the symbol is redrawn for the
+footprint, not scaled, and each footprint is its own block
+(`ARCH_<NAME>_<W>x<D>`) with a `SIZE` attribute `WxDxH`.
+

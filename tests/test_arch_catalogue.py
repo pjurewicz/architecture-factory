@@ -39,12 +39,12 @@ def _spec_points(spec: dict) -> list[tuple[float, float]]:
     raise AssertionError(f"unexpected spec type {kind!r}")
 
 
-def test_the_catalogue_holds_twenty_items_in_two_families():
-    assert len(ITEMS) == 20
-    assert len(set(CATALOGUE_NAMES)) == 20
+def test_the_catalogue_holds_twenty_nine_items_in_two_families():
+    assert len(ITEMS) == 29
+    assert len(set(CATALOGUE_NAMES)) == 29
     assert FAMILIES == ("furniture", "sanitary")
-    assert sum(item.family == "furniture" for item in ITEMS) == 13
-    assert sum(item.family == "sanitary" for item in ITEMS) == 7
+    assert sum(item.family == "furniture" for item in ITEMS) == 19
+    assert sum(item.family == "sanitary" for item in ITEMS) == 10
     assert {
         "single_bed",
         "double_bed",
@@ -62,6 +62,15 @@ def test_the_catalogue_holds_twenty_items_in_two_families():
         "bathtub",
         "kitchen_sink",
         "washing_machine",
+        "corner_sofa",
+        "dining_table_6",
+        "dining_table_8",
+        "induction_hob",
+        "oven_tall_unit",
+        "dishwasher",
+        "walk_in_shower",
+        "freestanding_bathtub",
+        "countertop_basin",
     } <= set(CATALOGUE_NAMES)
     for name in CATALOGUE_NAMES:
         assert name == name.lower() and " " not in name
@@ -85,8 +94,9 @@ def test_every_block_spec_validates_against_block_define(name):
     spec = block_spec(name)
     normalised = validate_entity_specs(spec["entities"])
     assert {entity["layer"] for entity in normalised} == {"0"}
-    (att,) = validate_attdef_specs(spec["attdefs"])
-    assert att["tag"] == "ITEM" and att["default"] == name and att["invisible"] is True
+    item_att, size_att = validate_attdef_specs(spec["attdefs"])
+    assert item_att["tag"] == "ITEM" and item_att["default"] == name
+    assert item_att["invisible"] is True and size_att["tag"] == "SIZE"
     assert spec["name"] == "ARCH_" + name.upper()
     assert spec["size_basis"] == SIZE_BASIS
 
@@ -142,8 +152,13 @@ def test_search_by_turkish_word_with_and_without_diacritics():
 
 
 def test_search_every_word_must_match():
-    assert [row["name"] for row in catalogue("masa")] == ["dining_table_4", "desk"]
-    assert [row["name"] for row in catalogue("yemek masa")] == ["dining_table_4"]
+    assert [row["name"] for row in catalogue("masa")] == [
+        "dining_table_4",
+        "desk",
+        "dining_table_6",
+        "dining_table_8",
+    ]
+    assert [row["name"] for row in catalogue("dört yemek masa")] == ["dining_table_4"]
     assert catalogue("bed sink") == ()
 
 
@@ -157,6 +172,9 @@ def test_family_filter_and_the_label_language():
         "bathtub",
         "kitchen_sink",
         "washing_machine",
+        "walk_in_shower",
+        "freestanding_bathtub",
+        "countertop_basin",
     ]
     assert all(row["layer"] == ARCH_ROLE_LAYER["sanitary"] for row in sanitary)
     (row,) = catalogue("fridge", lang="tr")
@@ -164,7 +182,7 @@ def test_family_filter_and_the_label_language():
     assert row["size"] == [600.0, 650.0]
     assert row["size_basis"] == SIZE_BASIS
     assert row["block"] == "ARCH_FRIDGE"
-    assert len(catalogue()) == 20
+    assert len(catalogue()) == 29
 
 
 def test_polish_labels_cover_every_item_and_are_searchable_without_diacritics():
@@ -217,7 +235,10 @@ async def test_insert_defines_the_block_once_across_two_inserts(backend):
     inserts = await backend.entity_list(type_filter="INSERT", limit=100)
     assert sorted(e.handle for e in inserts) == sorted([first["handle"], second["handle"]])
     assert {e.layer for e in inserts} == {ARCH_ROLE_LAYER["furniture"]}
-    assert await backend.block_get_attributes(first["handle"]) == {"ITEM": "double_bed"}
+    assert await backend.block_get_attributes(first["handle"]) == {
+        "ITEM": "double_bed",
+        "SIZE": "1600x2000x450",
+    }
 
 
 @pytest.mark.asyncio
@@ -266,3 +287,67 @@ def test_every_row_states_its_frame():
     for row in catalogue():
         assert row["origin"] == "back_left" and row["front_dir"] == [0.0, 1.0]
         assert [row["width"], row["depth"]] == row["size"]
+
+
+# -- parametric sizes ----------------------------------------------------------
+
+
+@pytest.mark.parametrize("name", CATALOGUE_NAMES)
+def test_every_item_redraws_inside_its_footprint_at_the_ends_of_its_range(name):
+    item = next(i for i in ITEMS if i.name == name)
+    for w in item.w_range:
+        for d in item.d_range:
+            try:
+                spec = block_spec(name, w, d)
+            except ValueError as exc:  # a combination the symbol cannot hold, named
+                assert "needs a depth of at least" in str(exc), (name, w, d)
+                continue
+            validate_entity_specs(spec["entities"])
+            points = [p for entity in spec["entities"] for p in _spec_points(entity)]
+            assert max(x for x, _ in points) == pytest.approx(w, abs=1e-6), (name, w, d)
+            assert all(-1e-6 <= x <= w + 1e-6 and -1e-6 <= y <= d + 1e-6 for x, y in points)
+
+
+def test_a_resized_item_is_redrawn_not_scaled():
+    """A wider sofa keeps its 200 mm arms; three equal seats share the rest."""
+    spec = block_spec("sofa_3_seat", width=2800)
+    verticals = sorted(
+        e["x1"] for e in spec["entities"] if e["type"] == "line" and e["x1"] == e["x2"]
+    )
+    assert verticals == [200.0, 1000.0, 1800.0, 2600.0]
+    assert spec["name"] == "ARCH_SOFA_3_SEAT_2800x900"
+    assert spec["attdefs"][1]["default"] == "2800x900x850"
+
+
+def test_a_longer_table_seats_its_chairs_evenly_and_a_short_one_is_refused():
+    spec = block_spec("dining_table_8", width=2800)
+    seats = sorted(
+        e["points"][0][0]
+        for e in spec["entities"]
+        if e["type"] == "polyline" and e["points"][0][1] == 0.0
+    )
+    assert seats == [125.0, 825.0, 1525.0, 2225.0]  # 2800 / 8 - 225 + k * 700
+    with pytest.raises(ValueError, match=r"width 2100 mm is outside 2200-3000"):
+        block_spec("dining_table_8", width=2100)
+
+
+def test_out_of_range_and_non_numeric_sizes_are_refused_by_name():
+    with pytest.raises(ValueError, match="wc depth 900 mm is outside 480-750"):
+        block_spec("wc", depth=900)
+    with pytest.raises(ValueError, match="height must be a number"):
+        block_spec("wardrobe", height="tall")
+    with pytest.raises(ValueError, match="needs a depth of at least 400"):
+        block_spec("wall_basin", width=700, depth=350)
+
+
+@pytest.mark.asyncio
+async def test_each_footprint_is_its_own_block_and_the_nominal_one_keeps_its_name(backend):
+    nominal = await insert_item(backend, "wardrobe", at=(0.0, 0.0))
+    wide = await insert_item(backend, "wardrobe", at=(2000.0, 0.0), width=2400, height=2600)
+    again = await insert_item(backend, "wardrobe", at=(5000.0, 0.0), width=2400)
+    assert nominal["block_name"] == "ARCH_WARDROBE" and nominal["nominal"] is True
+    assert wide["block_name"] == again["block_name"] == "ARCH_WARDROBE_2400x600"
+    assert (wide["defined"], again["defined"]) == (True, False)
+    assert wide["size"] == [2400.0, 600.0] and wide["height"] == 2600.0
+    assert (await backend.block_get_attributes(wide["handle"]))["SIZE"] == "2400x600x2600"
+    assert (await backend.block_get_attributes(again["handle"]))["SIZE"] == "2400x600x2200"

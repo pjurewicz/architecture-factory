@@ -12831,8 +12831,9 @@ async def arch_catalogue_list(
 
     Sizes are nominal catalogue dimensions - what a furniture or appliance
     catalogue lists as a common size - and every row says so in `size_basis`;
-    they are not standards values. Twenty items: thirteen furniture, seven
-    sanitary. Refusals: a `family` other than furniture/sanitary and a `lang`
+    they are not standards values. Twenty-nine items: nineteen furniture, ten
+    sanitary. Each row carries its `height` and the `size_range` arch_catalogue_insert
+    accepts. Refusals: a `family` other than furniture/sanitary and a `lang`
     other than en/tr/pl, each with the list.
     """
     from engineering.arch.catalogue import FAMILIES, SIZE_BASIS, catalogue
@@ -12890,24 +12891,47 @@ async def arch_catalogue_insert(
             ),
         ),
     ] = "back_left",
+    width: Annotated[
+        float | None,
+        Field(default=None, description="Width along the back, mm; omit for the nominal size"),
+    ] = None,
+    depth: Annotated[
+        float | None,
+        Field(default=None, description="Depth away from the back, mm; omit for the nominal size"),
+    ] = None,
+    height: Annotated[
+        float | None,
+        Field(default=None, description="Height, mm - written into the SIZE attribute only"),
+    ] = None,
     ctx: Context = None,
 ) -> dict:
-    """Define the item's block ARCH_<NAME> once, insert it on the furniture or sanitary layer.
+    """Define the item's block once per footprint, insert it on the furniture or sanitary layer.
 
-    The block carries an invisible ITEM attribute with the catalogue name. Its
-    size is a nominal catalogue dimension (reported with `size_basis`), not a
-    standards value; the outline is a plan symbol drawn inside that footprint.
-    The furniture / sanitary layer is created from the `arch` layer set when
-    the drawing lacks it. Refusals, all before any write: an unknown name
-    (with the nearest catalogue names), an unknown anchor and a non-finite
-    coordinate or rotation. The result reports the WCS `footprint` corners,
-    `back_center`, `center`, `front_dir` and the block's `insert_point`.
+    `width` / `depth` redraw the symbol for that footprint (rails, rims and
+    chairs keep their real sizes - it is not scaled); the nominal size is block
+    ARCH_<NAME>, any other ARCH_<NAME>_<W>x<D>. Each item has a size range
+    (`size_range` in arch_catalogue_list). The block carries invisible ITEM
+    and SIZE (`WxDxH` mm) attributes. Sizes are nominal catalogue dimensions
+    (`size_basis`), not standards values. Refusals, all before any write: an
+    unknown name (with the nearest names), an unknown anchor, a size outside the
+    item's range and a non-finite coordinate or rotation. The result reports the
+    WCS `footprint` corners, `back_center`, `center`, `front_dir` and the block's
+    `insert_point`.
     """
     from engineering.arch.catalogue import insert_item
 
     await ctx.info(f"arch catalogue: {name} at ({x}, {y})")
     try:
-        return await insert_item(_backend(ctx), name, at=(x, y), rotation=rotation, anchor=anchor)
+        return await insert_item(
+            _backend(ctx),
+            name,
+            at=(x, y),
+            rotation=rotation,
+            anchor=anchor,
+            width=width,
+            depth=depth,
+            height=height,
+        )
     except ValueError as exc:
         raise ToolError(str(exc)) from exc
 

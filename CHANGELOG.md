@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Parametric catalogue items: `arch_catalogue_insert(width=, depth=, height=)`
+  redraws an item's plan symbol for the given footprint (rails, rims and chairs
+  keep their real sizes), within the range each row reports as `size_range`;
+  every footprint is its own block `ARCH_<NAME>_<W>x<D>`, the nominal one keeps
+  `ARCH_<NAME>`, and a new `SIZE` attribute carries `WxDxH`. At the nominal
+  size the twenty existing symbols are unchanged.
+- Nine catalogue items (29 in all): `corner_sofa` (L), `dining_table_6`,
+  `dining_table_8`, `induction_hob`, `oven_tall_unit`, `dishwasher`,
+  `walk_in_shower`, `freestanding_bathtub`, `countertop_basin`.
+
 ### Removed
 
 - The live AutoCAD (COM) engine can no longer be selected: the server always
