@@ -27,7 +27,7 @@ Live through COM on Windows, or headless through ezdxf anywhere — one typed co
 
 </div>
 
-> **v1.8 release snapshot:** 257 tools · 13 resources · 5 prompt templates · 7636 collected tests.
+> **v1.8 release snapshot:** 257 tools · 13 resources · 5 prompt templates · 7639 collected tests.
 > 257 is the **registered** count. Since 1.8.0 a default install lists six over `tools/list`
 > (`DISCOVERY_MODE=search`: `search_tools`, `describe_tool`, `call_tool` and the three
 > `DISCOVERY_PINNED` tools), and every tool the profile and packs allow stays callable by name;
@@ -446,6 +446,8 @@ Nothing loads a `.env` file — export these, or set them in your MCP client's `
 | `SESSION_IDLE_TIMEOUT` | `3600` | A session's headless engine is released with its unsaved documents (save before leaving) as soon as the client ends the session (HTTP `DELETE` of its `mcp-session-id`); for a client that vanishes without ending it, this many seconds after its last request. The first session keeps the server's own engine until the server stops, so a server with one client behaves as before. `0` keeps every engine until the server stops |
 | `PREVIEW_PASSWORD` | unset | Turns on the read-only `/preview` page (each session's documents, a live render, recent tool calls with their duration and data size (arguments in, text and images out), PDF / DXF / DWG downloads; `/preview/tools` counts every tool's calls and errors by kind across all sessions, from the operation journal), behind HTTP Basic auth with this password. Unset, every `/preview` route answers 404. Separate from `MCP_AUTH_TOKEN` |
 | `PREVIEW_USER` | `preview` | The HTTP Basic user name of the `/preview` page |
+| `ARTIFACT_LINK_TTL_S` | `3600` | Over HTTP, `drawing_export_pdf`, `drawing_save`, `batch_plot` (per sheet) and `drawing_deliver` (a zip of the bundle, plus each artifact) add `download_url`: `GET /artifacts/<token>/<name>` serves the file from disk (PDF inline). The random token is the only credential, valid this many seconds (at most 86400; `0` turns links off); links live in memory and a restart forgets them. stdio calls get no link |
+| `ARTIFACT_PUBLIC_URL` | *(unset)* | The address clients reach the server at, used in `download_url` (e.g. `https://cad.example.com` behind a TLS proxy). Unset: the scheme and Host of the MCP request |
 | `SHUTDOWN_GRACE` | `5` | Seconds shutdown waits for a worker still inside a call before exiting without it; `0` does not wait |
 | `ACADMCP_STATE_DIR` | `%LOCALAPPDATA%\autocad-mcp-pro\state` (`$XDG_STATE_HOME/autocad-mcp-pro` elsewhere) | The operation journal, pending-save markers, file lineage, durable checkpoints (`docs/<lineage_id>/cp/`) and the `accoreconsole` staging folder. A folder inside a repository checkout or one holding drawings is refused at startup and the journal runs in memory (`system_status.state_store.degraded`) |
 | `JOURNAL_DURABLE` | `on` | `off` keeps the operation journal in memory only (the 1.7 behaviour: a restart forgets every operation id) and takes no checkpoints: the checkpoint tools are refused `checkpoints`, and the headless `drawing_undo` needs `EZDXF_UNDO_DEPTH` again |

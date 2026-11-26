@@ -33,6 +33,7 @@ from fastmcp.server.middleware.timing import TimingMiddleware
 from fastmcp.tools.tool import ToolResult
 from pydantic import Field, ValidationError, WithJsonSchema
 
+import artifact_links
 import config
 import http_guard
 import policy
@@ -2496,8 +2497,10 @@ async def drawing_save(
         path = str(validated)
     await ctx.info("Saving drawing")
     if overwrite_source:
-        return await _backend(ctx).drawing_save(path, overwrite_source=True)
-    return await _backend(ctx).drawing_save(path)
+        result = await _backend(ctx).drawing_save(path, overwrite_source=True)
+    else:
+        result = await _backend(ctx).drawing_save(path)
+    return artifact_links.add_link(result, path)
 
 
 @cad_tool(
@@ -2574,7 +2577,7 @@ async def drawing_export_pdf(
     await ctx.report_progress(0, 100)
     result = await _backend(ctx).drawing_export_pdf(str(validated), layout=layout)
     await ctx.report_progress(100, 100)
-    return result
+    return artifact_links.add_link(result, validated)
 
 
 @cad_tool(
@@ -8694,7 +8697,19 @@ async def drawing_deliver(
         requirements=rs,
         detail=detail,
     )
-    return result.to_dict()
+    payload = result.to_dict()
+    # Every file the delivery wrote, one zip; and each artifact on its own.
+    written = [destination / a["filename"] for a in payload.get("artifacts") or ()]
+    for record, path in zip(payload.get("artifacts") or (), written, strict=True):
+        if record.get("status") == "created" and (url := artifact_links.link_file(path)):
+            record["download_url"] = url
+    extras = ("validation.json", "acceptance.json", "acceptance.md", "manifest.json")
+    url = artifact_links.link_bundle(
+        f"{destination.name or 'delivery'}.zip", [*written, *(destination / n for n in extras)]
+    )
+    if url:
+        payload["download_url"] = url
+    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -10761,9 +10776,13 @@ async def batch_plot(
     destination = validate_path(output_dir, allow_write=True, kinds=DIRECTORY)
     await ctx.info(f"Batch plotting {layouts or 'every sheet'} to {destination}")
     try:
-        return await _batch_plot(_backend(ctx), layouts, str(destination), file_pattern)
+        result = await _batch_plot(_backend(ctx), layouts, str(destination), file_pattern)
     except ValueError as exc:
         raise ToolError(str(exc)) from exc
+    for sheet in result.get("sheets") or ():
+        if sheet.get("ok") and (url := artifact_links.link_file(sheet.get("path"))):
+            sheet["download_url"] = url
+    return result
 
 
 @cad_tool(
@@ -15540,6 +15559,9 @@ mcp.run_async = _guarded_run_async
 import preview  # noqa: E402
 
 preview.register(sys.modules[__name__])
+
+# artifact_links.py: GET /artifacts/<token>/<name>, the download_url of a written file.
+artifact_links.register(sys.modules[__name__])
 
 # 1.8-17 (spike S3): the HTTP request guard (Origin 403, Host 421, body 413),
 # prepended on every app builder - main(), mcp.run, `fastmcp run` and a direct

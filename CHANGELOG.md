@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `download_url` (`artifact_links.py`): a file `drawing_export_pdf`,
+  `drawing_save`, `batch_plot` (per sheet) or `drawing_deliver` writes during
+  an HTTP call is served at `GET /artifacts/<token>/<name>` (PDF inline, DXF
+  as `application/dxf`; a delivery also as one zip of its bundle), so a client
+  hands its user a link instead of the file's bytes. The 256-bit random token
+  is the credential and expires after `ARTIFACT_LINK_TTL_S` (default 3600 s,
+  at most 24 h, `0` = off); `ARTIFACT_PUBLIC_URL` names the public address
+  behind a proxy. stdio calls get no link.
 - `/preview`: a read-only browser page beside `/mcp` showing each session's
   open documents, a render of its active document that refreshes when its
   revision moves, its recent tool calls with their duration and data size

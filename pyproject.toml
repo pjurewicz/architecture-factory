@@ -145,6 +145,7 @@ only-include = [
     "policy.py",
     "http_guard.py",
     "preview.py",
+    "artifact_links.py",
     "version.py",
     "backends",
     "engineering",

@@ -306,6 +306,18 @@ class Settings:
         self.preview_user: str = os.environ.get("PREVIEW_USER", "preview").strip() or "preview"
         self.preview_password: str = os.environ.get("PREVIEW_PASSWORD", "")
 
+        # artifact_links.py: a file a tool writes during an HTTP call is also
+        # served at GET /artifacts/<token>/<name> for this many seconds
+        # (clamped to 24 h; 0 turns the links off). ARTIFACT_PUBLIC_URL is the
+        # address clients reach the server at (e.g. behind a TLS proxy);
+        # unset, the link is built from the request's own scheme and Host.
+        self.artifact_link_ttl_s: float = min(
+            86400.0, max(0.0, float(os.environ.get("ARTIFACT_LINK_TTL_S", "3600")))
+        )
+        self.artifact_public_url: str = (
+            os.environ.get("ARTIFACT_PUBLIC_URL", "").strip().rstrip("/")
+        )
+
         # 1.8-18 (security_lisp.py): how system_run_lisp checks an expression.
         # "read" (default) runs what passes the AutoLISP read tier and sends the
         # rest to the 1.7 denylist unchanged; "denylist" is 1.7's behaviour;
