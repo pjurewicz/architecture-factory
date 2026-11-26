@@ -7688,7 +7688,8 @@ class ComBackend(ComCheckpoints, AutoCADBackend):
                     {"index": index, "error": "Missing 'type' key", "kind": "invalid_args"}
                 )
                 continue
-            builder = self._BATCH_JOBS.get(str(kind).lower())
+            name = str(kind).lower()
+            builder = self._BATCH_JOBS.get(self.BATCH_CREATE_ALIASES.get(name, name))
             if builder is None:
                 errors.append(
                     {"index": index, "error": f"Unknown type: {kind}", "kind": "invalid_args"}
@@ -7696,6 +7697,7 @@ class ComBackend(ComCheckpoints, AutoCADBackend):
                 continue
             try:
                 weight = parse_lineweight(spec.pop("lineweight", None))
+                spec = self.batch_create_spec(name, spec)
                 job = getattr(self, builder)(**spec)
             except Exception as exc:  # noqa: BLE001 - one spec's refusal is its own row
                 errors.append(_batch_error(index, exc, type=kind, before_job=True))

@@ -50,6 +50,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is allowed per session` until it gave up and ended the session, losing its
   unsaved drawings. The new stream now replaces the old one (the MCP SDK does
   not implement this reconnect).
+- `entity_batch_create` listed `rectangle` among its types but answered
+  `Unknown type: rectangle` in `errors[]`, and a `cad_batch` step with a
+  non-empty `errors[]` still counted as `ok`, so a batch drew without its
+  rectangles and said nothing. `rectangle` (`x1, y1, x2, y2`) is now a batch
+  type on both engines (the closed polyline `entity_create_rectangle` draws),
+  the description lists all eleven types, and the call is all or nothing: an
+  unknown or missing type refuses it (`invalid_args`) before anything is
+  drawn, and a failed entity deletes the ones already created and answers
+  `ok: false`, which fails the `cad_batch` step and rolls the batch back.
 
 ## [1.8.0] - 2026-11-06
 

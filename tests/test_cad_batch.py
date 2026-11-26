@@ -611,6 +611,47 @@ async def test_a_batch_step_may_still_call_the_older_batch_tools(client):
     assert await _entity_count(client) == 3
 
 
+async def test_entity_batch_create_draws_the_rectangle_its_schema_lists(client):
+    result = (
+        await client.call_tool(
+            "entity_batch_create",
+            {"entities": [{"type": "rectangle", "x1": 5, "y1": 2, "x2": 35, "y2": 12}]},
+        )
+    ).structured_content
+    assert result["ok"] is True and result["errors"] == []
+    (entity,) = result["entities"]
+    measured = (
+        await client.call_tool("analysis_measure_entity", {"handle": entity["handle"]})
+    ).structured_content
+    assert measured["area"] == pytest.approx(300.0) and measured["perimeter"] == pytest.approx(80.0)
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"type": "spiral", "x1": 0, "y1": 0},  # refused before anything is drawn
+        {"type": "circle", "cx": 0, "cy": 0},  # no radius: fails after the line is drawn
+    ],
+)
+async def test_a_failed_entity_in_entity_batch_create_fails_and_rolls_back_the_batch(client, bad):
+    """It used to answer errors[] inside status: ok, and the batch kept going."""
+    result = await _batch(
+        client,
+        [
+            _line(),
+            {
+                "tool": "entity_batch_create",
+                "args": {"entities": [{"type": "line", "x1": 0, "y1": 1, "x2": 9, "y2": 1}, bad]},
+            },
+            _line(0, 5, 10, 5),
+        ],
+    )
+    assert result["ok"] is False
+    assert result["results"][1]["status"] == "error"
+    assert result["atomicity"]["rolled_back"] is True
+    assert await _entity_count(client) == 0
+
+
 async def test_a_tool_hidden_by_the_profile_is_not_reachable_through_a_batch(client):
     """cad_batch must not be a way around TOOL_PROFILE or the ENABLE_3D gate."""
     result = await _batch(client, [{"tool": "solid_box", "args": {}}], dry_run=True)

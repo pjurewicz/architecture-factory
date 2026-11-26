@@ -6859,7 +6859,7 @@ async def cad_batch(
 async def entity_batch_create(
     entities: Annotated[
         list[dict],
-        "List of entity definitions. Each dict must have 'type' and type-specific params. Types: line, circle, arc, polyline, rectangle, text, point. "
+        "List of entity definitions. Each dict must have 'type' and that entity_create_* tool's params. Types: line, circle, arc, polyline, rectangle (x1, y1, x2, y2), text, mtext, point, hatch, spline, ellipse. "
         "Any definition may add 'lineweight' (hundredths of a mm, or 'ByLayer' = -1, 'ByBlock' = -2, 'Default' = -3 - not ByLayer)",
     ],
     ctx: Context = None,
@@ -6869,18 +6869,54 @@ async def entity_batch_create(
     Each entity dict must have a 'type' key and the parameters for that type.
     Example: [{"type": "line", "x1": 0, "y1": 0, "x2": 100, "y2": 0}, {"type": "circle", "cx": 50, "cy": 50, "radius": 25}]
 
+    All or none: an unknown type refuses the call (invalid_args) before
+    anything is drawn, and any failed entity removes the ones already
+    created (ok: false, errors).
+
     Denser than cad_batch for many entities of the same kind (no per-step tool
     name), and usable as one step *of* a cad_batch. Use cad_batch when the calls
     differ, must be ordered, or must feed each other.
     """
+    from engineering.errors import InvalidArgsError
+
     b = _backend(ctx)
+    known = (*b.BATCH_CREATE_TYPES, *b.BATCH_CREATE_ALIASES)
+    bad = [
+        f"{i}: {spec.get('type')!r}"
+        for i, spec in enumerate(entities)
+        if str(spec.get("type") or "").lower() not in known
+    ]
+    if bad:
+        raise InvalidArgsError(
+            f"invalid_args: unknown or missing entity type at index {', '.join(bad[:10])} - "
+            f"nothing was drawn. Types: {', '.join(known)}"
+        )
     total = len(entities)
     await ctx.info(f"Batch creating {total} entities")
     # 1.8-23: one backend call - the contract's loop over entity_create_*
     # headlessly, ONE STA job with one display refresh live.
     result = await b.entity_batch_create(entities, progress=ctx.report_progress)
     await ctx.report_progress(total, total)
-    return result
+    if not result["errors"]:
+        return {"ok": True, **result}
+    # A failed entity fails the call: the ones it created are deleted again,
+    # so ok: false never leaves part of the request drawn (and cad_batch,
+    # which reads ok: false as a failed step, rolls back the rest).
+    created = [row["handle"] for row in result["entities"]]
+    with anyio.CancelScope(shield=True):
+        removed = await b.entity_delete_many(created) if created else {"errors": []}
+    left = {row["handle"] for row in removed["errors"]}
+    first = result["errors"][0]
+    outcome = f"{len(left)} created entities could not be removed" if left else "nothing was drawn"
+    return {
+        "ok": False,
+        "error": f"{len(result['errors'])} of {total} entities failed (index "
+        f"{first['index']}: {first['error']}); {outcome}",
+        "created": len(left),
+        "errors": result["errors"],
+        "entities": [row for row in result["entities"] if row["handle"] in left],
+        "rolled_back": not left,
+    }
 
 
 @cad_tool(

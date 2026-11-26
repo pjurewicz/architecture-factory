@@ -229,12 +229,24 @@ async def test_batch_create_and_modify_take_a_lineweight(served):
             },
         )
     ).structured_content
-    assert created["created"] == 1
+    # One refused lineweight fails the whole call: nothing stays drawn.
+    assert created["ok"] is False and created["created"] == 0 and created["rolled_back"]
     (error,) = created["errors"]
     assert error["index"] == 1 and "ByLayer" in error["error"]
+    assert len(backend._doc.modelspace()) == 0
+
+    created = (
+        await client.call_tool(
+            "entity_batch_create",
+            {
+                "entities": [
+                    {"type": "line", "x1": 0, "y1": 0, "x2": 5, "y2": 0, "lineweight": "Default"}
+                ]
+            },
+        )
+    ).structured_content
     handle = created["entities"][0]["handle"]
     assert backend._doc.entitydb[handle].dxf.lineweight == -3
-    assert len(backend._doc.modelspace()) == 1  # the refused line was never drawn
 
     await client.call_tool(
         "entity_batch_modify",

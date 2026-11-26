@@ -219,7 +219,7 @@ async def test_a_bad_spec_in_the_middle_leaves_the_earlier_entities_written(com,
         {"type": "circle", "cx": 0.0, "cy": 0.0, "radius": -1.0},  # AutoCAD refuses it
         {"type": "circle", "cx": 0.0, "cy": 0.0},  # no radius: refused before the job
         {"cx": 0.0},  # no type
-        {"type": "rectangle"},  # not a batch type
+        {"type": "spiral"},  # not a batch type
         {"type": "circle", "cx": 9.0, "cy": 0.0, "radius": 1.0, "lineweight": "thick"},
         *_circles(1),
     ]
@@ -235,7 +235,7 @@ async def test_a_bad_spec_in_the_middle_leaves_the_earlier_entities_written(com,
     assert rows[2]["kind"] == "failed" and rows[2]["type"] == "circle"
     assert rows[3]["kind"] == "invalid_args"
     assert rows[4] == {"index": 4, "error": "Missing 'type' key", "kind": "invalid_args"}
-    assert rows[5]["error"] == "Unknown type: rectangle" and rows[5]["kind"] == "invalid_args"
+    assert rows[5]["error"] == "Unknown type: spiral" and rows[5]["kind"] == "invalid_args"
     assert rows[6]["kind"] == "invalid_args", "a refused lineweight draws nothing"
     assert com.document_identity()["revision"] == revision + 1, "one call, one revision step"
 

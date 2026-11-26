@@ -211,10 +211,28 @@ class EntityCreationContract(ABC):
         "ellipse",
     )
 
+    #: Batch types drawn by another type's create: ``rectangle`` is the closed
+    #: polyline ``entity_create_rectangle`` draws, from ``x1, y1, x2, y2``.
+    BATCH_CREATE_ALIASES = {"rectangle": "polyline"}
+
+    @staticmethod
+    def batch_create_spec(kind: str, spec: dict) -> dict:
+        """``spec`` as its create's arguments (an alias's rewritten)."""
+        if kind != "rectangle":
+            return spec
+        spec = dict(spec)
+        try:
+            x1, y1, x2, y2 = (spec.pop(key) for key in ("x1", "y1", "x2", "y2"))
+        except KeyError as exc:
+            raise ValueError(f"rectangle needs x1, y1, x2, y2 (missing {exc})") from None
+        spec["points"] = [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]
+        spec["closed"] = True
+        return spec
+
     async def entity_batch_create(self, specs: list[dict], *, progress=None) -> dict:
         """Create every spec in ``specs``. ``{created, errors, entities}``.
 
-        A spec is ``{"type": <BATCH_CREATE_TYPES>, ...that create's
+        A spec is ``{"type": <BATCH_CREATE_TYPES or _ALIASES>, ...that create's
         arguments}`` plus an optional ``lineweight`` (refused by name before
         the create, so a bad one draws nothing). ``errors`` rows are
         ``{index, error}`` for a missing or unknown type and
@@ -237,13 +255,16 @@ class EntityCreationContract(ABC):
             if not kind:
                 errors.append({"index": index, "error": "Missing 'type' key"})
                 continue
-            if str(kind).lower() not in self.BATCH_CREATE_TYPES:
+            name = str(kind).lower()
+            target = self.BATCH_CREATE_ALIASES.get(name, name)
+            if target not in self.BATCH_CREATE_TYPES:
                 errors.append({"index": index, "error": f"Unknown type: {kind}"})
                 continue
-            creator = getattr(self, f"entity_create_{str(kind).lower()}")
+            creator = getattr(self, f"entity_create_{target}")
             try:
                 # Parsed before the create, so a refused lineweight draws nothing.
                 weight = parse_lineweight(spec.pop("lineweight", None))
+                spec = self.batch_create_spec(name, spec)
                 info = await creator(**spec)
                 if weight is not None:
                     await self.entity_set_properties(info.handle, lineweight=weight)
