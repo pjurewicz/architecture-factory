@@ -86,6 +86,36 @@ async def test_a_typed_room_area_is_refused(backend):
     assert await _count(backend) == 0
 
 
+@pytest.mark.asyncio
+async def test_room_align_and_fit_reach_the_label(backend):
+    from engineering.arch.spec import spec_schema
+
+    room_props = spec_schema()["properties"]["rooms"]["items"]["properties"]
+    assert {"align", "fit"} <= set(room_props)
+    spec = _spec()
+    spec["rooms"][0].update(align="center", fit=True)
+    result = await draw_plan_from_spec(backend, spec)
+    first, second = result["rooms"]
+    assert first["align"] == "center" and first["fit"]["name_height_mm"] > 0
+    assert second["align"] == "left" and second["fit"] is None
+
+
+@pytest.mark.parametrize(
+    ("over", "message"),
+    [
+        ({"align": "right"}, r"^rooms\[0\]\.align: 'right' is not an alignment"),
+        ({"fit": "yes"}, r"^rooms\[0\]\.fit: expected true or false"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_a_bad_room_label_option_is_refused_by_path(backend, over, message):
+    spec = _spec()
+    spec["rooms"][0].update(over)
+    with pytest.raises(ValueError, match=message):
+        await draw_plan_from_spec(backend, spec)
+    assert await _count(backend) == 0
+
+
 def test_validate_spec_turns_dicts_into_the_model():
     norm = validate_spec(EXAMPLE_SPEC)
     assert [w.id for w in norm["walls"]] == ["EXT", "INT"]

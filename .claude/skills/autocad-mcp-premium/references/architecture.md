@@ -21,6 +21,9 @@ its path (`walls[1].thickness: ...`) and leaves the drawing untouched.
 Furniture, grids and symbols are separate (`arch_catalogue_insert`,
 `arch_grid`, `arch_symbol`); stairs are `arch_stair`, whose Blondel check
 (2R + G within 600-650 mm) is a design rule, not a building code.
+A `rooms[]` item takes `arch_room`'s label options too: `align: "center"`
+centres the label on `at`, and `fit: true` shrinks it to fit a small room
+(defaults `left` / `false`, as on `arch_room`).
 
 ## Areas are measured, never typed
 

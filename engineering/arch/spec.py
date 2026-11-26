@@ -173,6 +173,18 @@ def _list(spec: dict, key: str) -> list:
     return list(value)
 
 
+#: The label options a ``rooms[]`` item takes beside the Room fields; they shape
+#: the label ``label_room`` draws and are not part of the stored room record.
+ROOM_LABEL_KEYS = ("align", "fit")
+
+
+def _room_item_schema(schema: dict) -> dict:
+    props = dict(schema["properties"])
+    props["align"] = {"type": "string", "enum": list(_rooms.ALIGNS), "default": "left"}
+    props["fit"] = {"type": "boolean", "default": False}
+    return {**schema, "properties": props}
+
+
 def spec_schema() -> dict:
     """The JSON schema of the whole document ``validate_spec`` reads.
 
@@ -200,7 +212,7 @@ def spec_schema() -> dict:
         "wall_polygons": {"type": "array", "items": item_schema(WallPolygon)},
         "openings": {"type": "array", "items": item_schema(Opening)},
         "stairs": {"type": "array", "items": item_schema(Stair)},
-        "rooms": {"type": "array", "items": item_schema(Room)},
+        "rooms": {"type": "array", "items": _room_item_schema(item_schema(Room))},
         "chains": {
             "type": ["object", "boolean", "null"],
             "properties": {
@@ -235,7 +247,8 @@ def validate_spec(spec: dict) -> dict:
 
     Returns ``{"sheet", "lang", "scale", "poche", "walls", "openings",
     "stairs", "rooms", "chains", "schedules"}`` with model objects in place of
-    dicts (rooms stay dicts: ``label_room`` takes the request, not a Room).
+    dicts (rooms stay requests: ``{"room": dict, "align", "fit"}``, because
+    ``label_room`` takes the request, not a Room).
     """
     from engineering.arch.stairs import stair_prims
     from engineering.arch.walls import wall_geometry
@@ -292,11 +305,26 @@ def validate_spec(spec: dict) -> dict:
     rooms = []
     seen_rooms: set[str] = set()
     for i, item in enumerate(_list(spec, "rooms")):
-        room = room_from_dict(item, f"rooms[{i}]")
+        path = f"rooms[{i}]"
+        fields = (
+            {k: v for k, v in item.items() if k not in ROOM_LABEL_KEYS}
+            if isinstance(item, dict)
+            else item
+        )
+        room = room_from_dict(fields, path)
         if room.id in seen_rooms:
-            raise ValueError(f"rooms[{i}].id: {room.id!r} is used twice")
+            raise ValueError(f"{path}.id: {room.id!r} is used twice")
         seen_rooms.add(room.id)
-        rooms.append(dict(item))
+        align = item.get("align", "left")
+        if align not in _rooms.ALIGNS:
+            raise ValueError(
+                f"{path}.align: {align!r} is not an alignment; "
+                f"alignments are {', '.join(_rooms.ALIGNS)}"
+            )
+        fit = item.get("fit", False)
+        if not isinstance(fit, bool):
+            raise ValueError(f"{path}.fit: expected true or false, got {fit!r}")
+        rooms.append({"room": dict(fields), "align": align, "fit": fit})
 
     chains = spec.get("chains")
     sides: tuple[str, ...] | None = None
@@ -397,7 +425,14 @@ async def draw_plan_from_spec(backend: AutoCADBackend, spec: dict) -> dict:
         for i, room in enumerate(norm["rooms"]):
             try:
                 result["rooms"].append(
-                    await _rooms.label_room(backend, room, lang=lang, scale=scale)
+                    await _rooms.label_room(
+                        backend,
+                        room["room"],
+                        lang=lang,
+                        scale=scale,
+                        align=room["align"],
+                        fit=room["fit"],
+                    )
                 )
             except ValueError as exc:
                 raise ValueError(f"rooms[{i}]: {exc}") from exc
