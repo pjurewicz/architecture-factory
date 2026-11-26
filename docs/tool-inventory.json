@@ -3,7 +3,7 @@
   "schema_version": 2,
   "package_version": "1.8.0",
   "totals": {
-    "tools": 242,
+    "tools": 243,
     "resources": 13,
     "prompts": 5,
     "groups": 27
@@ -18,7 +18,7 @@
     "drawing": 11,
     "engineering": 10,
     "entity_creation": 18,
-    "entity_modification": 17,
+    "entity_modification": 18,
     "entity_query": 9,
     "environment": 16,
     "layers": 16,
@@ -1555,6 +1555,29 @@
       "annotations": {
         "title": "List Documents",
         "readOnlyHint": true
+      }
+    },
+    {
+      "name": "draw_order",
+      "group": "entity_modification",
+      "cost": "mutate",
+      "summary": "Draw entities under or over the rest of their layout.",
+      "acad": [
+        "DRAWORDER"
+      ],
+      "synonyms": [
+        "send to back",
+        "bring to front",
+        "put the hatch under the labels",
+        "z order of entities"
+      ],
+      "tags": [
+        "entity",
+        "modify"
+      ],
+      "annotations": {
+        "title": "Draw Order",
+        "destructiveHint": false
       }
     },
     {

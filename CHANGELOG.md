@@ -85,6 +85,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `draw_order(handles, action="send_to_back"|"bring_to_front")` (DRAWORDER):
+  masking no longer follows creation order only, so a tile grid or hatch drawn
+  after `arch_plan_from_spec`'s labels can be sent under them. Written to the
+  owning layout's (or block definition's) SORTENTSTABLE: handles and creation
+  order stay, the selection keeps its own order, the renderer, PDF export and
+  AutoCAD read it back from the file; a call that moves nothing reports
+  `changed: false` and leaves the revision unmoved.
 - `download_url` (`artifact_links.py`): a file `drawing_export_pdf`,
   `drawing_save`, `batch_plot` (per sheet) or `drawing_deliver` writes during
   an HTTP call is served at `GET /artifacts/<token>/<name>` (PDF inline, DXF

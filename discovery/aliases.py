@@ -1408,6 +1408,15 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "circle the change",
         ),
     ),
+    "draw_order": ToolAliases(
+        acad=("DRAWORDER",),
+        synonyms=(
+            "send to back",
+            "bring to front",
+            "put the hatch under the labels",
+            "z order of entities",
+        ),
+    ),
     "text_set_background": ToolAliases(
         acad=("BACKGROUNDMASK",),
         synonyms=(

@@ -30,7 +30,7 @@ from typing import Any
 
 import config
 from engineering import measure
-from engineering.errors import DimensionRenderError, EntityNotFoundError
+from engineering.errors import DimensionRenderError, EntityNotFoundError, InvalidArgsError
 
 from . import dwg_read, lineage, ocs
 from .atomic_write import atomic_write_dxf, file_sha256, resolve_pending
@@ -7161,6 +7161,60 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         "anonymous block ('*D' holds a dimension's rendered measurement, '*T' a "
         "table's). Use dimension_* text_override for that."
     )
+
+    async def draw_order(self, handles: list[str], action: str = "send_to_back") -> dict:
+        def _sync():
+            from ezdxf.entities import is_graphic_entity
+
+            if action not in ("send_to_back", "bring_to_front"):
+                raise InvalidArgsError(
+                    f"invalid_args: action must be send_to_back or bring_to_front, got {action!r}"
+                )
+            if not handles:
+                raise InvalidArgsError("invalid_args: handles must not be empty")
+            by_layout: dict[str, tuple] = {}
+            for handle in handles:
+                entity = self._get_entity(str(handle).strip().upper())
+                layout = entity.get_layout() if is_graphic_entity(entity) else None
+                if layout is None:
+                    raise InvalidArgsError(
+                        f"invalid_args: {handle} is a {entity.dxftype()} that no layout or "
+                        "block definition draws directly, so it has no draw order"
+                    )
+                key = layout.layout_key
+                by_layout.setdefault(key, (layout, set()))[1].add(entity.dxf.handle)
+
+            rows, changed = [], False
+            for layout, selected in by_layout.values():
+                # The SORTENTSTABLE maps an entity to the handle it sorts as. The
+                # layout's own handles, ascending, are reassigned to the new order:
+                # unique, so no tie falls back to creation order, and never "0",
+                # which AutoCAD draws last whatever its position.
+                current = list(layout.entities_in_redraw_order())
+                picked = [e for e in current if e.dxf.handle in selected]
+                rest = [e for e in current if e.dxf.handle not in selected]
+                new = picked + rest if action == "send_to_back" else rest + picked
+                keys = sorted((e.dxf.handle for e in current), key=lambda h: int(h, 16))
+                mapping = {
+                    e.dxf.handle: k for e, k in zip(new, keys, strict=True) if e.dxf.handle != k
+                }
+                if new != current:
+                    layout.set_redraw_order(mapping)
+                    changed = True
+                rows.append(
+                    {"layout": layout.name, "moved": len(picked), "changed": new != current}
+                )
+            if changed:
+                self._mark_dirty()
+            return {
+                "ok": True,
+                "action": action,
+                "changed": changed,
+                "layouts": rows,
+                "handles": [str(h).strip().upper() for h in handles],
+            }
+
+        return await self._async(_sync)
 
     async def text_set_background(
         self, handle, enabled: bool = True, color: int | None = None, scale: float = 1.5

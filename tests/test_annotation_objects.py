@@ -134,6 +134,33 @@ async def test_a_background_mask_on_plain_text_is_refused(backend):
     assert "MTEXT" in result["error"]
 
 
+async def test_draw_order_moves_a_later_hatch_under_earlier_labels_and_survives_save(
+    backend, tmp_path
+):
+    """Masking used to follow creation order only: a hatch drawn after the labels
+    covered them. The selection keeps its creation order among itself, whatever
+    order the handles are passed in, and the order is read back from the file."""
+    import ezdxf
+
+    a = await backend.entity_create_text("A", 0, 0)
+    b = await backend.entity_create_text("B", 10, 0)
+    line = await backend.entity_create_line(0, 0, 50, 0)
+    hatch = await backend.entity_create_hatch("SOLID", SQUARE)
+    ours = {a.handle, b.handle, line.handle, hatch.handle}
+
+    await backend.draw_order([hatch.handle, a.handle], "send_to_back")
+    result = await backend.draw_order([b.handle], "bring_to_front")
+    assert result["changed"] is True
+
+    path = tmp_path / "order.dxf"
+    await backend.drawing_save_as(str(path))
+    msp = ezdxf.readfile(str(path)).modelspace()
+    drawn = [e.dxf.handle for e in msp.entities_in_redraw_order() if e.dxf.handle in ours]
+    assert drawn == [a.handle, hatch.handle, line.handle, b.handle]
+    created = [e.dxf.handle for e in msp if e.dxf.handle in ours]
+    assert created == [a.handle, b.handle, line.handle, hatch.handle]
+
+
 @pytest.mark.parametrize("bad", [0.5, 0.0, -1.0])
 async def test_a_mask_scale_below_one_is_refused(backend, bad):
     """A box smaller than the text is not a mask, it is a stripe."""

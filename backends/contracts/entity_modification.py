@@ -93,6 +93,18 @@ class EntityModificationContract(ABC):
         center_y: float,
     ) -> list[EntityInfo]: ...
 
+    @abstractmethod
+    async def draw_order(self, handles: list[str], action: str = "send_to_back") -> dict:
+        """DRAWORDER: draw ``handles`` under (``send_to_back``) or over
+        (``bring_to_front``) everything else in their own layout.
+
+        Written to the layout's SORTENTSTABLE, so the handles and the creation
+        order are unchanged; the selected entities keep their order among
+        themselves. Entities in several layouts are reordered per layout.
+        ``{ok, action, layouts: [{layout, moved}], handles}``.
+        """
+        ...
+
     # ── text annotation (M8 / F15) ───────────────────────────────────────────
 
     @abstractmethod

@@ -3270,7 +3270,7 @@ async def dimension_diameter(
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 4: Entity Modification (19 tools) ───────────────────────────────
+# ── SECTION 4: Entity Modification (20 tools) ───────────────────────────────
 # ---------------------------------------------------------------------------
 
 
@@ -3618,6 +3618,28 @@ async def entity_edit_text(
     await ctx.debug(f"Editing text entity {handle}")
     result = await _backend(ctx).entity_edit_text(handle, text, height, rotation, x=x, y=y)
     return _dc(result)
+
+
+@cad_tool(summary="Draw entities under or over the rest of their layout.", cost="mutate")
+@mcp.tool(
+    annotations={"title": "Draw Order", "destructiveHint": False},
+    tags={"entity", "modify"},
+)
+async def draw_order(
+    handles: Annotated[list[str], "Entity handles to reorder."],
+    action: Annotated[
+        Literal["send_to_back", "bring_to_front"],
+        "send_to_back draws them under everything else, bring_to_front over it.",
+    ] = "send_to_back",
+    ctx: Context = None,
+) -> dict:
+    """AutoCAD's DRAWORDER: change which entities cover which, without recreating them.
+
+    Without it masking follows creation order only - a tile grid or hatch drawn
+    after the labels covers them. Written to the layout's SORTENTSTABLE, so
+    handles stay; the selected entities keep their order among themselves.
+    """
+    return await _backend(ctx).draw_order(handles, action)
 
 
 @cad_tool(summary="Put an opaque background box behind an MTEXT.", cost="mutate")
