@@ -45,10 +45,11 @@ DECLARED, not standard:
   (0.25 x the smallest line height) all round, clipped to the room's face so
   it never hides a wall; a room with no face (an open room) gets the bare
   rectangle. Every line stays a TEXT, the (first) name line carrying the room record.
-* ``MIN_ROOM_WIDTH``: a face whose mean width (2 x area / perimeter) is under
-  600 mm is taken for a wall body or an opening reveal, not a room. That is
-  this reader's heuristic, not a building rule - a 200 mm wall ring measures
-  200, a 900 mm corridor 5 m long measures 763.
+* ``MIN_ROOM_WIDTH``: a face whose width (`mean_width`: the short side of the
+  rectangle with its area and perimeter) is under 600 mm is taken for a wall
+  body or an opening reveal, not a room. That is this reader's heuristic, not
+  a building rule - a 200 mm wall ring measures about 200, a 900 mm corridor
+  900 and a 1500 x 900 WC 900 (2 x area / perimeter, read before, gave it 562).
 """
 
 from __future__ import annotations
@@ -556,12 +557,21 @@ def is_wall_outline(face: Face, outlines) -> bool:
 
 
 def mean_width(face: Face) -> float:
-    """2 x area / perimeter: the thickness of a long thin face, holes included."""
+    """The short side of the rectangle with the face's area and perimeter, holes included.
+
+    ``w + L = P / 2`` and ``w * L = A`` give ``w = 2A / (P/2 + sqrt((P/2)^2 - 4A))``:
+    exact for a rectangle (a 1500 x 900 WC is 900, where 2A/P read 562) and about
+    the thickness of a long thin face - a wall ring or a wall body. A face more
+    compact than a square has no such rectangle; the root is then taken as 0 (4A/P).
+    """
     perimeter = sum(
         polygon_area_perimeter([(x, y, 0.0) for x, y in ring], True)[1]
         for ring in (face.loop, *face.holes)
     )
-    return 2.0 * face.area / perimeter if perimeter > 0.0 else 0.0
+    if perimeter <= 0.0:
+        return 0.0
+    half = perimeter / 2.0
+    return 2.0 * face.area / (half + math.sqrt(max(half * half - 4.0 * face.area, 0.0)))
 
 
 def detect_rooms(
@@ -871,8 +881,8 @@ async def label_room(
     width = mean_width(face)
     if width < MIN_ROOM_WIDTH:
         raise ValueError(
-            f"room.at: ({x:g}, {y:g}) lies inside a wall body (a face {width:.0f} mm wide on "
-            f"average, under the {MIN_ROOM_WIDTH:.0f} mm a room is taken to need), not in a room"
+            f"room.at: ({x:g}, {y:g}) lies inside a wall body (a face {width:.0f} mm wide, "
+            f"under the {MIN_ROOM_WIDTH:.0f} mm a room is taken to need), not in a room"
         )
     # One face is one room: a second record on it would be a second area in
     # every schedule total (a retried call after a timeout is the usual way in).

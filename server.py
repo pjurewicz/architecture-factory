@@ -13229,7 +13229,7 @@ async def arch_rooms_detect(
     Every LINE and lightweight polyline on the layers is split where lines
     cross or touch, and the closed faces they bound are measured (mm², net of
     nested pieces).
-    Faces under `min_area`, and thin faces (mean width under 600 mm - wall
+    Faces under `min_area`, and thin faces (width under 600 mm - wall
     bodies and reveals, this reader's heuristic) are left out. Each room
     reports `confidence`: 1.0 when every edge lies on the arch wall layer, 0.6
     when any edge is a plain line from elsewhere - read `confidence_min` before

@@ -327,6 +327,19 @@ async def test_a_label_point_inside_a_wall_body_is_refused(backend):
         await label_room(backend, {"name": "A", "at": [-100.0, 2500.0]})
 
 
+@pytest.mark.asyncio
+async def test_a_1500_by_900_wc_is_a_room_without_a_boundary(backend):
+    # 2 x area / perimeter reads 562 here, under the 600 mm wall-body threshold;
+    # the WC is 900 mm wide and its 100 mm wall ring still is no room
+    await draw_lines(
+        backend, [*rect(-100.0, -100.0, 1600.0, 1000.0), *rect(0.0, 0.0, 1500.0, 900.0)], WALL
+    )
+    result = await label_room(backend, {"name": "WC", "at": [750.0, 450.0]})
+    assert result["room"]["area"] == pytest.approx(1_350_000.0, abs=EPS)
+    ring = rect(-100.0, -100.0, 1600.0, 1000.0) + rect(0.0, 0.0, 1500.0, 900.0)
+    assert [r["area"] for r in detect_rooms(ring, min_area=1.0)] == [1_350_000.0]
+
+
 def _extent(points):
     points = list(points)
     xs, ys = [p[0] for p in points], [p[1] for p in points]
