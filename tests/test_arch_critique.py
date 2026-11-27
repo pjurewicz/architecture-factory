@@ -273,6 +273,35 @@ async def test_run_critique_reaches_the_arch_focuses(backend):
 
 
 @pytest.mark.asyncio
+async def test_a_door_on_a_wall_at_minus_30_degrees_is_no_untrimmed_corner(backend):
+    # A 7000 x 4000 room turned -30 degrees, its corners typed to 0.1 mm, and a
+    # partition between its long walls with a door. The partition's ends are
+    # snapped onto the room's axes, so the door leaf's hinge and the jamb it
+    # stands on are computed along two paths and differ by float noise (~1e-8 mm).
+    from engineering.arch.spec import draw_plan_from_spec
+    from engineering.critique import run_critique
+
+    spec = {
+        "walls": [
+            {
+                "id": "EXT",
+                "axis": [[0.0, 0.0], [6062.2, -3500.0], [8062.2, -35.9], [2000.0, 3464.1]],
+                "thickness": 250,
+                "closed": True,
+            },
+            {"id": "INT", "axis": [[2189.7, -1264.2], [4189.7, 2199.9]], "thickness": 100},
+        ],
+        "openings": [
+            {"id": "D1", "wall": "INT", "kind": "door", "offset": 1000, "width": 800},
+            {"id": "D2", "wall": "EXT", "kind": "door", "offset": 8000, "width": 900},
+        ],
+    }
+    await draw_plan_from_spec(backend, spec)
+
+    assert await run_critique(backend, ["untrimmed_corner"]) == []
+
+
+@pytest.mark.asyncio
 async def test_a_plan_in_model_space_is_read_while_a_paper_sheet_is_current(backend):
     # arch_plan_from_spec draws into model space; a sheet made current
     # afterwards must not turn every arch focus into domain_absent.

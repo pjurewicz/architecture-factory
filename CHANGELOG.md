@@ -133,6 +133,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `untrimmed_corner` reported a door on a skewed wall (-30°) as an untrimmed
+  corner "0.000 mm apart": when the wall engine snaps a wall end onto another
+  axis, the door leaf's hinge and its jamb differ by float noise (~1e-8 mm).
+  Two LINE ends closer than 1 µm (`COINCIDENT_MM = 1e-3`, was 1e-9) now count
+  as one point.
 - `sheet_frame(layout=...)` and `titleblock_apply(layout=...)` ignored the
   layout's paper and drew the default A3 landscape, so on an A4 portrait layout
   only the frame's left half was printed. An empty `size` / `orientation` is

@@ -332,7 +332,7 @@ def _all_pairs_untrimmed(records) -> list[tuple[str, str, float]]:
         for j in range(i + 1, len(ends)):
             (h1, s1, p1), (h2, s2, p2) = ends[i], ends[j]
             d = math.hypot(p1[0] - p2[0], p1[1] - p2[1])
-            if s1 != s2 or d > critique.UNTRIMMED_TOL_MM or h1 == h2 or d <= 1e-9:
+            if s1 != s2 or d > critique.UNTRIMMED_TOL_MM or h1 == h2 or d <= critique.COINCIDENT_MM:
                 continue
             if frozenset((h1, h2)) in seen:
                 continue

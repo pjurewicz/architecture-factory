@@ -404,7 +404,9 @@ def scan_incomplete_issue(focus: str, coverage: ScanCoverage) -> Issue:
 
 
 #: Two points closer than this are one point (mm): ``untrimmed_corner`` skips them.
-COINCIDENT_MM = 1e-9
+#: 1 µm, not float equality: a door on a wall at -30° whose ends the wall engine
+#: snapped onto another axis meets its jamb ~1e-8 mm off (rounded input, measured).
+COINCIDENT_MM = 1e-3
 
 
 def _close_pairs(
