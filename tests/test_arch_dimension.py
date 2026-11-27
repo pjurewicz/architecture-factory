@@ -163,3 +163,35 @@ def test_stepped_facade_texts_never_overlap_and_fitting_ones_stay_centred():
     for intent, (x, y) in zip(intents, texts, strict=True):
         if abs(intent.p2[0] - intent.p1[0]) >= 1000.0:
             assert (x, y) == ((intent.p1[0] + intent.p2[0]) / 2.0, intent.text_at[1] + gap + h / 2)
+
+
+#: A bottom facade kinked up by 500 over 4000 at x = 8000, 250 mm thick: the
+#: oblique wall's two faces at its end project 250 * sin(7.125°) = 31 mm apart,
+#: at 8000 -/+ 125 * 500 / hypot(4000, 500) = 7984.496 / 8015.504 - no feature
+#: of the plan. The bottom face runs to its mitre at 8007.8, so of the two only
+#: 7984.496 lies on it.
+KINKED = Wall(
+    id="k",
+    axis=((0.0, 0.0), (8000.0, 0.0), (12000.0, 500.0), (12000.0, 6000.0), (0.0, 6000.0)),
+    thickness=250.0,
+    closed=True,
+)
+KINK_FACE = round(8000.0 - 125.0 * 500.0 / (4000.0**2 + 500.0**2) ** 0.5, 6)
+
+
+def test_an_oblique_walls_projected_faces_merge_into_one_point_on_the_face():
+    intents = exterior_chains([KINKED], [], sides=("bottom",))
+    spans = [(round(i.p1[0], 6), round(i.p2[0], 6)) for i in intents if i.feature == "bottom:walls"]
+    assert spans == [(-125.0, 125.0), (125.0, KINK_FACE), (KINK_FACE, 12125.0)]
+
+
+def test_a_real_30_mm_gap_beside_an_oblique_wall_stays_dimensioned():
+    # two partitions 130 apart on the axes: faces 4050 and 4080, 30 mm of real wall face
+    partitions = [
+        Wall(id="a", axis=((4000.0, 0.0), (4000.0, 6000.0)), thickness=100.0),
+        Wall(id="b", axis=((4130.0, 0.0), (4130.0, 6000.0)), thickness=100.0),
+    ]
+    intents = exterior_chains([KINKED, *partitions], [], sides=("bottom",))
+    spans = [(round(i.p1[0], 6), round(i.p2[0], 6)) for i in intents if i.feature == "bottom:walls"]
+    assert (4050.0, 4080.0) in spans
+    assert spans[-2:] == [(4180.0, KINK_FACE), (KINK_FACE, 12125.0)]

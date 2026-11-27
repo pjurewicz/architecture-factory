@@ -31,6 +31,8 @@ _ISO_SETTINGS = {
     "decimal_separator": ",",
 }
 _ANSI_SETTINGS = {**_ISO_SETTINGS, "decimal_separator": "."}
+#: A plan in mm is dimensioned in whole millimetres: "9250", not "9250,48".
+_ARCH_DIMSTYLE = {"DIMDEC": 0}
 
 
 @dataclass(frozen=True)
@@ -49,6 +51,7 @@ class TemplateSpec:
     title_block: bool
     ctb: str = "monochrome.ctb"  # page setup plot style table
     settings: dict = field(default_factory=dict)  # drawing_settings facade keys
+    dimstyle_overrides: dict = field(default_factory=dict)  # on top of the preset
     description: str = ""
 
 
@@ -85,6 +88,7 @@ TEMPLATE_CATALOG: dict[str, TemplateSpec] = {
             scale="fit",
             title_block=False,
             settings={**_ISO_SETTINGS, "annotation_scale": "1:50"},
+            dimstyle_overrides=dict(_ARCH_DIMSTYLE),
             description="ISO A1 architectural sheet, ISO 13567 layers, 1:50 annotation",
         ),
         TemplateSpec(
@@ -102,6 +106,7 @@ TEMPLATE_CATALOG: dict[str, TemplateSpec] = {
             title_block=False,
             ctb="arch_monochrome.ctb",
             settings={**_ISO_SETTINGS, "annotation_scale": "1:50"},
+            dimstyle_overrides=dict(_ARCH_DIMSTYLE),
             description="ISO A2 architectural sheet, ISO 13567 layers, 1:50 annotation",
         ),
         TemplateSpec(
@@ -150,6 +155,7 @@ TEMPLATE_CATALOG: dict[str, TemplateSpec] = {
             scale="fit",
             title_block=False,
             settings=dict(_ANSI_SETTINGS),
+            dimstyle_overrides=dict(_ARCH_DIMSTYLE),
             description="ANSI D architectural sheet (metric)",
         ),
     )

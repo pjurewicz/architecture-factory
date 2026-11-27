@@ -315,3 +315,20 @@ async def test_a_template_is_saved_by_drawing_save(backend, tmp_path):
     assert not (tmp_path / "t.dwt").exists()
     result = await server.drawing_save(str(tmp_path / "t.dxf"), ctx=_Ctx(backend))
     assert result["ok"] and (tmp_path / "t.dxf").is_file()
+
+
+@pytest.mark.parametrize("name", ["iso_a1_arch", "iso_a2_arch", "ansi_d_arch"])
+@pytest.mark.asyncio
+async def test_an_arch_template_dimensions_in_whole_millimetres(backend, name):
+    await server.drawing_new(template=name, ctx=_Ctx(backend))
+    assert int(await backend.system_get_variable("DIMDEC")) == 0
+    info = await backend.dimension_linear(0.0, 0.0, 9250.48, 0.0, 4625.0, -500.0, 0.0, "0")
+    block = backend._doc.entitydb[info.handle].get_geometry_block()
+    shown = [e.plain_text() for e in block if e.dxftype() == "MTEXT"]
+    assert shown == ["9250"]
+
+
+@pytest.mark.asyncio
+async def test_a_mech_template_keeps_two_decimals(backend):
+    await server.drawing_new(template="iso_a3_mech", ctx=_Ctx(backend))
+    assert int(await backend.system_get_variable("DIMDEC")) == 2

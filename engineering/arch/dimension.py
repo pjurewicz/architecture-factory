@@ -63,6 +63,9 @@ STEP_PAPER_MM = 8.0
 #: never narrower than its text.
 TEXT_WIDTH_FACTOR = 0.75
 _TOL = 1.0
+#: A walls-row span shorter than this, ending on an oblique wall's projected
+#: face, is merged away (`_merge_oblique`).
+OBLIQUE_MERGE_MM = 35.0
 
 
 def _positive(value, where: str) -> float:
@@ -157,6 +160,39 @@ def _anchor(anchors: dict, value: float, default: float) -> float:
     return default
 
 
+def _merge_oblique(
+    points: list[float], oblique: dict[float, float], real: set[float]
+) -> list[float]:
+    """The walls row without the slivers an oblique wall's end projection leaves.
+
+    An oblique wall's two faces at its end project onto the facade
+    ``thickness * |sin|`` apart, at points that are no feature of the plan. A
+    span under ``OBLIQUE_MERGE_MM`` ending on such a point loses it: next to a
+    point another source gives (a face, a jamb, a step) the projected point
+    goes, and the two points of one wall end become the one toward the wall it
+    meets (``oblique`` maps each to it), which lies on that wall's faces. A
+    point any other source gives is never dropped.
+    """
+
+    def near(value, values, within=1e-6) -> bool:
+        return any(abs(value - v) <= within for v in values)
+
+    short = OBLIQUE_MERGE_MM - 1e-9
+    known = [p for p in points if near(p, real) or not near(p, oblique)]
+    by_end: dict[float, list[float]] = {}
+    for p in points:
+        if p not in known and not near(p, known, short):
+            kept = next(k for o, k in oblique.items() if abs(p - o) <= 1e-6)
+            by_end.setdefault(kept, []).append(p)
+    out = list(known)
+    for kept, projected in by_end.items():
+        if len(projected) > 1 and max(projected) - min(projected) <= short:
+            out.append(kept)
+        else:
+            out.extend(projected)
+    return _points(set(out))
+
+
 def exterior_chains(
     walls,
     openings=(),
@@ -243,6 +279,10 @@ def exterior_chains(
             jambs.setdefault(a[ai] + u[ai] * (along + float(opening.width)), host["outer"])
 
         faces = {lo: jambs[lo], hi: jambs[hi]}
+        # an oblique wall's two faces projected at its end: value -> the one of the
+        # two that lies toward the wall it meets, which is on that wall's faces
+        oblique: dict[float, float] = {}
+        real = {lo, hi}  # every value another source gives
         for wall in walls:
             left, right = face_offsets(wall)
             for a, b in wall_segments(wall):
@@ -250,11 +290,18 @@ def exterior_chains(
                 if abs(u[1 - ai]) <= 1e-9:
                     continue
                 n = (-u[1], u[0])
-                for end in (a, b):
+                for end, away in ((a, u[ai]), (b, -u[ai])):
                     met = next((item for item in exterior if _inside(end, item)), None)
-                    if met is not None:
-                        faces.setdefault(end[ai] + n[ai] * left, met["outer"])
-                        faces.setdefault(end[ai] + n[ai] * right, met["outer"])
+                    if met is None:
+                        continue
+                    pair = [end[ai] + n[ai] * left, end[ai] + n[ai] * right]
+                    for value in pair:
+                        faces.setdefault(value, met["outer"])
+                    if abs(u[ai]) > 1e-9:
+                        kept = min(pair, key=lambda v, away=away: v * away)
+                        oblique.update(dict.fromkeys(pair, kept))
+                    else:
+                        real.update(pair)
         for outline in outlines:
             on_facade = any(
                 abs(p[ci] - edge) <= _TOL or any(_inside(p, item) for item in exterior)
@@ -265,9 +312,11 @@ def exterior_chains(
                     tied = [p for p in outline if abs(p[ai] - value) <= 1e-6]
                     nearest = min(tied, key=lambda p: abs(p[ci] - facade[side]))
                     faces.setdefault(value, nearest[ci])
+                    real.add(value)
 
         anchors = {**faces, **jambs}
-        rows = [_points(set(jambs)), _points(set(faces)), _points({lo, hi})]
+        walls_row = _merge_oblique(_points(set(faces)), oblique, real)
+        rows = [_points(set(jambs)), walls_row, _points({lo, hi})]
         for r, points in enumerate(rows):
             if any(points == later for later in rows[r + 1 :]):
                 continue

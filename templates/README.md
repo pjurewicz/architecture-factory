@@ -7,11 +7,11 @@ listed by `drawing_template_list`. Start from one with
 | name | standard | sheet | layer set | styles | page setup |
 |---|---|---|---|---|---|
 | `iso_a3_mech` | ISO | A3 landscape, ISO 5457 frame + ISO 7200 title block | mech | ISO-25 / ISOCP | ISO_A3, monochrome.ctb, 1:1 |
-| `iso_a1_arch` | ISO | A1 landscape | iso13567 | ISO-25 / ISOCP, annotation scale 1:50 | ISO_A1, monochrome.ctb, fit |
-| `iso_a2_arch` | ISO | A2 landscape | iso13567 | ISO-25 / ISOCP, annotation scale 1:50 | ISO_A2, arch_monochrome.ctb, fit |
+| `iso_a1_arch` | ISO | A1 landscape | iso13567 | ISO-25 / ISOCP (DIMDEC 0), annotation scale 1:50 | ISO_A1, monochrome.ctb, fit |
+| `iso_a2_arch` | ISO | A2 landscape | iso13567 | ISO-25 / ISOCP (DIMDEC 0), annotation scale 1:50 | ISO_A2, arch_monochrome.ctb, fit |
 | `iso_a3_pid` | ISO | A3 landscape, ISO 5457 frame + title block | pid | ISO-25 / ISOCP | ISO_A3, monochrome.ctb, 1:1 |
 | `ansi_b_mech` | ANSI (metric) | ANSI B landscape | mech | ANSI / ROMANS | ANSI_B, monochrome.ctb, 1:1 |
-| `ansi_d_arch` | ANSI (metric) | ANSI D landscape | iso13567 | ANSI / ROMANS | ANSI_D, monochrome.ctb, fit |
+| `ansi_d_arch` | ANSI (metric) | ANSI D landscape | iso13567 | ANSI / ROMANS (DIMDEC 0) | ANSI_D, monochrome.ctb, fit |
 
 ## The two files per template
 
@@ -30,7 +30,8 @@ listed by `drawing_template_list`. Start from one with
   a catalogue name to the `.dxf`); `drawing_template_list` reports it under
   `files.dwt`, and the benchmark task `dwg_headless_roundtrip` reads one as a
   DWG through the ODA File Converter. No headless library writes DWT, so the
-  twins are not rebuilt.
+  twins are not rebuilt: the `iso_a1_arch` / `ansi_d_arch` twins still carry
+  the DIMDEC 2 their DXFs had before whole-millimetre arch dimensions.
 
 Line endings: ezdxf writes CRLF and `.gitattributes` pins `templates/*.dxf`
 to CRLF so a checkout on any platform equals a fresh build.

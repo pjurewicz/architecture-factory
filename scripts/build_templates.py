@@ -117,7 +117,9 @@ async def _apply_styles(backend, spec: TemplateSpec) -> dict:
             spec.textstyle, font, 0.0, width_factor, oblique, set_current=True
         )
         dim = await backend.dimstyle_create(
-            spec.dimstyle, resolve_dimstyle(spec.dimstyle_preset, None), set_current=True
+            spec.dimstyle,
+            resolve_dimstyle(spec.dimstyle_preset, spec.dimstyle_overrides),
+            set_current=True,
         )
         return {"mode": "styles", "dimstyle": dim["name"], "textstyle": text["name"]}
     applied = {}

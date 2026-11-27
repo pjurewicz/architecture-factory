@@ -150,6 +150,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The `*_arch` templates (`iso_a1_arch`, `iso_a2_arch`, `ansi_d_arch`, all mm)
+  dimension in whole millimetres: their dimension style and `$DIMDEC` are 0, so
+  an oblique plan reads "9250", not "9250,48" (template specs carry
+  `dimstyle_overrides`). Not backward compatible for drawings started from
+  them; `drawing_settings({"dim_decimals": n})` sets another precision. The
+  `.dwt` twins are not rebuilt and keep DIMDEC 2.
+- `arch_plan_from_spec` / `arch_dimension_chains`: an oblique wall's two faces
+  projected at its end no longer leave a sliver in the walls row. A span under
+  35 mm ending on such a projected point loses it - beside a face, jamb or step
+  the projected point goes, and the two points of one wall end become the one
+  on the face of the wall it meets, so the dimension still binds. Points from
+  any other source, a real 30 mm step included, are never merged.
 - `drawing_new(close_current=True)` closes the document that was active once
   the new one is created and reports it in `closed_previous` (`null` with
   nothing open). It follows `document_close`'s rule: a document with unsaved
