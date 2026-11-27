@@ -3351,6 +3351,9 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 _normalise_linetype_units(doc)
             else:
                 doc = ezdxf.new(dxfversion="R2010")
+                # ezdxf's own default is metres ($INSUNITS 6); every other
+                # default here (ISO-25 sizes, A3 limits, 2.5 text) is millimetres.
+                doc.header["$INSUNITS"] = 4
                 _apply_iso_dimstyle(doc)
                 _arial_standard_style(doc)
                 for name in doc.layouts.names():
@@ -3367,11 +3370,15 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             self._reset_history_baseline()
             # 1.8-08: S0, written only when the lineage writes its first checkpoint.
             self._cp_on_new(self._state, template)
+            from backends.contracts.settings import _CODE_TO_UNIT
+
+            code = int(doc.header.get("$INSUNITS", 0))
             result = {
                 "ok": True,
                 "name": "untitled.dxf",
                 "document": key,
                 "open_documents": len(self._docs),
+                "units": _CODE_TO_UNIT.get(code, f"code {code}"),
             }
             if released is not None:
                 result["quarantine_cleared"] = released.to_dict()

@@ -334,6 +334,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A new drawing declared metres (`$INSUNITS` 6, ezdxf's own default) while
+  every other default - the ISO-25 dimension sizes, the 2.5 text, the A3
+  limits 420 x 297 - and the documentation are millimetres, so
+  `drawing_settings` showed `m` and a reader that trusts the declared unit
+  (requirements, `drawing_understand`) took 100 for 100 m. `drawing_new`
+  without a template now declares millimetres, and its result reports `units`
+  (a template's own declaration).
+
 - A screenshot or PDF drew lettering in the fallback face (DejaVu Sans) when
   the style's font (`isocp.shx`, `romans.shx`, `arial.ttf`: AutoCAD's faces,
   not redistributable) was missing, while `textstyle_create` said

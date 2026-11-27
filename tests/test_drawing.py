@@ -18,6 +18,8 @@ async def test_drawing_info(backend):
 async def test_drawing_new(backend):
     result = await backend.drawing_new()
     assert result.get("ok") is True
+    # ezdxf.new() declares metres; every other default (ISO-25, A3 limits) is mm
+    assert result["units"] == "mm" and backend._doc.header["$INSUNITS"] == 4
 
 
 async def test_drawing_save_and_open(backend, tmp_path):

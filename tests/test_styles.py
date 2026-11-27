@@ -560,7 +560,7 @@ async def test_apply_iso_then_dimension_linear_carries_iso25(backend):
     assert result["standard"] == "iso"
     assert result["dimstyle"] == {"name": "ISO-25", "created": True, "current": True}
     assert result["textstyle"] == {"name": "ISOCP", "created": True, "current": True}
-    assert result["settings"]["changed"] == {"INSUNITS": [6, 4]}, "ezdxf.new() starts in metres"
+    assert result["settings"]["changed"] == {}, "drawing_new starts in millimetres"
     assert result["layers"]["layer_set"] == "mech"
     assert result["layers"]["layers"]["DIM"] in ("created", "exists")
     dim = await backend.dimension_linear(0, 0, 33.333, 0, 16, -30)
@@ -613,7 +613,7 @@ async def test_apply_writes_dimscale_1_when_the_existing_style_restores_another(
     assert await backend.system_get_variable("DIMSCALE") == 1.0
     result = await apply_standard(backend, "iso", layers=False)
     assert result["dimstyle"] == {"name": "ISO-25", "created": False, "current": True}
-    assert result["settings"]["changed"] == {"INSUNITS": [6, 4], "DIMSCALE": [2.0, 1.0]}
+    assert result["settings"]["changed"] == {"DIMSCALE": [2.0, 1.0]}
     assert await backend.system_get_variable("DIMSCALE") == 1.0
     assert backend._doc.header["$DIMSTYLE"] == "ISO-25"
     # The style itself is used as found (dimstyle_modify changes one on purpose).
@@ -629,7 +629,7 @@ async def test_apply_refuses_an_unknown_standard_before_writing(backend):
     with pytest.raises(TypeError, match="layers"):
         await apply_standard(backend, "iso", layers="yes")
     assert [r["name"] for r in await backend.dimstyle_list()] == ["Standard"]
-    assert await backend.system_get_variable("INSUNITS") == 6
+    assert await backend.system_get_variable("DIMSCALE") == 1.0
 
 
 async def test_apply_standard_tool_is_registered_in_the_styles_group(backend):
