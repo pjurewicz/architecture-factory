@@ -1687,3 +1687,41 @@ async def test_many_block_definitions_are_one_counts_row():
     few = {"counts": {"block:A": {"added": 1}}}
     server._fold_block_counts(few)
     assert few["counts"] == {"block:A": {"added": 1}}
+
+
+async def test_an_undo_reports_what_it_took_back_and_a_diff_that_matches(client):
+    """Round 4 (A5): after undoing a batch of dimensions the changes said
+    'Model: deleted 119, block:ARCH_* deleted 2' - the BLOCK / ENDBLK and
+    ATTRIB handles of earlier inserts, never deleted - and nothing said which
+    operations the checkpoint step undid."""
+    await client.call_tool(
+        "call_tool",
+        {"name": "arch_catalogue_insert", "arguments": {"name": "double_bed", "x": 0, "y": 0}},
+    )
+    await client.call_tool(
+        "call_tool", {"name": "draw_order", "arguments": {"where": {"layer": "*"}}}
+    )
+    before = await _entity_count(client)
+    dims = [
+        {
+            "tool": "dimension_linear",
+            "args": {
+                "x1": i * 100,
+                "y1": 0,
+                "x2": i * 100 + 50,
+                "y2": 0,
+                "dim_x": i * 100,
+                "dim_y": -300,
+            },
+        }
+        for i in range(3)
+    ]
+    await _batch(client, dims, label="dims")
+    undo = await _batch(client, [{"tool": "drawing_undo", "args": {}}])
+    assert await _entity_count(client) == before
+    changes = undo["changes"]
+    assert changes["counts"]["Model"] == {"deleted": 3}
+    assert not any(k.startswith("block:ARCH") for k in changes["counts"])
+    await _batch(client, dims, label="again")
+    direct = (await client.call_tool("drawing_undo", {})).structured_content
+    assert direct["undone"] == [{"tool": "dimension_linear", "count": 3, "label": "again"}]

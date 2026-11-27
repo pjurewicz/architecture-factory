@@ -222,6 +222,12 @@ def _owner_name(db, owner_handle: str | None, names: dict) -> str | None:
     return name
 
 
+#: Entities a layout or block iteration never yields: block structure and the
+#: sub-entities an INSERT / POLYLINE owns (objects - a SORTENTSTABLE's
+#: dictionary - are not graphic and skipped too).
+_NOT_LISTED = frozenset({"BLOCK", "ENDBLK", "ATTRIB", "SEQEND", "VERTEX"})
+
+
 def _is_layout(name: str) -> bool:
     return not name.startswith("block:")
 
@@ -301,6 +307,8 @@ class EzdxfChangeSets:
             return None
 
     def _change_summary(self, mark: dict) -> dict | None:
+        from ezdxf.entities import is_graphic_entity
+
         doc = self._doc
         cache = getattr(self, "_change_cache", None)
         if cache is None or cache["doc"] is not mark["doc"]:
@@ -325,6 +333,12 @@ class EzdxfChangeSets:
             handle = f"{value:X}"
             entity = db.get(handle)
             if entity is None or not entity.is_alive:
+                continue
+            if entity.dxftype() in _NOT_LISTED or not is_graphic_entity(entity):
+                # round 4: what _change_map_build never lists (a block's BLOCK /
+                # ENDBLK, an INSERT's ATTRIBs) must not enter the map either, or
+                # an undo's rebuilt map reads them all as deleted (119 phantom
+                # deletions after one undo)
                 continue
             owner = _owner_name(db, entity.dxf.get("owner"), names)
             if owner is None:

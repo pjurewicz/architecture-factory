@@ -2794,9 +2794,52 @@ async def drawing_undo(ctx: Context = None) -> dict:
     Drawing something after an undo discards the redo branch, as in AutoCAD.
 
     `verified` says whether the drawing observably changed: always true for a
-    snapshot restore.
+    snapshot restore. `undone` lists the operations the step took back (tool,
+    label, count), newest first, read from the journal.
     """
-    return await _backend(ctx).drawing_undo()
+    result = await _backend(ctx).drawing_undo()
+    if isinstance(result, dict) and result.get("restored_revision") is not None:
+        undone = await _undone_operations(ctx, int(result["restored_revision"]))
+        if undone is not None:
+            result["undone"] = undone
+    return result
+
+
+async def _undone_operations(ctx: Context, restored: int) -> list[dict] | None:
+    """The journal's mutating rows above ``restored``, newest first, down to the
+    previous undo / redo (older rows were already taken back); consecutive rows
+    of one tool and label as one ``{tool, label?, count}``. None when no journal
+    reads (round 4: an undo did not say what it undid)."""
+    from engineering.history import history
+
+    try:
+        found = await history(
+            ctx.lifespan_context.get("backend"),
+            _operations_journal(ctx.lifespan_context),
+            limit=200,
+            read_only=lambda name: not _mutating_tool(name),
+        )
+    except Exception:  # noqa: BLE001 - a report, never a reason to fail the undo
+        return None
+    current = CURRENT_OPERATION.get()
+    out: list[dict] = []
+    for row in found.get("rows") or ():
+        if row.get("op") == current or row.get("tool") in ("call_tool", "cad_batch"):
+            continue
+        if row.get("tool") in ("drawing_undo", "drawing_redo"):
+            break
+        if row.get("rev") is None or int(row["rev"]) <= restored:
+            break
+        if row.get("state") not in ("committed", "partial"):
+            continue
+        if out and out[-1]["tool"] == row["tool"] and out[-1].get("label") == row.get("label"):
+            out[-1]["count"] += 1
+            continue
+        entry = {"tool": row["tool"], "count": 1}
+        if row.get("label"):
+            entry["label"] = row["label"]
+        out.append(entry)
+    return out
 
 
 @cad_tool(summary="Reapply the operation you just undid.", cost="safe")

@@ -45,6 +45,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed (round 4)
 
+- `drawing_undo`'s change summary read phantom deletions: the incremental
+  summary put a new block's BLOCK / ENDBLK, an INSERT's ATTRIBs and the
+  SORTENTSTABLE's dictionary in its map, which a replaced document's map never
+  holds - one undo of seven dimensions reported "Model: deleted 119". Only
+  graphic entities a layout or block lists are tracked now. `drawing_undo`
+  answers `undone`: the operations the checkpoint step took back
+  (`{tool, label, count}`, newest first, down to the previous undo / redo).
+
 - A catalogue block's WIPEOUT hid symbols and LED strips drawn before it and
   nothing said so. `arch_catalogue_insert` now sends a masking item under
   everything in its space (`send_to_back=True`, reported as `draw_order`);
