@@ -59,6 +59,7 @@ from .base import (
 )
 from .change_sets import EzdxfChangeSets
 from .contracts.entity_modification import TEXT_SEARCH_SCOPE
+from .contracts.refs import IMAGE_PLOT_LAYER, IMAGE_UNDERLAY_FADE, IMAGE_UNDERLAY_LAYER
 from .contracts.settings import (
     SUMMARY_FIELDS,
     custom_key_fold,
@@ -94,6 +95,7 @@ from .region_render import (
     PAPERSPACE_LAST,
     check_max_px,
     draw_layout,
+    image_frame,
     load_overlay,
     normalize_region,
     paperspace_last,
@@ -3625,7 +3627,11 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
 
         return await self._async(_sync)
 
-    async def image_attach(self, path, at, scale=1.0, rotation=0.0) -> dict:
+    async def image_attach(
+        self, path, at, scale=1.0, rotation=0.0, *, plot=False, fade=None, layer=None
+    ) -> dict:
+        from ezdxf.lldxf.validator import is_valid_layer_name
+
         source = Path(path)
         if not source.is_file():
             raise ValueError(f"image_attach: {path} does not exist")
@@ -3635,13 +3641,33 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 raise ValueError(f"image_attach: {label} must be finite, got {value!r}")
         if float(scale) <= 0:
             raise ValueError(f"image_attach: scale must be positive, got {scale!r}")
+        plot = bool(plot)
+        # A working underlay (no plot) is faded so the CAD reads over it; a
+        # plotted image (a logo, a site map) is shown as it is.
+        fade = (0 if plot else IMAGE_UNDERLAY_FADE) if fade is None else fade
+        if isinstance(fade, bool) or not isinstance(fade, int | float) or not 0 <= fade <= 90:
+            raise ValueError(f"image_attach: fade must be 0-90 %, got {fade!r}")
+        layer = str(layer or (IMAGE_PLOT_LAYER if plot else IMAGE_UNDERLAY_LAYER)).strip()
+        if not is_valid_layer_name(layer):
+            raise ValueError(f"image_attach: {layer!r} is not a valid layer name")
         px, py = _image_pixels(str(source))
         width, height = px * float(scale), py * float(scale)
 
         def _sync():
             doc = self._require_doc()
+            # The layer first, with the plot flag that decides the PDF.
+            existed = layer in doc.layers
+            target = doc.layers.get(layer) if existed else doc.layers.add(layer, color=8)
+            plot_changed = existed and bool(target.dxf.plot) != plot
+            target.dxf.plot = int(plot)
             image_def = doc.add_image_def(str(source), size_in_pixel=(px, py))
-            image = self._msp().add_image(image_def, (x, y), (width, height), float(rotation))
+            image = self._msp().add_image(
+                image_def,
+                (x, y),
+                (width, height),
+                float(rotation),
+                dxfattribs={"layer": layer, "fade": round(fade)},
+            )
             self._mark_dirty()
             return {
                 "ok": True,
@@ -3652,6 +3678,11 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 "rotation": float(rotation),
                 "pixels": [px, py],
                 "size_mm": [width, height],
+                "layer": layer,
+                "plot": plot,
+                **({"layer_plot_changed": True} if plot_changed else {}),
+                "fade": round(fade),
+                "frame": image_frame(doc),
                 "backend": self.name,
             }
 
@@ -3800,6 +3831,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     paper = self._paper_frame(target)
                 fig = _new_agg_figure(figsize=paper["figsize"] if paper else None)
                 ax = fig.add_axes([0, 0, 1, 1])
+                image_warnings: list[str] = []
                 out = MatplotlibBackend(ax, adjust_figure=paper is None)
                 applied = draw_layout(
                     doc,
@@ -3809,6 +3841,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     vector=True,
                     plot_style=plot_style,
                     background=background,
+                    warnings=image_warnings,
                 )
                 if paper is not None:
                     ax.set_xlim(*paper["xlim"])
@@ -3830,6 +3863,8 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                         )
                     if warnings:
                         result["warnings"] = warnings
+                if image_warnings:
+                    result.setdefault("warnings", []).extend(image_warnings)
                 if paper is not None:
                     result["paper_mm"] = paper["size_mm"]
                     result["scale"] = paper["scale"]

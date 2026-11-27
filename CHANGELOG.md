@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- IMAGE entities (`image_attach`) are drawn by `view_screenshot` and
+  `drawing_export_pdf` / `batch_plot`, through paper viewports too: pixels
+  under every vector, with fade, contrast, brightness and transparency; the
+  frame as IMAGEFRAME says (2 = shown, not plotted). A file that is missing,
+  unreadable or refused by the path policy (read through `validate_path`) is
+  a frame with its file name plus a `warnings` line. `image_attach(plot=,
+  fade=, layer=)`: by default the image goes on `UNDERLAY` (plot off, fade 50);
+  `plot=True` puts it on `IMAGE` (plot on, fade 0). Breaking: a PDF now leaves
+  out every layer whose plot flag is off, as AutoCAD plots.
 - Every room label (`arch_room`, `arch_plan_from_spec`'s `rooms[]`) reports
   `fits`: whether each line's box - measured as the `viewport_clip` focus
   measures a TEXT (`ezdxf.disassemble`) - lies inside the room's measured face

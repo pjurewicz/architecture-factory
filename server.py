@@ -12691,18 +12691,24 @@ async def image_attach(
         ),
     ] = 1.0,
     rotation: Annotated[float, Field(default=0.0, description="Rotation in degrees.")] = 0.0,
+    plot: Annotated[bool, Field(default=False, description="Print in PDF.")] = False,
+    fade: Annotated[float | None, Field(default=None, description="Fade 0-90 %.")] = None,
+    layer: Annotated[str | None, Field(default=None, description="Target layer.")] = None,
     ctx: Context = None,
 ) -> dict:
     """Attach a raster underlay at the file's own aspect ratio.
 
     `scale` is drawing units per pixel, so the placed size is the image's pixel
-    size times `scale` and the payload reports both. Refusals, all before
-    anything is written: a file that does not exist, a file no image reader can
-    open (named), a non-positive or non-finite scale.
+    size times `scale` and the payload reports both. Screenshots show it; a PDF
+    only if `plot` (the layer's plot flag). Default layer UNDERLAY, fade 50;
+    with `plot`, IMAGE, fade 0. Refusals, all before anything is written: a
+    missing or unreadable file (named), a bad scale or fade.
     """
     validated = validate_path(path)
     await ctx.info(f"Image underlay: {validated}")
-    return await _backend(ctx).image_attach(str(validated), (x, y), scale, rotation)
+    return await _backend(ctx).image_attach(
+        str(validated), (x, y), scale, rotation, plot=plot, fade=fade, layer=layer
+    )
 
 
 @cad_tool(

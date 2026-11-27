@@ -194,6 +194,119 @@ def _draw_overlay(ax, overlay: dict) -> None:
     )
 
 
+#: Subtracted from an IMAGE's matplotlib z-order, so every raster lies under
+#: every vector (whose z counts up from 0) and images keep their own order.
+IMAGE_Z_OFFSET = 1_000_000
+
+
+def image_frame(doc) -> int:
+    """AutoCAD's IMAGEFRAME from the drawing's RASTERVARIABLES: 0 none, 1 shown
+    and plotted, 2 shown, not plotted; 1 (AutoCAD's default) when absent."""
+    variables = doc.rootdict.get("ACAD_IMAGE_VARS")
+    return 1 if variables is None else int(variables.dxf.get("frame", 1))
+
+
+def image_source(doc, filename: str) -> tuple[str | None, str]:
+    """(path, "") of the IMAGEDEF's file, or (None, why) - every candidate is
+    read through ``security.validate_path``; a refused one is never opened."""
+    from security import validate_path
+
+    name = str(filename or "").replace("\\", os.sep)
+    if not name.strip():
+        return None, "has no file name"
+    candidates = [name] if os.path.isabs(name) else []
+    if doc.filename:
+        folder = os.path.dirname(os.path.abspath(str(doc.filename)))
+        candidates += [os.path.join(folder, name), os.path.join(folder, os.path.basename(name))]
+    why = "was not found"
+    for candidate in candidates:
+        try:
+            path = validate_path(candidate)
+        except Exception:  # noqa: BLE001 - a refused path is a missing file, never read
+            why = "is refused by the path policy"
+            continue
+        if path.is_file():
+            return str(path), ""
+    return None, why
+
+
+def _draw_image(frontend, entity, properties, *, show_frame: bool, warnings: list) -> None:
+    """An IMAGE's pixels through ezdxf's pipeline (so a viewport transforms and
+    clips them), faded as AutoCAD fades; a missing file is ezdxf's frame with
+    the file name, and a warning."""
+    import numpy as np
+    from ezdxf.addons.drawing.backend import ImageData
+    from ezdxf.addons.drawing.frontend import (
+        UniversalFrontend,
+        _blend_image_towards,
+        _multiply_alpha,
+    )
+    from ezdxf.colors import RGB
+    from ezdxf.math import Matrix44, Vec2
+    from ezdxf.npshapes import NumpyPoints2d
+    from PIL import Image as PILImage
+    from PIL import ImageEnhance, UnidentifiedImageError
+
+    image_def = entity.image_def
+    filename = image_def.dxf.filename if image_def is not None else ""
+    path, why = (
+        (None, "has no IMAGEDEF") if image_def is None else image_source(entity.doc, filename)
+    )
+    loaded = None
+    if path is not None:
+        try:
+            with PILImage.open(path) as source:
+                loaded = source.convert("RGBA")
+        except (UnidentifiedImageError, OSError):
+            why = "is not an image Pillow can read"
+    if loaded is None:
+        warnings.append(
+            f"IMAGE {entity.dxf.handle}: {filename or '<no file name>'} {why}; "
+            "drawn as a frame with its file name"
+        )
+        if image_def is None:
+            return
+        document_dir, frontend.ctx.document_dir = frontend.ctx.document_dir, None
+        try:  # ezdxf's missing-image rendering: the frame and the file name
+            UniversalFrontend.draw_image_entity(frontend, entity, properties)
+        finally:
+            frontend.ctx.document_dir = document_dir
+        return
+    if entity.dxf.flags & entity.SHOW_IMAGE:
+        width, height = loaded.size
+        if max(width, height) > OVERLAY_MAX_SOURCE_PX:
+            loaded.thumbnail((OVERLAY_MAX_SOURCE_PX, OVERLAY_MAX_SOURCE_PX))
+        sx, sy = width / loaded.width, height / loaded.height
+        # The same adjustments, in the same order, as ezdxf's own IMAGE path.
+        if entity.dxf.contrast != 50:
+            loaded = ImageEnhance.Contrast(loaded).enhance(entity.dxf.contrast / 50)
+        if entity.dxf.fade:
+            paper = RGB.from_hex(frontend.ctx.current_layout_properties.background_color[:7])
+            loaded = _blend_image_towards(loaded, entity.dxf.fade / 100, paper)
+        if entity.dxf.brightness != 50:
+            amount = entity.dxf.brightness / 50 - 1
+            toward = RGB(255, 255, 255) if amount > 0 else RGB(0, 0, 0)
+            loaded = _blend_image_towards(loaded, abs(amount), toward)
+        if not entity.dxf.flags & entity.USE_TRANSPARENCY:
+            loaded.putalpha(255)
+        if entity.transparency:
+            loaded = _multiply_alpha(loaded, 1.0 - entity.transparency)
+        boundary = [Vec2(p.x / sx, p.y / sy) for p in entity.pixel_boundary_path()]
+        frontend.pipeline.draw_image(
+            ImageData(
+                image=np.array(loaded),
+                transform=Matrix44.scale(sx, sy, 1) @ entity.get_wcs_transform(),
+                pixel_boundary_path=NumpyPoints2d(boundary),
+                use_clipping_boundary=entity.dxf.flags & entity.USE_CLIPPING_BOUNDARY,
+                remove_outside=entity.dxf.clip_mode == 0,
+            ),
+            properties,
+        )
+    if show_frame:
+        points = [v.vec2 for v in entity.boundary_path_wcs()]
+        frontend.pipeline.draw_solid_lines(list(zip(points, points[1:], strict=False)), properties)
+
+
 def frame(region: Region, max_px: int) -> tuple[int, int, Region, float]:
     """(width_px, height_px, drawn region, px_per_unit) for ``region``.
 
@@ -287,8 +400,14 @@ def draw_layout(
     vector: bool = False,
     plot_style: str | None = None,
     background: str = "auto",
+    warnings: list | None = None,
 ) -> dict:
     """Draw ``layout`` through the matplotlib backend ``out``, the way it plots.
+
+    ``plot`` as passed (a PDF) leaves out every layer whose plot flag is off,
+    as AutoCAD plots. An IMAGE is drawn with its pixels under the vectors and
+    its frame as IMAGEFRAME says; a file it cannot read is a frame with the
+    file name and a line in ``warnings``.
 
     Lineweights are drawn at their size in points (on a raster, at least one
     pixel). With ``plot`` (a PDF, or any paper layout) the plot style table is
@@ -318,6 +437,11 @@ def draw_layout(
 
     if background not in BACKGROUNDS:
         raise ValueError(f"background must be one of {list(BACKGROUNDS)}, got {background!r}")
+    export = plot
+    frame_mode = image_frame(doc)
+    show_frame = frame_mode == 1 or (frame_mode == 2 and not export)
+    if warnings is None:
+        warnings = []
     if plot_style is not None:
         name, plot = str(plot_style).strip(), True
     else:
@@ -388,6 +512,11 @@ def draw_layout(
                     pass
             return super().draw_simple_mtext(mtext, properties)
 
+        def draw_image_entity(self, entity, properties):
+            # ezdxf reads an image only from a saved drawing's folder, without
+            # the path policy, and always draws its frame.
+            _draw_image(self, entity, properties, show_frame=show_frame, warnings=warnings)
+
         def draw_entities(self, entities, *, filter_func=None):
             # ezdxf draws a layout's viewports after all of its paper-space
             # objects, whatever the sheet says. AutoCAD ignores draw order
@@ -407,7 +536,8 @@ def draw_layout(
         min_lineweight=min([floor, *pen_weights]) * MM_TO_PT if floor else None,
         background_policy=policy,
     )
-    ctx = _PlotContext(doc, ctb=acadctb.new_ctb())  # every ezdxf pen "use object"
+    # every ezdxf pen "use object"; export_mode drops the no-plot layers
+    ctx = _PlotContext(doc, ctb=acadctb.new_ctb(), export_mode=export)
     psltscale = bool(doc.header.get("$PSLTSCALE", 1))
     _Frontend(ctx, _glyph_pipeline(out, psltscale), config=config).draw_layout(
         layout, finalize=True
@@ -468,6 +598,20 @@ def _glyph_pipeline(out, psltscale: bool = True):
                 )
             )
             return None
+
+        def draw_image(self, image_data, properties):
+            # A raster under every vector, whatever its draw order: a scan
+            # drawn last would hide the walls and dimensions over it.
+            ax = self.backend.ax
+            first = len(ax.images)
+            super().draw_image(image_data, properties)
+            for image in ax.images[first:]:
+                image.set_zorder(image.get_zorder() - IMAGE_Z_OFFSET)
+            # ezdxf lets the image's frame set the extents; it may be off now.
+            corners = image_data.transform.transform_vertices(
+                (p.x, p.y) for p in image_data.pixel_boundary_path.vertices()
+            )
+            ax.update_datalim([(c.x, c.y) for c in corners])
 
     class _Pipeline(RenderPipeline2d):
         drawing_text = False
@@ -546,7 +690,8 @@ def render_layout(
     fig = _agg_figure()
     ax = fig.add_axes((0.0, 0.0, 1.0, 1.0))
     out = MatplotlibBackend(ax, adjust_figure=False)
-    plot_style = draw_layout(doc, layout, out, plot=False)
+    warnings: list[str] = []
+    plot_style = draw_layout(doc, layout, out, plot=False, warnings=warnings)
 
     if region is None:
         (ex0, ex1), (ey0, ey1) = ax.get_xlim(), ax.get_ylim()
@@ -635,6 +780,7 @@ def render_layout(
         "total": total,
         "truncated": truncated,
         **({} if overlay is None else {"overlay": overlay["report"]}),
+        **({"warnings": warnings} if warnings else {}),
     }
 
 

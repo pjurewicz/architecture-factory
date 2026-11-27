@@ -23,6 +23,13 @@ XREF_ACTIONS = ("list", "reload", "bind", "detach", "path")
 #: `ezdxf.addons.odafc.VERSION_MAP`, which covers exactly these six and more.
 DWG_VERSIONS = ("R2000", "R2004", "R2007", "R2010", "R2013", "R2018")
 
+#: `image_attach`'s layers: a working underlay goes on a layer that does not
+#: plot, an image meant for the sheet (a logo, a site map) on one that does.
+IMAGE_UNDERLAY_LAYER = "UNDERLAY"
+IMAGE_PLOT_LAYER = "IMAGE"
+#: AutoCAD's fade (0-90 %) given to an underlay, so CAD lines read over a scan.
+IMAGE_UNDERLAY_FADE = 50
+
 
 class RefsContract(ABC):
     @abstractmethod
@@ -70,17 +77,34 @@ class RefsContract(ABC):
         ...
 
     @abstractmethod
-    async def image_attach(self, path: str, at, scale: float, rotation: float) -> dict:
+    async def image_attach(
+        self,
+        path: str,
+        at,
+        scale: float,
+        rotation: float,
+        *,
+        plot: bool = False,
+        fade: float | None = None,
+        layer: str | None = None,
+    ) -> dict:
         """Attach a raster image as an underlay.
 
         `scale` is drawing units per pixel, so the placed size is the image's
-        pixel size times `scale` and the aspect ratio is the file's. Returns
+        pixel size times `scale` and the aspect ratio is the file's. `plot`
+        sets the layer's plot flag, which decides whether a PDF shows the
+        image (a screenshot always does): `layer` defaults to
+        :data:`IMAGE_UNDERLAY_LAYER` without plot and :data:`IMAGE_PLOT_LAYER`
+        with it, created before the image. `fade` (0-90 %) defaults to
+        :data:`IMAGE_UNDERLAY_FADE` without plot and 0 with it. Returns
         ``{ok, path, handle, at, scale, rotation, pixels: [w, h],
-        size_mm: [w, h], backend}``.
+        size_mm: [w, h], layer, plot, fade, frame, backend}`` (``frame`` is
+        the drawing's IMAGEFRAME), plus ``layer_plot_changed`` when an
+        existing layer's flag moved.
 
         Refuses a file that does not exist, a file no image reader can open
-        (naming it), a non-positive scale and a non-finite number -- all before
-        anything is written.
+        (naming it), a non-positive scale, a non-finite number, a fade outside
+        0-90 and an invalid layer name -- all before anything is written.
         """
         ...
 
