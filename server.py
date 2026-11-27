@@ -8342,10 +8342,17 @@ async def drawing_finalize(
         _fmt = _P(str(validated)).suffix.lstrip(".").lower() or "dxf"
         await backend.drawing_save_as(str(validated), fmt=_fmt)
 
+    # The render below is the validator's step 7 too: the drawing is rendered once.
+    rendered: dict = {}
     if screenshot_path:
         validated_shot = validate_path(screenshot_path, allow_write=True, kinds=KINDS_IMAGE)
         try:
-            shot = await backend.view_screenshot()
+            try:
+                shot = await backend.view_screenshot()
+            except Exception as exc:
+                rendered["screenshot"] = exc
+                raise
+            rendered["screenshot"] = shot
             if shot:
                 from pathlib import Path as _P
 
@@ -8357,7 +8364,9 @@ async def drawing_finalize(
     # One run context for the validator and the critique: the drawing is read
     # once, every space, no cap.
     qa_shared: dict = {}
-    result = await DrawingValidator().run(backend, expected=expected or {}, shared=qa_shared)
+    result = await DrawingValidator().run(
+        backend, expected=expected or {}, shared=qa_shared, **rendered
+    )
     payload = result.to_dict()
 
     # I15 — the premium critique focuses are part of the finalize gate, not merely advisory.

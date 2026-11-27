@@ -549,6 +549,8 @@ async def deliver_drawing(
     dxf_export = None
     # DXF is always emitted: it is the canonical, re-readable parity artifact.
     export_formats = ["dxf", *(item for item in requested if item != "dxf")]
+    # The PNG render is the validator's step 7 too: the drawing is rendered once.
+    rendered: dict = {}
     for fmt in export_formats:
         artifact_path = destination / _FORMAT_FILENAMES[fmt]
         capability = feature_caps.get(fmt, {"supported": False, "reason": "not_declared"})
@@ -574,7 +576,12 @@ async def deliver_drawing(
             elif fmt == "pdf":
                 await backend.drawing_export_pdf(str(artifact_path))
             else:
-                png = await backend.view_screenshot()
+                try:
+                    png = await backend.view_screenshot()
+                except Exception as exc:
+                    rendered["screenshot"] = exc
+                    raise
+                rendered["screenshot"] = png
                 if not png:
                     raise RuntimeError("backend returned no PNG bytes")
                 artifact_path.write_bytes(png)
@@ -591,7 +598,11 @@ async def deliver_drawing(
     # One run context: the validator and the critique share one all-spaces read.
     qa_shared: dict = {}
     validation = await DrawingValidator().run(
-        backend, expected=expected or {}, shared=qa_shared, delivered_path=str(delivered)
+        backend,
+        expected=expected or {},
+        shared=qa_shared,
+        delivered_path=str(delivered),
+        **rendered,
     )
     critique_issues = await backend.drawing_critique(focus=None, shared=qa_shared)
     critique_summary = {severity: 0 for severity in ("error", "warning", "info")}

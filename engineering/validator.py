@@ -115,6 +115,10 @@ def _delivered_findings(path: str) -> list[ValidationFinding]:
     return []
 
 
+# Step 7's default: render the screenshot itself (no caller-rendered result).
+_RENDER = object()
+
+
 class DrawingValidator:
     """8-step pre-completion validator."""
 
@@ -125,6 +129,7 @@ class DrawingValidator:
         expected: dict | None = None,
         shared: dict | None = None,
         delivered_path: str | None = None,
+        screenshot: bytes | Exception | None | object = _RENDER,
     ) -> ValidationResult:
         """Run all 8 checks; return aggregate ValidationResult.
 
@@ -142,6 +147,11 @@ class DrawingValidator:
         not empty, a ``$ACADVER`` header - instead of the open document's saved
         flag and path, because a delivery exports a copy and never saves or
         re-points the document.
+
+        ``screenshot`` is what ``backend.view_screenshot()`` already returned
+        for this document state (the bytes, ``None``, or the exception it
+        raised): a caller that rendered anyway passes it, and step 7 judges it
+        instead of rendering a second time. Omitted, step 7 renders.
         """
 
         findings: list[ValidationFinding] = []
@@ -303,7 +313,9 @@ class DrawingValidator:
 
         # 7 — screenshot
         try:
-            shot = await backend.view_screenshot()
+            shot = await backend.view_screenshot() if screenshot is _RENDER else screenshot
+            if isinstance(shot, Exception):
+                raise shot
             if not shot:
                 findings.append(
                     ValidationFinding(

@@ -160,3 +160,26 @@ async def test_validation_result_to_dict_serializes(backend):
     assert "summary" in d
     assert "findings" in d
     assert isinstance(d["findings"], list)
+
+
+async def test_a_rendered_screenshot_is_judged_not_rendered_again(backend, tmp_path, monkeypatch):
+    """finalize / deliver render once and hand step 7 the result (bytes, None or the error)."""
+    from engineering.delivery import deliver_drawing
+
+    renders = []
+
+    async def _render(*_args, **_kwargs):
+        renders.append(1)
+        return b"\x89PNG"
+
+    monkeypatch.setattr(backend, "view_screenshot", _render)
+    for passed, code in ((b"\x89PNG", None), (None, "screenshot_unavailable")):
+        result = await DrawingValidator().run(backend, screenshot=passed)
+        assert code is None or code in _codes(result)
+    failed = await DrawingValidator().run(backend, screenshot=RuntimeError("bad entity"))
+    (finding,) = [f for f in failed.findings if f.code == "screenshot_failed"]
+    assert finding.message == "bad entity"
+    assert renders == []
+
+    await deliver_drawing(backend, tmp_path / "bundle", formats=["dxf", "png"], min_score=0)
+    assert renders == [1]
