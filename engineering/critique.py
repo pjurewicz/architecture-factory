@@ -73,7 +73,7 @@ async def _check_iso128(backend: AutoCADBackend, shared: dict | None = None) -> 
                     severity="warning",
                     focus="iso128",
                     message=(
-                        f"Layer '{lyr.name}' lineweight {lw} mm is not in the "
+                        f"Layer '{lyr.name}' lineweight {lw / 100.0:g} mm is not in the "
                         f"ISO 128 set {sorted(allowed)}."
                     ),
                     detail={"layer": lyr.name, "lineweight": lw},
