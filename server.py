@@ -4524,6 +4524,9 @@ async def entity_list(
     fields: ResultFields = None,
     compact: ResultCompact = False,
     handles: Annotated[list[str] | None, "Only these handles (any space)"] = None,
+    space: Annotated[
+        str | None, "model, a layout name, paper (all sheets) or all; default: current"
+    ] = None,
     ctx: Context = None,
 ) -> list[dict] | dict:
     """List entities in the drawing with optional type and layer filters.
@@ -4548,12 +4551,14 @@ async def entity_list(
         )
     await ctx.info(f"Listing entities type={type_filter} layer={layer_filter} limit={capped}")
     b = _backend(ctx)
-    result = await b.entity_list(type_filter, layer_filter, capped, offset, handles=handles)
+    result = await b.entity_list(
+        type_filter, layer_filter, capped, offset, handles=handles, space=space
+    )
     total = None
     if compact:
         # Only counted when there is a field to report it in; the default path
         # must not grow a second full pass over the drawing.
-        total = await b.entity_count(type_filter, layer_filter, handles=handles)
+        total = await b.entity_count(type_filter, layer_filter, handles=handles, space=space)
     elif len(result) >= capped:
         # A full page is the one case where the plain list is indistinguishable
         # from a complete answer. The value cannot say so without breaking the

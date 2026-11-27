@@ -70,6 +70,28 @@ async def test_selecting_a_missing_layout_does_not_move_the_current_space(backen
     assert line.handle in await _handles_in(backend, "Model")
 
 
+async def test_entity_list_reads_a_named_space_without_switching(backend):
+    """Round 3: listing a sheet's texts took a layout switch there and back."""
+    from engineering.errors import InvalidArgsError
+
+    await backend.layout_create(SHEET)
+    await backend.layout_set_current(SHEET)
+    note = await backend.entity_create_text("NOTE", 10, 10)
+    await backend.layout_set_current("Model")
+    line = await backend.entity_create_line(0, 0, 10, 0)
+
+    def handles(rows):
+        return {row.handle for row in rows}
+
+    assert handles(await backend.entity_list()) == {line.handle}
+    assert handles(await backend.entity_list(space=SHEET.lower())) == {note.handle}
+    assert note.handle in handles(await backend.entity_list(space="paper"))
+    assert handles(await backend.entity_list(space="all")) >= {line.handle, note.handle}
+    assert await backend.entity_count("TEXT", space=SHEET) == 1
+    with pytest.raises(InvalidArgsError, match="layouts:"):
+        await backend.entity_list(space="Nowhere")
+
+
 async def test_entity_get_finds_an_entity_drawn_on_a_layout(backend):
     """Lookups must follow the geometry, or the handle becomes unusable."""
     await backend.layout_create(SHEET)

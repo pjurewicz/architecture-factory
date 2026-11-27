@@ -8650,10 +8650,25 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
 
         return await self._async(_sync, readonly=True)
 
-    def _listed(self, handles):
-        """What ``entity_list`` walks: the current space, or with ``handles``
+    def _listed(self, handles, space=None):
+        """What ``entity_list`` walks: the current space, ``space`` (``model``,
+        a layout name, ``paper`` = every sheet, ``all``), or with ``handles``
         exactly those entities in the caller's order, in any space. A handle
         the document does not hold refuses the call (``unknown_handle``)."""
+        if handles is None and space is not None:
+            from backends import set_edits as se
+
+            doc = self._require_doc()
+            wanted = str(space).strip()
+            if wanted.lower() in se.SPACES:
+                return [e for _n, layout in se.ezdxf_spaces(doc, wanted.lower()) for e in layout]
+            names = {n.lower(): n for n in doc.layouts.names()}
+            if wanted.lower() not in names:
+                raise InvalidArgsError(
+                    f"invalid_args: space {space!r} is not model, paper, all or a layout; "
+                    f"layouts: {', '.join(doc.layouts.names_in_taborder())}"
+                )
+            return list(doc.layouts.get(names[wanted.lower()]))
         if handles is None:
             return self._msp()
         db = self._require_doc().entitydb
@@ -8681,11 +8696,12 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         limit=200,
         offset=0,
         handles=None,
+        space=None,
     ) -> list[EntityInfo]:
         def _sync():
             results = []
             skipped = 0
-            for ent in self._listed(handles):
+            for ent in self._listed(handles, space):
                 ent_type = ent.dxftype()
                 ent_layer = ent.dxf.get("layer", "0")
                 if type_filter and type_filter.upper() != ent_type.upper():
@@ -8702,7 +8718,9 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
 
         return await self._async(_sync, readonly=True)
 
-    async def entity_count(self, type_filter=None, layer_filter=None, handles=None) -> int:
+    async def entity_count(
+        self, type_filter=None, layer_filter=None, handles=None, space=None
+    ) -> int:
         # Deliberately a mirror of entity_list's filter arms rather than a call
         # into it: the whole value of the count is that it never constructs an
         # EntityInfo (bounding-box extents alone are the expensive part). The
@@ -8711,7 +8729,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         # the page it describes.
         def _sync():
             count = 0
-            for ent in self._listed(handles):
+            for ent in self._listed(handles, space):
                 if type_filter and type_filter.upper() != ent.dxftype().upper():
                     continue
                 if layer_filter and layer_filter.lower() != ent.dxf.get("layer", "0").lower():

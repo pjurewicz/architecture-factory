@@ -187,9 +187,12 @@ class EntityQueryContract(ABC):
         limit: int = 200,
         offset: int = 0,
         handles: list[str] | None = None,
+        space: str | None = None,
     ) -> list[EntityInfo]:
         """``handles``: only those entities, in that order, in any space; an
-        unknown one refuses the call (``unknown_handle``)."""
+        unknown one refuses the call (``unknown_handle``). ``space``: ``model``,
+        a layout name, ``paper`` (every sheet) or ``all`` instead of the
+        current space; anything else is ``invalid_args``."""
         ...
 
     @abstractmethod
@@ -198,6 +201,7 @@ class EntityQueryContract(ABC):
         type_filter: str | None = None,
         layer_filter: str | None = None,
         handles: list[str] | None = None,
+        space: str | None = None,
     ) -> int:
         """How many entities ``entity_list`` would match, ignoring limit/offset.
 
