@@ -1528,3 +1528,13 @@ async def test_a_read_only_finding_is_not_a_failed_step(client):
     assert result["ok"] is True
     assert result["atomicity"]["rolled_back"] is False
     assert await _entity_count(client) == 1, "the read-only check must not undo the line"
+
+
+async def test_a_composite_keeps_its_parts_when_compacted(client):
+    """A callout's four handles are not one entity_get away, so they survive."""
+    result = await _batch(
+        client, [{"tool": "callout", "args": {"target": [0, 0], "landing": [20, 10], "text": "A"}}]
+    )
+    step = result["results"][0]["result"]
+    assert set(step) == {"handle", "parts", "handles", "group", "bounds"}, step
+    assert len(step["handles"]) == 4 and step["parts"]["leader"] == step["handle"]

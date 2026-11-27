@@ -2858,6 +2858,10 @@ async def callout(
     mask: Annotated[
         bool, Field(default=True, description="WIPEOUT under the note or circle.")
     ] = True,
+    side: Annotated[
+        Literal["auto", "left", "right"],
+        Field(default="auto", description="Shelf direction; 'auto' = away from the target."),
+    ] = "auto",
     text_height: Annotated[float, Field(default=2.5, gt=0)] = 2.5,
     layer: Annotated[str, Field(default="DIM")] = "DIM",
     layout: Annotated[str, Field(default="", description="Layout name; '' = current space.")] = "",
@@ -2873,7 +2877,8 @@ async def callout(
     gets 0 (no frame), reported in `wipeout_frame`. On a layout the sheet's
     "Plot paperspace last" is switched on (`sheet_order`): AutoCAD otherwise
     draws the viewport's model over the mask. Native entities (WIPEOUT,
-    LWPOLYLINE, SOLID HATCH, MTEXT or CIRCLE + TEXT), listed in `parts`.
+    LWPOLYLINE, SOLID HATCH, MTEXT or CIRCLE + TEXT), listed in `parts` and
+    held in one GROUP (`group`): entity_delete of any part erases them all.
     Refused before drawing: both or neither of text / number, an unknown
     style, a leader not longer than its terminator, an unknown layout.
     """
@@ -2887,6 +2892,7 @@ async def callout(
         text_height=text_height,
         layer=layer,
         layout=layout or None,
+        side=side,
     )
 
 
@@ -3670,7 +3676,8 @@ async def entity_delete(
     handle: Annotated[str, "Entity handle to delete"],
     ctx: Context = None,
 ) -> dict:
-    """Permanently delete an entity by its handle."""
+    """Permanently delete an entity by its handle. A part of a `callout`
+    erases the whole callout and its GROUP (`deleted_handles`)."""
     await ctx.warning(f"Deleting entity {handle}")
     return await _backend(ctx).entity_delete(handle)
 
@@ -5983,6 +5990,9 @@ def _compact_batch_create(result: dict) -> dict:
     }
 
 
+_COMPOSITE_KEYS = ("parts", "handles", "group", "bounds")
+
+
 def _compact_batch_result(result: Any, verbose: bool, tool: str | None = None) -> Any:
     """Trim a step result to what is not recoverable from the drawing.
 
@@ -6001,7 +6011,8 @@ def _compact_batch_result(result: Any, verbose: bool, tool: str | None = None) -
     handle = result.get("handle", _MISSING)
     if handle is _MISSING:
         return result
-    return {"handle": handle}
+    # A composite (callout) names handles one entity_get cannot give back.
+    return {"handle": handle, **{k: result[k] for k in _COMPOSITE_KEYS if k in result}}
 
 
 _BATCH_CHECK_NOTE = (
@@ -6131,8 +6142,9 @@ async def cad_batch(
                                                    "radius": 4}},
         ]
 
-    Successful steps report only their handle; pass verbose=True for the full
-    result. Anything without a handle is returned whole.
+    Successful steps report only their handle (plus a composite's parts,
+    handles, group and bounds); pass verbose=True for the full result.
+    Anything without a handle is returned whole.
 
     VALIDATION runs first, always: an unknown tool, a schema-invalid argument or
     a reference no earlier step binds refuses the whole batch before anything

@@ -255,12 +255,15 @@ class EntityCreationContract(ABC):
         text_height: float = 2.5,
         layer: str = "DIM",
         layout: str | None = None,
+        side: str = "auto",
     ) -> dict:
         """One technical callout (``engineering/callout.py``): a dot or a filled
         arrow on ``target``, a leader to ``landing`` and a horizontal shelf,
         then a note (``text``) or a numbered circle (``number``), over a WIPEOUT
-        mask when ``mask``. Drawn into ``layout`` (None: the current space) in
-        one call; every refusal fires before the first entity."""
+        mask when ``mask``; ``side`` ("auto" | "left" | "right") is where the
+        shelf runs from the landing. Drawn into ``layout`` (None: the current
+        space) in one call, its parts held in one GROUP so deleting any part
+        deletes the callout; every refusal fires before the first entity."""
         ...
 
     @abstractmethod
@@ -467,11 +470,16 @@ class EntityCreationContract(ABC):
         deleted = 0
         errors: list[dict] = []
         total = len(handles)
+        gone: set[str] = set()  # erased with an earlier handle's callout
         for index, handle in enumerate(handles):
             if progress is not None:
                 await progress(index, total)
+            if handle in gone:
+                deleted += 1
+                continue
             try:
-                await self.entity_delete(handle)
+                result = await self.entity_delete(handle)
+                gone.update(result.get("deleted_handles", ()))
                 deleted += 1
             except Exception as exc:
                 errors.append({"handle": handle, "error": str(exc)})

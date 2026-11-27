@@ -6199,10 +6199,11 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         text_height=2.5,
         layer="DIM",
         layout=None,
+        side="auto",
     ) -> dict:
         from ezdxf.enums import TextEntityAlignment
 
-        from engineering.callout import plan_callout
+        from engineering.callout import GROUP_DESCRIPTION, plan_callout
 
         try:
             plan = plan_callout(
@@ -6213,6 +6214,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 style=style,
                 mask=bool(mask),
                 text_height=text_height,
+                side=str(side or "auto"),
             )
         except ValueError as exc:
             raise InvalidArgsError(f"invalid_args: callout: {exc}") from exc
@@ -6284,6 +6286,10 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     plan.content, height=plan.height, dxfattribs=attribs
                 ).set_placement(plan.content_at, align=TextEntityAlignment.MIDDLE_CENTER)
                 parts["text"] = numeral.dxf.handle
+            # One anonymous, selectable GROUP: AutoCAD selects (and erases) the
+            # callout as one object, and entity_delete of any part erases all.
+            group = doc.groups.new(description=GROUP_DESCRIPTION, selectable=True)
+            group.extend(doc.entitydb[h] for h in parts.values())
             self._mark_dirty()
 
             xs = [p[0] for p in plan.leader] + [p[0] for p in plan.mask or ()]
@@ -6304,6 +6310,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 "layout": space.name,
                 "parts": parts,
                 "handles": list(parts.values()),
+                "group": group.dxf.handle,
                 "leader": [list(p) for p in plan.leader],
                 "mask": None if plan.mask is None else [list(p) for p in plan.mask],
                 "wipeout_frame": frame,
@@ -7191,11 +7198,45 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
     async def entity_delete(self, handle) -> dict:
         def _sync():
             ent = self._get_entity(handle)
-            self._owner_layout(ent).delete_entity(ent)
+            group = self._callout_group(ent)
+            if group is None:
+                self._owner_layout(ent).delete_entity(ent)
+                self._mark_dirty()
+                return {"ok": True, "deleted_handle": handle}
+            # A callout's part: erase the whole callout and its GROUP, never
+            # leave an orphaned mask, terminator or note behind.
+            doc = self._require_doc()
+            members = [m for m in group if m.is_alive]
+            handles = [m.dxf.handle for m in members]
+            group_handle = group.dxf.handle
+            doc.groups.delete(group)
+            for member in members:
+                self._owner_layout(member).delete_entity(member)
             self._mark_dirty()
-            return {"ok": True, "deleted_handle": handle}
+            return {
+                "ok": True,
+                "deleted_handle": handle,
+                "deleted_handles": handles,
+                "group": group_handle,
+            }
 
         return await self._async(_sync)
+
+    def _callout_group(self, ent):
+        """The callout GROUP ``ent`` belongs to, or None (``engineering/callout.py``)."""
+        from engineering.callout import GROUP_DESCRIPTION
+
+        db = self._require_doc().entitydb
+        for reactor in ent.get_reactors():
+            owner = db.get(reactor)
+            if (
+                owner is not None
+                and owner.is_alive
+                and owner.dxftype() == "GROUP"
+                and owner.dxf.get("description", "") == GROUP_DESCRIPTION
+            ):
+                return owner
+        return None
 
     @staticmethod
     def _owner_layout(ent):

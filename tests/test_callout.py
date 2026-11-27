@@ -179,3 +179,42 @@ async def test_model_callout_mask_works_through_a_viewport(backend):
     top = (min(xs) + 1.0, max(ys) - 1.0, max(xs) - 1.0, max(ys) - 0.2)
     assert _red_share(backend, sheet, top) == 0.0
     assert _red_share(backend, backend._doc.modelspace(), top) == 0.0
+
+
+async def test_side_overrides_the_direction_away_from_the_target(backend):
+    # landing right of the target, shelf forced left; and the reverse
+    left = await backend.callout([0, 0], [20, 10], text="L", side="left")
+    assert left["side"] == "left" and left["leader"][-1] == [15.0, 10.0]
+    assert _entity(backend, left["parts"]["text"]).dxf.attachment_point == 6
+    right = await backend.callout([50, 0], [40, 10], number=3, side="right")
+    assert right["side"] == "right" and right["leader"][-1] == [45.0, 10.0]
+    assert _entity(backend, right["parts"]["circle"]).dxf.center.x > 45.0
+    with pytest.raises(InvalidArgsError, match="side"):
+        await backend.callout([0, 0], [20, 10], text="X", side="up")
+
+
+async def test_deleting_any_part_erases_the_whole_callout(backend):
+    keep = await backend.entity_create_line(0, 0, 5, 5)
+    first = await backend.callout([0, 0], [20, 10], text="A")
+    second = await backend.callout([0, 0], [20, -10], number=1)
+    group = backend._doc.entitydb[first["group"]]
+    assert group.dxftype() == "GROUP" and set(group.handles()) == set(first["handles"])
+
+    result = await backend.entity_delete(first["parts"]["mask"])
+    assert set(result["deleted_handles"]) == set(first["handles"])
+    db = backend._doc.entitydb
+    assert not any(db.get(h) is not None and db.get(h).is_alive for h in first["handles"])
+    assert first["group"] not in [g.dxf.handle for _, g in backend._doc.groups]
+    # the other callout and plain geometry are untouched
+    assert all(db[h].is_alive for h in second["handles"])
+    assert (await backend.entity_delete(keep.handle)) == {
+        "ok": True,
+        "deleted_handle": keep.handle,
+    }
+
+    # two parts of one callout in one call: one callout erased, no error
+    many = await backend.entity_delete_many(
+        [second["parts"]["text"], second["parts"]["circle"]], stop_on_error=True
+    )
+    assert many == {"deleted": 2, "errors": []}
+    assert not list(backend._doc.modelspace())

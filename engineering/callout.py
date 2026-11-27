@@ -8,7 +8,8 @@ before the backend draws anything, so a refusal leaves the drawing untouched.
 Layout, in multiples of the text height ``h`` (AutoCAD's MLEADER defaults at
 4 mm text: an 8 mm dogleg and a 2 mm landing gap):
 
-* the shelf runs ``SHELF`` from the landing, away from the target's side;
+* the shelf runs ``SHELF`` from the landing, away from the target's side
+  (``side="auto"``), or to the ``side`` the caller names;
 * a note starts ``GAP`` past the shelf end, its middle on the shelf;
 * a number sits in a circle tangent to the shelf end, the numeral ``h`` high;
 * the mask is a WIPEOUT: a rectangle from the shelf end to ``GAP`` past the
@@ -25,6 +26,7 @@ from dataclasses import dataclass
 from engineering.annotation import LINE_PITCH, text_width
 
 STYLES = ("dot", "arrow")
+SIDES = ("auto", "left", "right")
 #: Shelf (dogleg) length, in text heights.
 SHELF = 2.0
 #: Shelf end to note, and the mask's margin round the note, in text heights.
@@ -34,6 +36,9 @@ ARROW_LENGTH = 1.0
 ARROW_HALF_WIDTH = 1.0 / 6.0
 #: Dot radius in text heights: 0.5 at 2.5 mm text, the balloon dot.
 DOT_RADIUS = 0.2
+#: Description of the anonymous GROUP that holds one callout's parts, so
+#: ``entity_delete`` of any part erases the whole callout.
+GROUP_DESCRIPTION = "ACADMCP callout"
 #: Sides of the polygon that masks a numbered circle.
 MASK_SIDES = 32
 
@@ -97,6 +102,7 @@ def plan_callout(
     style: str = "dot",
     mask: bool = True,
     text_height: float = 2.5,
+    side: str = "auto",
 ) -> CalloutPlan:
     """Every vertex of one callout, or ``ValueError`` naming what is wrong."""
     tx, ty = _point(target, "target")
@@ -104,6 +110,8 @@ def plan_callout(
     kind, body = _content(text, number)
     if style not in STYLES:
         raise ValueError(f"style must be one of {', '.join(STYLES)}; got {style!r}")
+    if side not in SIDES:
+        raise ValueError(f"side must be one of {', '.join(SIDES)}; got {side!r}")
     h = float(text_height)
     if not (math.isfinite(h) and h > 0):
         raise ValueError(f"text_height must be positive; got {text_height!r}")
@@ -116,7 +124,10 @@ def plan_callout(
             f"must be longer than its {style} ({reach:g}). Move the landing away from the target."
         )
 
-    d = 1.0 if lx >= tx else -1.0
+    if side == "auto":
+        d = 1.0 if lx >= tx else -1.0
+    else:
+        d = 1.0 if side == "right" else -1.0
     sx, sy = lx + d * SHELF * h, ly
     ux, uy = (tx - lx) / leg, (ty - ly) / leg  # landing -> target
     arrow = dot = None
