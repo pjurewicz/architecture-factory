@@ -6149,7 +6149,34 @@ def _compact_batch_create(result: dict) -> dict:
     }
 
 
+def _compact_plan(result: dict) -> dict:
+    """``arch_plan_from_spec``'s result without its per-step geometry (T-09).
+
+    The loops, chain dimensions and handle lists are the drawing's to give back;
+    what a caller acts on is each room's measured area and fit, the warnings,
+    what was omitted and where the plan ends. ``critique`` is kept only when it
+    found something, as a viewport's ``fit`` is kept only with intrusions.
+    """
+    compact = {
+        "rooms": [
+            {
+                **{key: item["room"][key] for key in ("id", "number", "name", "area_m2")},
+                "fits": item.get("fits"),
+            }
+            for item in result["rooms"]
+        ],
+        "warnings": result["warnings"],
+        "omitted": result["omitted"],
+        "plan_bbox": result["plan_bbox"],
+        "outer_bbox": result["outer_bbox"],
+    }
+    if result.get("critique"):
+        compact["critique"] = result["critique"]
+    return compact
+
+
 _COMPOSITE_KEYS = ("parts", "handles", "group", "bounds")
+_VERBOSE_STEP_TOOLS = frozenset({"entity_batch_create", "arch_plan_from_spec"})
 
 
 def _compact_batch_result(result: Any, verbose: bool, tool: str | None = None) -> Any:
@@ -6167,6 +6194,8 @@ def _compact_batch_result(result: Any, verbose: bool, tool: str | None = None) -
         return result
     if tool == "entity_batch_create" and "entities" in result:
         return _compact_batch_create(result)
+    if tool == "arch_plan_from_spec" and "drawn" in result:
+        return _compact_plan(result)
     handle = result.get("handle", _MISSING)
     if handle is _MISSING:
         return result
@@ -6751,10 +6780,11 @@ async def cad_batch(
                 # the audit/timing chain, and skipping it keeps the error one wrap
                 # deep instead of three, which is what makes the taxonomy above
                 # readable. Each step is logged here instead, tagged as a batch step.
-                # entity_batch_create answers handles only by default (T-16); a
-                # binding still sees its full rows, and the batch's own verbose
-                # trims what the caller reads (_compact_batch_result).
-                if name == "entity_batch_create" and "verbose" not in args:
+                # entity_batch_create (T-16) and arch_plan_from_spec (T-09) answer
+                # compactly by default; a binding still sees the full result, and
+                # the batch's own verbose trims what the caller reads
+                # (_compact_batch_result).
+                if name in _VERBOSE_STEP_TOOLS and "verbose" not in args:
                     args = {**args, "verbose": True}
                 outcome = await ctx.fastmcp.call_tool(name, args, run_middleware=False)
             except asyncio.CancelledError:
@@ -13775,12 +13805,12 @@ async def arch_plan_from_spec(
         WithJsonSchema(
             _arch_spec_schema()
             | {
-                "description": "The whole plan: walls (axis, thickness, justification, "
-                "material), openings hosted by wall id and offset, stairs, room separators, "
-                "rooms (no area: measured; optional boundary), chains and schedules."
+                "description": "The whole plan: walls, openings (by wall id), stairs, "
+                "room separators, rooms (area measured), chains, schedules."
             }
         ),
     ],
+    verbose: Annotated[bool, "True: full step results."] = False,
     ctx: Context = None,
 ) -> dict:
     """A whole plan drawn inside one transaction: walls with their hosted doors and
@@ -13797,12 +13827,14 @@ async def arch_plan_from_spec(
     separator ends nearest to it in `open_ends`). The engine never invents a room
     boundary: say where an open room ends with `room_separators` (zero-thickness
     lines that bound rooms like a wall face) or a room's own `boundary` polygon;
-    either way the area is measured from it. The result carries each
-    step's own result, the wall engine's `omitted` list, `warnings` and the three
-    `arch_*` critique focuses run over the committed plan. `plan_bbox` and
-    `outer_bbox` ({min, max}, read off the drawing) bound the plan without and with
-    the chains' rendered text: place section marks, a north arrow or a title
-    outside `outer_bbox`. Schedules are in neither.
+    either way the area is measured from it. The result is `rooms` ({id, number,
+    name, area_m2, fits}), `warnings`, the wall engine's `omitted`, and `plan_bbox`
+    and `outer_bbox` ({min, max}, read off the drawing), which bound the plan
+    without and with the chains' rendered text: place section marks, a north arrow
+    or a title outside `outer_bbox`. Schedules are in neither. `critique` (the three
+    `arch_*` focuses over the committed plan) appears only when it found something.
+    `verbose=True` returns every step's own result (loops, chain dimensions,
+    handles) and the critique always; `cad_batch` bindings always see it.
 
     Refused by name: an unknown key, no walls, an unknown language or material, a
     non-finite or non-positive number, an arc segment in a wall axis, an opening
@@ -13819,9 +13851,10 @@ async def arch_plan_from_spec(
         f"{len((spec or {}).get('openings') or [])} opening(s)"
     )
     try:
-        return await draw_plan_from_spec(_backend(ctx), spec)
+        result = await draw_plan_from_spec(_backend(ctx), spec)
     except ValueError as exc:
         raise ToolError(str(exc)) from exc
+    return result if verbose else _compact_plan(result)
 
 
 # ---------------------------------------------------------------------------

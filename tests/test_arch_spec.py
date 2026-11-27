@@ -297,6 +297,57 @@ async def test_the_tool_is_registered_and_refuses_through_tool_error():
         result = (
             await client.call_tool("arch_plan_from_spec", {"spec": EXAMPLE_SPEC})
         ).structured_content
-        assert result["critique"] == []
+        assert "critique" not in result, "a clean critique is left out of the compact reply"
         with pytest.raises(ToolError, match=r"walls: name at least one wall"):
             await client.call_tool("arch_plan_from_spec", {"spec": {"walls": []}})
+
+
+@pytest.mark.asyncio
+async def test_the_reply_is_compact_unless_verbose_and_a_batch_binding_sees_it_all():
+    """T-09: rooms, warnings, omitted and the two boxes by default; verbose and bindings get every step."""
+    import copy
+    import json
+
+    from fastmcp import Client
+
+    import server
+
+    spec = copy.deepcopy(EXAMPLE_SPEC)
+    async with Client(server.mcp) as client:
+        await client.call_tool("drawing_new", {})
+        compact = (await client.call_tool("arch_plan_from_spec", {"spec": spec})).structured_content
+        await client.call_tool("drawing_new", {})
+        full = (
+            await client.call_tool("arch_plan_from_spec", {"spec": spec, "verbose": True})
+        ).structured_content
+        await client.call_tool("drawing_new", {})
+        batched = (
+            await client.call_tool(
+                "cad_batch",
+                {
+                    "steps": [
+                        {"tool": "arch_plan_from_spec", "args": {"spec": spec}, "bind": "plan"},
+                        {"tool": "entity_get", "args": {"handle": "$plan.rooms.1.handle"}},
+                    ]
+                },
+            )
+        ).structured_content
+    assert set(compact) == {"rooms", "warnings", "omitted", "plan_bbox", "outer_bbox"}
+    assert compact["rooms"] == [
+        {
+            "id": item["room"]["id"],
+            "number": item["room"]["number"],
+            "name": item["room"]["name"],
+            "area_m2": item["room"]["area_m2"],
+            "fits": item["fits"],
+        }
+        for item in full["rooms"]
+    ]
+    assert [room["name"] for room in compact["rooms"]] == ["LIVING", "HALL"]
+    for key in ("warnings", "omitted", "plan_bbox", "outer_bbox"):
+        assert compact[key] == full[key], key
+    assert full["critique"] == [] and full["drawn"] and full["chains"]["handles"]
+    assert len(json.dumps(compact)) < 0.2 * len(json.dumps(full))
+    plan_step, get_step = batched["results"]
+    assert plan_step["result"] == compact
+    assert get_step["status"] == "ok" and get_step["result"]["handle"] == full["rooms"][1]["handle"]

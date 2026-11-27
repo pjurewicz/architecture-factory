@@ -725,7 +725,7 @@ async def test_the_floor_plan_prompt_s_starting_spec_draws_and_its_rooms_read_ba
     spec = json.loads(text[start : text.index("\n   Stairs:")])
     await client.call_tool("drawing_new", {})
     drawn = (await client.call_tool("arch_plan_from_spec", {"spec": spec})).structured_content
-    assert drawn["omitted"] == [] and drawn["critique"] == []
+    assert drawn["omitted"] == [] and "critique" not in drawn
     rooms = (await client.call_tool("arch_rooms_detect", {})).structured_content
     areas = {room["label"]["name"]: room["area"] for room in rooms["rooms"]}
     # Net floor between the wall faces: (5000 - 50 - 125) x (6000 - 2 x 125) and

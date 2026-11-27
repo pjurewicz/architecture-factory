@@ -15,8 +15,11 @@ arch_plan_from_spec(spec={"sheet": {...}, "lang": "en", "walls": [...],
                          "openings": [...], "rooms": [...], ...})
 ```
 
-It returns each step's result, `omitted` and the three critique focuses
-`arch_room_unlabelled`, `arch_wall_gap`, `arch_opening_clash`. A refusal names
+It returns `rooms` (`{id, number, name, area_m2, fits}`), `warnings`,
+`omitted`, `plan_bbox` and `outer_bbox`; `critique` (the focuses
+`arch_room_unlabelled`, `arch_wall_gap`, `arch_opening_clash`) only when it
+found something. `verbose=True` adds each step's result (loops, chain
+dimensions, handles); a `cad_batch` binding always sees it. A refusal names
 its path (`walls[1].thickness: ...`) and leaves the drawing untouched.
 Furniture, grids and symbols are separate (`arch_catalogue_insert`,
 `arch_grid`, `arch_symbol`); stairs are `arch_stair`, whose Blondel check

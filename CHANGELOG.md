@@ -173,6 +173,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `verbose=True` for each entity's full record (one `entity_get` away
   otherwise). A caller that read `entities[i].handle` reads `handles[i]`.
   Inside `cad_batch` a binding still sees the full rows.
+- `arch_plan_from_spec` answers compactly by default (`verbose=False`):
+  `rooms` (`{id, number, name, area_m2, fits}`), `warnings`, `omitted`,
+  `plan_bbox` and `outer_bbox`, plus `critique` only when it found something.
+  Room loops, chain dimensions and the per-step handle lists are left out:
+  on the README plan with an oblique partition and chains on four sides the
+  reply drops from 11,297 to 1,004 characters (2,696 -> 240 tokens, ratio/v1;
+  -91 %), directly and as a `cad_batch` step. `verbose=True` returns every
+  step's result as before; inside `cad_batch` a binding (`$plan.rooms.0.handle`)
+  still sees it. Breaking: a caller that read `drawn`, `chains`, `stairs` or a
+  room's `handle` passes `verbose=True`.
 - `drawing_save(path?, copy=False, version?, overwrite_source=False)` is the
   one save tool: no path saves in place, a `.dxf` path re-points the document
   (SAVEAS), `copy=True` writes a copy and keeps the document where it is (and
