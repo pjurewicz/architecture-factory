@@ -3,7 +3,7 @@
   "schema_version": 2,
   "package_version": "1.8.0",
   "totals": {
-    "tools": 248,
+    "tools": 249,
     "resources": 13,
     "prompts": 5,
     "groups": 27
@@ -32,7 +32,7 @@
     "styles": 11,
     "system": 5,
     "templates": 2,
-    "transactions": 7,
+    "transactions": 8,
     "understanding": 5,
     "validation": 1,
     "view": 1
@@ -2199,6 +2199,29 @@
       ],
       "annotations": {
         "title": "Purge Drawing"
+      }
+    },
+    {
+      "name": "drawing_recover",
+      "group": "transactions",
+      "cost": "mutate",
+      "summary": "Recover an unsaved drawing after a lost session, with its token.",
+      "acad": [
+        "RECOVER",
+        "DRAWINGRECOVERY"
+      ],
+      "synonyms": [
+        "recover a lost unsaved drawing",
+        "session ended before save",
+        "get back an untitled drawing",
+        "recovery token"
+      ],
+      "tags": [
+        "transaction"
+      ],
+      "annotations": {
+        "title": "Recover Drawing",
+        "readOnlyHint": false
       }
     },
     {

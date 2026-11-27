@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+from backends.capability import capability
+
 
 class TransactionContract(ABC):
     @abstractmethod
@@ -39,6 +41,20 @@ class TransactionContract(ABC):
         undoable; ``new_document`` opens the checkpoint as ``<stem>-cp<seq>``
         and binds it.
         """
+
+    async def recovery_issue(self) -> str | None:
+        """A recovery token for the active document, its digest kept with the
+        document's checkpoints (round 3). None when the engine keeps none."""
+        return None
+
+    @capability(  # noqa: B027 - @capability supplies the body
+        "checkpoints",
+        reason="This engine keeps no durable checkpoints to recover a document from.",
+    )
+    async def drawing_recover(self, document_id: str, recovery_token: str) -> dict:
+        """Open the newest kept checkpoint of the document ``recovery_token`` was
+        issued for as a new document of the caller's session. Every miss is one
+        ``recovery_refused``."""
 
     def latest_checkpoint(self) -> str | None:
         """The active document's newest checkpoint id, read without a backend call."""

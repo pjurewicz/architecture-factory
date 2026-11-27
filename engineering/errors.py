@@ -161,6 +161,7 @@ ERROR_KINDS = BATCH_KINDS_1_7 + (
     "internal",
     "requires_reconcile",
     "no_document",
+    "recovery_refused",
     *GATE_KINDS,
     *FILE_KINDS,
     "process_exit",
@@ -223,6 +224,9 @@ ERROR_TABLE: dict[str, KindSpec] = {
         "policy", False, "The server's tool policy refused the call; nothing ran."
     ),
     "file_not_found": KindSpec("file", False, "No file at that path."),
+    "recovery_refused": KindSpec(
+        "input", False, "No recoverable document for that id and token; save to a path instead."
+    ),
     "no_document": KindSpec(
         "input", False, "Open one: drawing_new() or drawing_open(path); document_list names them."
     ),
@@ -337,6 +341,20 @@ class NoDocumentError(RuntimeError):
         self, message: str = "No document open. Call drawing_new() or drawing_open() first."
     ):
         super().__init__(message)
+
+
+class RecoveryRefusedError(RuntimeError):
+    """``drawing_recover`` found nothing for the id and token it was given. One
+    sentence for every reason (an unknown id, a wrong token, checkpoints gone),
+    so the refusal says nothing about whether a document exists."""
+
+    kind = "recovery_refused"
+
+    def __init__(self):
+        super().__init__(
+            "recovery_refused: no recoverable document matches that document_id and "
+            "recovery_token (a token lasts while its document's checkpoints are kept)"
+        )
 
 
 class DimensionRenderError(RuntimeError):
@@ -810,6 +828,7 @@ def classify(exc: BaseException) -> dict:
         InvalidArgsError,
         DimensionRenderError,
         NoDocumentError,
+        RecoveryRefusedError,
     ):
         found = _first_of(exc, typed)
         if found is not None:

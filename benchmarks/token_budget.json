@@ -79,11 +79,11 @@
     "packs_core": {
       "metric": "tokens",
       "basis": ["prompt_payload"],
-      "ceiling": 43997,
+      "ceiling": 44100,
       "gate": "ci",
       "owner": "W3 (plan section 4 lever: a Details: split of docstrings over 800 characters, only for the excess)",
       "source": "plan section 4: core (prompt basis, TOOL_PACKS=core) = measured 1.7.0 prompt value 41,902 + 5 %",
-      "note": "44,235 at W2 start: W1's description growth is already over the ceiling.",
+      "note": "44,235 at W2 start: W1's description growth is already over the ceiling. Round 3 (2026-11-27): 43,997 -> 44,100 (+0.23 %) for drawing_recover, measured 44,043 after trimming view_screenshot, entity_list, entity_edit_text and textstyle_create.",
       "measured": "W3, 2026-11-04: 40,722 tokens prompt payload (170,625 chars), 55,169 wire, 192 tools (describe_tool included) - 48,268 on release/1.8.0 (ab07c47) before the Details: split; flipped to ci"
     },
     "search": {

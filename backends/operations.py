@@ -94,6 +94,51 @@ CURRENT_SESSION: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 )
 
 
+#: Argument and result keys whose value is a secret (round 3: the recovery
+#: token). The journal keeps ``***`` and a short digest, never the value; the
+#: digest keeps two different tokens two different requests.
+SECRET_KEYS = frozenset({"recovery_token"})
+
+
+def redact_secrets(value: Any) -> Any:
+    """``value`` with every :data:`SECRET_KEYS` value masked; a ToolResult's
+    structured content and its JSON text both. Unchanged values are returned as is."""
+    import hashlib
+
+    def walk(node):
+        if isinstance(node, dict):
+            out, moved = {}, False
+            for key, item in node.items():
+                if key in SECRET_KEYS and isinstance(item, str):
+                    out[key] = "***" + hashlib.sha256(item.encode()).hexdigest()[:12]
+                    moved = True
+                else:
+                    out[key] = walk(item)
+                    moved = moved or out[key] is not item
+            return out if moved else node
+        if isinstance(node, list):
+            items = [walk(item) for item in node]
+            return items if any(a is not b for a, b in zip(items, node, strict=True)) else node
+        return node
+
+    structured = getattr(value, "structured_content", None)
+    if structured is not None and hasattr(value, "content"):
+        masked = walk(structured)
+        if masked is structured:
+            return value
+        import json as _json
+
+        from fastmcp.tools.tool import ToolResult
+        from mcp.types import TextContent
+
+        text = _json.dumps(masked, ensure_ascii=False, default=str)
+        return ToolResult(
+            content=[TextContent(type="text", text=text)],
+            structured_content=masked,
+        )
+    return walk(value)
+
+
 @dataclass
 class OperationRecord:
     operation_id: str
@@ -359,6 +404,7 @@ class OperationJournal:
         and a finished one in ``REPLAYABLE_STATES`` returns its recorded result
         with the record it belongs to - nothing new is recorded then.
         """
+        arguments = redact_secrets(arguments)
         digest = request_hash(tool, arguments)
         identity = document or {}
         client_supplied = operation_id is not None
@@ -410,6 +456,7 @@ class OperationJournal:
         changes: dict | None = None,
     ) -> None:
         """Close ``record``; a client id's ``result`` is kept for replay."""
+        result = redact_secrets(result)
         if state not in FINAL_STATES:
             raise ValueError(f"state must be one of {FINAL_STATES}, got {state!r}")
         record.state = state

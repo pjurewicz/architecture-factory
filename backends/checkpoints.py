@@ -68,6 +68,8 @@ __all__ = [
 
 DOCS_DIR = "docs"
 INDEX_FILE = "index.json"
+#: The recovery token digest of a lineage (``set_recovery``).
+RECOVERY_FILE = "recovery.json"
 CP_DIR = "cp"
 GZIP_LEVEL = 1
 _MB = 1024 * 1024
@@ -207,6 +209,25 @@ class CheckpointStore:
         if not isinstance(data, dict) or not isinstance(data.get("checkpoints"), list):
             return empty
         return data
+
+    # ── the recovery token's digest (round 3, A1 variant 3) ──
+
+    def set_recovery(self, lineage_id: str, digest: str, document_id: str | None) -> None:
+        """Keep the sha256 ``digest`` of a lineage's recovery token - never the token."""
+        folder = self.lineage_dir(lineage_id)
+        folder.mkdir(parents=True, exist_ok=True)
+        _write_json(
+            folder / RECOVERY_FILE,
+            {"digest": digest, "document_id": document_id, "created": time.time()},
+        )
+
+    def recovery(self, lineage_id: str) -> dict | None:
+        """The lineage's recovery record, or None."""
+        try:
+            data = json.loads((self.lineage_dir(lineage_id) / RECOVERY_FILE).read_text("utf-8"))
+        except (OSError, ValueError):
+            return None
+        return data if isinstance(data, dict) else None
 
     def exists(self, lineage_id: str) -> bool:
         return self._index_path(lineage_id).is_file()

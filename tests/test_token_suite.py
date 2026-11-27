@@ -524,9 +524,13 @@ def test_the_budget_file_is_the_plans_table():
         61_422,
     )
     measured = BUDGET["baseline"]["v1.7.0_measured"]
+    # raises the owner allowed, each named in its cell's note with its measurement
+    raised = {"packs_core": 103}  # round 3 (2026-11-27): drawing_recover
     for name in ("default", "lean", "packs_core"):
         # measured 1.7.0 prompt value + 5 %, rounded down
-        assert BUDGET["idle"][name]["ceiling"] == int(measured[name]["prompt_tokens"] * 1.05)
+        assert BUDGET["idle"][name]["ceiling"] == int(
+            measured[name]["prompt_tokens"] * 1.05
+        ) + raised.get(name, 0)
     assert BUDGET["idle"]["search"]["ceiling"] == 250
     assert BUDGET["idle"]["instructions"]["ceiling"] == 250
     assert BUDGET["idle"]["search_pinned"]["ceiling"] == 1_500

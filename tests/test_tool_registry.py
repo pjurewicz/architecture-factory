@@ -122,6 +122,7 @@ async def test_tool_groups_unaffected_by_a_transform(truncating_transform):
         "checkpoint_list",
         "checkpoint_restore",
         "drawing_history",
+        "drawing_recover",
         "transaction_begin",
         "transaction_commit",
         "transaction_rollback",
@@ -661,7 +662,7 @@ async def test_tool_group_sizes_are_unchanged():
     `drawing_close` and moved from `environment` (16 -> 15) to `drawing`
     (11 -> 9); `view_zoom_and_screenshot` went (`view` 2 -> 1): 242 tools.
     `arch_plan_patch` (T-11) joins `architecture`; `file_upload_url` `sheet`: 244 tools.
-    `arch_electrical`, `arch_legend` and `arch_title_block` join `architecture`; `textstyle_modify` `styles`: 248.
+    `arch_electrical`, `arch_legend` and `arch_title_block` join `architecture`; `textstyle_modify` `styles`; `drawing_recover` `transactions`: 249.
     """
     sizes = {label: len(names) for label, names in (await server._tool_groups()).items()}
     assert (
@@ -690,10 +691,10 @@ async def test_tool_group_sizes_are_unchanged():
             "styles": 11,
             "system": 5,
             "templates": 2,
-            "transactions": 7,
+            "transactions": 8,
             "understanding": 5,
             "validation": 1,
             "view": 1,
         }
     )
-    assert sum(sizes.values()) == 248
+    assert sum(sizes.values()) == 249

@@ -102,3 +102,82 @@ async def test_ending_an_http_session_releases_its_drawings(monkeypatch):
         assert router.session_count() == 0
         async with client() as third:  # starts on the emptied server engine
             assert await _documents(third) == []
+
+
+# ── round 3 (A1): recovering an untitled drawing after its session ended ────
+
+
+async def _lost_untitled_drawing() -> tuple[str, str]:
+    """Session A draws three lines on an untitled drawing, checkpoints it and ends."""
+    async with Client(server.mcp) as a:
+        made = _data(await a.call_tool("drawing_new", {}))
+        for _ in range(3):
+            await a.call_tool("entity_create_line", LINE)
+        await a.call_tool("checkpoint_create", {"label": "before the break"})
+        return made["document_id"], made["recovery_token"]
+
+
+async def _recover(client, document_id: str, token: str):
+    return await client.call_tool(
+        "drawing_recover",
+        {"document_id": document_id, "recovery_token": token},
+        raise_on_error=False,
+    )
+
+
+@pytest.mark.asyncio
+async def test_only_the_token_recovers_an_untitled_drawing_into_the_callers_session():
+    async with Client(server.mcp) as first:  # the default engine is someone else's
+        await first.call_tool("drawing_new", {})
+        document_id, token = await _lost_untitled_drawing()
+        async with Client(server.mcp) as b:
+            refusals = [
+                await _recover(b, document_id, token[:-1] + ("A" if token[-1] != "A" else "B")),
+                await _recover(b, "not-a-document", token),
+                await _recover(b, document_id, "nolineage.secret"),
+            ]
+            texts = {r.content[0].text for r in refusals}
+            assert all(r.is_error for r in refusals) and len(texts) == 1, texts
+            assert all(r.structured_content["kind"] == "recovery_refused" for r in refusals)
+            assert await _documents(b) == []
+
+            recovered = _data(await _recover(b, document_id, token))
+            assert recovered["ok"] is True and await _entities(b) == 3
+            assert recovered["recovered"]["label"] == "before the break"
+
+
+@pytest.mark.asyncio
+async def test_a_token_expires_with_its_checkpoints(monkeypatch):
+    from backends.checkpoints import open_store
+
+    async with Client(server.mcp) as first:
+        await first.call_tool("drawing_new", {})
+        document_id, token = await _lost_untitled_drawing()
+        store = open_store()
+        lineage_id = token.split(".", 1)[0]
+        index = store.load(lineage_id)
+        for row in index["checkpoints"]:
+            store._evict_row(lineage_id, row, "test")
+        (store.lineage_dir(lineage_id) / "index.json").write_text(json.dumps(index))
+        async with Client(server.mcp) as b:
+            refused = await _recover(b, document_id, token)
+            assert refused.is_error and refused.structured_content["kind"] == "recovery_refused"
+
+
+@pytest.mark.asyncio
+async def test_the_journal_keeps_no_recovery_token():
+    import os
+    import sqlite3
+    from pathlib import Path
+
+    async with Client(server.mcp) as first:
+        await first.call_tool("drawing_new", {})
+        document_id, token = await _lost_untitled_drawing()
+        async with Client(server.mcp) as b:
+            await _recover(b, document_id, token)
+    secret = token.split(".", 1)[1]
+    db = Path(os.environ["ACADMCP_STATE_DIR"]) / "journal.sqlite3"
+    dump = "\n".join(sqlite3.connect(db).iterdump())
+    assert secret not in dump and "recovery_token" in dump
+    folder = Path(os.environ["ACADMCP_STATE_DIR"]) / "docs" / token.split(".", 1)[0]
+    assert all(secret not in p.read_text(errors="ignore") for p in folder.glob("*.json"))

@@ -1667,6 +1667,15 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "what can i roll back to",
         ),
     ),
+    "drawing_recover": ToolAliases(
+        acad=("RECOVER", "DRAWINGRECOVERY"),
+        synonyms=(
+            "recover a lost unsaved drawing",
+            "session ended before save",
+            "get back an untitled drawing",
+            "recovery token",
+        ),
+    ),
     "checkpoint_restore": ToolAliases(
         synonyms=(
             "restore a checkpoint",

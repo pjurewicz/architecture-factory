@@ -1067,6 +1067,9 @@ class DurableJournal(OperationJournal):
         label: str | None = None,
         effective_tool: str | None = None,
     ) -> tuple[OperationRecord, Any | None]:
+        from backends.operations import redact_secrets
+
+        arguments = redact_secrets(arguments)
         if self._connection is None:
             return super().begin(
                 tool,
@@ -1142,6 +1145,9 @@ class DurableJournal(OperationJournal):
         document: dict | None = None,
         changes: dict | None = None,
     ) -> None:
+        from backends.operations import redact_secrets
+
+        result = redact_secrets(result)
         super().finish(
             record, state, result=result, error_kind=error_kind, document=document, changes=changes
         )

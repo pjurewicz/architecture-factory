@@ -869,8 +869,8 @@ def _unsaved_note(result, before: dict | None, after: dict | None):
     from mcp.types import TextContent
 
     note = (
-        f"{after.get('name')} has no file: drawing_save(path=...) now; "
-        "it is lost when this session ends"
+        f"{after.get('name')} has no file: drawing_save(path=...) now; it is lost when "
+        "this session ends (recovery_token brings back only its last checkpoint)"
     )
     payload = {**payload, "unsaved": note}
     content = list(result.content or [])
@@ -2499,6 +2499,15 @@ async def drawing_new(
                 await anchor()
             except Exception as exc:  # a safety net never fails drawing_new
                 log.warning("drawing_new: S0 not re-anchored after the bootstrap: %s", exc)
+    # round 3 (A1): shown once; the journal keeps only its digest
+    token = await backend.recovery_issue()
+    if token:
+        result.setdefault("document_id", (_identity_of(backend) or {}).get("document_id"))
+        result["recovery_token"] = token
+        result["recovery_note"] = (
+            "keep it: drawing_recover(document_id, recovery_token) brings this drawing's last "
+            "checkpoint back if the session is lost before drawing_save(path=...)"
+        )
     return result
 
 
@@ -7867,29 +7876,14 @@ async def view_screenshot(
 ):
     """Capture a screenshot of the current drawing view, rendered via matplotlib.
 
-    With `region=[x0, y0, x1, y1]` only that window of the current space is
-    drawn; without one the extents are framed. Beside the image comes a report:
-    `applied`, `framing`, `px` (read from the PNG), `region` (the window drawn —
-    the requested one widened by under a pixel so x and y share one scale),
-    `px_per_unit` (drawing point (x, y) is pixel ((x - x0)·ppu, (y1 - y)·ppu)).
-    A zero-width region or a `max_px` outside 64-4096 is refused by name.
-    `fonts_substituted` {style font: font drawn} means text is wider or
-    narrower than in AutoCAD (its SHX / TTF faces are not on this server).
+    Without `region` the extents are framed. The PNG comes with a report:
+    `framing`, `px`, `region` (the window drawn, widened under a pixel for one
+    scale), `px_per_unit` (point (x, y) is pixel ((x - x0)·ppu, (y1 - y)·ppu)),
+    `fonts_substituted` (text wider or narrower than in AutoCAD).
 
-    With `overlay_handles`, each entity is labelled with its handle at its own
-    centre — every modify tool takes a handle, and without the labels there is
-    nothing connecting "the circle at the top-left" to a hex string you can act
-    on. Crowded drawings are capped and the image says how many of how many were
-    labelled.
-
-    With `overlay_image` + `overlay_align` a scan is drawn semi-transparent
-    under the CAD ("CAD on scan"), so a missed offset or skewed wall shows;
-    the report's `overlay` gives its `units_per_px`, `rotation_deg` and
-    `bounds`. Without a region the framing covers the scan too.
-
-    With `layout` a scan needs no `overlay_align`: it is fitted to the paper.
-
-    Returns an Image content block with the PNG data, then the report as JSON.
+    `overlay_handles` labels each entity with its handle (crowded drawings are
+    capped, and say so). `overlay_image` + `overlay_align` draw a scan under the
+    CAD ("CAD on scan"); `overlay` reports `units_per_px`, `rotation_deg`, `bounds`.
     """
     await ctx.info("Capturing drawing screenshot")
     await ctx.report_progress(0, 100)
@@ -7948,7 +7942,7 @@ def _view_image_result(report: dict, unavailable: str) -> ToolResult:
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 10: Transactions (7 tools) ──────────────────────────────────────
+# ── SECTION 10: Transactions (8 tools) ──────────────────────────────────────
 # ---------------------------------------------------------------------------
 
 
@@ -8050,6 +8044,17 @@ async def checkpoint_list(
     Refused: `checkpoints` (unsupported) when there is no state folder.
     """
     return await _backend(ctx).checkpoint_list(limit)
+
+
+@cad_tool(summary="Recover an unsaved drawing after a lost session, with its token.", cost="mutate")
+@mcp.tool(annotations={"title": "Recover Drawing", "readOnlyHint": False}, tags={"transaction"})
+async def drawing_recover(
+    document_id: str,
+    recovery_token: Annotated[str, "drawing_new's recovery_token"],
+    ctx: Context = None,
+) -> dict:
+    """Open a lost session's untitled drawing (its last checkpoint) as a new document here."""
+    return await _backend(ctx).drawing_recover(document_id, recovery_token)
 
 
 @cad_tool(

@@ -538,6 +538,78 @@ class EzdxfCheckpoints:
             "redo_depth": self._cp_redo_depth(state),
         }
 
+    # ── the recovery token (round 3, A1 variant 3) ──
+
+    async def recovery_issue(self) -> str | None:
+        import hashlib
+        import secrets
+
+        from backends import lineage
+
+        def _sync():
+            state, store = self._state, self._cp_store()
+            if store is None or self._doc is None:
+                return None
+            if not state.lineage_id:
+                state.lineage_id = lineage.new_lineage_id()
+            token = f"{state.lineage_id}.{secrets.token_urlsafe(24)}"
+            digest = hashlib.sha256(token.encode()).hexdigest()
+            try:
+                store.set_recovery(state.lineage_id, digest, state.document_id)
+            except (OSError, ValueError) as exc:  # a safety net never fails drawing_new
+                log.warning("recovery token not kept: %s", exc)
+                return None
+            return token
+
+        return await self._async(_sync, readonly=True)
+
+    async def drawing_recover(self, document_id: str, recovery_token: str) -> dict:
+        import hashlib
+        import hmac
+
+        from engineering.errors import RecoveryRefusedError
+
+        def _find():
+            store = self._cp_store()
+            if store is None:
+                raise RecoveryRefusedError()
+            token, wanted = str(recovery_token or ""), str(document_id or "")
+            lineage_id = token.split(".", 1)[0]
+            try:
+                record = store.recovery(lineage_id) or {}
+                rows = store.records(lineage_id) if record else []
+            except ValueError:  # not a lineage id
+                record, rows = {}, []
+            digest = hashlib.sha256(token.encode()).hexdigest()
+            # both compared in constant time, and both always compared
+            token_ok = hmac.compare_digest(digest, str(record.get("digest") or "0" * 64))
+            id_ok = hmac.compare_digest(
+                hashlib.sha256(wanted.encode()).digest(),
+                hashlib.sha256(str(record.get("document_id") or "").encode()).digest(),
+            )
+            kept = [r for r in rows if not r.get("evicted") and not r.get("blank")]
+            if not (token_ok and id_ok and kept):
+                raise RecoveryRefusedError()
+            row = kept[-1]
+            try:
+                data = store.read(lineage_id, row)
+            except Exception:  # evicted between the read and now: the same refusal
+                raise RecoveryRefusedError() from None
+            folder = tempfile.mkdtemp(prefix="acadmcp-recover-")
+            target = os.path.join(folder, f"recovered-{row['seq']}.dxf")
+            with open(target, "wb") as stream:
+                stream.write(data)
+            return row, target
+
+        row, target = await self._async(_find, readonly=True)
+        opened = await self.drawing_open(target)
+        return {
+            **opened,
+            "ok": True,
+            "recovered": {"document_id": document_id, **public_row(row)},
+            "next": "drawing_save(path=...) - the recovered copy has no file of its own yet",
+        }
+
     # ── the three tools ──
 
     async def checkpoint_create(self, label: str | None = None) -> dict:
