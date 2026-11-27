@@ -21,6 +21,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `search_tools` answers a start / workflow / guide query with the drawing's
+  workflow as one line, in order and naming only the tools the surface has
+  (`drawing_new` -> `drawing_apply_standard` / `drawing_settings` -> layers ->
+  `entity_batch_create` / the from-spec tools -> `dimension_auto` /
+  `dimension_chain` -> `page_setup_apply` / `viewport_create` ->
+  `drawing_critique` -> `drawing_save` / `drawing_export_pdf`, batched in
+  `cad_batch`), and a query of six or more words a tip to search one job at a
+  time: `"layer create text style font section mark leader"` ranked no
+  `layer_create`, `"create layer"` does.
+
 - `entity_batch_create` items take the fields their own create lacks: a
   `linetype` on every type (it was the line's alone, so a dashed arc or
   polyline needed its own layer; a standard linetype is loaded), a text

@@ -228,6 +228,42 @@ def _risk_allowed(ceiling: str, level: str) -> bool:
     return level == "read"
 
 
+#: A query asking how to start gets the drawing workflow as one line.
+_GUIDE_WORDS = frozenset(
+    {"start", "started", "starting", "workflow", "guide", "quickstart", "begin", "tutorial"}
+)
+#: The steps of a drawing from nothing to a PDF, in order; each step shows
+#: the advertised ones of its tools (a step with none is dropped).
+_GUIDE_STEPS: tuple[tuple[str, ...], ...] = (
+    ("drawing_new", "drawing_open"),
+    ("drawing_apply_standard", "drawing_settings"),
+    ("drawing_apply_iso_layers", "layer_create"),
+    ("entity_batch_create", "arch_plan_from_spec", "mech_part_from_spec"),
+    ("dimension_auto", "dimension_chain"),
+    ("page_setup_apply", "viewport_create"),
+    ("drawing_critique",),
+    ("drawing_save", "drawing_export_pdf"),
+)
+#: A query with this many words mixes several jobs and ranks none of them well.
+_MANY_WORDS = 6
+
+
+def search_guide(query: str, visible: set[str]) -> str:
+    """A trailing line for ``query``: the workflow, a one-job tip, or ``""``."""
+    words = re.findall(r"[a-z0-9_]+", query.lower())
+    if _GUIDE_WORDS & set(words):
+        steps = [
+            " / ".join(shown)
+            for tools in _GUIDE_STEPS
+            if (shown := [name for name in tools if name in visible])
+        ]
+        batch = " Any steps run together in cad_batch." if "cad_batch" in visible else ""
+        return f"Workflow: {' -> '.join(steps)}.{batch} Recipes: autocad://recipes/index."
+    if len(words) >= _MANY_WORDS:
+        return "Tip: search one job at a time (a query mixing several ranks none of them well)."
+    return ""
+
+
 @dataclass(frozen=True, slots=True)
 class SearchOutcome:
     """One search: the tools shown, plus what the risk ceiling took away.
@@ -508,7 +544,12 @@ class CadSearchTransform(BM25SearchTransform):
             """Find tools for a job, in English or as an AutoCAD command (FILLET, QSELECT)."""
             visible = await transform._get_visible_tools(ctx)
             outcome = transform.rank(visible, query, limit=limit, risk=risk)
-            return await transform.render(outcome)
+            rendered = await transform.render(outcome)
+            catalog = await transform.get_tool_catalog(ctx)  # the pinned ones too
+            guide = search_guide(query, {tool.name for tool in catalog})
+            if guide and isinstance(rendered, str):
+                return f"{rendered}\n\n{guide}"
+            return rendered
 
         tool = _lean(Tool.from_function(fn=search_tools, name=self._search_tool_name))
         # Written here, not in the annotation: the default is this instance's.

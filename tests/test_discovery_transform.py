@@ -1109,3 +1109,27 @@ async def test_prose_that_merely_mentions_an_example_yields_nothing():
     assert docstring_examples("Returns, for example, the handle.\n") == []
     assert docstring_examples("") == []
     assert docstring_examples(None) == []
+
+
+async def test_a_start_query_gets_the_workflow_and_a_mixed_query_a_tip():
+    """The redraw agent spent 9 searches and 6 describe_tool calls assembling the
+    order new -> units -> layers -> layout -> page setup -> save."""
+    from discovery.transform import _GUIDE_STEPS
+
+    server._apply_discovery_mode("search")
+    async with Client(server.mcp) as client:
+        started = await client.call_tool(
+            "search_tools", {"query": "getting started workflow new drawing units save export"}
+        )
+        mixed = await client.call_tool(
+            "search_tools", {"query": "layer create text style font section mark leader"}
+        )
+        plain = await client.call_tool("search_tools", {"query": "fillet"})
+    guide = started.content[0].text.rsplit("\n", 1)[-1]
+    assert guide.startswith("Workflow: drawing_new")
+    named = {n for step in _GUIDE_STEPS for n in step} | {"cad_batch"}
+    registered = {t.name for t in server._local_tool_components()}
+    assert named <= registered, "the guide names only real tools"
+    assert "cad_batch" in guide
+    assert mixed.content[0].text.endswith("ranks none of them well).")
+    assert "Workflow" not in plain.content[0].text and "Tip:" not in plain.content[0].text
