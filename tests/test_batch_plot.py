@@ -31,12 +31,17 @@ class _Ctx:
 
 
 async def _two_sheets(backend):
-    """Exactly two paper layouts: the default tab renamed, plus one more."""
+    """Exactly two paper layouts with content: the default tab renamed, plus
+    one more, each holding a line (an empty sheet is skipped by default)."""
     await backend.layout_rename("Layout1", "A3")
     await backend.layout_create("B")
     await backend.page_setup_apply("A3", resolve_page_setup("ISO_A3", "landscape"))
     await backend.page_setup_apply("B", resolve_page_setup("ANSI_B", "landscape"))
     await backend.entity_create_line(0, 0, 100, 50)
+    for sheet in ("A3", "B"):
+        await backend.layout_set_current(sheet)
+        await backend.entity_create_line(10, 10, 50, 10)
+    await backend.layout_set_current("Model")
 
 
 def test_safe_filename_strips_what_a_filesystem_refuses():
@@ -124,13 +129,39 @@ async def test_refusals_write_nothing(backend, tmp_path):
     assert not out.exists() or not any(out.iterdir())
 
 
+async def test_an_empty_default_sheet_is_skipped_unless_asked_for(backend, tmp_path):
+    """A model-space drawing's untouched Layout1 is no sheet: omitted from the
+    default set and reported in `skipped`, with no PDF written."""
+    await backend.entity_create_line(0, 0, 100, 50)
+    result = await batch_plot(backend, None, str(tmp_path / "out"))
+    assert result["ok"] is True and result["sheets"] == [] and result["count"] == 0
+    assert result["skipped"] == [{"layout": "Layout1", "reason": "empty"}]
+    assert not any((tmp_path / "out").iterdir())
+
+
+async def test_a_viewport_is_content_and_a_named_empty_sheet_still_plots(backend, tmp_path):
+    pytest.importorskip("matplotlib", reason="rendering needs the [pdf] extra")
+    await backend.entity_create_line(0, 0, 100, 50)
+    await backend.layout_create("Empty")
+    await backend.viewport_create("Layout1", 200, 150, 300, 200, 50, 25)
+    result = await batch_plot(backend, None, str(tmp_path / "default"))
+    assert [row["layout"] for row in result["sheets"]] == ["Layout1"]
+    assert result["skipped"] == [{"layout": "Empty", "reason": "empty"}]
+    named = await batch_plot(backend, ["Empty"], str(tmp_path / "named"))
+    assert [row["layout"] for row in named["sheets"]] == ["Empty"] and named["skipped"] == []
+    forced = await batch_plot(backend, ["Empty"], str(tmp_path / "forced"), skip_empty=True)
+    assert forced["sheets"] == [] and forced["skipped"][0]["layout"] == "Empty"
+
+
 async def test_a_fresh_drawing_plots_its_one_default_sheet_at_the_dxf_default_size(
     backend, tmp_path
 ):
     """No page setup ever applied: the sheet still plots, at ezdxf's stored
     default (A3, 420 x 297), and the row says so rather than guessing."""
     pytest.importorskip("matplotlib", reason="rendering needs the [pdf] extra")
-    result = await batch_plot(backend, None, str(tmp_path), file_pattern="{layout}.pdf")
+    result = await batch_plot(
+        backend, None, str(tmp_path), file_pattern="{layout}.pdf", skip_empty=False
+    )
     assert [row["layout"] for row in result["sheets"]] == ["Layout1"]
     row = result["sheets"][0]
     assert row["path"].endswith("Layout1.pdf") and row["paper"] == "ISO_A3"

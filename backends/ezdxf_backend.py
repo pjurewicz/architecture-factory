@@ -3861,7 +3861,17 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 current = "Model"
             else:
                 current = doc.active_layout().name
-            return {"ok": True, "layouts": names, "current": current}
+            # What each tab holds, its own overall viewport (id 1) excluded:
+            # that viewport is the sheet, not drawn content (set_edits rule).
+            counts = {
+                name: sum(
+                    1
+                    for e in doc.layouts.get(name)
+                    if not (e.dxftype() == "VIEWPORT" and int(e.dxf.get("id", 0)) == 1)
+                )
+                for name in names
+            }
+            return {"ok": True, "layouts": names, "current": current, "entity_counts": counts}
 
         return await self._async(_sync, readonly=True)
 

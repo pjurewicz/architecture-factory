@@ -15,7 +15,8 @@ from backends.capability import capability
 class LayoutContract(ABC):
     @abstractmethod
     async def layout_list(self) -> dict:
-        """Return {ok, layouts: [names], current: name} incl. 'Model'."""
+        """Return {ok, layouts: [names], current: name} incl. 'Model', plus
+        ``entity_counts`` {name: n} (a sheet's overall viewport not counted)."""
         ...
 
     @abstractmethod

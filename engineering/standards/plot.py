@@ -32,6 +32,7 @@ async def batch_plot(
     layouts: list[str] | None,
     output_dir: str,
     file_pattern: str = DEFAULT_FILE_PATTERN,
+    skip_empty: bool | None = None,
 ) -> dict:
     """Plot layouts to PDF and read each sheet size back from the file.
 
@@ -47,6 +48,12 @@ async def batch_plot(
     a pattern without ``{layout}`` when more than one sheet would be written.
     The output folder is created, then every output path goes through
     ``security.validate_path(allow_write=True)`` before the first export.
+
+    ``skip_empty`` (default: on when ``layouts`` is None, off for named
+    layouts) leaves out a sheet holding nothing but its overall viewport -
+    the untouched ``Layout1`` of a model-space drawing - and lists it in
+    ``skipped: [{layout, reason: "empty"}]``. A sheet with a viewport onto
+    model space is not empty.
     """
     from security import DIRECTORY, KINDS_PDF, validate_path
 
@@ -68,6 +75,16 @@ async def batch_plot(
                 f"(available: {', '.join(available)})"
             )
         targets = [lowered[name.lower()] for name in requested]
+
+    if skip_empty is None:
+        skip_empty = layouts is None
+    skipped: list[dict] = []
+    if skip_empty:
+        counts = listing.get("entity_counts") or {}
+        # Model space is never "empty" here: it is plotted only when named.
+        empty = {n for n in targets if n.lower() != "model" and counts.get(n, 1) == 0}
+        skipped = [{"layout": n, "reason": "empty"} for n in targets if n in empty]
+        targets = [n for n in targets if n not in empty]
 
     pattern = str(file_pattern or DEFAULT_FILE_PATTERN)
     if "/" in pattern or "\\" in pattern:
@@ -143,4 +160,5 @@ async def batch_plot(
         "format": "pdf",
         "sheets": sheets,
         "count": len(sheets),
+        "skipped": skipped,
     }

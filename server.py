@@ -10333,6 +10333,10 @@ async def batch_plot(
     file_pattern: Annotated[
         str, "File name per sheet; {drawing} and {layout} are substituted."
     ] = "{drawing}-{layout}.pdf",
+    skip_empty: Annotated[
+        bool | None,
+        "Skip sheets with nothing but their overall viewport; default on when layouts is omitted.",
+    ] = None,
     ctx: Context = None,
 ) -> dict:
     """AutoCAD's PUBLISH for a PDF set, through `drawing_export_pdf(layout=…)`.
@@ -10340,7 +10344,8 @@ async def batch_plot(
     One row per sheet: `path`, `bytes`, and `mediabox_mm` **parsed from the
     PDF that was written** (`/MediaBox`, points → mm), with `paper` naming the
     catalogue size it matches within 0.5 mm — so the sheet size is verified,
-    never assumed. Model space is included only when named.
+    never assumed. Model space is included only when named. Empty sheets
+    left out by `skip_empty` are listed in `skipped`.
 
     Refused before any file is written: a format other than pdf, an empty
     `layouts` list, a layout that does not exist, a `file_pattern` containing a
@@ -10357,7 +10362,9 @@ async def batch_plot(
     destination = validate_path(output_dir, allow_write=True, kinds=DIRECTORY)
     await ctx.info(f"Batch plotting {layouts or 'every sheet'} to {destination}")
     try:
-        result = await _batch_plot(_backend(ctx), layouts, str(destination), file_pattern)
+        result = await _batch_plot(
+            _backend(ctx), layouts, str(destination), file_pattern, skip_empty
+        )
     except ValueError as exc:
         raise ToolError(str(exc)) from exc
     for sheet in result.get("sheets") or ():
