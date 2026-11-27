@@ -177,6 +177,29 @@ async def test_a_diameter_sign_is_a_ring_not_a_half_filled_blob(backend, sign):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(("psltscale", "ltscale"), [(1, 1.0), (0, 20.0)])
+async def test_a_hidden_line_seen_through_a_viewport_plots_dashed(backend, psltscale, ltscale):
+    # ezdxf scaled a viewport's pattern by 1 / scale on paper coordinates: at
+    # 1:20 a HIDDEN dash (5 + 2.5 gap) became 100 mm or more of paper and the
+    # 75 mm line plotted solid. Both cases put the period at 7.5 mm of paper.
+    backend._doc.header["$PSLTSCALE"] = psltscale
+    backend._doc.header["$LTSCALE"] = ltscale
+    await backend.entity_create_line(0, 0, 1500, 0, linetype="HIDDEN")
+    await backend.layout_create("A3")
+    backend._doc.layouts.get("A3").page_setup(size=(420, 297), margins=(0, 0, 0, 0), units="mm")
+    await backend.viewport_create("A3", 210, 148.5, 400, 280, 750, 0, scale=1 / 20)
+    await backend.layout_set_current("A3")
+    png = (await backend.view_render(region=[160, 138.5, 260, 158.5], max_px=1000))["png"]
+    image = Image.open(io.BytesIO(png)).convert("RGB")
+    background = image.getpixel((0, 0))
+    width, height = image.size
+    rows = [[image.getpixel((x, y)) != background for x in range(width)] for y in range(height)]
+    row = max(rows, key=sum)  # the line's own row
+    dashes = sum(1 for x in range(width) if row[x] and (x == 0 or not row[x - 1]))
+    assert 9 <= dashes <= 11, dashes  # 75 mm of line / 7.5 mm period
+
+
+@pytest.mark.asyncio
 async def test_handle_labels_only_for_entities_in_the_region(backend):
     left = await backend.entity_create_circle(*LEFT, RADIUS)
     await backend.entity_create_circle(*RIGHT, RADIUS)

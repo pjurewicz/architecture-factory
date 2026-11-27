@@ -301,7 +301,8 @@ def draw_layout(
         background_policy=policy,
     )
     ctx = _PlotContext(doc, ctb=acadctb.new_ctb())  # every ezdxf pen "use object"
-    _Frontend(ctx, _glyph_pipeline(out), config=config).draw_layout(layout, finalize=True)
+    psltscale = bool(doc.header.get("$PSLTSCALE", 1))
+    _Frontend(ctx, _glyph_pipeline(out, psltscale), config=config).draw_layout(layout, finalize=True)
     result = {"name": name or None, "ink": ink, "exact": exact}
     report = _pen_report(pens)
     if report:
@@ -322,7 +323,7 @@ def paperspace_last(layout) -> bool:
     return bool(int(layout.dxf_layout.dxf.get("plot_layout_flags", 0)) & PAPERSPACE_LAST)
 
 
-def _glyph_pipeline(out):
+def _glyph_pipeline(out, psltscale: bool = True):
     """ezdxf's 2D pipeline, with text glyphs filled by the font's own winding.
 
     ezdxf fills every path set after re-nesting its contours by bounding box,
@@ -361,6 +362,14 @@ def _glyph_pipeline(out):
 
     class _Pipeline(RenderPipeline2d):
         drawing_text = False
+
+        def get_vp_ltype_scale(self):
+            # ezdxf applies a viewport's linetype pattern to paper coordinates
+            # but scales it by 1 / viewport scale, as if it were model ones: at
+            # 1:20 with LTSCALE 15 a HIDDEN dash was 1500 mm of paper and every
+            # dashed line plotted solid. AutoCAD's rule: PSLTSCALE 1 sizes the
+            # pattern in paper units, 0 in model units (times the scale).
+            return 1.0 if psltscale else self.current_vp_scale
 
         def build_render_pipeline(self):
             clipping = super().build_render_pipeline()
