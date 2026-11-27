@@ -293,3 +293,45 @@ def test_a_facade_oblique_all_along_does_not_repeat_the_opposite_one():
     assert top[0].p1 == pytest.approx((-125.0, 4500.0 + 125.0 * math.sqrt(2.0) - 125.0))
     rise = (125.0 * math.hypot(9500.0, 1000.0) - 125.0 * 1000.0) / 9500.0
     assert top[0].p2 == pytest.approx((12125.0, 6000.0 + rise))
+
+
+#: A user's report: walls at -30 degrees, 200 thick, teed into a 240 west wall
+#: whose outer face is x = -120. Their faces meet its inner face x = 120 at
+#: y0 - 120 * tan(30) -/+ 100 / cos(30): the T's span is 230.94 along the
+#: facade, not the 2 * 100 * cos(30) = 173.21 of the faces projected from the
+#: axis end.
+COS30, SIN30 = math.cos(math.radians(30.0)), math.sin(math.radians(30.0))
+TEE_SPEC = {
+    "walls": [
+        {
+            "id": "ext",
+            "axis": [[0, 0], [10000, 0], [10000, 7000], [0, 7000]],
+            "thickness": 240,
+            "closed": True,
+        },
+        *(
+            {"id": f"t{y0}", "axis": [[0, y0], [3000 * COS30, y0 - 3000 * SIN30]], "thickness": 200}
+            for y0 in (2500, 5000)
+        ),
+    ],
+    "chains": {"sides": ["left"]},
+}
+
+
+@pytest.mark.asyncio
+async def test_a_wall_teed_at_30_degrees_is_measured_at_its_t_corners(backend):
+    from engineering.arch.spec import draw_plan_from_spec, validate_spec
+
+    plan = validate_spec(copy.deepcopy(TEE_SPEC))
+    intents = [
+        i for i in exterior_chains(plan["walls"], [], sides=("left",)) if i.feature == "left:walls"
+    ]
+    half, drop = 100.0 / COS30, 120.0 * SIN30 / COS30
+    corners = [(120.0, y0 - drop + k * half) for y0 in (2500.0, 5000.0) for k in (-1.0, 1.0)]
+    points = [c for i in intents for c in i.p1] + list(intents[-1].p2)
+    expected = [(-120.0, -120.0), (-120.0, 120.0), *corners, (-120.0, 6880.0), (-120.0, 7120.0)]
+    assert points == pytest.approx([c for p in expected for c in p])
+    assert [abs(i.p2[1] - i.p1[1]) for i in intents][2:5:2] == pytest.approx([2 * half] * 2)
+    await draw_plan_from_spec(backend, copy.deepcopy(TEE_SPEC))
+    issues = await backend.drawing_critique(focus=["dimension_truth"])
+    assert [i for i in issues if i.detail["code"] == "dim_unbound"] == []

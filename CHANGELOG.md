@@ -221,7 +221,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or tee the junction engine computed), no longer its faces projected from the
   axis end, which matched no drawn point: on a plan with walls at 7, 30, 45 and
   -30 degrees `dimension_truth` drops from 2 / 4 / 4 / 2 `dim_unbound` to 0,
-  and from 6 to 0 on a plan whose top facade is oblique all along. The two
+  and from 6 to 0 on a plan whose top facade is oblique all along. A 200 wall
+  teed at 30 degrees into a facade reads 230.94 (2 x 100 / cos 30, its T
+  corners on the facade's inner face), no longer 173.21 (2 x 100 x cos 30). The two
   corners of a near-straight kink closer than 35 mm along the facade (16 mm at
   7 degrees in a 250 wall) are one point, the one on the outer face; a real
   30 mm step stays dimensioned. Orthogonal plans are unchanged. A facade
