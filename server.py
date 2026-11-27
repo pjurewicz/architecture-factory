@@ -7576,14 +7576,20 @@ async def view_screenshot(
     ] = 1568,
     overlay_image: Annotated[
         str | None,
-        "Scan or photo (PNG/JPG/TIFF...) on the server, drawn under the CAD lines, to "
-        "compare a redraw with its source (a local file: file_upload_url first). Needs overlay_align.",
+        "Scan or photo (PNG/JPG/TIFF; rasterise a PDF page first) on the server, drawn "
+        "under the CAD lines, to compare a redraw with its source (a local file: "
+        "file_upload_url first). Needs overlay_align, or layout (fitted page to page).",
     ] = None,
     overlay_align: Annotated[
         list[list[float]] | None,
         "Two calibration pairs [[u, v, x, y], [u, v, x, y]]: image pixel (u, v; "
         "origin top-left, v down) lands on drawing point (x, y). Fixes scale, "
         "rotation and shift.",
+    ] = None,
+    layout: Annotated[
+        str | None,
+        "A paper layout drawn exactly as drawing_export_pdf plots it (its paper, plot "
+        "style, lineweights at paper size); region is then in paper units.",
     ] = None,
     overlay_opacity: Annotated[
         float, Field(description="Opacity of the scan, 0-1.", ge=0, le=1)
@@ -7616,6 +7622,10 @@ async def view_screenshot(
     the report's `overlay` gives its `units_per_px`, `rotation_deg` and
     `bounds`. Without a region the framing covers the scan too.
 
+    With `layout` the sheet is the PDF's own figure as a PNG - check a sheet
+    before exporting it. A scan there needs no `overlay_align`: it is scaled
+    to fit the paper and centred (`overlay.fit: "page"`, `aspect_delta_pct`).
+
     Returns an Image content block with the PNG data, then the report as JSON.
     """
     await ctx.info("Capturing drawing screenshot")
@@ -7634,6 +7644,7 @@ async def view_screenshot(
         max_px=max_px,
         overlay_handles=overlay_handles,
         background=background,
+        **({"layout": layout} if layout else {}),
         **overlay,
     )
     await ctx.report_progress(100, 100)
@@ -12845,13 +12856,14 @@ async def file_upload_url(
     name: Annotated[
         str,
         "The local file's name, e.g. scan.png; its extension (.png .jpg .jpeg .tif .tiff "
-        ".dxf .dwg) fixes what may be uploaded",
+        ".dxf .dwg) fixes what may be uploaded; a PDF: rasterise its page to PNG first",
     ],
     ctx: Context = None,
 ) -> dict:
     """A one-time upload link: POST the file's bytes to `upload_url` (no other
     header needed), e.g. `curl --data-binary @scan.png '<upload_url>'`; the answer's
-    `path` goes to drawing_open, image_attach or view_screenshot(overlay_image=).
+    `path` goes to drawing_open, image_attach or view_screenshot(overlay_image=;
+    with layout= a page scan is fitted to the sheet, no calibration points).
 
     The link expires after `expires_in_s` and is spent by its first request,
     a refused one too. The server names the stored file and checks its content

@@ -149,3 +149,50 @@ async def test_tool_validates_the_path_and_reports_the_overlay(tmp_path):
                 "view_screenshot",
                 {"overlay_image": str(tmp_path / ".." / "x.png"), "overlay_align": ALIGN},
             )
+
+
+# ── a sheet as it plots (view_screenshot(layout=)) ─────────────────────────
+
+
+async def _sheet(backend, lineweight: int = 13) -> None:
+    await backend.layer_create("SAND", color=7, lineweight=lineweight)
+    await backend.entity_create_hatch(
+        "AR-SAND", [[0, 0], [2000, 0], [2000, 1000], [0, 1000]], layer="SAND"
+    )
+    await backend.layout_create("A3")
+    from engineering.standards.papers import resolve_page_setup
+
+    await backend.page_setup_apply("A3", resolve_page_setup("A3", "landscape"))
+    await backend.viewport_create("A3", 210, 148, 300, 200, 1000, 500, 0.05)
+
+
+def _ink(report: dict) -> int:
+    image = Image.open(io.BytesIO(report["png"])).convert("L")
+    return sum(1 for value in image.getdata() if value < 128)
+
+
+@pytest.mark.asyncio
+async def test_a_sheet_renders_on_its_paper_and_hatch_dots_plot_at_pen_width(backend):
+    """A dotted hatch's dots are the pen's width on paper: ezdxf drew them as
+    fixed 1 pt rings, so a 0.13 mm and a 1.00 mm pen plotted the same blots."""
+    await _sheet(backend, lineweight=13)
+    thin = await backend.view_render(layout="A3", max_px=1600)
+    assert thin["framing"] == "sheet" and thin["paper_mm"] == [420.0, 297.0]
+    assert thin["px"][0] / thin["px"][1] == pytest.approx(420 / 297, abs=0.01)
+    await backend.layer_modify("SAND", lineweight=100)
+    thick = await backend.view_render(layout="A3", max_px=1600)
+    assert _ink(thick) > 3 * _ink(thin) > 0
+
+
+@pytest.mark.asyncio
+async def test_a_page_scan_lands_page_on_page_without_calibration(backend, tmp_path):
+    await _sheet(backend)
+    scan = Image.new("RGB", (420, 297), (255, 255, 255))
+    for u in range(380, 400):  # near the top-right corner of the page
+        for v in range(20, 40):
+            scan.putpixel((u, v), (255, 0, 0))
+    scan.save(tmp_path / "page.png")
+    report = await backend.view_render(layout="A3", overlay_image=str(tmp_path / "page.png"))
+    assert report["overlay"]["fit"] == "page" and report["overlay"]["aspect_delta_pct"] == 0.0
+    assert _reddish(_pixel(report, 390.0, 297.0 - 30.0))
+    assert not _reddish(_pixel(report, 30.0, 30.0))

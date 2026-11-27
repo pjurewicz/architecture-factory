@@ -139,9 +139,15 @@ def check_opacity(opacity) -> float:
     return value
 
 
-def load_overlay(path: str, align, opacity) -> dict:
-    """The scan at ``path`` read and calibrated; ``ValueError`` names what is wrong."""
-    a, b = overlay_transform(align)
+def load_overlay(path: str, align, opacity, *, fit_box: Region | None = None) -> dict:
+    """The scan at ``path`` read and calibrated; ``ValueError`` names what is wrong.
+
+    ``fit_box`` (a sheet's paper window) replaces ``align``: the image is
+    scaled uniformly to fit the box and centred - a page scan on a sheet of
+    the same format lands page on page, without calibration points.
+    """
+    if fit_box is None:
+        a, b = overlay_transform(align)
     alpha = check_opacity(opacity)
     from PIL import Image, UnidentifiedImageError
 
@@ -155,6 +161,14 @@ def load_overlay(path: str, align, opacity) -> dict:
         raise ValueError(f"overlay_image: {path} is not an image Pillow can read") from exc
     if max(width, height) > OVERLAY_MAX_SOURCE_PX:
         image.thumbnail((OVERLAY_MAX_SOURCE_PX, OVERLAY_MAX_SOURCE_PX))
+    fit = {}
+    if fit_box is not None:
+        x0, y0, x1, y1 = fit_box
+        scale = min((x1 - x0) / width, (y1 - y0) / height)
+        a = complex(scale, 0.0)
+        b = complex((x0 + x1 - width * scale) / 2.0, (y0 + y1 + height * scale) / 2.0)
+        page, scan = (x1 - x0) / (y1 - y0), width / height
+        fit = {"fit": "page", "aspect_delta_pct": round(abs(scan / page - 1.0) * 100.0, 1)}
     corners = [
         a * complex(u, -v) + b for u, v in ((0, 0), (width, 0), (width, height), (0, height))
     ]
@@ -170,6 +184,7 @@ def load_overlay(path: str, align, opacity) -> dict:
             "units_per_px": abs(a),
             "rotation_deg": math.degrees(math.atan2(a.imag, a.real)),
             "bounds": [min(xs), min(ys), max(xs), max(ys)],
+            **fit,
         },
     }
 
@@ -596,6 +611,33 @@ def _glyph_pipeline(out, psltscale: bool = True):
                     fill=True,
                     zorder=self.backend._get_z(),
                 )
+            )
+            return None
+
+        def draw_solid_lines(self, lines, properties):
+            # A zero-length segment - every dot of a dotted hatch pattern
+            # (AR-SAND, AR-CONC) - plots as a dot of its pen width, as
+            # AutoCAD plots it. ezdxf scatters it as a fixed 0.1 pt² marker
+            # with matplotlib's 1 pt edge, whatever the lineweight: a ~0.45 mm
+            # ring on every page, so a sand hatch at 1:20 plotted as dark
+            # blots over its labels while the screenshot showed fine dust.
+            lines = list(lines)
+            dots = [start for start, end in lines if start.isclose(end)]
+            if not dots:
+                return super().draw_solid_lines(lines, properties)
+            rest = [(start, end) for start, end in lines if not start.isclose(end)]
+            if rest:
+                super().draw_solid_lines(rest, properties)
+            props = self.converter(properties)
+            width = self.backend.get_lineweight(props)  # points
+            self.backend.ax.scatter(
+                [p.x for p in dots],
+                [p.y for p in dots],
+                s=width * width,
+                c=props.color,
+                marker="o",
+                linewidths=0,
+                zorder=self.backend._get_z(),
             )
             return None
 

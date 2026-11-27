@@ -93,12 +93,14 @@ from .quarantine import (
 from .region_render import (
     DEFAULT_MAX_PX,
     PAPERSPACE_LAST,
+    _draw_overlay,
     check_max_px,
     draw_layout,
     image_frame,
     load_overlay,
     normalize_region,
     paperspace_last,
+    png_size,
     render_layout,
 )
 from .vertices import (
@@ -3997,34 +3999,18 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             else:
                 target = doc.modelspace()
             try:
-                from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
-
-                # Track E: for a sheet, the figure *is* the paper. Sized from
-                # the layout's page setup and left unadjusted, so the PDF's
-                # /MediaBox is the paper size — the evidence page_setup_apply
-                # is judged by. Measured: adjust_figure=True gave 691.2 x 345.6
-                # pt whatever the sheet was.
                 paper = None
                 if resolved is not None and resolved != "Model":
                     paper = self._paper_frame(target)
-                fig = _new_agg_figure(figsize=paper["figsize"] if paper else None)
-                ax = fig.add_axes([0, 0, 1, 1])
                 image_warnings: list[str] = []
-                out = MatplotlibBackend(ax, adjust_figure=paper is None)
-                applied = draw_layout(
+                fig, _ax, applied = self._plot_figure(
                     doc,
                     target,
-                    out,
-                    plot=True,
-                    vector=True,
+                    paper,
                     plot_style=plot_style,
                     background=background,
                     warnings=image_warnings,
                 )
-                if paper is not None:
-                    ax.set_xlim(*paper["xlim"])
-                    ax.set_ylim(*paper["ylim"])
-                    ax.set_aspect("equal", adjustable="box")
                 fig.savefig(path, dpi=150, transparent=background == "transparent")
                 result = {"ok": True, "path": path, "plot_style": applied}
                 if not is_sheet:
@@ -4075,6 +4061,97 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 ) from None
 
         return await self._async(_sync)
+
+    @staticmethod
+    def _plot_figure(doc, target, paper, *, plot_style=None, background="auto", warnings):
+        """``(fig, ax, applied)``: ``target`` drawn as it plots - the one route of
+        ``drawing_export_pdf`` and of ``view_screenshot(layout=)``.
+
+        Track E: for a sheet (``paper``, ``_paper_frame``) the figure *is* the
+        paper. Sized from the layout's page setup and left unadjusted, so the
+        PDF's /MediaBox is the paper size — the evidence page_setup_apply is
+        judged by. Measured: adjust_figure=True gave 691.2 x 345.6 pt whatever
+        the sheet was. Raises ``ImportError`` without matplotlib.
+        """
+        from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
+
+        fig = _new_agg_figure(figsize=paper["figsize"] if paper else None)
+        ax = fig.add_axes([0, 0, 1, 1])
+        out = MatplotlibBackend(ax, adjust_figure=paper is None)
+        applied = draw_layout(
+            doc,
+            target,
+            out,
+            plot=True,
+            vector=True,
+            plot_style=plot_style,
+            background=background,
+            warnings=warnings,
+        )
+        if paper is not None:
+            ax.set_xlim(*paper["xlim"])
+            ax.set_ylim(*paper["ylim"])
+            ax.set_aspect("equal", adjustable="box")
+        return fig, ax, applied
+
+    def _render_sheet(self, doc, layout, region, size, overlay) -> dict:
+        """A paper layout as ``drawing_export_pdf`` plots it, as a PNG.
+
+        The PDF's own figure rasterised: the same plot style, no-plot layers
+        left out, lineweights at their paper size (a 0.25 mm line is 0.25 mm
+        of the sheet whatever ``max_px`` is). ``region`` is in paper units.
+        """
+        resolved = self._find_layout(layout)
+        if resolved is None or resolved == "Model":
+            raise ValueError(
+                f"layout: {layout!r} is not a paper layout of this drawing; layout_list "
+                "names them (model space: omit layout)"
+            )
+        target = doc.layouts.get(resolved)
+        paper = self._paper_frame(target)
+        warnings: list[str] = []
+        fig, ax, applied = self._plot_figure(doc, target, paper, warnings=warnings)
+        (x0, x1), (y0, y1) = paper["xlim"], paper["ylim"]
+        loaded = None
+        if overlay is not None:
+            path, align, opacity = overlay
+            loaded = load_overlay(
+                path, align, opacity, fit_box=None if align is not None else (x0, y0, x1, y1)
+            )
+            _draw_overlay(ax, loaded)
+        drawn = region or (x0, y0, x1, y1)
+        inch_per_unit = paper["figsize"][0] / (x1 - x0)
+        width_in = (drawn[2] - drawn[0]) * inch_per_unit
+        height_in = (drawn[3] - drawn[1]) * inch_per_unit
+        fig.set_size_inches(width_in, height_in)
+        ax.set_aspect("auto")
+        ax.set_xlim(drawn[0], drawn[2])
+        ax.set_ylim(drawn[1], drawn[3])
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=size / max(width_in, height_in))
+        png = buf.getvalue()
+        got_w, got_h = png_size(png)
+        report = {
+            "png": png,
+            "applied": True,
+            "framing": "region" if region else "sheet",
+            "px": [got_w, got_h],
+            "region": [float(v) for v in drawn],
+            "px_per_unit": got_w / (drawn[2] - drawn[0]),
+            "space": resolved,
+            "paper_mm": paper["size_mm"],
+            "plot_style": applied,
+        }
+        if loaded is not None:
+            report["overlay"] = loaded["report"]
+        warnings.extend(_linetype_scale_warnings(doc, target))
+        if warnings:
+            report["warnings"] = warnings
+        from backends.region_render import font_substitutions
+
+        if subs := font_substitutions(doc):
+            report["fonts_substituted"] = subs
+        return report
 
     # ── layouts / paper space ────────────────────────────────────────────────
 
@@ -10239,6 +10316,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         overlay_align: list | None = None,
         overlay_opacity: float = 0.5,
         background: str = "auto",
+        layout: str | None = None,
     ) -> dict:
         """The current space drawn at a stated scale, the window applied (1.8-07).
 
@@ -10246,18 +10324,39 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         ``document_id``; it is drawn in model space and stays inactive.
         ``overlay_image`` (a path the caller validated) is drawn under the CAD
         geometry, placed by the two ``overlay_align`` pairs (``load_overlay``).
+        ``layout`` draws that paper layout as ``drawing_export_pdf`` plots it
+        (``_render_sheet``); there an overlay without ``overlay_align`` is
+        fitted page to page.
         """
         wanted = normalize_region(region)
         size = check_max_px(max_px)
-        if (overlay_image is None) != (overlay_align is None):
+        if overlay_align is not None and overlay_image is None:
+            raise ValueError("overlay_image and overlay_align go together: no overlay_image given")
+        if overlay_image is not None and overlay_align is None and not layout:
             raise ValueError(
-                "overlay_image and overlay_align go together: the scan needs two "
-                "calibration pairs [[u, v, x, y], [u, v, x, y]] to be placed"
+                "overlay_image needs overlay_align: two calibration pairs "
+                "[[u, v, x, y], [u, v, x, y]] - or a layout, where a page scan is "
+                "fitted to the sheet"
+            )
+        if layout and (document is not None or overlay_handles or background != "auto"):
+            raise ValueError(
+                "layout draws the sheet as it plots (its own page setup and paper): "
+                "overlay_handles and background apply to model space"
             )
 
         def _sync():
             state = self._preview_state(document)
             doc = state.doc
+            if layout:
+                try:
+                    overlay = None
+                    if overlay_image is not None:
+                        overlay = (overlay_image, overlay_align, overlay_opacity)
+                    report = self._render_sheet(doc, layout, wanted, size, overlay)
+                except ImportError:
+                    return {"png": None, "applied": False, "source": "headless"}
+                report["source"] = "headless"
+                return report
             space = self._msp() if state is self._state else doc.modelspace()
             try:
                 report = render_layout(

@@ -360,6 +360,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A dotted hatch (AR-SAND, AR-CONC) plots its dots at the pen's width, as
+  AutoCAD plots them: ezdxf drew every dot as a fixed 1 pt ring (about
+  0.45 mm on paper) whatever the lineweight, so a sand hatch on a 0.13 mm
+  layer plotted as dark blots over its labels while the screenshot showed fine
+  dust, and changing the layer's lineweight changed nothing in the PDF.
+
+- `view_screenshot(layout=)` draws a paper layout as `drawing_export_pdf`
+  plots it - the PDF's own figure (paper, plot style, no-plot layers left
+  out, lineweights at paper size) as a PNG, `region` in paper units - so a
+  sheet is checked before it is exported. There `overlay_image` needs no
+  `overlay_align`: a page scan is scaled to fit the paper and centred
+  (`overlay.fit: "page"`, `aspect_delta_pct`), the cheap "redraw over its
+  source" check for a redraw on the source's sheet format. Uploads stay
+  PNG / JPG / TIFF / DXF / DWG (nothing in the dependencies rasterises a PDF
+  safely); `file_upload_url` says to rasterise a PDF page first.
+
 - `dimstyle_create` / `dimstyle_modify` refuse an unknown DIM* name or a bad
   value as `invalid_args` (category `input`), not `failed` / `geometry` with
   "Attempted and broke"; the message names the nearest names instead of a
