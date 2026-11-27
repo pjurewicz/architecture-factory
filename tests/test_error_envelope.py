@@ -285,7 +285,6 @@ async def test_a_handle_missing_at_run_time_is_not_found_in_a_step_too(client):
     "tool, args",
     [
         ("block_define", {"name": "B1", "entities": [{"type": "line"}]}),
-        ("dimstyle_create", {"name": "D1", "overrides": {"DIMTXT": "big"}}),
     ],
 )
 @pytest.mark.asyncio
@@ -299,6 +298,23 @@ async def test_a_deliberate_type_error_refusal_is_never_called_a_server_bug(clie
     assert record["error_kind"] == "failed"
     step = await _step_error(client, tool, args)
     assert step["kind"] == "failed", "the direct route and the batch step must agree"
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [{"DIMTXT": "big"}, {"DIMBLK": "_ARCHTICK", "DIMXYZ": 1.0}],
+)
+@pytest.mark.asyncio
+async def test_a_dimension_variable_refusal_is_invalid_args_on_both_routes(client, overrides):
+    """A wrong type or an unknown DIM* name is the caller's argument: invalid_args,
+    never ``failed`` / geometry, with the nearest names inside the message limit."""
+    args = {"name": "D1", "overrides": overrides}
+    _, payload = await _error(client, "dimstyle_create", args)
+    assert (payload["kind"], payload["category"]) == ("invalid_args", "input"), payload
+    step = await _step_error(client, "dimstyle_create", args)
+    assert (step["kind"], step["category"]) == ("invalid_args", "input"), step
+    if "DIMXYZ" in overrides:
+        assert "nearest:" in payload["message"] and not payload["message"].endswith("...")
 
 
 def _damaged_dxf(folder) -> str:

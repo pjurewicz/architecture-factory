@@ -422,6 +422,28 @@ async def test_a_reference_does_not_excuse_the_rest_of_the_step(client):
     assert result["results"][1]["error"]["kind"] == "invalid_args"
 
 
+async def test_an_unknown_dimension_variable_refuses_the_batch_before_step_1(client):
+    """A dimstyle override name the schema (a free dict) cannot check is still
+    refused at plan time: a batch that opens a document runs without a rollback,
+    so a refusal at step 30 used to leave the first 29 applied."""
+    style = {"name": "ARCH", "overrides": {"DIMBLK": "_ARCHTICK", "DIMLFAX": 0.1}}
+    with pytest.raises(ToolError) as excinfo:
+        await _batch(
+            client,
+            [
+                _line(),
+                {"tool": "drawing_new", "args": {}},
+                _line(),
+                {"tool": "dimstyle_create", "args": style},
+            ],
+        )
+    assert "DIMLFAX" in str(excinfo.value) and "DIMLFAC" in str(excinfo.value)
+    assert await _entity_count(client) == 0, "nothing may run before the refusal"
+    ok = {"name": "ARCH", "overrides": {"DIMBLK": "_ARCHTICK", "DIMDLE": "$size"}}
+    result = await _batch(client, [{"tool": "dimstyle_create", "args": ok}], dry_run=True)
+    assert result["results"][0]["error"]["kind"] == "unresolved_ref", "only the value is bound"
+
+
 async def test_an_invalid_step_stops_a_real_batch_before_anything_runs(client):
     with pytest.raises(ToolError) as excinfo:
         await _batch(client, [_line(), {"tool": "entity_create_dragon", "args": {}}])

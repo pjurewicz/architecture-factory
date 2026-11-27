@@ -42,6 +42,7 @@ __all__ = [
     "PRESET_SOURCES",
     "PRESET_VARIABLES",
     "canonical_arrowhead",
+    "check_dim_name",
     "check_dim_value",
     "describe_preset",
     "ezdxf_arrowhead",
@@ -207,6 +208,9 @@ DIM_VARIABLE_RANGES: dict[str, tuple | set] = {
     "DIMBLK1": ("arrow",),
     "DIMBLK2": ("arrow",),
     "DIMCEN": ("float", -1e6, 1e6),  # negative draws centre lines, 0 none
+    # how far the dimension line runs past the extension lines; only drawn
+    # with a tick arrowhead (_ARCHTICK, _OBLIQUE, _INTEGRAL, _NONE)
+    "DIMDLE": ("float", 0.0, 1e6),
 }
 
 DIM_VARIABLE_WHITELIST: frozenset[str] = frozenset(DIM_VARIABLE_RANGES)
@@ -294,18 +298,32 @@ def _number(key: str, value: Any) -> float:
     return number
 
 
+def check_dim_name(name: Any) -> str:
+    """``name`` upper-cased, or ``ValueError`` naming it and its nearest names.
+
+    The message stays under the envelope's 240 characters: the full list is
+    in the tool descriptions, not in every refusal.
+    """
+    import difflib
+
+    key = str(name).strip().upper()
+    if key in DIM_VARIABLE_RANGES:
+        return key
+    near = difflib.get_close_matches(key, sorted(DIM_VARIABLE_WHITELIST), n=3, cutoff=0.6)
+    hint = f" nearest: {', '.join(near)};" if near else ""
+    raise ValueError(
+        f"{name}: not a dimension variable this tool writes;{hint} the "
+        f"{len(DIM_VARIABLE_WHITELIST)} it writes are listed in dimstyle_create's description"
+    )
+
+
 def check_dim_value(name: str, value: Any) -> Any:
     """``value`` coerced to what ``name`` stores, or ``TypeError``/``ValueError`` naming it.
 
     Nothing here writes; the backends call this before touching a table.
     """
-    key = str(name).strip().upper()
-    spec = DIM_VARIABLE_RANGES.get(key)
-    if spec is None:
-        raise ValueError(
-            f"{name}: not a dimension variable this tool writes; allowed: "
-            f"{sorted(DIM_VARIABLE_WHITELIST)}"
-        )
+    key = check_dim_name(name)
+    spec = DIM_VARIABLE_RANGES[key]
     if isinstance(spec, (set, frozenset)):
         number = _number(key, value)
         if number != int(number) or int(number) not in spec:

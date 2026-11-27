@@ -300,6 +300,13 @@ _ENTRIES: tuple[SysVar, ...] = (
         "centre mark size for radial dimensions; 0 none, negative draws centre lines",
         default=2.5,
     ),
+    _v(
+        "DIMDLE",
+        "float",
+        "dimension line extension past the extension lines (tick arrowheads only)",
+        range_=(0.0, 1e6),
+        default=0.0,
+    ),
     # ── scales, units, precision ─────────────────────────────────────────────
     _v(
         "LTSCALE",

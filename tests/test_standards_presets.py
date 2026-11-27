@@ -97,10 +97,10 @@ def test_presets_set_exactly_the_seventeen_spec_variables():
         assert tuple(preset) == PRESET_VARIABLES, name
 
 
-def test_the_whitelist_is_the_seventeen_plus_the_sixteen_spec_extras():
+def test_the_whitelist_is_the_seventeen_plus_the_sixteen_spec_extras_and_dimdle():
     extras = set(
         "DIMTOL DIMTP DIMTM DIMTOLJ DIMTFAC DIMLFAC DIMRND DIMATFIT "
-        "DIMTMOVE DIMCLRD DIMCLRE DIMCLRT DIMSAH DIMBLK1 DIMBLK2 DIMCEN".split()
+        "DIMTMOVE DIMCLRD DIMCLRE DIMCLRT DIMSAH DIMBLK1 DIMBLK2 DIMCEN DIMDLE".split()
     )
     assert DIM_VARIABLE_WHITELIST == set(PRESET_VARIABLES) | extras
     assert set(DIM_VARIABLE_RANGES) == DIM_VARIABLE_WHITELIST

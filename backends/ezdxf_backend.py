@@ -1065,6 +1065,13 @@ def _read_dimstyle_values(style, variables=None) -> dict[str, Any]:
     return {var: _dimstyle_value(style, var) for var in (variables or PRESET_VARIABLES)}
 
 
+def _with_presets(written) -> tuple[str, ...]:
+    """The seventeen preset variables, then every other one ``written``."""
+    from engineering.standards.dimstyles import PRESET_VARIABLES
+
+    return PRESET_VARIABLES + tuple(sorted(set(written) - set(PRESET_VARIABLES)))
+
+
 def _require_arrowhead_blocks(doc, values: dict[str, Any]) -> None:
     """Refuse a user arrowhead block the drawing does not define — before any write.
 
@@ -10662,7 +10669,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             return {
                 "ok": True,
                 "name": clean,
-                "values": _read_dimstyle_values(style),
+                "values": _read_dimstyle_values(style, _with_presets(typed)),
                 "written": sorted(typed),
                 "current": bool(set_current),
                 "textstyle_created": textstyle_created,

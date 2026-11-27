@@ -526,9 +526,11 @@ async def test_dimstyle_create_tool_refuses_an_unknown_override_before_writing(b
     import server
 
     ctx = _Ctx(backend)
-    with pytest.raises(ValueError, match="DIMFOO"):
+    from engineering.errors import InvalidArgsError
+
+    with pytest.raises(InvalidArgsError, match="DIMFOO"):
         await server.dimstyle_create(name="X", overrides={"DIMFOO": 1}, ctx=ctx)
-    with pytest.raises(ValueError, match="preset"):
+    with pytest.raises(InvalidArgsError, match="preset"):
         await server.dimstyle_create(name="X", preset="din", ctx=ctx)
     assert (await server.dimstyle_list(ctx=ctx))["count"] == 1
 
@@ -684,3 +686,27 @@ async def test_a_render_without_the_style_font_says_what_it_drew_with(backend, m
     await backend.entity_create_text("note", 0, 0)
     report = render_layout(backend._doc, backend._doc.modelspace())
     assert report["fonts_substituted"] == {"isocp.shx": fallback}
+
+
+async def test_dimdle_extends_a_tick_dimension_line_and_create_reports_every_written_value(
+    backend,
+):
+    values = resolve_dimstyle(
+        "iso", {"DIMBLK": "_ARCHTICK", "DIMDLE": 2.0, "DIMLFAC": 0.1, "DIMCLRD": 3}
+    )
+    created = await backend.dimstyle_create("ARCH", values, set_current=True)
+    assert {k: created["values"][k] for k in ("DIMDLE", "DIMLFAC", "DIMCLRD")} == {
+        "DIMDLE": 2.0,
+        "DIMLFAC": 0.1,
+        "DIMCLRD": 3,
+    }
+    assert tuple(created["values"])[: len(PRESET_VARIABLES)] == PRESET_VARIABLES
+    dim = await backend.dimension_linear(0, 0, 100, 0, 50, 10)
+    block = backend._doc.blocks.get(backend._doc.entitydb.get(dim.handle).dxf.geometry)
+    xs = sorted(
+        x
+        for line in block.query("LINE")
+        if line.dxf.start.y == line.dxf.end.y
+        for x in (line.dxf.start.x, line.dxf.end.x)
+    )
+    assert (xs[0], xs[-1]) == (-2.0, 102.0), "the dimension line runs DIMDLE past each tick"

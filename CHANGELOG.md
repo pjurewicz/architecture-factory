@@ -360,6 +360,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `dimstyle_create` / `dimstyle_modify` refuse an unknown DIM* name or a bad
+  value as `invalid_args` (category `input`), not `failed` / `geometry` with
+  "Attempted and broke"; the message names the nearest names instead of a
+  33-name list cut off at 240 characters, and the description lists all 34.
+  `cad_batch` checks the literal names and values at plan time, so a batch
+  that opens a document (no rollback) is refused before step 1 instead of at
+  step 30. `DIMDLE` (dimension line past the extension lines, for
+  `_ARCHTICK` / `_OBLIQUE`) joins the whitelist and the sysvar catalogue, and
+  `dimstyle_create`'s `values` reports every variable written (DIMLFAC,
+  DIMCLRD/E/T, ...) after the seventeen.
+
 - A new drawing declared metres (`$INSUNITS` 6, ezdxf's own default) while
   every other default - the ISO-25 dimension sizes, the 2.5 text, the A3
   limits 420 x 297 - and the documentation are millimetres, so

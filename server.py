@@ -68,6 +68,7 @@ from engineering.arch.spec import spec_schema as _arch_spec_schema
 from engineering.errors import (
     ERROR_KINDS,
     GateFailure,
+    InvalidArgsError,
     annotate,
     capability_of,
     cause_chain,
@@ -5945,6 +5946,44 @@ def _validate_batch_args(schema: dict, args: dict) -> str | None:
     return text[:_BATCH_MESSAGE_CHARS]
 
 
+def _batch_dim_overrides(args: dict) -> None:
+    """dimstyle_create / dimstyle_modify: the literal preset and override names
+    and values, which their schema (a free ``dict``) cannot express."""
+    from engineering.standards.dimstyles import check_dim_name, check_dim_value, resolve_dimstyle
+
+    preset = args.get("preset")
+    if isinstance(preset, str) and _batch_ref_name(preset) is None:
+        resolve_dimstyle(preset, None)
+    overrides = args.get("overrides")
+    if not isinstance(overrides, dict):
+        return
+    for key, value in overrides.items():
+        if isinstance(value, str) and _batch_ref_name(value) is not None:
+            check_dim_name(key)
+        else:
+            check_dim_value(key, value)
+
+
+#: Argument checks a tool body makes before writing that its JSON Schema cannot
+#: express, run at plan time so a batch is refused before step 1 instead of
+#: halting halfway (a batch that opens a document runs without a rollback).
+_BATCH_SEMANTIC_CHECKS = {
+    "dimstyle_create": _batch_dim_overrides,
+    "dimstyle_modify": _batch_dim_overrides,
+}
+
+
+def _batch_semantic_check(tool: str, args: dict) -> str | None:
+    check = _BATCH_SEMANTIC_CHECKS.get(tool)
+    if check is None:
+        return None
+    try:
+        check(args)
+    except (TypeError, ValueError) as exc:
+        return compact_message(str(exc))[:_BATCH_MESSAGE_CHARS]
+    return None
+
+
 # ── atomicity ───────────────────────────────────────────────────────────────
 
 _BATCH_GUARANTEE_NOTES = {
@@ -6577,7 +6616,9 @@ async def cad_batch(
                         f"(bound by step {index}: {sorted(bound_names) or 'nothing'}).",
                     )
                 else:
-                    detail = _validate_batch_args(tool.parameters or {}, args)
+                    detail = _validate_batch_args(
+                        tool.parameters or {}, args
+                    ) or _batch_semantic_check(name, args)
                     if detail:
                         _invalid("invalid_args", f"{name}: {detail}")
                     else:
@@ -10322,10 +10363,15 @@ async def dimstyle_create(
 ) -> dict:
     """Create a dimension style: preset values first, then `overrides`.
 
-    Refuses, before anything is written: an unknown preset; an override key
-    outside the 33-variable whitelist (the 17 preset variables plus DIMTOL,
-    DIMTP, DIMTM, DIMTOLJ, DIMTFAC, DIMLFAC, DIMRND, DIMATFIT, DIMTMOVE,
-    DIMCLRD/E/T, DIMSAH, DIMBLK1/2, DIMCEN); a value outside its range
+    Writes 34 variables: DIMTXT DIMASZ DIMEXE DIMEXO DIMGAP DIMTAD DIMTIH
+    DIMTOH DIMDEC DIMDSEP DIMLUNIT DIMZIN DIMBLK DIMTXSTY DIMLWD DIMLWE
+    DIMSCALE (every preset sets these) and DIMTOL DIMTP DIMTM DIMTOLJ DIMTFAC
+    DIMLFAC DIMRND DIMATFIT DIMTMOVE DIMCLRD/E/T DIMSAH DIMBLK1/2 DIMCEN
+    DIMDLE (dimension line past the extension lines, with tick arrowheads).
+    `values` reports the 17 plus every one written.
+
+    Refuses as `invalid_args`, before anything is written (in `cad_batch`
+    before step 1): an unknown preset; any other key; a value outside its range
     (DIMDEC 0-8, sizes > 0, DIMTAD 0-4, DIMDSEP one character, lineweights an
     AutoCAD code); a name that already exists (use `dimstyle_modify`); a
     user DIMBLK/DIMBLK1/DIMBLK2 naming a block the drawing does not define
@@ -10336,7 +10382,10 @@ async def dimstyle_create(
     """
     from engineering.standards.dimstyles import resolve_dimstyle
 
-    values = resolve_dimstyle(preset, overrides)
+    try:
+        values = resolve_dimstyle(preset, overrides)
+    except (TypeError, ValueError) as exc:
+        raise InvalidArgsError(f"invalid_args: {exc}") from exc
     await ctx.info(f"Dimension style {name!r} from preset {preset or 'iso-25'}")
     return await _backend(ctx).dimstyle_create(name, values, set_current)
 
@@ -10370,6 +10419,12 @@ async def dimstyle_modify(
     not exist, a user arrowhead block the drawing does not define — all
     before any write.
     """
+    from engineering.standards.dimstyles import validate_overrides
+
+    try:
+        validate_overrides(overrides)
+    except (TypeError, ValueError) as exc:
+        raise InvalidArgsError(f"invalid_args: {exc}") from exc
     await ctx.info(f"Modifying dimension style {name!r}")
     return await _backend(ctx).dimstyle_modify(name, overrides, rerender=rerender, force=force)
 
