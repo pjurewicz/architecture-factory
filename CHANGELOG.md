@@ -21,6 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   garage door, a cased opening and the glazed kinds get none and refuse the
   field. The frames are owned handles of the opening's record on `A-DOOR-E-N`.
 
+- `arch_plan_patch` patches `room_separators` too: `room_separators+` adds one,
+  `room_separators.<id>: null` removes it, `room_separators.<id>.points` moves
+  it - by the id the spec already requires. A separator changes no wall and no
+  chain; the rooms whose face it changes are relabelled (area, open / closed,
+  fit), the others re-checked as before, the room schedule follows its rows. A
+  room with its own `boundary` is never touched by a separator.
+
 - `arch_plan_patch` (T-11, pack `arch`): change a drawn plan by element id
   without redrawing it - `{"openings.D1.offset": 1200, "openings.D2.hinge":
   "end", "rooms.R2.name": "KITCHEN", "walls.INT.thickness": 120,

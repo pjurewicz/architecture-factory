@@ -45,7 +45,9 @@ It redraws only the walls the junction engine says moved, their openings,
 the rooms whose area moved and the chains and schedules whose rows moved;
 furniture, notes, your dimensions and layouts keep their handles. `null` on a
 key removes it (`"openings.D2.hand": null` before giving `hinge`),
-`"openings.D2": null` removes the door, `"openings+": {...}` adds one. A plan
+`"openings.D2": null` removes the door, `"openings+": {...}` adds one. A
+missing room separator is patched in the same way - `"room_separators+": {"id":
+"L1", "points": [...]}` - never by redrawing the plan. A plan
 entity edited by hand refuses (`hand_edited_tagged_entity`) unless
 `overwrite=True`; `dry_run=True` shows the affected set first.
 

@@ -462,7 +462,7 @@
       "name": "arch_plan_patch",
       "group": "architecture",
       "cost": "destructive",
-      "summary": "Patch a drawn plan by id - walls, openings, rooms - redrawing only what the change moves.",
+      "summary": "Patch a drawn plan by id - walls, openings, rooms, separators - redrawing only what moves.",
       "acad": [],
       "synonyms": [
         "change one door in the plan",

@@ -48,7 +48,15 @@ Patching gives the arch geometry drawing the patched spec from scratch gives,
 apart from handles (``tests/test_arch_patch.py``). ``dry_run=True`` returns the
 affected set and a preview whose preconditions are the fingerprints of every
 entity the apply would erase. The sheet, language, poche, stairs, wall polygons,
-room separators, chains and schedules are not patched here: draw the plan again.
+chains and schedules are not patched here: draw the plan again.
+
+A room separator (``room_separators.<id>``) is addressed by its id, which
+``room_separator_from_dict`` already requires and ``validate_spec`` keeps
+unique, so an address is never ambiguous. It changes no wall and no chain
+(``exterior_chains`` reads walls, openings and the ``A-WALL*`` outlines, not
+the separator layer); it changes room faces, so a separator that is added,
+removed or moved is drawn again on its own and the rooms are judged as above,
+the separators of each version in place of the plan's drawn ones.
 """
 
 from __future__ import annotations
@@ -71,7 +79,7 @@ FORMAT_VERSION = 1
 CHUNK_SIZE = 255
 MAX_ENTRIES = 200
 #: The spec lists a patch edits, by element id.
-PATCH_LISTS = ("walls", "openings", "rooms")
+PATCH_LISTS = ("walls", "openings", "rooms", "room_separators")
 REFUSAL_ROWS = 20
 
 _KEY = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)((?:\[\d+\])*)$")
@@ -339,6 +347,12 @@ def _room_faces(norm: dict, geometry: dict, foreign: list) -> dict[str, tuple]:
         for g in geometry.values()
         for line in (*g.faces, *g.jambs, *g.seams)
     ]
+    separator_layer = ARCH_ROLE_LAYER["room_separator"]
+    lines += [
+        (sep.points[i - 1], sep.points[i], separator_layer)
+        for sep in norm["room_separators"]
+        for i in range(1, len(sep.points))
+    ]
     closures, _omitted = opening_closures(norm["walls"], norm["openings"])
     faces = planar_faces([*foreign, *lines, *((p, q, layer) for p, q in closures)], tol=DEFAULT_TOL)
     out: dict[str, tuple] = {}
@@ -437,9 +451,13 @@ def affected(old: dict, new: dict, foreign: list, outlines) -> dict:
     nw = {w.id for w in new["walls"]}
     no = {o.id for o in new["openings"]}
     nr = {str(r["room"]["id"]) for r in new["rooms"]}
+    osep = {sep.id: sep for sep in old["room_separators"]}
+    nsep = {sep.id for sep in new["room_separators"]}
+    separators = [sep.id for sep in new["room_separators"] if osep.get(sep.id) != sep]
     return {
         "walls": walls,
         "openings": [*with_walls, *symbols],
+        "room_separators": separators,
         "symbols_only": symbols,
         "rooms": rooms,
         "rechecked": rechecked,
@@ -450,6 +468,7 @@ def affected(old: dict, new: dict, foreign: list, outlines) -> dict:
             *(f"wall:{w}" for w in ow if w not in nw),
             *(f"opening:{o}" for o in oo if o not in no),
             *(f"room:{r}" for r in orooms if r not in nr),
+            *(f"room_separator:{s}" for s in osep if s not in nsep),
         ],
         "geometry": ng,
     }
@@ -462,6 +481,7 @@ def erased_keys(old: dict, plan: dict) -> list[str]:
     keys += [f"opening:{o.id}" for o in old["openings"] if o.wall in walls]
     keys += [f"opening:{o}" for o in plan["symbols_only"]]
     keys += [f"room:{r}" for r in plan["rooms"]]
+    keys += [f"room_separator:{s}" for s in plan["room_separators"]]
     keys += plan["removed"]
     if plan["chains"]:
         keys.append("chains")
@@ -530,8 +550,12 @@ async def patch_plan(
     if not dry_run and (expected_revision is not None or rows):
         await check_preconditions(backend, expected_revision=expected_revision, preconditions=rows)
     start = await current_revision(backend)
+    # the plan's own walls and separators are computed per version, not read
     wall_handles = [
-        h for key, group in record["owned"].items() if key.split(":")[0] in ("wall",) for h in group
+        h
+        for key, group in record["owned"].items()
+        if key.split(":")[0] in ("wall", "room_separator")
+        for h in group
     ]
     layers = await _rooms.wall_layers(backend)
     foreign, _skipped = await _rooms.read_segments(backend, layers, exclude=frozenset(wall_handles))
@@ -539,7 +563,10 @@ async def patch_plan(
     plan = affected(old, new, foreign, outlines)
     keys = erased_keys(old, plan)
     checked = list(
-        dict.fromkeys([k for k in record["owned"] if k.split(":")[0] in ("wall", "opening")] + keys)
+        dict.fromkeys(
+            [k for k in record["owned"] if k.split(":")[0] in ("wall", "opening", "room_separator")]
+            + keys
+        )
     )
     handles = [h for k in checked for h in record["owned"].get(k, ())]
     drift = _drift(record, await digests(backend, handles), checked)
@@ -557,6 +584,7 @@ async def patch_plan(
     summary = {
         "walls": plan["walls"],
         "openings": plan["openings"],
+        "room_separators": plan["room_separators"],
         "rooms": plan["rooms"],
         "rooms_rechecked": plan["rechecked"],
         "chains": plan["chains"],
@@ -612,6 +640,9 @@ async def patch_plan(
             if op.id in plan["symbols_only"]:
                 done = await _draw.draw_opening(backend, walls[op.wall], geometry[op.wall], op)
                 owned[f"opening:{op.id}"] = list(done["handles"])
+        redrawn = [sep for sep in new["room_separators"] if sep.id in plan["room_separators"]]
+        for row in await _draw.draw_room_separators(backend, redrawn):
+            owned[f"room_separator:{row['id']}"] = [row["handle"]]
         for i, request in enumerate(new["rooms"]):
             room_id = str(request["room"]["id"])
             if room_id not in plan["rooms"]:

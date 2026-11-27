@@ -13890,7 +13890,7 @@ async def arch_plan_from_spec(
 
 
 @cad_tool(
-    summary="Patch a drawn plan by id - walls, openings, rooms - redrawing only what the change moves.",
+    summary="Patch a drawn plan by id - walls, openings, rooms, separators - redrawing only what moves.",
     cost="destructive",
 )
 @mcp.tool(
@@ -13920,8 +13920,8 @@ async def arch_plan_patch(
 ) -> dict:
     """Edit the plan arch_plan_from_spec stored in the drawing, by element id, and
     redraw in one transaction only what the change moves: walls whose outline the
-    junction engine changes, their openings (or one door's symbol), rooms whose area
-    changes, the chains and schedules when their rows do. Everything else keeps its
+    junction engine changes, their openings (or one door's symbol), changed room
+    separators, rooms whose face changes, the chains and schedules when their rows do. Everything else keeps its
     handle. `null` on a key removes it; `<list>.<id>: null` removes the element.
 
     Refused, nothing written: a bad path or a patched plan the spec refuses

@@ -50,9 +50,9 @@ def _shape(entity, dxfversion) -> tuple:
     return (kind, tuple(out))
 
 
-async def _drawing(backend) -> Counter:
+async def _drawing(backend, skip=()) -> Counter:
     doc = backend._require_doc()
-    return Counter(_shape(e, doc.dxfversion) for e in doc.modelspace())
+    return Counter(_shape(e, doc.dxfversion) for e in doc.modelspace() if e.dxf.handle not in skip)
 
 
 async def _records(backend) -> dict:
@@ -125,6 +125,7 @@ async def test_only_the_affected_set_is_redrawn(backend):
     assert flip["affected"] == {
         "walls": [],
         "openings": ["D2"],
+        "room_separators": [],
         "rooms": [],
         "rooms_rechecked": [],
         "chains": False,
@@ -297,3 +298,86 @@ async def test_the_default_reply_is_compact(backend):
     (room,) = reply["rooms"]
     assert isinstance(room.pop("fits"), bool)
     assert room == {"id": "R2", "number": "02", "name": "KITCHEN", "area_m2": 21.99375}
+
+
+# -- room separators ----------------------------------------------------------------
+
+#: The hall as its own boundary: a separator never changes a room whose area
+#: is its own polygon's (CLAUDE.md, arch_room_separator).
+HALL_BOUNDARY = [[5050, 125], [8875, 125], [8875, 5875], [5050, 5875]]
+
+#: The loggia, in three patches: a separator 160 mm off the west wall's inner
+#: face (x = 125) splits the living room, then moves to 1,500 mm and the strip is
+#: labelled LOGGIA, then both go and the living room is whole again.
+LOGGIA_STEPS = [
+    {"room_separators+": {"id": "L1", "points": [[285, 125], [285, 5875]]}},
+    {
+        "room_separators.L1.points": [[1625, 125], [1625, 5875]],
+        "rooms+": {"id": "R3", "name": "LOGGIA", "number": "03", "at": [875, 3000]},
+    },
+    {"room_separators.L1": None, "rooms.R3": None},
+]
+
+
+@pytest.mark.asyncio
+async def test_a_loggia_separator_added_moved_and_removed_draws_what_the_spec_draws(backend):
+    spec = copy.deepcopy(EXAMPLE_SPEC)
+    spec["rooms"][1]["boundary"] = HALL_BOUNDARY
+    await draw_plan_from_spec(backend, spec)
+    sofa = await insert_item(backend, "sofa_3_seat", at=[6500, 4500])
+    note = await backend.entity_create_text("LOGGIA NOTE", 500, 7000, height=125, layer="A-ANNO")
+    await backend.layout_create("PLAN-50")
+    theirs = [sofa["handle"], note.handle]
+    prints = await entity_fingerprints(backend, theirs)
+    living = [4665.0 * 5750.0, (4950.0 - 1625.0) * 5750.0, 4825.0 * 5750.0]
+    for step, changes in enumerate(LOGGIA_STEPS):
+        result = await patch_plan(backend, changes)
+        spec, _ = apply_changes(spec, changes)
+        assert result["affected"]["walls"] == [] and result["affected"]["chains"] is False
+        assert "R2" not in result["affected"]["rooms"]  # its area is its own boundary's
+        assert "rooms" in result["affected"]["schedules"]
+        areas = {row["room"]["id"]: row["room"]["area"] for row in result["rooms"]}
+        assert areas["R1"] == living[step]
+        fresh = await _fresh(spec)
+        try:
+            # the sofa and the note are ours, not the plan's: compared above by bytes
+            assert await _drawing(backend, theirs) == await _drawing(fresh), step
+            assert await _records(backend) == await _records(fresh), step
+        finally:
+            await fresh.disconnect()
+    assert result["affected"]["removed"] == ["room:R3", "room_separator:L1"]
+    assert await entity_fingerprints(backend, theirs) == prints
+    assert "PLAN-50" in str((await backend.layout_list())["layouts"])
+
+
+#: A studio whose west wall stops at y = 3000 and whose south wall starts at x =
+#: 3000: open, until an L separator joins the two free ends' inner faces.
+OPEN_STUDIO = {
+    "sheet": {"scale": 50},
+    "walls": [
+        {
+            "id": "EXT",
+            "axis": [[0, 3000], [0, 6000], [9000, 6000], [9000, 0], [3000, 0]],
+            "thickness": 250,
+        }
+    ],
+    "rooms": [{"id": "R1", "name": "STUDIO", "number": "01", "at": [4500, 3000]}],
+}
+
+
+@pytest.mark.asyncio
+async def test_a_separator_closes_and_reopens_a_room(backend):
+    await draw_plan_from_spec(backend, OPEN_STUDIO)
+    spec = copy.deepcopy(OPEN_STUDIO)
+    close = {"room_separators+": {"id": "S1", "points": [[3000, 125], [125, 125], [125, 3000]]}}
+    for changes, opened in ((close, False), ({"room_separators.S1": None}, True)):
+        result = await patch_plan(backend, changes)
+        spec, _ = apply_changes(spec, changes)
+        (row,) = result["rooms"]
+        assert (row["room"]["area"] is None) is opened
+        assert [w["code"] for w in result["warnings"]] == (["room_open"] if opened else [])
+        fresh = await _fresh(spec)
+        try:
+            assert await _drawing(backend) == await _drawing(fresh)
+        finally:
+            await fresh.disconnect()
