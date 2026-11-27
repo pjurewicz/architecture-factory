@@ -155,7 +155,7 @@ class TitleBlockMetadata:
     date: str = ""
     sheet: str = "1/1"
     revision: str = "A"
-    company: str = "Anka-Makine"
+    company: str = ""
 
 
 def titleblock_origin(size: str, *, orientation: str = "landscape") -> Pt:

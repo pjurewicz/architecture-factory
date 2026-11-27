@@ -367,6 +367,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `titleblock_apply` / `titleblock_apply_iso_a3` no longer print another
+  firm's name ("Anka-Makine") in the company cell by default; it stays blank
+  unless `company` is given. A free-form block points to `entity_create_table`.
+
 - `leader_create_mleader` draws a leader with its note in one call for the
   cases a redraw drew 17 polyline + MTEXT pairs for: `arrow` closed | dot |
   none, `text_side` auto (the way the last segment points; left is

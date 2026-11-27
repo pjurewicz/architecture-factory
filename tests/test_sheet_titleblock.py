@@ -302,3 +302,9 @@ async def test_the_titleblock_puts_the_caller_back_on_the_tab_it_found_them_on(
     )
     assert result["layout"] == "SheetA"
     assert (await backend.layout_list())["current"] == "SheetB"
+
+
+def test_no_company_is_printed_unless_given():
+    from engineering.sheet.titleblock import TitleBlockMetadata
+
+    assert TitleBlockMetadata(title="T", drawing_no="1").company == ""

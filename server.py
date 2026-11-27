@@ -8471,7 +8471,9 @@ async def titleblock_apply_iso_a3(
     date: Annotated[str, Field(default="")] = "",
     sheet: Annotated[str, Field(default="1/1")] = "1/1",
     revision: Annotated[str, Field(default="A")] = "A",
-    company: Annotated[str, Field(default="Anka-Makine")] = "Anka-Makine",
+    company: Annotated[
+        str, Field(default="", description="Company; empty leaves the cell blank")
+    ] = "",
     origin_x: Annotated[float, Field(default=0.0)] = 0.0,
     origin_y: Annotated[float, Field(default=0.0)] = 0.0,
     layout: Annotated[
@@ -12519,7 +12521,9 @@ async def titleblock_apply(
     date: Annotated[str, Field(default="")] = "",
     sheet: Annotated[str, Field(default="1/1")] = "1/1",
     revision: Annotated[str, Field(default="A")] = "A",
-    company: Annotated[str, Field(default="Anka-Makine")] = "Anka-Makine",
+    company: Annotated[
+        str, Field(default="", description="Company; empty leaves the cell blank")
+    ] = "",
     frame: Annotated[
         bool, Field(default=True, description="Also draw the ISO 5457 frame around the block.")
     ] = True,
@@ -12550,7 +12554,8 @@ async def titleblock_apply(
     sizes are listed), an unknown orientation, a projection that is not
     'first'/'third'/'', a `layout` that does not exist. Size and orientation
     follow `layout`'s paper unless given, as in `sheet_frame`. `titleblock_apply_iso_a3`
-    is this tool with size='A3' and no symbol, kept so no caller breaks.
+    is this tool with size='A3' and no symbol, kept so no caller breaks. Another
+    layout (an architect's label / value block): entity_create_table.
     """
     from engineering.sheet.titleblock import TitleBlockMetadata, apply_titleblock
 
