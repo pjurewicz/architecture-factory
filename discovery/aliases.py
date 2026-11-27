@@ -2525,6 +2525,16 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "pafta antedi",
         ),
     ),
+    "image_map": ToolAliases(
+        synonyms=(
+            "image pixels to drawing coordinates",
+            "measure on scan raster",
+            "calibrate scan convert points",
+            "trace a plan from an image",
+            "piksele na wspolrzedne",
+            "pomiar z rastra",
+        ),
+    ),
     "interior_tile_layout": ToolAliases(
         acad=(),
         synonyms=(

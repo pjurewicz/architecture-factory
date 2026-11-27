@@ -2223,6 +2223,7 @@ PACK_TOOL_NAMES: dict[str, frozenset[str]] = {
             "arch_electrical",
             "arch_legend",
             "arch_title_block",
+            "image_map",
             "arch_dimension_chains",
             "arch_plan_from_spec",
             "arch_plan_patch",
@@ -7860,7 +7861,7 @@ async def view_screenshot(
         list[list[float]] | None,
         "Two calibration pairs [[u, v, x, y], [u, v, x, y]]: image pixel (u, v; "
         "origin top-left, v down) lands on drawing point (x, y). Fixes scale, "
-        "rotation and shift.",
+        "rotation and shift; image_map converts points.",
     ] = None,
     layout: Annotated[
         str | None, "Paper layout drawn as drawing_export_pdf plots it; region in paper units"
@@ -13262,7 +13263,7 @@ async def data_extract(
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 25: Architecture (19 tools) ─────────────────────────────────────
+# ── SECTION 25: Architecture (20 tools) ────────────────────────────────────
 # ---------------------------------------------------------------------------
 
 
@@ -14219,6 +14220,26 @@ async def arch_title_block(
         )
     except (ValueError, RuntimeError) as exc:
         raise ToolError(str(exc)) from exc
+
+
+@cad_tool(summary="Map scan pixels to drawing points and back (overlay calibration).", cost="read")
+@mcp.tool(
+    annotations={"title": "Architecture: Map Image Points", "readOnlyHint": True},
+    tags={"arch", "query"},
+)
+async def image_map(
+    align: Annotated[list[list[float]], "view_screenshot's overlay_align; 3+ pairs report rms"],
+    pixels: Annotated[list[list[float]] | None, "[[u, v], ...] -> to_drawing"] = None,
+    points: Annotated[list[list[float]] | None, "[[x, y], ...] -> to_image"] = None,
+    measure: Annotated[bool, "Add length and angle of each consecutive segment"] = False,
+) -> dict:
+    """Pixels (origin top-left, v down) <-> WCS points; reads no file."""
+    from engineering.arch.image_map import image_map as run
+
+    try:
+        return run(align, pixels=pixels, points=points, measure=measure)
+    except ValueError as exc:
+        raise InvalidArgsError(str(exc)) from exc
 
 
 @cad_tool(

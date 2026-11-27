@@ -146,6 +146,7 @@ ARCH_TOOLS = {
     "arch_electrical",
     "arch_legend",
     "arch_title_block",
+    "image_map",
     "arch_dimension_chains",
     "arch_plan_from_spec",
     "arch_plan_patch",
@@ -213,7 +214,7 @@ def test_pack_registry_names_real_tools_and_only_them():
     assert len(SETTINGS_TOOLS) == 15  # document_close is core and lean
     assert len(MECH_TOOLS) == 15  # + mech_part_revise (1.8-19)
     assert (
-        len(ARCH_TOOLS) == 19
+        len(ARCH_TOOLS) == 20
     )  # + interior_tile_layout, arch_room_separator, interior_wall_elevation, arch_electrical, arch_legend, arch_title_block
     assert len(PLANT_TOOLS) == 2
     assert not (server.PACK_TOOL_NAMES["settings"] & server.PACK_TOOL_NAMES["pid"])

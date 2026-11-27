@@ -3,14 +3,14 @@
   "schema_version": 2,
   "package_version": "1.8.0",
   "totals": {
-    "tools": 249,
+    "tools": 250,
     "resources": 13,
     "prompts": 5,
     "groups": 27
   },
   "groups": {
     "analysis": 12,
-    "architecture": 19,
+    "architecture": 20,
     "batch": 3,
     "blocks": 9,
     "corner_ops": 4,
@@ -3805,6 +3805,29 @@
       "annotations": {
         "title": "Sheet: Attach Image",
         "destructiveHint": false
+      }
+    },
+    {
+      "name": "image_map",
+      "group": "architecture",
+      "cost": "read",
+      "summary": "Map scan pixels to drawing points and back (overlay calibration).",
+      "acad": [],
+      "synonyms": [
+        "image pixels to drawing coordinates",
+        "measure on scan raster",
+        "calibrate scan convert points",
+        "trace a plan from an image",
+        "piksele na wspolrzedne",
+        "pomiar z rastra"
+      ],
+      "tags": [
+        "arch",
+        "query"
+      ],
+      "annotations": {
+        "title": "Architecture: Map Image Points",
+        "readOnlyHint": true
       }
     },
     {

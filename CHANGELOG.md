@@ -25,6 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `image_map` (pack `arch`, read-only): scan pixels to drawing points and
+  back through the same `overlay_align` pairs `view_screenshot` overlays
+  with. Two pairs answer `fit.controlled: false` and ask for a third; three
+  or more are fitted by least squares and report `rms`, `max` and each
+  pair's residual. `measure=True` adds segment lengths and angles.
+  `overlay_align` itself now takes two or more pairs.
 - The furniture and sanitary catalogue (`arch_catalogue_*`) holds 38 items:
   new nominal rows `modular_sofa`, `corner_sofa_left` (the L's return on the
   left), `round_table` (a circle, or a stadium when width and depth differ),

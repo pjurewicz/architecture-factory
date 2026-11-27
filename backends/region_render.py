@@ -93,39 +93,68 @@ OVERLAY_MAX_SOURCE_PX = 4096
 
 
 def overlay_transform(align) -> tuple[complex, complex]:
-    """(a, b) with model = a·(u - i·v) + b, from ``[[u, v, x, y], [u, v, x, y]]``.
+    """(a, b) with model = a·(u - i·v) + b, from ``[[u, v, x, y], ...]``.
 
     ``(u, v)`` is an image pixel (origin top-left, v down), ``(x, y)`` the WCS
     point it must land on. Two pairs fix a similarity (uniform scale, rotation,
-    shift; no shear, no mirror). ``ValueError`` names ``overlay_align``.
+    shift; no shear, no mirror) exactly; three or more fit it by least squares
+    (:func:`overlay_fit` reports the residuals). ``ValueError`` names
+    ``overlay_align``.
     """
+    pixels, points = _calibration(align)
+    n = len(pixels)
+    pm, zm = sum(pixels) / n, sum(points) / n
+    spread = sum(abs(p - pm) ** 2 for p in pixels)
+    a = sum((p - pm).conjugate() * (z - zm) for p, z in zip(pixels, points, strict=True)) / spread
+    return a, zm - a * pm
+
+
+def overlay_fit(align) -> dict:
+    """How well ``align`` fits one similarity: ``pairs``, ``rms`` / ``max`` (drawing
+    units) and each pair's ``residuals``; two pairs fit exactly and say so."""
+    a, b = overlay_transform(align)
+    pixels, points = _calibration(align)
+    out: dict = {"pairs": len(pixels), "units_per_px": abs(a)}
+    out["rotation_deg"] = math.degrees(math.atan2(a.imag, a.real))
+    if len(pixels) == 2:
+        out["controlled"] = False
+        return out
+    errors = [abs(a * p + b - z) for p, z in zip(pixels, points, strict=True)]
+    out["controlled"] = True
+    out["rms"] = math.sqrt(sum(e * e for e in errors) / len(errors))
+    out["max"] = max(errors)
+    out["residuals"] = errors
+    return out
+
+
+def _calibration(align) -> tuple[list[complex], list[complex]]:
+    """``overlay_align`` as image points (u - i·v) and drawing points (x + i·y)."""
     if (
         isinstance(align, str | bytes)
         or not isinstance(align, Sequence)
-        or len(align) != 2
+        or len(align) < 2
         or any(
             isinstance(p, str | bytes) or not isinstance(p, Sequence) or len(p) != 4 for p in align
         )
     ):
         raise ValueError(
-            "overlay_align must be two calibration pairs [[u, v, x, y], [u, v, x, y]] "
+            "overlay_align must be at least two calibration pairs [[u, v, x, y], [u, v, x, y]] "
             f"(image pixel -> drawing point), got {align!r}"
         )
     try:
-        (u1, v1, x1, y1), (u2, v2, x2, y2) = ([float(v) for v in p] for p in align)
+        rows = [[float(v) for v in p] for p in align]
     except (TypeError, ValueError) as exc:
         raise ValueError(f"overlay_align must hold numbers, got {align!r}") from exc
-    if not all(math.isfinite(v) for v in (u1, v1, x1, y1, u2, v2, x2, y2)):
+    if not all(math.isfinite(v) for row in rows for v in row):
         raise ValueError(f"overlay_align must hold finite numbers, got {align!r}")
-    p1, p2 = complex(u1, -v1), complex(u2, -v2)
-    z1, z2 = complex(x1, y1), complex(x2, y2)
-    if p1 == p2 or z1 == z2:
+    pixels = [complex(u, -v) for u, v, _x, _y in rows]
+    points = [complex(x, y) for _u, _v, x, y in rows]
+    if len(set(pixels)) < 2 or len(set(points)) < 2:
         raise ValueError(
-            "overlay_align: the two calibration points must differ both in the image "
+            "overlay_align: the calibration points must differ both in the image "
             f"and in the drawing, got {align!r}"
         )
-    a = (z2 - z1) / (p2 - p1)
-    return a, z1 - a * p1
+    return pixels, points
 
 
 def check_opacity(opacity) -> float:

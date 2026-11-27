@@ -10484,7 +10484,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             raise ValueError("overlay_image and overlay_align go together: no overlay_image given")
         if overlay_image is not None and overlay_align is None and not layout:
             raise ValueError(
-                "overlay_image needs overlay_align: two calibration pairs "
+                "overlay_image needs overlay_align: at least two calibration pairs "
                 "[[u, v, x, y], [u, v, x, y]] - or a layout, where a page scan is "
                 "fitted to the sheet"
             )
