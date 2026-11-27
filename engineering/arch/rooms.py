@@ -37,7 +37,11 @@ DECLARED, not standard:
   at its own plot scale. The number and area lines are never shrunk. The
   width of a line is estimated, not measured: ``CHAR_WIDTH_FACTOR`` (0.9 text
   heights per character, generous for capitals) times its length; the result
-  reports the name height and lines chosen and whether the label fits.
+  reports the name height and lines chosen. Whatever ``fit``, every label
+  reports ``fits``: whether each line's box, measured as the ``viewport_clip``
+  focus measures a TEXT (``ezdxf.disassemble``), lies inside the room's face
+  (None for an open room, which has none); a label that does not fit carries
+  a ``room_label_overflow`` warning naming the lines.
 * ``mask=True`` (off by default: with ``arch_monochrome.ctb`` the screened
   hatches and grid already leave the label legible) draws a WIPEOUT under the
   label on its layer, so walls, hatches and grid lines drawn before it do not
@@ -301,16 +305,16 @@ def room_label_mask(boxes, face: Face | None = None, *, margin: float) -> dict:
     return {"polygons": polygons, "clipped": clipped, "omitted": None}
 
 
-async def _text_extents(backend: AutoCADBackend, prims: tuple[Text, ...]) -> list:
-    """Each text's extent as the backend will draw it, measured before it is drawn.
+async def _text_boxes(backend: AutoCADBackend, prims: tuple[Text, ...]) -> list[list[Pt]]:
+    """Each text's oriented box as the backend will draw it, measured before it is drawn.
 
     The texts are laid out in a scratch ezdxf document with the drawing's
     current text style font (the style ``entity_create_text`` gives a new TEXT)
-    and measured with ``ezdxf.bbox`` - the measurement ``entity_get`` reports
-    for the drawn text. Nothing is written to the drawing.
+    and measured with ``ezdxf.disassemble`` - the box the ``viewport_clip``
+    focus reads for a drawn TEXT. Nothing is written to the drawing.
     """
     import ezdxf
-    from ezdxf import bbox
+    from ezdxf import disassemble
     from ezdxf.enums import TextEntityAlignment
 
     style = next((row for row in await backend.textstyle_list() if row["current"]), None)
@@ -331,9 +335,27 @@ async def _text_extents(backend: AutoCADBackend, prims: tuple[Text, ...]) -> lis
         )
         if prim.align != "left":
             text.set_placement(prim.at, align=TextEntityAlignment[prim.align.upper()])
-        box = bbox.extents([text])
-        boxes.append(((box.extmin.x, box.extmin.y), (box.extmax.x, box.extmax.y)))
+        points = [(v.x, v.y) for v in disassemble.make_primitive(text).vertices()]
+        boxes.append(points[:-1] if len(points) > 1 and points[0] == points[-1] else points)
     return boxes
+
+
+def _box_in_face(box: list[Pt], face: Face) -> bool:
+    """Whether a text box lies wholly inside the face: inside its outer loop and
+    clear of every hole (a column). Touching a wall face still fits."""
+    from ezdxf.math import Vec2, area
+    from ezdxf.math.clipping import ConcaveClippingPolygon2d
+
+    rect = [Vec2(p) for p in box]
+    tol = 1e-6 * max(abs(area(rect)), 1.0)
+
+    def covered(loop) -> float:
+        pieces = ConcaveClippingPolygon2d([Vec2(p) for p in loop]).clip_polygon(rect)
+        return sum(abs(area(list(piece))) for piece in pieces)
+
+    return abs(abs(area(rect)) - covered(face.loop)) <= tol and all(
+        covered(hole) <= tol for hole in face.holes
+    )
 
 
 async def _draw_label_prims(
@@ -346,7 +368,9 @@ async def _draw_label_prims(
     SORTENTSTABLE still shows the texts on top. The first WIPEOUT in a drawing
     without wipeout variables sets ``WIPEOUTFRAME`` to 0 (no frame on screen
     or on a plot); a drawing that already sets it keeps its choice. ``handles``
-    are the texts, the name first (the room record goes on it).
+    are the texts, the name first (the room record goes on it). ``fits`` (None
+    without a ``face``) is whether every text's measured box lies inside the
+    face; ``outside`` lists the texts that do not.
     """
     from engineering.mech.draw import (  # lazy: mech.draw imports the arch layer set
         _ensure_layers,
@@ -355,9 +379,21 @@ async def _draw_label_prims(
 
     shape = None
     masks: list[str] = []
+    boxes = await _text_boxes(backend, prims)
+    outside = (
+        []
+        if face is None
+        else [p.text for p, box in zip(prims, boxes, strict=True) if not _box_in_face(box, face)]
+    )
     if mask:
         shape = room_label_mask(
-            await _text_extents(backend, prims),
+            [
+                (
+                    (min(x for x, _ in box), min(y for _, y in box)),
+                    (max(x for x, _ in box), max(y for _, y in box)),
+                )
+                for box in boxes
+            ],
             face,
             margin=MASK_MARGIN * min(p.height for p in prims),
         )
@@ -371,6 +407,8 @@ async def _draw_label_prims(
     drawn = await draw_prims(backend, prims, role_layer=ARCH_ROLE_LAYER)
     return {
         "handles": list(drawn["handles"]),
+        "fits": None if face is None else not outside,
+        "outside": outside,
         "mask": None
         if shape is None
         else {"handles": masks, "clipped": shape["clipped"], "omitted": shape["omitted"]},
@@ -956,6 +994,21 @@ async def _draw_label(
     )
     handle = drawn["handles"][0]
     await backend.entity_set_xdata(handle, APP_ID, to_values(to_payload(measured)))
+    warning = None
+    if not drawn["fits"]:
+        lines = ", ".join(repr(text) for text in drawn["outside"])
+        warning = {
+            "code": "room_label_overflow",
+            "id": measured.id,
+            "outside": drawn["outside"],
+            "message": f"{measured.id} {measured.name!r}: the label line(s) {lines} reach past "
+            "the room's outline onto its walls; "
+            + (
+                "even the smallest fitted name does not fit - move the label point"
+                if fit
+                else "set fit: true, or move the label point"
+            ),
+        }
     return {
         "ok": True,
         "room": {
@@ -973,6 +1026,8 @@ async def _draw_label(
         "layer": ARCH_ROLE_LAYER["room"],
         "align": align,
         "fit": fitted if fit else None,
+        "fits": drawn["fits"],
+        **({"warning": warning} if warning else {}),
     }
 
 
@@ -1081,6 +1136,7 @@ async def _label_open_room(
         "layer": ARCH_ROLE_LAYER["room"],
         "align": align,
         "fit": None,
+        "fits": None,
         "area_source": None,
         "wall_layers": layers,
         "loop": None,

@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Every room label (`arch_room`, `arch_plan_from_spec`'s `rooms[]`) reports
+  `fits`: whether each line's box - measured as the `viewport_clip` focus
+  measures a TEXT (`ezdxf.disassemble`) - lies inside the room's measured face
+  (`null` for an open room). A label that does not fit, with `fit: false` or
+  with `fit: true` at the 2.5 mm floor, carries a `room_label_overflow`
+  warning naming the lines (`outside`), collected into `arch_plan_from_spec`'s
+  `warnings`. `rooms[].fit` is described in the spec schema. The label mask
+  now takes its rectangle from the same boxes (was `ezdxf.bbox`; equal for
+  unrotated text). Breaking: a plan whose labels overflow now has non-empty
+  `warnings`.
 - A sixth bundled template, `iso_a2_arch`: `drawing_new(template="iso_a2_arch")`
   starts an ISO A2 landscape architectural sheet built like `iso_a1_arch`
   (ISO 13567 layers, ISO-25 / ISOCP, annotation scale 1:50) whose `A2` layout

@@ -189,7 +189,11 @@ ROOM_LABEL_KEYS = ("align", "fit", "mask")
 def _room_item_schema(schema: dict) -> dict:
     props = dict(schema["properties"])
     props["align"] = {"type": "string", "enum": list(_rooms.ALIGNS), "default": "left"}
-    props["fit"] = {"type": "boolean", "default": False}
+    props["fit"] = {
+        "type": "boolean",
+        "default": False,
+        "description": "Wrap/shrink the name into the room; each room reports fits.",
+    }
     props["mask"] = {"type": "boolean", "default": False}
     return {**schema, "properties": props}
 

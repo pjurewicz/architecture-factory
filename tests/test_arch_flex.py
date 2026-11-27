@@ -225,6 +225,9 @@ async def test_a_centred_label_is_centred_and_fit_shrinks_it_into_a_narrow_room(
     assert narrow["fit"]["name_lines"] == ["STORAGE", "CLOSET"]
     assert narrow["fit"]["name_height_mm"] == pytest.approx(3.5)
     assert narrow["fit"]["fits"] is True
+    # measured, not estimated: every line's box lies inside the room's face
+    assert wide["fits"] is True and narrow["fits"] is True
+    assert "warning" not in wide and "warning" not in narrow
     heights = [
         (await call(client, "entity_get", {"handle": h}))["properties"]["height"]
         for h in narrow["handles"]

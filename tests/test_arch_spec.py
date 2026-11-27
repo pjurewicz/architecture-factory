@@ -201,6 +201,22 @@ async def test_an_open_room_reports_the_free_ends_of_its_opening(backend):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(("fit", "advice"), [(False, "set fit: true"), (True, "even the smallest")])
+async def test_a_label_past_the_room_outline_reports_fits_false_and_warns(backend, fit, advice):
+    spec = copy.deepcopy(U_SPEC)
+    spec["room_separators"] = [{"id": "S1", "points": [[0, 100], [0, 3900]]}]
+    # 400 mm to the face x = 5900: neither "SALON" nor its area line fits, even at 2.5 mm
+    spec["rooms"][0] |= {"at": [5500, 2000], "fit": fit}
+    result = await draw_plan_from_spec(backend, spec)
+    room = result["rooms"][0]
+    assert room["fits"] is False
+    (warning,) = result["warnings"]
+    assert warning["element"] == "rooms[0]" and warning["code"] == "room_label_overflow"
+    assert warning["outside"] == ["SALON", room["room"]["area_text"]]
+    assert advice in warning["message"]
+
+
+@pytest.mark.asyncio
 async def test_a_room_separator_closes_the_open_room_and_its_area_is_measured(backend):
     from engineering.arch.draw import read_plan
     from engineering.arch.rooms import rooms_detect
@@ -209,7 +225,7 @@ async def test_a_room_separator_closes_the_open_room_and_its_area_is_measured(ba
     spec["room_separators"] = [{"id": "S1", "points": [[0, 100], [0, 3900]]}]
     result = await draw_plan_from_spec(backend, spec)
     assert result["warnings"] == []
-    assert result["rooms"][0]["area_source"] == "walls"
+    assert result["rooms"][0]["area_source"] == "walls" and result["rooms"][0]["fits"] is True
     plan = await read_plan(backend)
     assert [s.id for s in plan["room_separators"]] == ["S1"]
     assert plan["rooms"][0].area == pytest.approx(5900.0 * 3800.0, abs=0.5)
