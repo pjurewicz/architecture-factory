@@ -2171,6 +2171,7 @@ PACK_TOOL_NAMES: dict[str, frozenset[str]] = {
             "arch_catalogue_insert",
             "arch_electrical",
             "arch_legend",
+            "arch_title_block",
             "arch_dimension_chains",
             "arch_plan_from_spec",
             "arch_plan_patch",
@@ -13055,7 +13056,7 @@ async def data_extract(
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 25: Architecture (18 tools) ─────────────────────────────────────
+# ── SECTION 25: Architecture (19 tools) ─────────────────────────────────────
 # ---------------------------------------------------------------------------
 
 
@@ -13935,6 +13936,73 @@ async def arch_legend(
     try:
         return await draw_legend(
             _backend(ctx), at=(x, y), layout=layout, scale=scale, lang=lang, labels=labels
+        )
+    except (ValueError, RuntimeError) as exc:
+        raise ToolError(str(exc)) from exc
+
+
+@cad_tool(
+    summary="Draw an architect's title block (label / value rows) and a numbered NOTES box.",
+    cost="mutate",
+)
+@mcp.tool(
+    annotations={"title": "Architecture: Title Block and Notes", "destructiveHint": False},
+    tags={"arch", "create"},
+)
+async def arch_title_block(
+    rows: Annotated[
+        dict | list | None,
+        Field(
+            default=None,
+            description=(
+                "{project, investor, address, stage, scale, date, designer, author, checked, "
+                "title, drawing_no, revision, or any label: value} or [[label, value], ...]"
+            ),
+        ),
+    ] = None,
+    notes: Annotated[
+        list[str] | None, Field(default=None, description="Numbered notes, stacked on the block")
+    ] = None,
+    layout: Annotated[
+        str | None, Field(default=None, description="Paper layout; its frame corner is the anchor")
+    ] = None,
+    corner: Annotated[
+        str,
+        Field(
+            default="bottom_right", description="bottom_right | bottom_left | top_right | top_left"
+        ),
+    ] = "bottom_right",
+    x: Annotated[
+        float | None, Field(default=None, description="Corner X instead of the frame's")
+    ] = None,
+    y: Annotated[float | None, Field(default=None, description="Corner Y")] = None,
+    width: Annotated[float, Field(default=180.0, description="Paper mm, 60-400")] = 180.0,
+    scale: Annotated[
+        float, Field(default=50.0, gt=0, description="Plot scale in model space")
+    ] = 50.0,
+    lang: Annotated[str, Field(default="en", description="en | tr | pl")] = "en",
+    ctx: Context = None,
+) -> dict:
+    """Rows in the order given; long values wrap. Known keys are lettered in
+    `lang`; lines on TITLEBLOCK, text on TEXT with an ACADMCP_ANNOT record.
+    """
+    from engineering.arch.sheetblock import draw_title_block
+
+    at = None if x is None and y is None else (x, y)
+    if at is not None and None in at:
+        raise ToolError("arch_title_block: give both x and y, or neither")
+    await ctx.info(f"arch title block on {layout or 'Model'} at {corner}")
+    try:
+        return await draw_title_block(
+            _backend(ctx),
+            fields=rows,
+            notes=notes,
+            layout=layout,
+            corner=corner,
+            at=at,
+            width=width,
+            scale=scale,
+            lang=lang,
         )
     except (ValueError, RuntimeError) as exc:
         raise ToolError(str(exc)) from exc

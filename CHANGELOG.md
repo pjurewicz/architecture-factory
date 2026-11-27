@@ -25,6 +25,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `arch_title_block(rows?, notes?, layout?, corner, x?, y?, width=180, scale,
+  lang)` (pack `arch`): an architect's title block and a numbered notes box.
+  `titleblock_apply` is ISO 7200's fixed field set, and `entity_create_table`
+  neither finds a sheet corner nor numbers notes, so round 3's agent drew
+  about 150 entities by hand. `rows` is `{key: value}` - `project`,
+  `investor`, `address`, `stage`, `scale`, `date`, `designer`, `author`,
+  `checked`, `title` (lettered larger), `drawing_no`, `revision` lettered in
+  `lang` (`INWESTOR`, `ETAP`, `TYTUŁ RYSUNKU`), any other key as written - or
+  `[[label, value], ...]`; rows keep their order and a long value wraps at its
+  spaces, its row growing. `notes` become `1.`, `2.` ... under `UWAGI` /
+  `NOTES` / `NOTLAR`, stacked on the block's sheet side at its width. The
+  stack's chosen corner lands on that corner of the layout's ISO 5457 frame
+  (read from its page setup) or on `x, y`; lines on `TITLEBLOCK`, text on
+  `TEXT`, every TEXT with an `ACADMCP_ANNOT` record.
+  `search_tools("title block architect")` / `"tabelka"` find it.
+
 - `arch_legend(x, y, layout?, scale=50, lang, labels?)` (pack `arch`): a
   legend of what the drawing uses, drawn on a paper layout (paper mm) or in
   model space. In all three rounds agents drew legends by hand (six hatch

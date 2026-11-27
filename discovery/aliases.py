@@ -2480,6 +2480,21 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "lejant",
         ),
     ),
+    "arch_title_block": ToolAliases(
+        synonyms=(
+            "title block architect",
+            "architectural title block with project client address stage",
+            "drawing info box in the sheet corner",
+            "notes box numbered notes",
+            "general notes on the sheet",
+            "tabelka",
+            "tabelka rysunkowa",
+            "metryka rysunku",
+            "uwagi",
+            "antet",
+            "pafta antedi",
+        ),
+    ),
     "interior_tile_layout": ToolAliases(
         acad=(),
         synonyms=(

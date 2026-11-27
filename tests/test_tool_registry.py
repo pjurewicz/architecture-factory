@@ -661,14 +661,14 @@ async def test_tool_group_sizes_are_unchanged():
     `drawing_close` and moved from `environment` (16 -> 15) to `drawing`
     (11 -> 9); `view_zoom_and_screenshot` went (`view` 2 -> 1): 242 tools.
     `arch_plan_patch` (T-11) joins `architecture`; `file_upload_url` `sheet`: 244 tools.
-    `arch_electrical` and `arch_legend` join `architecture`: 246 tools.
+    `arch_electrical`, `arch_legend` and `arch_title_block` join `architecture`: 247 tools.
     """
     sizes = {label: len(names) for label, names in (await server._tool_groups()).items()}
     assert (
         sizes
         == {
             "analysis": 12,
-            "architecture": 18,  # + interior_tile_layout, arch_room_separator, interior_wall_elevation, arch_plan_patch, arch_electrical, arch_legend
+            "architecture": 19,  # + interior_tile_layout, arch_room_separator, interior_wall_elevation, arch_plan_patch, arch_electrical, arch_legend, arch_title_block
             "batch": 3,
             "blocks": 9,
             "corner_ops": 4,
@@ -696,4 +696,4 @@ async def test_tool_group_sizes_are_unchanged():
             "view": 1,
         }
     )
-    assert sum(sizes.values()) == 246
+    assert sum(sizes.values()) == 247

@@ -3,14 +3,14 @@
   "schema_version": 2,
   "package_version": "1.8.0",
   "totals": {
-    "tools": 246,
+    "tools": 247,
     "resources": 13,
     "prompts": 5,
     "groups": 27
   },
   "groups": {
     "analysis": 12,
-    "architecture": 18,
+    "architecture": 19,
     "batch": 3,
     "blocks": 9,
     "corner_ops": 4,
@@ -726,6 +726,34 @@
       ],
       "annotations": {
         "title": "Architecture: Symbol",
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "arch_title_block",
+      "group": "architecture",
+      "cost": "mutate",
+      "summary": "Draw an architect's title block (label / value rows) and a numbered NOTES box.",
+      "acad": [],
+      "synonyms": [
+        "title block architect",
+        "architectural title block with project client address stage",
+        "drawing info box in the sheet corner",
+        "notes box numbered notes",
+        "general notes on the sheet",
+        "tabelka",
+        "tabelka rysunkowa",
+        "metryka rysunku",
+        "uwagi",
+        "antet",
+        "pafta antedi"
+      ],
+      "tags": [
+        "arch",
+        "create"
+      ],
+      "annotations": {
+        "title": "Architecture: Title Block and Notes",
         "destructiveHint": false
       }
     },
