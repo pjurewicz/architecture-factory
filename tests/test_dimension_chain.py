@@ -99,6 +99,24 @@ async def test_vertical_and_aligned_chains_measure_along_their_direction(backend
     assert measured == pytest.approx([30 * math.sqrt(2)] * 2 + [60 * math.sqrt(2)])
 
 
+@pytest.mark.asyncio
+async def test_offset_zero_puts_the_line_on_the_points_texts_above_or_left(backend):
+    # internal dimensions: the line through the points, the style's text side
+    out = await draw_chain(backend, [[0, 0], [100, 0], [250, 0]], 0)
+    chain = [r for r in out["dimensions"] if r["row"] == "chain"]
+    dims = _dims(backend, out["handles"])
+    assert [round(d.dxf.defpoint.y, 6) for d in dims[:2]] == [0.0, 0.0]
+    assert all(r["placement"] == "inline" and r["text_at"][1] > 0 for r in chain)
+    assert dims[2].dxf.defpoint.y > 0  # the overall row on the text's side too
+
+    out = await draw_chain(backend, [[10, 0], [10, 40], [10, 100]], 0)
+    assert out["orientation"] == "vertical"
+    dims = _dims(backend, out["handles"])
+    assert [round(d.dxf.defpoint.x, 6) for d in dims[:2]] == [10.0, 10.0]
+    assert all(r["text_at"][0] < 10 for r in out["dimensions"])
+    assert dims[2].dxf.defpoint.x < 10
+
+
 def test_one_station_and_one_span_are_handled_by_name():
     plan = plan_chain([[0, 0], [0, 20], [5, 20]], 10, orientation="vertical")
     # two points on y = 20: the one nearer the dimension line keeps the station
@@ -107,8 +125,6 @@ def test_one_station_and_one_span_are_handled_by_name():
     assert [r["row"] for r in plan["rows"]] == ["chain"]
     with pytest.raises(ValueError, match="one station"):
         plan_chain([[0, 0], [0, 50]], 10, orientation="horizontal")
-    with pytest.raises(ValueError, match="offset"):
-        plan_chain([[0, 0], [50, 0]], 0)
     with pytest.raises(ValueError, match="orientation"):
         plan_chain([[0, 0], [50, 0]], 5, orientation="diagonal")
 
@@ -126,6 +142,10 @@ async def test_the_tool_refuses_by_name_and_draws_on_the_dim_layer():
         )
         assert made.structured_content["layer"] == "DIM"
         assert made.structured_content["count"] == 4
+        on_points = await client.call_tool(
+            "dimension_chain", {"points": [[0, 0], [60, 0]], "offset": 0}
+        )
+        assert on_points.structured_content["count"] == 1
         bad = await client.call_tool(
             "dimension_chain",
             {"points": [[0, 0], [0, 5]], "offset": 5, "orientation": "horizontal"},

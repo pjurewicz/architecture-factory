@@ -3513,7 +3513,8 @@ async def dimension_chain(
         float,
         Field(
             description="Dimension line distance beyond the outermost point: + above a "
-            "horizontal chain, right of a vertical one, left of an aligned one (first->last)"
+            "horizontal chain, right of a vertical one, left of an aligned one (first->last); "
+            "0: on the points, texts above / left"
         ),
     ],
     orientation: Annotated[
@@ -3558,7 +3559,7 @@ async def dimension_chain(
     a leader; the overall row moves out to clear them. Each row reports
     `placement` inline | staggered | moved. Drawn in one transaction.
 
-    Refused by name: fewer than two stations, offset 0, an unknown orientation.
+    Refused by name: fewer than two stations, an unknown orientation.
     """
     from engineering.dimension_chain import draw_chain
 

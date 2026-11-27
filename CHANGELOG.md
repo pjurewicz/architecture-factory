@@ -75,6 +75,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `staggered` / `moved`). `scale` sets DIMSCALE
   for the chain only; `dry_run` plans without drawing; one transaction.
   `dimension_linear`'s backend method takes `text_leader` (DIMTMOVE 1).
+  `offset=0` draws the line through the outermost point (on the points when
+  they are collinear: internal dimensions), every row on the text's side -
+  above a horizontal or aligned chain, left of a vertical one.
 - Parametric catalogue items: `arch_catalogue_insert(width=, depth=, height=)`
   redraws an item's plan symbol for the given footprint (rails, rims and chairs
   keep their real sizes), within the range each row reports as `size_range`;

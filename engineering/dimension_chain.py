@@ -16,6 +16,10 @@ same projection are one station, and the one nearer the dimension line keeps
 its extension line (reported in ``merged``). The dimension line lies
 ``offset`` beyond the outermost point: positive is above a horizontal chain,
 right of a vertical one, left of an aligned one's first -> last direction.
+``offset`` 0 puts it through the outermost point - on the points themselves
+when they are collinear, for internal dimensions - and every row then goes to
+the side the style puts the text on: above a horizontal or aligned chain, left
+of a vertical one.
 
 A text that fits its span is centred where the style puts it (DIMTAD). A
 tight one - wider than its span plus a gap each side - is staggered: centred
@@ -100,8 +104,6 @@ def plan_chain(
     """
     pts = _points(points)
     offset = _number(offset, "offset")
-    if offset == 0.0:
-        raise ValueError("offset: must not be 0; its sign says which side the chain is on")
     if orientation not in ORIENTATIONS:
         raise ValueError(f"orientation: {orientation!r} is not one of {', '.join(ORIENTATIONS)}")
     h = _number(text_height, "text_height")
@@ -136,9 +138,12 @@ def plan_chain(
     u = (math.cos(rad), math.sin(rad))
     # n: the side a linear dimension's text stands on ("above" its line)
     n = (-u[1], u[0])
-    side = math.copysign(1.0, offset) * math.copysign(
-        1.0, user_normal[0] * n[0] + user_normal[1] * n[1]
-    )
+    if offset == 0.0:
+        side = 1.0  # on the points: the text's own side (above / left), no sign to read
+    else:
+        side = math.copysign(1.0, offset) * math.copysign(
+            1.0, user_normal[0] * n[0] + user_normal[1] * n[1]
+        )
 
     def local(p):
         return (p[0] * u[0] + p[1] * u[1], p[0] * n[0] + p[1] * n[1])
