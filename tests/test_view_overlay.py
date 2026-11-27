@@ -182,6 +182,11 @@ async def test_a_sheet_renders_on_its_paper_and_hatch_dots_plot_at_pen_width(bac
     await backend.layer_modify("SAND", lineweight=100)
     thick = await backend.view_render(layout="A3", max_px=1600)
     assert _ink(thick) > 3 * _ink(thin) > 0
+    # round 3: a sheet is on white paper anyway - background is ignored, not refused
+    white = await backend.view_render(layout="A3", max_px=1600, background="white")
+    assert white["background_ignored"] == "white" and _ink(white) == pytest.approx(
+        _ink(thick), rel=0.01
+    )
 
 
 @pytest.mark.asyncio

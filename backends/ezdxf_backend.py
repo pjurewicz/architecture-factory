@@ -10432,10 +10432,10 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 "[[u, v, x, y], [u, v, x, y]] - or a layout, where a page scan is "
                 "fitted to the sheet"
             )
-        if layout and (document is not None or overlay_handles or background != "auto"):
+        if layout and (document is not None or overlay_handles):
             raise ValueError(
                 "layout draws the sheet as it plots (its own page setup and paper): "
-                "overlay_handles and background apply to model space"
+                "overlay_handles applies to model space"
             )
 
         def _sync():
@@ -10450,6 +10450,9 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 except ImportError:
                     return {"png": None, "applied": False, "source": "headless"}
                 report["source"] = "headless"
+                if background != "auto":
+                    # round 3: a sheet plots on its white paper; said, not refused
+                    report["background_ignored"] = background
                 return report
             space = self._msp() if state is self._state else doc.modelspace()
             try:
