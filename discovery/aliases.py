@@ -531,7 +531,15 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
     ),
     "drawing_export_pdf": ToolAliases(
         acad=("PLOT", "PRINT", "EXPORTPDF"),
-        synonyms=("print", "plot", "export pdf", "pdf output", "paper copy"),
+        synonyms=(
+            "print",
+            "plot",
+            "export pdf",
+            "pdf output",
+            "paper copy",
+            "download pdf",
+            "pdf download url",
+        ),
     ),
     "drawing_finalize": ToolAliases(
         synonyms=(
@@ -654,6 +662,12 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "dwg olarak kaydet",
             "save as template",
             "template from this drawing",
+            "download",
+            "download the file",
+            "get the file",
+            "file url",
+            "download url",
+            "link to the file",
         ),
     ),
     "drawing_settings": ToolAliases(

@@ -1855,7 +1855,9 @@
         "plot",
         "export pdf",
         "pdf output",
-        "paper copy"
+        "paper copy",
+        "download pdf",
+        "pdf download url"
       ],
       "tags": [
         "drawing",
@@ -2171,7 +2173,13 @@
         "save as dwg",
         "dwg olarak kaydet",
         "save as template",
-        "template from this drawing"
+        "template from this drawing",
+        "download",
+        "download the file",
+        "get the file",
+        "file url",
+        "download url",
+        "link to the file"
       ],
       "tags": [
         "drawing"

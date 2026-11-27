@@ -1125,8 +1125,12 @@ async def test_a_start_query_gets_the_workflow_and_a_mixed_query_a_tip():
             "search_tools", {"query": "layer create text style font section mark leader"}
         )
         plain = await client.call_tool("search_tools", {"query": "fillet"})
+        download = await client.call_tool("search_tools", {"query": "download"})
     guide = started.content[0].text.rsplit("\n", 1)[-1]
     assert guide.startswith("Workflow: drawing_new")
+    assert "download_url" in guide, "the last step says how the file is fetched"
+    first_two = [line.split(" ")[0] for line in download.content[0].text.splitlines()[:2]]
+    assert set(first_two) == {"drawing_save", "drawing_export_pdf"}, download.content[0].text
     named = {n for step in _GUIDE_STEPS for n in step} | {"cad_batch"}
     registered = {t.name for t in server._local_tool_components()}
     assert named <= registered, "the guide names only real tools"

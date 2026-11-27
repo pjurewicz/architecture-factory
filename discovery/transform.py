@@ -244,6 +244,8 @@ _GUIDE_STEPS: tuple[tuple[str, ...], ...] = (
     ("drawing_critique",),
     ("drawing_save", "drawing_export_pdf"),
 )
+#: The last step's tools, whose answer over HTTP carries ``download_url``.
+_WRITERS = frozenset({"drawing_save", "drawing_export_pdf"})
 #: A query with this many words mixes several jobs and ranks none of them well.
 _MANY_WORDS = 6
 
@@ -257,6 +259,8 @@ def search_guide(query: str, visible: set[str]) -> str:
             for tools in _GUIDE_STEPS
             if (shown := [name for name in tools if name in visible])
         ]
+        if steps and steps[-1].split(" / ")[0] in _WRITERS:
+            steps[-1] += " (their download_url fetches the file)"
         batch = " Any steps run together in cad_batch." if "cad_batch" in visible else ""
         return f"Workflow: {' -> '.join(steps)}.{batch} Recipes: autocad://recipes/index."
     if len(words) >= _MANY_WORDS:

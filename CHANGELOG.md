@@ -360,6 +360,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `search_tools("download")` found nothing: `drawing_save` and
+  `drawing_export_pdf` now answer download / get the file / file url, the
+  `drawing_save` description says its HTTP answer carries `download_url`, and
+  the workflow line ends with "their download_url fetches the file".
+
 - A dotted hatch (AR-SAND, AR-CONC) plots its dots at the pen's width, as
   AutoCAD plots them: ezdxf drew every dot as a fixed 1 pt ring (about
   0.45 mm on paper) whatever the lineweight, so a sand hatch on a 0.13 mm

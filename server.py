@@ -2557,6 +2557,9 @@ async def drawing_save(
     - `.dwg` path: a real DWG through the ODA File Converter (capability
       `dwg_write` when it is absent), always a copy - the document stays DXF.
 
+    Over HTTP the answer carries `download_url`, a link to fetch the written
+    file (also drawing_export_pdf, batch_plot, drawing_deliver).
+
     A missing parent folder inside the allowed paths is created. The write is
     atomic: a temporary file beside the target, checked, then renamed over it.
     Refused before writing (and before any folder is created): copy=True without path, version
