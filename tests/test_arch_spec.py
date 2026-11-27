@@ -384,7 +384,8 @@ async def test_a_door_by_hinge_and_swing_towards_is_recorded_resolved_and_schedu
     arcs = [e for e in await backend.entity_list(type_filter="ARC", limit=50)]
     (arc,) = arcs
     center = arc.properties.get("center")
-    assert (round(center[0], 6), round(center[1], 6)) == (1000.0, 100.0)
+    # the hinge is the frame's rebate vertex, 35 mm into the gap from the jamb at 1000
+    assert (round(center[0], 6), round(center[1], 6)) == (1035.0, 100.0)
     (row,) = schedule_rows("doors", plan)
     en = vocab("en")
     assert (row["swing"], row["hand"]) == (en["out"], en["right"])

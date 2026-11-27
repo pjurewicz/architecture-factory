@@ -73,6 +73,7 @@ async def _fresh(spec) -> EzdxfBackend:
 EDITS = {
     "move_door": {"openings.D2.offset": 3200},
     "flip_hinge": {"openings.D2.hand": None, "openings.D2.hinge": "end"},
+    "drop_frame": {"openings.D2.frame": False},
     "rename_room": {"rooms.R2.name": "KITCHEN"},
     "renumber_room": {"rooms.R1.number": "11"},
     "wall_thickness": {"walls.INT.thickness": 150},

@@ -78,7 +78,8 @@ WALL = Wall(id="a", axis=((0.0, 0.0), (5000.0, 0.0)), thickness=200.0)
 
 def test_a_double_door_is_two_half_leaves_hinged_on_both_jambs():
     prims = opening_prims(
-        WALL, Opening(id="d", wall="a", kind="double_door", offset=1000.0, width=1600.0)
+        WALL,
+        Opening(id="d", wall="a", kind="double_door", offset=1000.0, width=1600.0, frame=False),
     )
     leaves = [p for p in prims if isinstance(p, Line)]
     arcs = [p for p in prims if isinstance(p, Arc)]
@@ -91,7 +92,8 @@ def test_a_double_door_is_two_half_leaves_hinged_on_both_jambs():
 
 def test_a_sliding_door_is_two_overlapping_panels_inside_the_wall():
     a, b = opening_prims(
-        WALL, Opening(id="d", wall="a", kind="sliding_door", offset=1000.0, width=1200.0)
+        WALL,
+        Opening(id="d", wall="a", kind="sliding_door", offset=1000.0, width=1200.0, frame=False),
     )
     # 65 % and 35 % of the thickness from the right face (-100): y = +30 and -30
     assert (pt(a.p1), pt(a.p2)) == ((1000.0, 30.0), (1650.0, 30.0))

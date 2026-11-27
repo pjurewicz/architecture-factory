@@ -57,6 +57,8 @@ HANDS: tuple[str, ...] = ("left", "right")
 HINGES: tuple[str, ...] = ("start", "end")
 #: The kinds ``swing_towards`` places: a hinged leaf, or a garage door's stored panels.
 SIDED_KINDS: tuple[str, ...] = ("door", "double_door", "garage_door")
+#: The kinds drawn with a door frame (see ``openings``); ``Opening.frame`` is for these.
+FRAMED_KINDS: tuple[str, ...] = ("door", "double_door", "sliding_door")
 STAIR_KINDS: tuple[str, ...] = ("straight", "l", "u")
 TURNS: tuple[str, ...] = ("left", "right")
 
@@ -88,6 +90,7 @@ class Opening:
     sill: float | None = None
     height: float | None = None
     tag: str | None = None
+    frame: bool | None = None  # None: on for openings.FRAMED_KINDS
 
 
 class OpeningArgsError(InvalidArgsError, ValueError):
@@ -242,6 +245,7 @@ _OPENING_FIELDS = (
     "sill",
     "height",
     "tag",
+    "frame",
 )
 _STAIR_FIELDS = (
     "id",
@@ -274,6 +278,7 @@ _DESCRIPTIONS: dict[type, dict[str, str]] = {
         "swing": "in: left of axis from its first point",
         "hinge": "door: start (at offset) | end",
         "swing_towards": "WCS point on the opening side",
+        "frame": "door frame; default on",
     },
 }
 _POINT_SCHEMA = {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}
@@ -471,6 +476,14 @@ def opening_from_dict(d: dict, path: str = "opening") -> Opening:
                 f"{path}: swing and swing_towards both name the side the door opens to; give one"
             )
         towards = _point(towards, f"{path}.swing_towards")
+    frame = d.get("frame")
+    if frame is not None:
+        if not isinstance(frame, bool):
+            raise ValueError(f"{path}.frame: expected true or false, got {frame!r}")
+        if kind not in FRAMED_KINDS:
+            raise OpeningArgsError(
+                f"{path}.frame: a {kind} has no frame; frame is for {', '.join(FRAMED_KINDS)}"
+            )
     return Opening(
         id=_text(_required(d, "id", path), f"{path}.id"),
         wall=_text(_required(d, "wall", path), f"{path}.wall"),
@@ -484,6 +497,7 @@ def opening_from_dict(d: dict, path: str = "opening") -> Opening:
         sill=None if sill is None else _number(sill, f"{path}.sill", allow_zero=True),
         height=None if height is None else _number(height, f"{path}.height"),
         tag=_text(tag, f"{path}.tag", optional=True),
+        frame=frame,
     )
 
 

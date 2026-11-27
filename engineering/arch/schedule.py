@@ -14,7 +14,9 @@ Rows:
   door family (door, double_door, sliding_door, garage_door, cased_opening);
   windows - tag, type, width, height, sill, wall - window and curtain_wall.
   Swing is blank for a kind that does not swing (sliding, cased), hand for
-  every kind but the single-leaf door. Sorted by tag, numbers compared as numbers (D2 before
+  every kind but the single-leaf door. Width is the opening's ``width``, the
+  structural opening (otwór w murze) - a framed door's leaf and clear passage
+  are narrower (`engineering/arch/openings.py`). Sorted by tag, numbers compared as numbers (D2 before
   D10). An opening without a tag gets the next free ``<prefix><n>`` in wall
   order (the order of ``walls``, then the offset along the wall); an explicit
   tag is never renumbered and a generated one never repeats it.

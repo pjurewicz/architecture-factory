@@ -12853,8 +12853,8 @@ async def arch_wall(
 )
 async def arch_opening(
     wall: Annotated[str, Field(description="Id of the drawn wall that hosts the opening")],
-    offset: Annotated[float, Field(description="Axis distance from first point to near jamb (mm)")],
-    width: Annotated[float, Field(description="Clear width of the opening (mm)")],
+    offset: Annotated[float, Field(description="Axis distance to near jamb (mm)")],
+    width: Annotated[float, Field(description="Structural opening (mm)")],
     kind: Annotated[
         str,
         Field(
@@ -12870,11 +12870,11 @@ async def arch_opening(
         str | None, Field(default=None, description="Hinge seen from swing side: left|right")
     ] = None,
     hinge: Annotated[
-        str | None, Field(default=None, description="Door: start (at offset) | end; not with hand")
+        str | None, Field(default=None, description="Door: start (at offset) | end")
     ] = None,
     swing_towards: Annotated[
         list[float] | None,
-        Field(default=None, description="WCS [x, y] on the opening side; not with swing"),
+        Field(default=None, description="WCS [x, y] on the opening side"),
     ] = None,
     sill: Annotated[
         float | None, Field(default=None, description="Window sill (schedule only, mm)")
@@ -12884,8 +12884,9 @@ async def arch_opening(
     ] = None,
     tag: Annotated[
         str | None,
-        Field(default=None, description="Schedule tag; default the next free D1/W1"),
+        Field(default=None, description="Schedule tag; default next free"),
     ] = None,
+    frame: Annotated[bool | None, Field(default=None, description="Door frame; default on")] = None,
     opening_id: Annotated[
         str | None, Field(default=None, description="Opening id; default its tag")
     ] = None,
@@ -12903,13 +12904,12 @@ async def arch_opening(
     ] = 50.0,
     ctx: Context = None,
 ) -> dict:
-    """A door or a window in a wall already drawn, found by its id; the wall is redrawn cut.
+    """A door or a window in a drawn wall, found by its id; the wall is redrawn cut.
 
-    Both faces are cut and closed by jambs. A door is drawn open at 90°: leaf
-    as long as the width, hinged on `hinge`/`hand`, a quarter arc on the swing
-    side (`swing_towards` or `swing`; left = left walking the axis from its
-    first point). A window is two frame and two glazing lines. Glazed/cased
-    kinds at an L's end run to the corner. The record sits on the first line.
+    A door is drawn open at 90°, its leaf hinged on `hinge`/`hand` at its
+    frame's rebate (`width` is the wall gap), a quarter arc on the swing side
+    (`swing_towards` or `swing`; left = left walking the axis). A window is two
+    frame and two glazing lines. Glazed/cased kinds at an L's end run to the corner.
 
     Details: refused before anything is drawn - an unknown wall (drawn ids named) or
     opening id already drawn; an opening past its segment, over an axis vertex,
@@ -12932,6 +12932,7 @@ async def arch_opening(
         "sill": sill,
         "height": height,
         "tag": tag,
+        "frame": frame,
     }
     await ctx.info(f"arch_opening: {kind} in wall {wall}")
     try:

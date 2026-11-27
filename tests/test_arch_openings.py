@@ -1,25 +1,36 @@
-"""Door and window symbols: hinge, leaf, swing arc, frame and glazing.
+"""Door and window symbols: hinge, leaf, swing arc, door frame and glazing.
 
 The wall runs along +X from the origin, 200 mm thick and centred, so its left
 face is y = +100 and its right face y = -100. The door is 900 wide at offset
 1000: its jambs are x = 1000 and x = 1900. For each swing/hand pair the hinge,
-the open leaf and the arc angles are written out below by hand.
+the open leaf and the arc angles are written out below by hand. The hinge
+tables are the unframed door (``frame=False``, hinged on the jamb itself);
+the frame section at the end adds the frame to the same walls.
 """
 
 from __future__ import annotations
+
+from dataclasses import replace
 
 import pytest
 
 from engineering.arch.model import Opening, Wall
 from engineering.arch.openings import opening_prims
-from engineering.mech.primitives import Arc, Line
+from engineering.mech.primitives import Arc, Line, Poly
 
 WALL = Wall(id="a", axis=((0.0, 0.0), (5000.0, 0.0)), thickness=200.0)
 
 
 def door(swing: str, hand: str) -> Opening:
     return Opening(
-        id="d1", wall="a", kind="door", offset=1000.0, width=900.0, swing=swing, hand=hand
+        id="d1",
+        wall="a",
+        kind="door",
+        offset=1000.0,
+        width=900.0,
+        swing=swing,
+        hand=hand,
+        frame=False,
     )
 
 
@@ -60,7 +71,14 @@ def test_the_leaf_is_as_long_as_the_opening_is_wide_and_square_to_the_wall():
 def test_a_door_on_a_second_segment_is_placed_along_the_whole_axis():
     bent = Wall(id="b", axis=((0.0, 0.0), (4000.0, 0.0), (4000.0, 3000.0)), thickness=200.0)
     op = Opening(
-        id="d2", wall="b", kind="door", offset=4500.0, width=800.0, swing="in", hand="right"
+        id="d2",
+        wall="b",
+        kind="door",
+        offset=4500.0,
+        width=800.0,
+        swing="in",
+        hand="right",
+        frame=False,
     )
     leaf, arc = opening_prims(bent, op)
     # segment 1 runs +Y from (4000, 0); its left normal is -X, so "in" is x < 4000
@@ -111,8 +129,14 @@ def test_a_door_on_a_t_stem_typed_in_whole_mm_hinges_exactly_on_its_jamb(kind, s
     (cut,) = geometry.cuts
     jamb_ends = {p for line in geometry.jambs for p in (line.p1, line.p2)}
     prims = opening_prims(stem, op, cut)
-    for leaf, arc in zip(prims[::2], prims[1::2], strict=True):
-        assert leaf.p1 in jamb_ends
+    frames = [p for p in prims if isinstance(p, Poly)]
+    vertices = {v for f in frames for v in f.points}
+    leaves = [p for p in prims if not isinstance(p, Poly)]
+    assert len(frames) == 2
+    for frame in frames:  # each frame stands on its jamb's own two vertices
+        assert frame.points[0] in jamb_ends and frame.points[-1] in jamb_ends
+    for leaf, arc in zip(leaves[::2], leaves[1::2], strict=True):
+        assert leaf.p1 in vertices  # the hinge is the frame's own vertex: 0.0 mm
         assert arc.center == leaf.p1
 
 
@@ -175,7 +199,7 @@ T08_HINGE = {
 }
 
 
-def t08_door(wall_name: str, reverse: bool, jamb: str, side: str):
+def t08_door(wall_name: str, reverse: bool, jamb: str, side: str, frame: bool = False):
     import math
 
     from engineering.arch.model import opening_from_dict, wall_from_dict
@@ -194,6 +218,7 @@ def t08_door(wall_name: str, reverse: bool, jamb: str, side: str):
             "width": 900,
             "hinge": T08_HINGE[(reverse, jamb)],
             "swing_towards": list(left_pt if side == "L" else right_pt),
+            "frame": frame,
         }
     )
     return wall, op
@@ -320,7 +345,13 @@ def test_a_double_and_a_garage_door_open_to_the_swing_towards_side():
     # -Y side: the right face, y = -100
     towards = (1450.0, -3000.0)
     double = Opening(
-        id="d", wall="a", kind="double_door", offset=1000.0, width=900.0, swing_towards=towards
+        id="d",
+        wall="a",
+        kind="double_door",
+        offset=1000.0,
+        width=900.0,
+        swing_towards=towards,
+        frame=False,
     )
     leaf_a, _, leaf_b, _ = opening_prims(WALL, double)
     assert (pt(leaf_a.p1), pt(leaf_a.p2)) == ((1000.0, -100.0), (1000.0, -550.0))
@@ -356,6 +387,7 @@ def test_a_hinge_by_name_on_a_t_stem_lies_exactly_on_its_jamb(hinge, towards):
         width=800.0,
         hinge=hinge,
         swing_towards=towards,
+        frame=False,
     )
     geometry = wall_geometry([host, stem], [op])
     (cut,) = geometry.cuts
@@ -365,3 +397,131 @@ def test_a_hinge_by_name_on_a_t_stem_lies_exactly_on_its_jamb(hinge, towards):
     # start is the jamb at offset 300 along the stem, end the one at 1100
     along = ((leaf.p1[0] - 953.0) * 1500.0 + (leaf.p1[1] + 550.0) * 2598.0) / 3000.0
     assert abs(along - (300.0 if hinge == "start" else 1100.0)) < 1.0
+
+
+# -- door frames (ościeżnice) -------------------------------------------------------
+#
+# The same three walls and the same 900 mm opening, now framed (the default):
+# a 50 mm frame in each jamb across the full 200 mm, its 15 x 40 mm rebate on
+# the swing-side face. The hinge is the rebate's vertex on that face, 35 mm in
+# from the jamb; the leaf is 900 - 2 x 35 = 830 long and the clear passage
+# between the stops 900 - 2 x 50 = 800. In the wall's own frame - a along the
+# axis from the jamb into the gap, o off the axis on the left normal - the
+# J1 frame on the left face is (0, 100) (35, 100) (35, 60) (50, 60) (50, -100)
+# (0, -100), and every other jamb and side mirrors it.
+
+#: wall -> (J1, u, n): the jamb at offset 1000, the axis direction, its left normal
+FRAME_WALLS = {
+    "horizontal": ((1000.0, 0.0), (1.0, 0.0), (0.0, 1.0)),
+    "vertical": ((0.0, 1000.0), (0.0, 1.0), (-1.0, 0.0)),
+    "minus_30": ((500.0 * S3, -500.0), (S3 / 2, -0.5), (0.5, S3 / 2)),
+}
+
+
+def local(wall_name: str, a: float, o: float) -> tuple[float, float]:
+    """J1 + a u + o n, by hand."""
+    (jx, jy), (ux, uy), (nx, ny) = FRAME_WALLS[wall_name]
+    return (jx + a * ux + o * nx, jy + a * uy + o * ny)
+
+
+def test_the_horizontal_frame_vertices_written_out():
+    wall, op = t08_door("horizontal", False, "J2", "L", frame=True)
+    leaf, arc, near, far = opening_prims(wall, op)
+    assert op.frame is True and isinstance(near, Poly) and near.closed and near.role == "door"
+    assert [pt(p) for p in near.points] == [
+        (1000.0, 100.0),
+        (1035.0, 100.0),
+        (1035.0, 60.0),
+        (1050.0, 60.0),
+        (1050.0, -100.0),
+        (1000.0, -100.0),
+    ]
+    assert [pt(p) for p in far.points] == [
+        (1900.0, 100.0),
+        (1865.0, 100.0),
+        (1865.0, 60.0),
+        (1850.0, 60.0),
+        (1850.0, -100.0),
+        (1900.0, -100.0),
+    ]
+    assert (pt(leaf.p1), pt(leaf.p2)) == ((1865.0, 100.0), (1865.0, 930.0))
+    assert pt(arc.center) == (1865.0, 100.0) and arc.radius == 830.0
+
+
+@pytest.mark.parametrize("wall_name", list(FRAME_WALLS))
+@pytest.mark.parametrize("jamb", ["J1", "J2"])
+@pytest.mark.parametrize("side", ["L", "R"])
+def test_a_framed_door_hangs_on_its_frames_rebate_vertex(wall_name, jamb, side):
+    wall, op = t08_door(wall_name, False, jamb, side, frame=True)
+    leaf, arc, near, far = opening_prims(wall, op)
+    s = 1.0 if side == "L" else -1.0
+    # the frame on the hinge jamb, by hand: a runs into the gap from that jamb
+    a0, sign = (0.0, 1.0) if jamb == "J1" else (900.0, -1.0)
+    hand_frame = [
+        local(wall_name, a0 + sign * a, s * o)
+        for a, o in ((0, 100), (35, 100), (35, 60), (50, 60), (50, -100), (0, -100))
+    ]
+    frame = near if jamb == "J1" else far
+    assert all(close(p, q) for p, q in zip(frame.points, hand_frame, strict=True))
+    hinge = local(wall_name, a0 + sign * 35.0, s * 100.0)
+    assert close(leaf.p1, hinge)
+    assert close(leaf.p2, local(wall_name, a0 + sign * 35.0, s * 930.0))
+    # 0.0 mm: the hinge is the frame polyline's own vertex, bit for bit
+    assert leaf.p1 in frame.points and arc.center == leaf.p1
+    assert arc.radius == pytest.approx(830.0)
+    # the arc runs from the other frame's rebate vertex (closed) to the open leaf
+    other = far if jamb == "J1" else near
+    ends = (arc_point(arc, arc.start_deg), arc_point(arc, arc.end_deg))
+    assert (close(ends[0], other.points[1]) and close(ends[1], leaf.p2)) or (
+        close(ends[0], leaf.p2) and close(ends[1], other.points[1])
+    )
+
+
+def test_frame_false_hangs_the_leaf_on_the_jamb_with_no_frame():
+    leaf, arc = opening_prims(*t08_door("horizontal", False, "J2", "L", frame=False))
+    assert (pt(leaf.p1), pt(leaf.p2)) == ((1900.0, 100.0), (1900.0, 1000.0))
+    assert arc.radius == 900.0
+
+
+def test_a_framed_double_door_splits_the_leaf_between_the_rebates():
+    op = Opening(id="d", wall="a", kind="double_door", offset=1000.0, width=1600.0)
+    leaf_a, _arc_a, leaf_b, arc_b, near, far = opening_prims(WALL, op)
+    assert (pt(leaf_a.p1), pt(leaf_a.p2)) == ((1035.0, 100.0), (1035.0, 865.0))
+    assert (pt(leaf_b.p1), pt(leaf_b.p2)) == ((2565.0, 100.0), (2565.0, 865.0))
+    assert leaf_a.p1 in near.points and leaf_b.p1 in far.points and arc_b.radius == 765.0
+
+
+def test_a_sliding_door_frame_is_plain_and_its_panels_run_between_the_frames():
+    op = Opening(id="d", wall="a", kind="sliding_door", offset=1000.0, width=1200.0)
+    a, b, near, far = opening_prims(WALL, op)
+    assert [pt(p) for p in near.points] == [
+        (1000.0, 100.0),
+        (1050.0, 100.0),
+        (1050.0, -100.0),
+        (1000.0, -100.0),
+    ]
+    assert (pt(a.p1), pt(b.p2)) == ((1050.0, 30.0), (2150.0, -30.0))
+    assert pt(far.points[1]) == (2150.0, 100.0)
+
+
+@pytest.mark.parametrize(
+    ("fields", "message"),
+    [
+        ({"kind": "window", "frame": True}, "window has no frame"),
+        ({"kind": "garage_door", "frame": False}, "garage_door has no frame"),
+        ({"frame": "yes"}, "frame: expected true or false"),
+    ],
+)
+def test_frame_is_refused_where_it_means_nothing(fields, message):
+    from engineering.arch.model import opening_from_dict
+
+    raw = {"id": "d", "wall": "a", "kind": "door", "offset": 1000, "width": 900, **fields}
+    with pytest.raises(ValueError, match=message):
+        opening_from_dict(raw, "openings[0]")
+
+
+def test_an_opening_too_narrow_for_its_frame_is_refused_by_name():
+    op = Opening(id="d9", wall="a", kind="door", offset=1000.0, width=100.0)
+    with pytest.raises(ValueError, match="opening d9: width 100 mm leaves no passage"):
+        opening_prims(WALL, op)
+    assert len(opening_prims(WALL, replace(op, frame=False))) == 2

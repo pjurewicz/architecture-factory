@@ -29,20 +29,38 @@ Conventions (this repository's, stated because plan symbols vary by office):
 * ``hinge`` is for ``door`` only (a double door hinges on both jambs, a sliding
   or garage door on neither); ``swing_towards`` for ``door``, ``double_door``
   and ``garage_door`` (where its panels are stored). Other kinds refuse them.
-* ``door`` is drawn **open at 90°**: the leaf is a line as long as the opening
-  is wide, square to the wall from the hinge, on the swing-side face; the swing
-  is a quarter arc about the hinge from the closed position to the open one.
-* ``double_door``: two such leaves, each half the width, hinged on both jambs
-  and meeting in the middle; ``hand`` does not apply.
+* ``width`` is the **structural opening** (otwór w murze): the gap the wall
+  engine cuts, the length the dimension chains measure and the width the
+  schedule lists. A frame stands inside it, so the leaf and the clear passage
+  are narrower: with the defaults below a 900 opening has a 830 leaf and a 800
+  clear passage (a Polish "80" door).
+* **Frame** (ościeżnica), ``door`` / ``double_door`` / ``sliding_door``, on by
+  default (``frame=False`` drops it): one closed polyline in each jamb, across
+  the **full wall thickness** face to face (a wrap-around frame), so it sits
+  the same in a left-, centre- or right-justified wall - it is built from the
+  cut's corners, not the axis. ``FRAME_FACE`` wide along the wall; a hinged
+  kind's frame has a rebate (przylga) ``FRAME_REBATE`` wide and
+  ``FRAME_REBATE_DEPTH`` deep on the swing-side face, which the leaf closes
+  into: the hinge is the rebate's vertex on that face. A sliding door's frame
+  is plain (nothing closes into it). Drawn at every plot scale: the leaf and
+  the passage must not change with the plot.
+* ``door`` is drawn **open at 90°**: the leaf is a line from the hinge, square
+  to the wall on the swing-side face, as long as the gap between the two
+  frames' rebate vertices (the whole width without a frame); the swing is a
+  quarter arc about the hinge from the closed position (the other frame's
+  vertex) to the open one.
+* ``double_door``: two such leaves, each half that length, hinged on both
+  jambs and meeting in the middle; ``hand`` does not apply.
 * ``sliding_door``: two panels inside the wall thickness, at 35 % and 65 % of
-  it, each half the width plus ``SLIDING_OVERLAP`` so they overlap in the
-  middle; ``swing`` and ``hand`` do not apply.
-* ``garage_door``: the door panel on the swing-side face across the opening;
+  it, each half the width between the frames plus ``SLIDING_OVERLAP`` so they
+  overlap in the middle; ``swing`` and ``hand`` do not apply.
+* ``garage_door``: no frame - a sectional door hangs on its own rails behind
+  the opening. The door panel on the swing-side face across the opening;
   with a ``height`` the open sectional door is shown above the cut plane as a
   dashed outline that deep into the swing side (an overhead door stores its
   panels about its own height behind the opening). No height, no outline.
-* ``cased_opening``: no leaf - the head above the cut plane, dashed on both
-  faces across the gap.
+* ``cased_opening``: no leaf and no frame - the head above the cut plane,
+  dashed on both faces across the gap.
 * ``window``: a frame line on each wall face across the opening and two glazing
   lines between them at the thirds of the wall thickness.
 * ``curtain_wall``: two glazing lines at 40 % and 60 % of the thickness and a
@@ -51,8 +69,8 @@ Conventions (this repository's, stated because plan symbols vary by office):
   with a jamb (or, at a corner, a jamb along the mitre line or nothing), and a
   mullion there would be the same line drawn twice.
 
-The overlap, the panel width and the fractions are drafting conventions of this
-module, not standards. The first primitive is the one `draw.py` writes the
+The overlap, the panel width, the fractions and the frame's sizes are drafting
+conventions of this module, not standards. The first primitive is the one `draw.py` writes the
 opening record on.
 """
 
@@ -63,6 +81,7 @@ from dataclasses import replace
 
 from engineering.arch.model import (
     EPS,
+    FRAMED_KINDS,
     OPENING_KINDS,
     SIDED_KINDS,
     Opening,
@@ -71,12 +90,18 @@ from engineering.arch.model import (
     segment_of,
 )
 from engineering.arch.walls import face_offsets, wall_segments
-from engineering.mech.primitives import Arc, Line, Prim, Pt
+from engineering.mech.primitives import Arc, Line, Poly, Prim, Pt
 
 #: How far the two panels of a sliding door overlap in the middle (mm).
 SLIDING_OVERLAP = 50.0
 #: The widest panel of a curtain wall between two mullions (mm).
 CURTAIN_PANEL_MAX = 1500.0
+#: A door frame's width along the wall, jamb to clear passage (mm).
+FRAME_FACE = 50.0
+#: How far the leaf laps onto the frame's stop, i.e. the rebate's width (mm).
+FRAME_REBATE = 15.0
+#: The rebate's depth from the swing-side face - the leaf's thickness (mm).
+FRAME_REBATE_DEPTH = 40.0
 
 
 def _deg(v: Pt) -> float:
@@ -89,6 +114,12 @@ def _unit(p: Pt, q: Pt) -> Pt:
 
 
 def _lerp(p: Pt, q: Pt, k: float) -> Pt:
+    """The point at fraction ``k`` from ``p`` to ``q``: ``p`` and ``q`` themselves,
+    bit for bit, at 0 and 1, so a symbol's end is the jamb's own vertex."""
+    if k == 0.0:
+        return p
+    if k == 1.0:
+        return q
     return (p[0] + (q[0] - p[0]) * k, p[1] + (q[1] - p[1]) * k)
 
 
@@ -215,15 +246,44 @@ def opening_prims(wall: Wall, opening: Opening, cut: dict | None = None) -> tupl
         return (across(0.6), across(0.4), *mullions)
     if kind == "cased_opening":
         return (Line(la, lb, "overhead"), Line(ra, rb, "overhead"))
-
     side = 1.0 if opening.swing == "in" else -1.0
     # the swing-side face across the gap, from the near jamb to the far one
     near, far = (la, lb) if side > 0 else (ra, rb)
+    back_near, back_far = (ra, rb) if side > 0 else (la, lb)
+    framed = kind in FRAMED_KINDS and opening.frame is not False
+    face = FRAME_FACE if framed else 0.0
+    lap = FRAME_REBATE if framed and kind != "sliding_door" else 0.0
+    if framed and width <= 2.0 * face:
+        raise OpeningArgsError(
+            f"opening {opening.id}: width {width:g} mm leaves no passage inside a "
+            f"{face:g} mm frame on each jamb; widen it or give frame false"
+        )
+
+    def at(a: float, k: float, *, mirrored: bool = False) -> Pt:
+        """The point ``a`` mm along the gap from the near jamb (from the far one
+        when ``mirrored``), at fraction ``k`` of the thickness from the swing-side face."""
+        t = (width - a if mirrored else a) / width
+        return _lerp(_lerp(near, far, t), _lerp(back_near, back_far, t), k)
+
+    def frame(mirrored: bool) -> Poly:
+        """One jamb's frame across the full thickness: the stop ``face`` wide, the
+        rebate cut out of it on the swing-side face; plain when ``lap`` is 0."""
+        thick = math.dist(far, back_far) if mirrored else math.dist(near, back_near)
+        k = min(FRAME_REBATE_DEPTH, thick / 2.0) / thick
+        rebate = ((face - lap, 0.0), (face - lap, k), (face, k)) if lap else ((face, 0.0),)
+        outline = ((0.0, 0.0), *rebate, (face, 1.0), (0.0, 1.0))
+        return Poly(tuple(at(a, k, mirrored=mirrored) for a, k in outline), True, "door")
+
+    frames: tuple[Prim, ...] = (frame(False), frame(True)) if framed else ()
     if kind == "sliding_door":
-        overlap = min(SLIDING_OVERLAP, width / 4.0) / width
+        clear = width - 2.0 * face
+        overlap = min(SLIDING_OVERLAP, clear / 4.0)
+        a0, a1 = face, width - face
+        mid = width / 2.0
         return (
-            Line(inside(0.0, 0.65), inside(0.5 + overlap, 0.65), "door"),
-            Line(inside(0.5 - overlap, 0.35), inside(1.0, 0.35), "door"),
+            Line(inside(a0 / width, 0.65), inside((mid + overlap) / width, 0.65), "door"),
+            Line(inside((mid - overlap) / width, 0.35), inside(a1 / width, 0.35), "door"),
+            *frames,
         )
     if kind == "garage_door":
         prims: list[Prim] = [Line(near, far, "door")]
@@ -237,12 +297,17 @@ def opening_prims(wall: Wall, opening: Opening, cut: dict | None = None) -> tupl
                 Line(far1, far, "overhead"),
             ]
         return tuple(prims)
+    # the leaf hangs on the rebate's vertex on the swing-side face: the very
+    # vertex its frame polyline is drawn through (the jamb's own without a frame)
+    hinge_near, hinge_far = at(face - lap, 0.0), at(face - lap, 0.0, mirrored=True)
+    leaf = width - 2.0 * (face - lap)
     if kind == "double_door":
-        middle = _lerp(near, far, 0.5)
+        middle = at(width / 2.0, 0.0)
         return (
-            *_leaf(near, middle, n, side, width / 2.0),
-            *_leaf(far, middle, n, side, width / 2.0),
+            *_leaf(hinge_near, middle, n, side, leaf / 2.0),
+            *_leaf(hinge_far, middle, n, side, leaf / 2.0),
+            *frames,
         )
 
-    hinge, free = (far, near) if opening.hinge == "end" else (near, far)
-    return _leaf(hinge, free, n, side, width)
+    hinge, free = (hinge_far, hinge_near) if opening.hinge == "end" else (hinge_near, hinge_far)
+    return (*_leaf(hinge, free, n, side, leaf), *frames)

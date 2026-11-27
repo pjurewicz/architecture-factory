@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Door frames (ościeżnice) in plan: `door`, `double_door` and `sliding_door`
+  get a 50 mm frame in each jamb across the full wall thickness, built from
+  the engine's cut corners (so the same in left-, centre- and right-justified
+  walls), at every plot scale. A hinged door's frame has a 15 x 40 mm rebate
+  (przylga) on the swing-side face; the leaf hangs on its vertex (0.0 mm) and
+  spans the two rebates, so a 900 opening has an 830 leaf and an 800 clear
+  passage. `width` stays the structural opening (otwór w murze) - the wall
+  gap, the chains and the schedule's WIDTH. `frame: false` per opening
+  (`arch_opening`, `arch_plan_from_spec`, `arch_plan_patch`) drops it; a
+  garage door, a cased opening and the glazed kinds get none and refuse the
+  field. The frames are owned handles of the opening's record on `A-DOOR-E-N`.
+
 - `arch_plan_patch` (T-11, pack `arch`): change a drawn plan by element id
   without redrawing it - `{"openings.D1.offset": 1200, "openings.D2.hinge":
   "end", "rooms.R2.name": "KITCHEN", "walls.INT.thickness": 120,
