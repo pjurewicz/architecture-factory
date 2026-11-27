@@ -527,6 +527,19 @@ def draw_layout(
                     pass
             return super().draw_simple_mtext(mtext, properties)
 
+        def draw_composite_entity(self, entity, properties):
+            # ezdxf draws a DIMENSION's block outside any block reference, so a
+            # ByBlock part (DIMCLRD 0, AutoCAD's ISO-25) drew in the layout's
+            # default colour and a layer-0 part on layer 0. AutoCAD resolves
+            # both from the dimension, as from an INSERT.
+            if entity.dxftype() != "DIMENSION":
+                return super().draw_composite_entity(entity, properties)
+            self.ctx.push_state(properties)
+            try:
+                return super().draw_composite_entity(entity, properties)
+            finally:
+                self.ctx.pop_state()
+
         def draw_image_entity(self, entity, properties):
             # ezdxf reads an image only from a saved drawing's folder, without
             # the path policy, and always draws its frame.

@@ -192,6 +192,33 @@ async def test_setting_a_colour_drops_a_true_colour(backend, drawn):
     assert not entity.dxf.hasattr("true_color")
 
 
+async def test_a_dimension_moved_to_another_layer_takes_its_colour_on_screen(backend):
+    """Round 3: the *D block kept the old layer, so the dimension stayed black
+    until a dimstyle change redrew it; and a ByBlock part (AutoCAD's DIMCLRD 0)
+    drew in the default colour wherever the dimension was."""
+    pytest.importorskip("matplotlib", reason="rendering needs the [pdf] extra")
+    import io
+
+    from PIL import Image
+
+    from engineering.standards.dimstyles import resolve_dimstyle
+
+    await backend.layer_create("RED", color=1)
+    values = resolve_dimstyle("iso-25", {"DIMCLRT": 0})  # the text ByBlock
+    await backend.dimstyle_create("ISO-25", values, set_current=True)
+    dim = await backend.dimension_linear(0, 0, 100, 0, 50, -20)
+    assert dim.layer == "DIM"
+    await backend.entity_modify_where({"type": "DIMENSION"}, {"layer": "RED"})
+    block = _doc(backend).entitydb[dim.handle].get_geometry_block()
+    assert {e.dxf.layer for e in block if e.dxftype() == "LINE"} == {"RED"}
+
+    report = await backend.view_render(max_px=800, background="white")
+    pixels = Image.open(io.BytesIO(report["png"])).convert("RGB").getdata()
+    dark = sum(1 for r, g, b in pixels if r < 100 and g < 100 and b < 100)
+    red = sum(1 for r, g, b in pixels if r > 200 and g < 80 and b < 80)
+    assert red > 500 and dark < red / 20, (red, dark)
+
+
 async def test_set_layer_is_spelt_as_the_table_stores_it(backend, drawn):
     result = await backend.entity_modify_where({"layer": "NOTES"}, {"layer": "walls"})
     assert result["layers_created"] == [] and result["set"]["layer"] == "Walls"

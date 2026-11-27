@@ -1496,6 +1496,18 @@ def _is_dwg_path(path: str) -> bool:
 # or refuses with that capability, naming both converters.
 
 
+def _own_layer_note(ctx, layer, payload: dict) -> dict:
+    """A semantic tool's own layer (DIM) named when it is not the current one:
+    the convention stands, but a caller who set the current layer is told."""
+    current = str(getattr(_backend(ctx), "_current_layer", "") or "")
+    if layer is None and current not in ("", "0") and payload.get("layer") not in (None, current):
+        payload["layer_note"] = (
+            f"drawn on its own layer {payload['layer']}, not the current {current}; "
+            "pass layer= to choose"
+        )
+    return payload
+
+
 def _dc(obj) -> dict:
     """Convert dataclass to dict (recursively)."""
     if hasattr(obj, "__dataclass_fields__"):
@@ -3424,7 +3436,7 @@ async def dimension_linear(
         text_override,
         text_at=text_at,
     )
-    return _dc(result)
+    return _own_layer_note(ctx, layer, _dc(result))
 
 
 @cad_tool(summary="Dimension the true distance between two points, along a slope.", cost="mutate")
@@ -3445,7 +3457,7 @@ async def dimension_aligned(
     """Create an aligned dimension that measures the true distance between two points.
     Returns `measurement`, the shown `text` and the line's signed `offset`."""
     result = await _backend(ctx).dimension_aligned(x1, y1, x2, y2, dim_x, dim_y, layer)
-    return _dc(result)
+    return _own_layer_note(ctx, layer, _dc(result))
 
 
 @cad_tool(summary="Dimension the included angle between two rays from a vertex.", cost="mutate")
@@ -3469,7 +3481,7 @@ async def dimension_angular(
     result = await _backend(ctx).dimension_angular(
         vertex_x, vertex_y, x1, y1, x2, y2, text_x, text_y, layer
     )
-    return _dc(result)
+    return _own_layer_note(ctx, layer, _dc(result))
 
 
 @cad_tool(summary="Call out the radius of a circle or arc, optionally toleranced.", cost="mutate")
@@ -3519,7 +3531,7 @@ async def dimension_radius(
         tol_mode,
         text_override,
     )
-    return _dc(result)
+    return _own_layer_note(ctx, layer, _dc(result))
 
 
 @cad_tool(
@@ -3573,7 +3585,7 @@ async def dimension_diameter(
         tol_mode,
         text_override,
     )
-    return _dc(result)
+    return _own_layer_note(ctx, layer, _dc(result))
 
 
 @cad_tool(

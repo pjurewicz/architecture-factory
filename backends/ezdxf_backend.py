@@ -6232,6 +6232,15 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             doc.layers.add(name)
         return name
 
+    def _put_dimension_on(self, ent, layer) -> None:
+        """A just-rendered DIMENSION onto its layer, its ``*D`` block with it
+        (rendered on the layer it was created on, the block kept that one's colour)."""
+        from backends.set_edits import ezdxf_dimension_follow
+
+        old = str(ent.dxf.get("layer", "0"))
+        ent.dxf.layer = self._layer_for(layer, own="DIM")
+        ezdxf_dimension_follow(ent, old, int(ent.dxf.get("color", 256)))
+
     def _apply_attrs(
         self,
         entity,
@@ -7363,7 +7372,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 dim.set_location(location, leader=True)
             dim.render()
             ent = dim.dimension
-            ent.dxf.layer = self._layer_for(layer, own="DIM")
+            self._put_dimension_on(ent, layer)
             if dimvars and (dimvars.get("dimltex1") or dimvars.get("dimltex2")):
                 _fit_ext_ltscale(self._require_doc(), dim)
                 _dim_block_ltscale(self._require_doc(), ent)
@@ -7405,7 +7414,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             )
             dim.render()
             ent = dim.dimension
-            ent.dxf.layer = self._layer_for(layer, own="DIM")
+            self._put_dimension_on(ent, layer)
             self._attach_xdata(ent, prepared)
             self._mark_dirty()
             return _dimension_drawn(ent, x1, y1)
@@ -7437,7 +7446,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             )
             dim.render()
             ent = dim.dimension
-            ent.dxf.layer = self._layer_for(layer, own="DIM")
+            self._put_dimension_on(ent, layer)
             self._mark_dirty()
             return _entity_info_dxf(ent)
 
@@ -7484,7 +7493,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             )
             dim.render()
             ent = dim.dimension
-            ent.dxf.layer = self._layer_for(layer, own="DIM")
+            self._put_dimension_on(ent, layer)
             self._attach_xdata(ent, prepared)
             self._mark_dirty()
             return _entity_info_dxf(ent)
@@ -7545,7 +7554,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             )
             dim.render()
             ent = dim.dimension
-            ent.dxf.layer = self._layer_for(layer, own="DIM")
+            self._put_dimension_on(ent, layer)
             self._attach_xdata(ent, prepared)
             self._mark_dirty()
             return _entity_info_dxf(ent)
@@ -7934,11 +7943,15 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         code = parse_lineweight(lineweight)  # refused by name before any write
 
         def _sync():
+            from backends.set_edits import ezdxf_dimension_follow
+
             ent = self._get_entity(handle)
+            old_layer, old_color = str(ent.dxf.get("layer", "0")), int(ent.dxf.get("color", 256))
             if layer is not None:
                 ent.dxf.layer = layer
             if color is not None:
                 ent.dxf.color = int(color)
+            ezdxf_dimension_follow(ent, old_layer, old_color)
             if linetype is not None:
                 _ensure_linetype_loaded(self._require_doc(), linetype)
                 ent.dxf.linetype = linetype

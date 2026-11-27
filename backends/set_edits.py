@@ -416,9 +416,36 @@ def ezdxf_differs(entity, spec: SetSpec) -> bool:
     return spec.visible is not None and bool(dxf.get("invisible", 0)) == spec.visible
 
 
+def ezdxf_dimension_follow(entity, old_layer: str, old_color: int) -> None:
+    """A DIMENSION's ``*D`` block made to follow a new layer or colour.
+
+    The headless renderer writes the block's lines, arrows and text on the
+    dimension's layer and in its colour as they were when it drew them, so a
+    dimension moved to another layer kept the old one's colour until a
+    dimstyle change redrew it (round 3). What followed the dimension then
+    follows it now; a colour its style sets (DIMCLRD / E / T) and the
+    ``Defpoints`` points stay as they are.
+    """
+    if entity.dxftype() != "DIMENSION":
+        return
+    block = entity.get_geometry_block()
+    if block is None:
+        return
+    layer, color = str(entity.dxf.get("layer", "0")), int(entity.dxf.get("color", 256))
+    for part in block:
+        if layer.lower() != old_layer.lower() and (
+            str(part.dxf.get("layer", "0")).lower() == old_layer.lower()
+        ):
+            part.dxf.layer = layer
+        if color != old_color and int(part.dxf.get("color", 256)) == old_color:
+            part.dxf.color = color
+
+
 def ezdxf_write(entity, spec: SetSpec) -> None:
-    """Write ``spec`` onto ``entity`` (a POLYLINE's vertices follow its layer)."""
+    """Write ``spec`` onto ``entity`` (a POLYLINE's vertices follow its layer,
+    a DIMENSION's block its layer and colour)."""
     dxf = entity.dxf
+    old_layer, old_color = str(dxf.get("layer", "0")), int(dxf.get("color", 256))
     if spec.layer is not None:
         dxf.layer = spec.layer
         if entity.dxftype() == "POLYLINE":
@@ -436,6 +463,7 @@ def ezdxf_write(entity, spec: SetSpec) -> None:
         dxf.lineweight = spec.lineweight
     if spec.visible is not None:
         dxf.invisible = 0 if spec.visible else 1
+    ezdxf_dimension_follow(entity, old_layer, old_color)
 
 
 def ezdxf_containers(doc) -> dict[str, tuple[str, str]]:
