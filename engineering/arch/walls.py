@@ -11,7 +11,10 @@ segments meet:
   faces are offset from each other (a thickness or justification change, or a
   rounding kink between two such walls) would mitre kilometres away; past
   ``_MITRE_REACH`` thicknesses it steps instead: both faces stop on the line
-  bisecting the join and a short face closes the step.
+  bisecting the join and a short face closes the step. Two free ends that
+  meet end to end, parallel, with their axes up to half the thicker wall apart
+  (a thickness change with one face flush) are joined at one node and step
+  the same way (`_resolve_steps`).
 * **T** - a segment ends *inside* another wall. Its axis is carried to the
   crossing axis, the crossing segment is split there, and the same rule stops
   the stem's faces on the crossing wall's near face. That face is cut where
@@ -43,7 +46,8 @@ region and, with ``poche=True``, one ``HatchArea`` in the wall's material.
 
 Refused by name before anything is computed: two walls with one id, an unknown
 material or justification, a zero-length segment, two segments that meet at
-less than ``MIN_JOIN_ANGLE_DEG`` (the mitre would run away), a wall corner that
+less than ``MIN_JOIN_ANGLE_DEG`` (the mitre would run away), a wall continuing
+another end to end with its axis more than half the thicker wall to the side, a wall corner that
 lies inside another wall off its axis, an end inside a wall whose axis would
 have to run past that wall's end to meet it, a segment that lies wholly
 inside the wall it joins, and one too short for its junctions (its outline
@@ -294,16 +298,63 @@ def _refuse_shallow(walls, one: _Seg, other: _Seg, u: Pt, v: Pt) -> None:
         )
 
 
-def _resolve_tees(walls, pos, segs, tol: float) -> None:
-    """Carry every axis end that stops inside another wall onto that wall's axis, and split it."""
+def _touching(segs) -> dict[tuple[int, int], list[_Seg]]:
     touching: dict[tuple[int, int], list[_Seg]] = {}
     for seg in segs:
         touching.setdefault(seg.va, []).append(seg)
         touching.setdefault(seg.vb, []).append(seg)
+    return touching
+
+
+def _resolve_steps(walls, pos, segs, tol: float) -> dict[tuple[int, int], tuple[int, int]]:
+    """Pair the free ends where one wall continues another with its axis offset sideways.
+
+    Two free axis ends that meet end to end, their segments parallel (below
+    ``MIN_JOIN_ANGLE_DEG``) and running apart, with their axes up to half the
+    thicker wall apart: a thickness change (24 cm to 16 cm, one face flush) or
+    a shifted axis. They join at one node and step there like a straight join
+    whose faces do not line up. A larger offset whose faces still overlap is
+    refused - it is no continuation of the wall. ``{vertex: partner vertex}``,
+    both ways.
+    """
+    touching = _touching(segs)
+    free = {vertex: mine[0] for vertex, mine in touching.items() if len(mine) == 1}
+    steps: dict[tuple[int, int], tuple[int, int]] = {}
+    for (v1, s1), (v2, s2) in itertools.combinations(free.items(), 2):
+        if s1 is s2:
+            continue
+        p, q = pos[v1], pos[v2]
+        if math.dist(p, q) <= tol:
+            continue  # one node already
+        u1 = _unit(pos[s1.vb] if s1.va == v1 else pos[s1.va], p)  # arriving at p
+        u2 = _unit(q, pos[s2.vb] if s2.va == v2 else pos[s2.va])  # leaving q
+        if _dot(u1, u2) <= 0.0 or _line_angle(u1, u2) >= MIN_JOIN_ANGLE_DEG:
+            continue
+        if abs(_dot(_sub(q, p), u1)) > tol:
+            continue  # not end to end
+        offset = abs(_cross(u1, _sub(q, p)))
+        t1, t2 = s1.left - s1.right, s2.left - s2.right
+        if offset <= max(t1, t2) / 2.0 + tol:
+            steps[v1], steps[v2] = v2, v1
+        elif offset < (t1 + t2) / 2.0 - tol:
+            raise ValueError(
+                f"{_name(walls, s2.wall)} continues {_name(walls, s1.wall)} at "
+                f"({p[0]:g}, {p[1]:g}) with its axis {offset:g} mm to the side; a step joins "
+                f"walls whose axes are at most half the thicker wall ({max(t1, t2) / 2:g} mm) "
+                "apart - align the axes or join the walls at a corner."
+            )
+    return steps
+
+
+def _resolve_tees(walls, pos, segs, tol: float, steps: dict) -> None:
+    """Carry every axis end that stops inside another wall onto that wall's axis, and split it."""
+    touching = _touching(segs)
     for vertex, mine in touching.items():
         for other in segs:
             if any(other is seg for seg in mine):
                 continue
+            if steps.get(vertex) in (other.va, other.vb):
+                continue  # a step: joined end to end, not a T
             p = pos[vertex]
             a, b = pos[other.va], pos[other.vb]
             if math.dist(p, a) <= tol or math.dist(p, b) <= tol:
@@ -417,7 +468,8 @@ def _build(walls: Sequence[Wall], openings: Sequence[Opening], join_tol: float) 
     openings = list(openings)
     _validate(walls, openings, join_tol)
     pos, segs = _segments(walls)
-    _resolve_tees(walls, pos, segs, join_tol)
+    steps = _resolve_steps(walls, pos, segs, join_tol)
+    _resolve_tees(walls, pos, segs, join_tol, steps)
     _resolve_crossings(walls, pos, segs, join_tol)
     pieces = _pieces(walls, pos, segs, join_tol)
 
@@ -443,8 +495,20 @@ def _build(walls: Sequence[Wall], openings: Sequence[Opening], join_tol: float) 
                 piece.nodes[end] = len(nodes)
                 nodes.append(point)
                 ends.append([(piece, end)])
+    # the two free ends of a step are one node; the step below draws it. The node
+    # stays at the first end: both lie on the square cut through it.
+    node_of = {_key(node): k for k, node in enumerate(nodes)}
+    for vertex, partner in steps.items():
+        k1, k2 = node_of.get(_key(pos[vertex])), node_of.get(_key(pos[partner]))
+        if vertex < partner and k1 is not None and k2 is not None:
+            if len(ends[k1]) == len(ends[k2]) == 1:
+                piece, end = ends[k2].pop()
+                piece.nodes[end] = k1
+                ends[k1].append((piece, end))
 
     for node, members in zip(nodes, ends, strict=True):
+        if not members:
+            continue
         if len(members) == 1:
             piece, end = members[0]
             origin, _u, n, left, right = _outgoing(piece, end)

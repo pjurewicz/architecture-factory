@@ -159,6 +159,39 @@ def test_a_justification_change_on_a_straight_axis_steps_across_the_node():
     }
 
 
+@pytest.mark.parametrize("reverse", [False, True])
+def test_a_thinner_wall_continuing_with_its_axis_offset_steps_at_the_shared_end(reverse):
+    # 240 then 160, both centred, the top faces flush at y = 120: b's axis lies
+    # 40 mm above a's. It was refused as a 0° junction.
+    b_axis = ((6000, 40), (3000, 40)) if reverse else ((3000, 40), (6000, 40))
+    geo = wall_geometry(
+        [wall("a", (0, 0), (3000, 0), thickness=240.0), wall("b", *b_axis, thickness=160.0)]
+    )
+    assert segs(geo.faces) == {
+        S(0, 120, 3000, 120),
+        S(3000, 120, 6000, 120),  # flush: no step on top
+        S(0, -120, 3000, -120),
+        S(3000, -120, 3000, -40),  # the step, square across the shared end
+        S(3000, -40, 6000, -40),
+    }
+    assert segs(geo.jambs) == {S(0, -120, 0, 120), S(6000, -40, 6000, 120)}
+    assert {ring(r) for r in geo.regions} == {
+        ring([(0, -120), (3000, -120), (3000, 120), (0, 120)]),
+        ring([(3000, -40), (6000, -40), (6000, 120), (3000, 120)]),
+    }
+    assert all(signed_area(r) > 0 for r in geo.regions)
+
+
+def test_an_axis_offset_beyond_half_the_thicker_wall_is_refused_by_name():
+    with pytest.raises(ValueError, match=r"axis 150 mm to the side.*half the thicker wall \(120"):
+        wall_geometry(
+            [
+                wall("a", (0, 0), (3000, 0), thickness=240.0),
+                wall("b", (3000, 150), (6000, 150), thickness=160.0),
+            ]
+        )
+
+
 def test_a_rounding_kink_steps_like_the_straight_join_instead_of_mitring_kilometres_away():
     # 0.5 mm over 3 m: the faces 200 mm apart would meet at x = 1 203 000
     geo = wall_geometry(

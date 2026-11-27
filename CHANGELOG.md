@@ -164,6 +164,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A wall that changes thickness with its axis shifted (24 cm to 16 cm, one
+  face flush) was refused as "a junction below 5°". Two free wall ends that
+  meet end to end, parallel, with their axes at most half the thicker wall
+  apart now join at one node and step there: both faces stop on the square
+  cut through the shared end, and a short face closes the step. A larger
+  offset whose faces still overlap is refused by name, with the offset and
+  the limit.
 - `untrimmed_corner` reported a door on a skewed wall (-30°) as an untrimmed
   corner "0.000 mm apart": when the wall engine snaps a wall end onto another
   axis, the door leaf's hinge and its jamb differ by float noise (~1e-8 mm).

@@ -302,6 +302,30 @@ async def test_a_door_on_a_wall_at_minus_30_degrees_is_no_untrimmed_corner(backe
 
 
 @pytest.mark.asyncio
+async def test_a_thickness_step_closes_the_room_and_leaves_no_gap_or_corner(backend):
+    # The bottom wall changes from 240 to 160 at x = 3000, its outer faces flush
+    # (axis 40 mm lower): the room's floor line steps from y = 120 to y = 40.
+    from engineering.arch.rooms import rooms_detect
+    from engineering.arch.spec import draw_plan_from_spec
+    from engineering.critique import run_critique
+
+    spec = {
+        "walls": [
+            {"id": "S1", "axis": [[0, 4000], [0, 0], [3000, 0]], "thickness": 240},
+            {"id": "S2", "axis": [[3000, -40], [6000, -40], [6000, 4000]], "thickness": 160},
+            {"id": "N", "axis": [[0, 4000], [6000, 4000]], "thickness": 240},
+        ],
+        "rooms": [{"id": "R1", "name": "ROOM", "number": "01", "at": [3000, 2000]}],
+    }
+    await draw_plan_from_spec(backend, spec)
+
+    focuses = ["arch_wall_gap", "untrimmed_corner", "arch_room_unlabelled"]
+    assert await run_critique(backend, focuses) == []
+    (room,) = (await rooms_detect(backend))["rooms"]
+    assert room["area"] == pytest.approx(2880 * 3760 + 2920 * 3840, abs=1.0)
+
+
+@pytest.mark.asyncio
 async def test_a_plan_in_model_space_is_read_while_a_paper_sheet_is_current(backend):
     # arch_plan_from_spec draws into model space; a sheet made current
     # afterwards must not turn every arch focus into domain_absent.
