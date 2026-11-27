@@ -194,10 +194,28 @@ def _suppress(text: str, leading: bool, trailing: bool) -> str:
     return sign + (text or "0")
 
 
+def round_step_half_up(value: float, rounding: float) -> float:
+    """``value`` to the nearest multiple of ``rounding``, a tie away from zero -
+    AutoCAD's DIMRND rule (round 4: 12.5 at DIMRND 1 is "13" on the source
+    sheet; Python's ``round`` gave "12"). 0 rounds to a whole number, as
+    ``ezdxf.math.xround`` does."""
+    factor = 1.0 / float(rounding) if rounding else 1.0
+    scaled = abs(float(value)) * factor
+    whole = math.floor(scaled + 0.5 + 1e-9)
+    return math.copysign(whole / factor, value) if whole else 0.0
+
+
+def install_renderer_rounding() -> None:
+    """Make ezdxf's linear-dimension renderer round DIMRND the same way, so the
+    ``*D`` block and :func:`display` never disagree on a tie."""
+    from ezdxf.render import dim_base
+
+    dim_base.xround = round_step_half_up
+
+
 def _rounded(value: float, rounding: float) -> float:
     if rounding and rounding > 0:
-        factor = 1.0 / float(rounding)
-        return round(value * factor) / factor
+        return round_step_half_up(value, rounding)
     return value
 
 

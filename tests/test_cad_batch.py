@@ -1725,3 +1725,44 @@ async def test_an_undo_reports_what_it_took_back_and_a_diff_that_matches(client)
     await _batch(client, dims, label="again")
     direct = (await client.call_tool("drawing_undo", {})).structured_content
     assert direct["undone"] == [{"tool": "dimension_linear", "count": 3, "label": "again"}]
+
+
+async def test_many_chains_in_one_call_share_their_parameters(client):
+    """Round 4 (A8b): 79 chains were 79 dimension_chain steps repeating
+    overall=false; one call, a bad chain named by index, nothing drawn."""
+    before = await _entity_count(client)
+    bad = await client.call_tool(
+        "call_tool",
+        {
+            "name": "dimension_chain",
+            "arguments": {
+                "overall": False,
+                "chains": [
+                    {"points": [[0, 0], [100, 0], [250, 0]], "offset": 20},
+                    {"points": [[0, 0]], "offset": 20},
+                ],
+            },
+        },
+        raise_on_error=False,
+    )
+    assert bad.is_error and "chains[1]" in bad.content[0].text
+    assert await _entity_count(client) == before
+    done = (
+        await client.call_tool(
+            "call_tool",
+            {
+                "name": "dimension_chain",
+                "arguments": {
+                    "overall": False,
+                    "chains": [
+                        {"points": [[0, 0], [100, 0], [250, 0]], "offset": 20},
+                        {"points": [[0, 0], [0, 300]], "offset": -20, "overall": True},
+                    ],
+                },
+            },
+        )
+    ).structured_content
+    counts = [row["count"] for row in done["chains"]]
+    assert counts[0] == 2, "the shared overall=False holds for the first chain"
+    assert counts[1] >= 1
+    assert await _entity_count(client) == before + done["count"]

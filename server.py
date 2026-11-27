@@ -3689,17 +3689,17 @@ async def dimension_diameter(
 )
 async def dimension_chain(
     points: Annotated[
-        list[list[float]],
+        list[list[float]] | None,
         Field(description="Points to chain, [[x, y], ...] in any order (at least two)"),
-    ],
+    ] = None,
     offset: Annotated[
-        float,
+        float | None,
         Field(
             description="Dimension line distance beyond the outermost point: + above a "
             "horizontal chain, right of a vertical one, left of an aligned one (first->last); "
             "0: on the points, texts above / left"
         ),
-    ],
+    ] = None,
     orientation: Annotated[
         str,
         Field(
@@ -3761,12 +3761,19 @@ async def dimension_chain(
             description="Row text: {'0': 'OŚ <>', 'overall': ...}; <> = the value",
         ),
     ] = None,
+    chains: Annotated[
+        list[dict] | None,
+        Field(default=None, description="Many chains: [{points, offset, ...}], the rest shared"),
+    ] = None,
     ctx: Context = None,
 ) -> dict:
     """One continuous chain of linear DIMENSIONs through any points (a section's
     steps, a detail, polyline vertices), sharing one dimension line, plus the
     overall size. Points are projected on the chain direction and sorted; points
-    on one station are merged (`merged`).
+    on one station are merged (`merged`). `chains=[{points, offset, ...}]` draws
+    many in one call, the other arguments shared.
+
+    Details:
 
     A text wider than its span (e.g. 60 / 105 at 1:20) is staggered onto
     alternating tiers beyond the line, else slid to the nearest free place with
@@ -3779,6 +3786,23 @@ async def dimension_chain(
     """
     from engineering.dimension_chain import draw_chain
 
+    shared = {
+        "orientation": orientation,
+        "overall": overall,
+        "step": step,
+        "scale": scale,
+        "layer": layer,
+        "leader": leader,
+        "merge_repeats": merge_repeats,
+        "axis": axis,
+        "ext_length": ext_length,
+        "style": style,
+        "texts": texts,
+    }
+    if chains is not None:
+        return await _dimension_chains(_backend(ctx), chains, shared, points, offset, dry_run)
+    if points is None or offset is None:
+        raise InvalidArgsError("invalid_args: dimension_chain needs points and offset, or chains")
     try:
         return await draw_chain(
             _backend(ctx),
@@ -3798,14 +3822,51 @@ async def dimension_chain(
             texts=texts,
         )
     except ValueError as exc:
-        from engineering.errors import InvalidArgsError
-
         raise InvalidArgsError(f"invalid_args: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------
 # ── SECTION 4: Entity Modification (20 tools) ───────────────────────────────
 # ---------------------------------------------------------------------------
+
+
+async def _dimension_chains(backend, chains, shared: dict, points, offset, dry_run) -> dict:
+    """``dimension_chain(chains=[...])`` (round 4: 79 chains were 79 steps
+    repeating overall=false): each chain's keys over the shared ones; every
+    chain planned (a dry run) before any is drawn, so a bad one draws nothing
+    and is named by its index."""
+    from engineering.dimension_chain import draw_chain
+
+    if points is not None or offset is not None:
+        raise InvalidArgsError("invalid_args: give points / offset inside each chain, not beside")
+    if not isinstance(chains, list) or not chains:
+        raise InvalidArgsError("invalid_args: chains: give at least one {points, offset}")
+    allowed = {"points", "offset", *shared}
+    jobs = []
+    for i, chain in enumerate(chains):
+        if not isinstance(chain, dict) or not {"points", "offset"} <= set(chain):
+            raise InvalidArgsError(f"invalid_args: chains[{i}]: expected {{points, offset, ...}}")
+        extra = sorted(set(chain) - allowed)
+        if extra:
+            raise InvalidArgsError(f"invalid_args: chains[{i}]: unknown key(s) {extra}")
+        jobs.append({**shared, **chain})
+    for i, job in enumerate(jobs):
+        try:
+            await draw_chain(backend, **{**job, "dry_run": True})
+        except ValueError as exc:
+            raise InvalidArgsError(f"invalid_args: chains[{i}]: {exc}") from exc
+    rows = []
+    for job in jobs:
+        done = await draw_chain(backend, **{**job, "dry_run": dry_run})
+        row = {k: done[k] for k in ("count", "handles") if k in done}
+        row.update({k: done[k] for k in ("warnings", "merged", "repeats") if done.get(k)})
+        rows.append(row)
+    return {
+        "ok": True,
+        "chains": rows,
+        "count": sum(r.get("count", 0) for r in rows),
+        **({"dry_run": True} if dry_run else {}),
+    }
 
 
 @cad_tool(summary="Shift an entity by a displacement vector.", cost="mutate")
@@ -13261,13 +13322,20 @@ async def file_upload_url(
             "MCP_AUTH_TOKEN); put the file inside ALLOWED_PATHS another way."
         )
     token = uploads.issue_ticket(name)
-    return {
+    result = {
         "ok": True,
         "upload_url": f"{base}{uploads.UPLOAD_PATH}/{token}",
         "method": "POST",
         "expires_in_s": uploads.UPLOAD_LINK_TTL_S,
         "max_bytes": int(config.settings.upload_max_bytes),
     }
+    if str(name).lower().endswith((".png", ".jpg", ".jpeg", ".tif", ".tiff")):
+        # round 4: agents measured a scan outside the server, not knowing this
+        result["measure"] = (
+            "To measure on this scan: view_screenshot(overlay_image=, overlay_align=) "
+            "to calibrate, then image_map(align, pixels, measure=True) - lengths in drawing units."
+        )
+    return result
 
 
 @cad_tool(summary="Attach a raster image (PNG/JPG) as an underlay.", cost="mutate")

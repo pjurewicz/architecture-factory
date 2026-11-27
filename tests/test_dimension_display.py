@@ -89,6 +89,10 @@ def test_dimdec_0_shows_20_over_19_6_and_says_how_far_it_rounded():
         (19.6, {"dimpost": " mm"}, 0, "19.6 mm"),  # no <>: a suffix
         (19.6, {"dimrnd": 0.5, "dimdec": 1}, 0, "19.5"),
         (19.6, {"dimrnd": 5.0, "dimdec": 0}, 0, "20"),
+        # round 4: a DIMRND tie rounds away from zero, as AutoCAD drew the source
+        (12.5, {"dimrnd": 1.0, "dimdec": 0}, 0, "13"),
+        (164.25, {"dimrnd": 0.5, "dimdec": 1}, 0, "164.5"),
+        (-12.5, {"dimrnd": 1.0, "dimdec": 0}, 0, "-13"),
         (20.0, {}, 3, "Ø20"),  # diameter prefix
         (10.0, {}, 4, "R10"),  # radius prefix
         (45.0, {"dimadec": 0, "dimazin": 0}, 2, "45°"),
@@ -622,3 +626,19 @@ async def test_a_linear_dimension_without_rotation_orients_like_dimlinear(
     dim = await backend.dimension_linear(*points, *at)
     entity = backend._doc.entitydb[dim.handle]
     assert entity.get_measurement() == pytest.approx(expected)
+
+
+@pytest.mark.asyncio
+async def test_a_dimrnd_tie_draws_what_autocad_draws_and_the_truth_focus_agrees(backend):
+    """Round 4 (A8a): 12.5 at DIMRND 1 rendered "12"; the source sheet says "13"."""
+    from engineering.critique import run_critique
+
+    await backend.dimstyle_modify("Standard", {"DIMRND": 1.0, "DIMDEC": 0})
+    dim = await backend.dimension_linear(0, 0, 12.5, 0, 6, -5)
+    block = backend._doc.blocks.get(backend._doc.entitydb[dim.handle].dxf.geometry)
+    shown = [
+        e.plain_text() if e.dxftype() == "MTEXT" else e.dxf.text for e in block.query("TEXT MTEXT")
+    ]
+    assert shown == ["13"]
+    truth = await run_critique(backend, focus=["dimension_truth"])
+    assert [i for i in truth if i.severity != "info"] == []

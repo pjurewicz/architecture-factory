@@ -268,7 +268,11 @@ async def test_an_attached_upload_survives_the_sweep(monkeypatch, tmp_path):
 async def _link(mcp, name: str) -> str:
     result = await mcp.call_tool("file_upload_url", {"name": name})
     payload = result.structured_content
-    assert set(payload) == {"ok", "upload_url", "method", "expires_in_s", "max_bytes"}
+    keys = {"ok", "upload_url", "method", "expires_in_s", "max_bytes"}
+    # round 4 (B3): a raster's answer points at image_map, where measuring is
+    raster = name.lower().endswith((".png", ".jpg", ".jpeg", ".tif", ".tiff"))
+    assert set(payload) == (keys | {"measure"} if raster else keys)
+    assert not raster or "image_map" in payload["measure"]
     assert RW not in json.dumps(payload) and RO not in json.dumps(payload), "no bearer token"
     return payload["upload_url"].removeprefix(BASE)
 

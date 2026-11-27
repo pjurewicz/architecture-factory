@@ -2009,6 +2009,12 @@ class _DirtyField(_ActiveField):
 # ---------------------------------------------------------------------------
 
 
+# round 4: DIMRND ties round away from zero, as AutoCAD (engineering/dimtext.py)
+from engineering.dimtext import install_renderer_rounding  # noqa: E402
+
+install_renderer_rounding()
+
+
 class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
     """File-based ezdxf backend – no live AutoCAD needed."""
 

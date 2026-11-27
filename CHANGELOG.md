@@ -45,6 +45,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed (round 4)
 
+- A DIMRND tie rounds away from zero, as AutoCAD: 12.5 at DIMRND 1 is "13"
+  (it was "12", Python's round-half-even, in the renderer and in
+  `dimension_truth`'s formatter alike - both changed together).
+  DIMRND 0.5 showing "164.5" is that rounding, not a fault.
+- `dimension_chain(chains=[{points, offset, ...}])` draws many chains in one
+  call, the other arguments shared; every chain is planned first, so a bad
+  one is refused by index with nothing drawn.
+- `file_upload_url` for a PNG / JPG / TIFF says how to measure on it
+  (`view_screenshot` overlay calibration, then `image_map`); its checks are
+  unchanged.
+
 - `drawing_undo`'s change summary read phantom deletions: the incremental
   summary put a new block's BLOCK / ENDBLK, an INSERT's ATTRIBs and the
   SORTENTSTABLE's dictionary in its map, which a replaced document's map never
