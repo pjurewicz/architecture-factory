@@ -2341,8 +2341,8 @@ async def drawing_info(ctx: Context) -> dict:
 async def drawing_new(
     template: Annotated[
         str | None,
-        "Bundled template name (drawing_template_list: iso_a3_mech, iso_a1_arch, iso_a3_pid, "
-        "ansi_b_mech, ansi_d_arch) or a path to a .dwt/.dxf template file.",
+        "Bundled template name (drawing_template_list: iso_a3_mech, iso_a1_arch, iso_a2_arch, "
+        "iso_a3_pid, ansi_b_mech, ansi_d_arch) or a path to a .dwt/.dxf template file.",
     ] = None,
     bootstrap: Annotated[
         bool,
@@ -2360,7 +2360,7 @@ async def drawing_new(
     given and read as DXF. The result carries `template: {name|path, path, source}`.
 
     Refused before anything is replaced: a bare name that is not in the
-    catalogue (the message lists the five), a template path that does not
+    catalogue (the message lists the six), a template path that does not
     exist, and a path outside the allowed directories. With `bootstrap=True`
     (default) the standard engineering linetypes and layers are ensured
     afterwards — idempotent on a template that already has them.
@@ -10542,7 +10542,7 @@ async def batch_plot(
 
 
 @cad_tool(
-    summary="List the five bundled drawing templates: standard, sheet, layers, styles, page setup.",
+    summary="List the six bundled drawing templates: standard, sheet, layers, styles, page setup.",
     cost="read",
 )
 @mcp.tool(
@@ -10555,9 +10555,9 @@ async def drawing_template_list(ctx: Context = None) -> dict:
     Each row: `standard` (ISO/ANSI), `sheet`, `paper`, `layout` (the sheet tab's
     name), `layer_set` (mech / pid / iso13567), `dimstyle` / `textstyle`
     (ISO-25 / ISOCP or ANSI / ROMANS), `scale`, `title_block` (the ISO 5457 A3
-    frame, A3 sheets only), the `settings` applied, and `files.dxf` /
-    `files.dwt` with `present` flags. Never
-    refuses; it reads a catalogue.
+    frame, A3 sheets only), `ctb` (the page setup's plot style), the
+    `settings` applied, and `files.dxf` / `files.dwt` with `present` flags.
+    Never refuses; it reads a catalogue.
     """
     from engineering.standards.templates import TEMPLATES_DIR, template_rows
 

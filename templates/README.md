@@ -1,6 +1,6 @@
 # Bundled drawing templates
 
-Five templates, built by the server's own tools — never hand-edited — and
+Six templates, built by the server's own tools — never hand-edited — and
 listed by `drawing_template_list`. Start from one with
 `drawing_new(template="iso_a3_mech")`.
 
@@ -8,6 +8,7 @@ listed by `drawing_template_list`. Start from one with
 |---|---|---|---|---|---|
 | `iso_a3_mech` | ISO | A3 landscape, ISO 5457 frame + ISO 7200 title block | mech | ISO-25 / ISOCP | ISO_A3, monochrome.ctb, 1:1 |
 | `iso_a1_arch` | ISO | A1 landscape | iso13567 | ISO-25 / ISOCP, annotation scale 1:50 | ISO_A1, monochrome.ctb, fit |
+| `iso_a2_arch` | ISO | A2 landscape | iso13567 | ISO-25 / ISOCP, annotation scale 1:50 | ISO_A2, arch_monochrome.ctb, fit |
 | `iso_a3_pid` | ISO | A3 landscape, ISO 5457 frame + title block | pid | ISO-25 / ISOCP | ISO_A3, monochrome.ctb, 1:1 |
 | `ansi_b_mech` | ANSI (metric) | ANSI B landscape | mech | ANSI / ROMANS | ANSI_B, monochrome.ctb, 1:1 |
 | `ansi_d_arch` | ANSI (metric) | ANSI D landscape | iso13567 | ANSI / ROMANS | ANSI_D, monochrome.ctb, fit |
@@ -23,8 +24,9 @@ listed by `drawing_template_list`. Start from one with
   `$TDUPDATE`, `$FINGERPRINTGUID`, `$VERSIONGUID` and the two `EZDXF_META`
   entries are masked; everything else must be byte-identical).
   `tests/test_templates.py` runs the same check.
-- `<name>.dwt` — a DWG-container twin of each DXF, built once on AutoCAD 2026
-  by upstream and committed. The server never opens it (`drawing_new` resolves
+- `<name>.dwt` — a DWG-container twin of each upstream DXF, built once on
+  AutoCAD 2026 by upstream and committed (`iso_a2_arch` was added in this fork
+  and has none: `files.dwt.present` is false). The server never opens it (`drawing_new` resolves
   a catalogue name to the `.dxf`); `drawing_template_list` reports it under
   `files.dwt`, and the benchmark task `dwg_headless_roundtrip` reads one as a
   DWG through the ODA File Converter. No headless library writes DWT, so the

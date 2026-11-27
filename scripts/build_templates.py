@@ -19,7 +19,7 @@ eight — DIMTAD, DIMTIH, DIMTOH, DIMEXE, DIMEXO, DIMGAP, DIMLUNIT, DIMLWD/E —
 were a header-only no-op: measured, ``ansi_b_mech`` dimensioned with ISO text
 placement headlessly while AutoCAD honoured the header). Both engines now
 dimension the same template the same way; the final task re-runs this script
-after the S merge and re-commits the five files.
+after the S merge and re-commits the files.
 
 ``--check`` rebuilds into a temporary folder and compares line by line after
 masking the values ezdxf cannot keep constant — measured on 2026-09-16, exactly
@@ -189,7 +189,7 @@ async def build_template(spec: TemplateSpec, out_dir: Path) -> dict:
         setup = resolve_page_setup(
             spec.paper,
             spec.orientation,
-            "monochrome.ctb",
+            spec.ctb,
             spec.scale,
             "layout",
             "DWG To PDF.pc3",

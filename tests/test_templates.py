@@ -18,7 +18,14 @@ from engineering.standards.templates import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-NAMES = ("iso_a3_mech", "iso_a1_arch", "iso_a3_pid", "ansi_b_mech", "ansi_d_arch")
+NAMES = (
+    "iso_a3_mech",
+    "iso_a1_arch",
+    "iso_a2_arch",
+    "iso_a3_pid",
+    "ansi_b_mech",
+    "ansi_d_arch",
+)
 
 
 def _build_module():
@@ -47,7 +54,7 @@ class _Ctx:
 # ── catalogue ───────────────────────────────────────────────────────────────
 
 
-def test_catalog_has_the_five_spec_rows():
+def test_catalog_has_the_six_spec_rows():
     assert tuple(TEMPLATE_CATALOG) == NAMES
     rows = {spec.name: spec for spec in TEMPLATE_CATALOG.values()}
     assert (rows["iso_a3_mech"].paper, rows["iso_a3_mech"].layer_set) == ("ISO_A3", "mech")
@@ -58,6 +65,7 @@ def test_catalog_has_the_five_spec_rows():
     assert (rows["ansi_d_arch"].paper, rows["ansi_d_arch"].scale) == ("ANSI_D", "fit")
     assert [spec.title_block for spec in TEMPLATE_CATALOG.values()] == [
         True,
+        False,
         False,
         True,
         False,
@@ -85,7 +93,8 @@ def test_resolve_template_bundled_path_and_unknown(tmp_path):
     assert resolve_template(str(explicit)) == (str(explicit), "path")
     assert resolve_template("sheet.dxf") == ("sheet.dxf", "path")
     with pytest.raises(
-        ValueError, match="iso_a3_mech, iso_a1_arch, iso_a3_pid, ansi_b_mech, ansi_d_arch"
+        ValueError,
+        match="iso_a3_mech, iso_a1_arch, iso_a2_arch, iso_a3_pid, ansi_b_mech, ansi_d_arch",
     ):
         resolve_template("iso_a2_mech")
     with pytest.raises(ValueError, match="template"):
@@ -154,6 +163,22 @@ async def test_drawing_new_from_the_pid_and_ansi_templates(backend):
     row = (await backend.page_setup_list("D"))[0]
     assert row["paper"] == "ANSI_D" and row["size_mm"] == [864.0, 559.0] and row["scale"] == "fit"
     assert (await backend.drawing_settings())["settings"]["decimal_separator"] == "."
+
+
+@pytest.mark.asyncio
+async def test_drawing_new_from_the_a2_arch_template(backend):
+    result = await server.drawing_new(template="iso_a2_arch", ctx=_Ctx(backend))
+    assert result["template"]["source"] == "bundled"
+    assert "M-GEOMET-E-N" in {layer.name for layer in await backend.layer_list()}
+    row = (await backend.page_setup_list("A2"))[0]
+    assert (row["paper"], row["orientation"], row["size_mm"]) == (
+        "ISO_A2",
+        "landscape",
+        [594.0, 420.0],
+    )
+    assert (row["margins_mm"], row["plot_style"]) == ([0.0, 0.0, 0.0, 0.0], "arch_monochrome.ctb")
+    assert row["scale"] == "fit"
+    assert (await backend.drawing_settings())["settings"]["annotation_scale"]["name"] == "1:50"
 
 
 #: Spec §4.1, the eight variables `_with_header_dimvars` does not fold — the
@@ -233,7 +258,7 @@ async def test_drawing_new_from_an_explicit_dxf_path_reports_source_path(backend
 @pytest.mark.asyncio
 async def test_drawing_template_list_tool(backend):
     result = await server.drawing_template_list(ctx=_Ctx(backend))
-    assert result["ok"] and result["count"] == 5
+    assert result["ok"] and result["count"] == 6
     assert [row["name"] for row in result["templates"]] == list(NAMES)
     assert result["engine"] == "ezdxf"
 

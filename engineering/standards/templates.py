@@ -1,4 +1,4 @@
-"""The five bundled drawing templates: what each contains, where its files live.
+"""The six bundled drawing templates: what each contains, where its files live.
 
 Built by ``scripts/build_templates.py`` through the server's own backend
 (layers, styles, settings, the ISO 5457 A3 frame where the sheet is A3, page
@@ -47,6 +47,7 @@ class TemplateSpec:
     textstyle: str  # "ISOCP" | "ROMANS"
     scale: str  # page setup scale label
     title_block: bool
+    ctb: str = "monochrome.ctb"  # page setup plot style table
     settings: dict = field(default_factory=dict)  # drawing_settings facade keys
     description: str = ""
 
@@ -85,6 +86,23 @@ TEMPLATE_CATALOG: dict[str, TemplateSpec] = {
             title_block=False,
             settings={**_ISO_SETTINGS, "annotation_scale": "1:50"},
             description="ISO A1 architectural sheet, ISO 13567 layers, 1:50 annotation",
+        ),
+        TemplateSpec(
+            name="iso_a2_arch",
+            standard="ISO",
+            sheet="A2 landscape",
+            paper="ISO_A2",
+            orientation="landscape",
+            layout="A2",
+            layer_set="iso13567",
+            dimstyle_preset="iso-25",
+            dimstyle="ISO-25",
+            textstyle="ISOCP",
+            scale="fit",
+            title_block=False,
+            ctb="arch_monochrome.ctb",
+            settings={**_ISO_SETTINGS, "annotation_scale": "1:50"},
+            description="ISO A2 architectural sheet, ISO 13567 layers, 1:50 annotation",
         ),
         TemplateSpec(
             name="iso_a3_pid",

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A sixth bundled template, `iso_a2_arch`: `drawing_new(template="iso_a2_arch")`
+  starts an ISO A2 landscape architectural sheet built like `iso_a1_arch`
+  (ISO 13567 layers, ISO-25 / ISOCP, annotation scale 1:50) whose `A2` layout
+  is set up on ISO_A2 (594 × 420 mm), zero margins, `arch_monochrome.ctb`,
+  scaled to fit. Template specs carry `ctb` (default `monochrome.ctb`), listed by
+  `drawing_template_list`. No `.dwt` twin.
 - `arch_symbol(kind="elevation_mark")` takes `directions` as a mapping from
   direction to its letter (`{"up": "A", "right": "B", "down": "C"}`): one
   bubble with a pointer per direction and a 2.5 mm letter inside the circle by

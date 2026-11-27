@@ -2238,7 +2238,7 @@
       "name": "drawing_template_list",
       "group": "page_setup",
       "cost": "read",
-      "summary": "List the five bundled drawing templates: standard, sheet, layers, styles, page setup.",
+      "summary": "List the six bundled drawing templates: standard, sheet, layers, styles, page setup.",
       "acad": [],
       "synonyms": [
         "which templates are there",
