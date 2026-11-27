@@ -276,8 +276,7 @@ async def test_run_critique_reaches_the_arch_focuses(backend):
 async def test_a_door_on_a_wall_at_minus_30_degrees_is_no_untrimmed_corner(backend):
     # A 7000 x 4000 room turned -30 degrees, its corners typed to 0.1 mm, and a
     # partition between its long walls with a door. The partition's ends are
-    # snapped onto the room's axes, so the door leaf's hinge and the jamb it
-    # stands on are computed along two paths and differ by float noise (~1e-8 mm).
+    # snapped onto the room's axes; the door leaf still hinges on its jamb.
     from engineering.arch.spec import draw_plan_from_spec
     from engineering.critique import run_critique
 

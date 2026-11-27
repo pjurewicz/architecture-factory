@@ -1,11 +1,12 @@
 """Opening symbols in plan, hosted in their wall.
 
 The wall engine (`walls.py`) cuts the gap; this module draws what stands in it.
-Both read the opening's place from the same numbers - the wall's axis, its face
-offsets and ``model.segment_of`` - so the symbol cannot drift off its gap. When
-the engine's own cut row is given (``WallGeometry.cuts``), the glazed and
-cased kinds take their ends from it, which is how a corner window's glazing
-runs to the mitre line its neighbour's glazing meets.
+When the engine's own cut row is given (``WallGeometry.cuts``), every symbol is
+built from its four corners - the very vertices the jambs are drawn from - so a
+door hinges exactly on its jamb even where the engine moved the axis (a T-stem
+end snapped onto its host's axis), and a corner window's glazing runs to the
+mitre line its neighbour's glazing meets. Without a cut row the corners are
+computed from the wall's axis, its face offsets and ``model.segment_of``.
 
 Conventions (this repository's, stated because plan symbols vary by office):
 
@@ -60,6 +61,11 @@ def _deg(v: Pt) -> float:
     return math.degrees(math.atan2(v[1], v[0])) % 360.0
 
 
+def _unit(p: Pt, q: Pt) -> Pt:
+    length = math.hypot(q[0] - p[0], q[1] - p[1])
+    return ((q[0] - p[0]) / length, (q[1] - p[1]) / length)
+
+
 def _lerp(p: Pt, q: Pt, k: float) -> Pt:
     return (p[0] + (q[0] - p[0]) * k, p[1] + (q[1] - p[1]) * k)
 
@@ -96,21 +102,33 @@ def opening_prims(wall: Wall, opening: Opening, cut: dict | None = None) -> tupl
     if opening.hand not in ("left", "right"):
         raise ValueError(f"opening {opening.id!r}: hand {opening.hand!r}; hands are left, right")
     width = float(opening.width)
-    index, along = segment_of(wall, float(opening.offset))
-    (ax, ay), (bx, by) = wall_segments(wall)[index]
-    length = math.hypot(bx - ax, by - ay)
-    u = ((bx - ax) / length, (by - ay) / length)
-    n = (-u[1], u[0])
-    left, right = face_offsets(wall)
-
-    def at(s: float, offset: float) -> Pt:
-        return (ax + u[0] * s + n[0] * offset, ay + u[1] * s + n[1] * offset)
-
-    s0, s1 = along, along + width
     if cut is not None:
         (la, lb), (ra, rb) = cut["left"], cut["right"]
     else:
-        la, lb, ra, rb = at(s0, left), at(s1, left), at(s0, right), at(s1, right)
+        index, along = segment_of(wall, float(opening.offset))
+        (ax, ay), (bx, by) = wall_segments(wall)[index]
+        length = math.hypot(bx - ax, by - ay)
+        ux, uy = (bx - ax) / length, (by - ay) / length
+        left, right = face_offsets(wall)
+        la, lb, ra, rb = (
+            (ax + ux * s - uy * offset, ay + uy * s + ux * offset)
+            for s, offset in (
+                (along, left),
+                (along + width, left),
+                (along, right),
+                (along + width, right),
+            )
+        )
+    # From here on every point is read off the gap's four corners - the vertices
+    # the engine closes the jambs with - so no symbol can miss its jamb, whatever
+    # the wall engine did to the axis at a junction (a T-stem snapped onto its host).
+    u = _unit(ra, rb)
+    n = (-u[1], u[0])
+
+    def inside(t: float, k: float) -> Pt:
+        """The point at fraction ``t`` of the width (0 = the near jamb) and ``k`` of
+        the thickness (0 = the right face)."""
+        return _lerp(_lerp(ra, rb, t), _lerp(la, lb, t), k)
 
     def across(k: float) -> Line:
         """The line across the gap at fraction ``k`` of the thickness, right face = 0."""
@@ -130,35 +148,35 @@ def opening_prims(wall: Wall, opening: Opening, cut: dict | None = None) -> tupl
         return (Line(la, lb, "overhead"), Line(ra, rb, "overhead"))
 
     side = 1.0 if opening.swing == "in" else -1.0
-    face = left if side > 0 else right
+    # the swing-side face across the gap, from the near jamb to the far one
+    near, far = (la, lb) if side > 0 else (ra, rb)
     if kind == "sliding_door":
-        middle = (s0 + s1) / 2.0
-        overlap = min(SLIDING_OVERLAP, width / 4.0)
-        k_out, k_in = right + 0.65 * (left - right), right + 0.35 * (left - right)
+        overlap = min(SLIDING_OVERLAP, width / 4.0) / width
         return (
-            Line(at(s0, k_out), at(middle + overlap, k_out), "door"),
-            Line(at(middle - overlap, k_in), at(s1, k_in), "door"),
+            Line(inside(0.0, 0.65), inside(0.5 + overlap, 0.65), "door"),
+            Line(inside(0.5 - overlap, 0.35), inside(1.0, 0.35), "door"),
         )
     if kind == "garage_door":
-        prims: list[Prim] = [Line(at(s0, face), at(s1, face), "door")]
+        prims: list[Prim] = [Line(near, far, "door")]
         if opening.height:
             depth = side * float(opening.height)
-            far0, far1 = at(s0, face + depth), at(s1, face + depth)
+            far0 = (near[0] + n[0] * depth, near[1] + n[1] * depth)
+            far1 = (far[0] + n[0] * depth, far[1] + n[1] * depth)
             prims += [
-                Line(at(s0, face), far0, "overhead"),
+                Line(near, far0, "overhead"),
                 Line(far0, far1, "overhead"),
-                Line(far1, at(s1, face), "overhead"),
+                Line(far1, far, "overhead"),
             ]
         return tuple(prims)
     if kind == "double_door":
-        middle = (s0 + s1) / 2.0
+        middle = _lerp(near, far, 0.5)
         return (
-            *_leaf(at(s0, face), at(middle, face), n, side, width / 2.0),
-            *_leaf(at(s1, face), at(middle, face), n, side, width / 2.0),
+            *_leaf(near, middle, n, side, width / 2.0),
+            *_leaf(far, middle, n, side, width / 2.0),
         )
 
     # Facing the wall from the swing side, the viewer's left hand points along
     # +u when they stand on the axis's left, and along -u when on its right.
     toward = side if opening.hand == "left" else -side
-    hinge_s, free_s = (s1, s0) if toward > 0 else (s0, s1)
-    return _leaf(at(hinge_s, face), at(free_s, face), n, side, width)
+    hinge, free = (far, near) if toward > 0 else (near, far)
+    return _leaf(hinge, free, n, side, width)

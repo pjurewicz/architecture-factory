@@ -92,3 +92,25 @@ def test_an_opening_of_another_wall_is_refused():
 def test_an_unknown_swing_is_refused_with_the_list():
     with pytest.raises(ValueError, match="swings are in, out"):
         opening_prims(WALL, door("sideways", "left"))
+
+
+@pytest.mark.parametrize("kind", ["door", "double_door"])
+@pytest.mark.parametrize("swing", ["in", "out"])
+@pytest.mark.parametrize("hand", ["left", "right"])
+def test_a_door_on_a_t_stem_typed_in_whole_mm_hinges_exactly_on_its_jamb(kind, swing, hand):
+    # A host at -30 degrees and a stem square to it, both typed in whole mm: the
+    # stem's start lies 0.2 mm off the host axis and the engine snaps it onto
+    # it, turning the stem a little. The hinge must be the jamb's own vertex,
+    # not a point recomputed from the typed axis.
+    from engineering.arch.walls import wall_geometry
+
+    host = Wall(id="h", axis=((0.0, 0.0), (6062.0, -3500.0)), thickness=250.0)
+    stem = Wall(id="s", axis=((953.0, -550.0), (2453.0, 2048.0)), thickness=100.0)
+    op = Opening(id="d", wall="s", kind=kind, offset=300.0, width=800.0, swing=swing, hand=hand)
+    geometry = wall_geometry([host, stem], [op])
+    (cut,) = geometry.cuts
+    jamb_ends = {p for line in geometry.jambs for p in (line.p1, line.p2)}
+    prims = opening_prims(stem, op, cut)
+    for leaf, arc in zip(prims[::2], prims[1::2], strict=True):
+        assert leaf.p1 in jamb_ends
+        assert arc.center == leaf.p1
