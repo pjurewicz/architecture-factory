@@ -217,6 +217,51 @@ async def test_a_label_past_the_room_outline_reports_fits_false_and_warns(backen
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(("gap", "fits"), [(15.0, False), (60.0, True)])
+async def test_a_label_by_an_oblique_wall_keeps_its_clearance_at_every_corner(backend, gap, fits):
+    import math
+
+    # West wall at 60 degrees, leaning in going up: its inner face runs from
+    # (173.2, 100) to (2367.1, 3900), so the room narrows towards the bottom and
+    # the corner a left-aligned name comes nearest the wall with is its box's
+    # top-left one, at (x, 2000 + 175) - the cap height, whatever the font's
+    # widths. That corner is `gap` mm (perpendicular) from the face; a label
+    # needs 0.25 x 125 = 31.25 mm, so 15 mm used to fit by touching and now
+    # warns, 60 mm fits.
+    run = 4000 / math.tan(math.radians(60))
+    # the face is the axis x = y / tan 60 moved 100 mm (half the wall) into the room
+    face_x = 2175 / math.tan(math.radians(60)) + 100 / math.sin(math.radians(60))
+    spec = {
+        "walls": [
+            {
+                "id": "W",
+                "axis": [[0, 0], [7000, 0], [7000, 4000], [run, 4000]],
+                "thickness": 200,
+                "closed": True,
+            }
+        ],
+        "rooms": [
+            {
+                "id": "R1",
+                "name": "ANGLED STUDY",
+                "at": [face_x + gap / math.sin(math.radians(60)), 2000],
+            }
+        ],
+    }
+    result = await draw_plan_from_spec(backend, spec)
+    room = result["rooms"][0]
+    loop = room["loop"]
+    assert loop[0] == pytest.approx([173.205, 100.0], abs=1e-3)
+    assert loop[3] == pytest.approx([2367.136, 3900.0], abs=1e-3)
+    assert room["fits"] is fits
+    if fits:
+        assert result["warnings"] == []
+    else:
+        (warning,) = result["warnings"]
+        assert warning["code"] == "room_label_overflow" and warning["outside"] == ["ANGLED STUDY"]
+
+
+@pytest.mark.asyncio
 async def test_a_room_separator_closes_the_open_room_and_its_area_is_measured(backend):
     from engineering.arch.draw import read_plan
     from engineering.arch.rooms import rooms_detect

@@ -280,6 +280,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A room label's `fits` (`arch_room`, `arch_plan_from_spec`, `arch_plan_patch`)
+  let a line's box touch the room's outline, and its area-based tolerance let
+  a corner poke a fraction of a millimetre past an oblique wall - on a plot
+  the text then met the wall's line. Every corner of each line's oriented box
+  must now keep `LABEL_CLEARANCE` (0.25 x the smallest line height: 0.625 mm
+  on paper, the mask's margin) from every edge of the face polygon and of its
+  holes; closer is `fits: false` with `room_label_overflow`. Breaking: a label
+  that touched the wall used to fit.
 - DWG read and write waited 10 s for their private Xvfb display and reported
   "did not start" both when Xvfb was slow and when it had died while a child
   still held its ready pipe. The wait is now 30 s (`XVFB_START_TIMEOUT`),

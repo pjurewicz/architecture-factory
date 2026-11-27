@@ -40,7 +40,9 @@ DECLARED, not standard:
   reports the name height and lines chosen. Whatever ``fit``, every label
   reports ``fits``: whether each line's box, measured as the ``viewport_clip``
   focus measures a TEXT (``ezdxf.disassemble``), lies inside the room's face
-  (None for an open room, which has none); a label that does not fit carries
+  and at least ``LABEL_CLEARANCE`` from each of its edges, every corner of
+  the oriented box against the face polygon (None for an open room, which
+  has none); a label that does not fit carries
   a ``room_label_overflow`` warning naming the lines.
 * ``mask=True`` (off by default: with ``arch_monochrome.ctb`` the screened
   hatches and grid already leave the label legible) draws a WIPEOUT under the
@@ -121,6 +123,12 @@ MIN_FIT_HEIGHT = 2.5
 CHAR_WIDTH_FACTOR = 0.9
 FIT_MARGIN = 0.9  # the share of the free width / height a fitted label may fill
 MASK_MARGIN = 0.25  # the label mask's margin round the texts, x the smallest line height
+#: A label fits when every line's box keeps this far (x the smallest line height:
+#: 0.625 mm on paper at 2.5 mm) from the room's edges - clear of the plotted wall
+#: line (half of a 0.50 mm cut outline is 0.25 mm) and of a round glyph's
+#: overshoot past the cap height; the mask's own margin, so a fitting label's
+#: mask is never clipped by its room.
+LABEL_CLEARANCE = MASK_MARGIN
 ALIGNS: tuple[str, ...] = ("left", "center")
 MIN_ROOM_WIDTH = 600.0  # mm; the wall-body heuristic above
 DEFAULT_MIN_AREA = 1.0e6  # mm^2 = 1 m^2
@@ -340,22 +348,66 @@ async def _text_boxes(backend: AutoCADBackend, prims: tuple[Text, ...]) -> list[
     return boxes
 
 
-def _box_in_face(box: list[Pt], face: Face) -> bool:
-    """Whether a text box lies wholly inside the face: inside its outer loop and
-    clear of every hole (a column). Touching a wall face still fits."""
-    from ezdxf.math import Vec2, area
-    from ezdxf.math.clipping import ConcaveClippingPolygon2d
+def _segment_gap(p: Pt, q: Pt, a: Pt, b: Pt) -> float:
+    """The distance between segments ``pq`` and ``ab`` (0 when they cross)."""
 
-    rect = [Vec2(p) for p in box]
-    tol = 1e-6 * max(abs(area(rect)), 1.0)
+    def cross(o, u, v):
+        return (u[0] - o[0]) * (v[1] - o[1]) - (u[1] - o[1]) * (v[0] - o[0])
 
-    def covered(loop) -> float:
-        pieces = ConcaveClippingPolygon2d([Vec2(p) for p in loop]).clip_polygon(rect)
-        return sum(abs(area(list(piece))) for piece in pieces)
+    d1, d2, d3, d4 = cross(a, b, p), cross(a, b, q), cross(p, q, a), cross(p, q, b)
+    if ((d1 > 0) != (d2 > 0) or d1 == 0 or d2 == 0) and (
+        (d3 > 0) != (d4 > 0) or d3 == 0 or d4 == 0
+    ):
+        if min(p[0], q[0]) <= max(a[0], b[0]) and min(a[0], b[0]) <= max(p[0], q[0]):
+            if min(p[1], q[1]) <= max(a[1], b[1]) and min(a[1], b[1]) <= max(p[1], q[1]):
+                return 0.0
 
-    return abs(abs(area(rect)) - covered(face.loop)) <= tol and all(
-        covered(hole) <= tol for hole in face.holes
+    def to_segment(o, u, v):
+        dx, dy = v[0] - u[0], v[1] - u[1]
+        k = ((o[0] - u[0]) * dx + (o[1] - u[1]) * dy) / ((dx * dx + dy * dy) or 1.0)
+        k = min(1.0, max(0.0, k))
+        return math.hypot(o[0] - u[0] - k * dx, o[1] - u[1] - k * dy)
+
+    return min(to_segment(p, a, b), to_segment(q, a, b), to_segment(a, p, q), to_segment(b, p, q))
+
+
+def _box_in_face(box: list[Pt], face: Face, clearance: float) -> bool:
+    """Whether a text box lies inside the face at least ``clearance`` from every
+    edge of it - its outer loop (the wall faces) and every hole (a column).
+
+    Every corner of the oriented box counts, against the face polygon itself,
+    so an oblique wall is tested where it runs, not by an extent or a chord.
+    """
+    from ezdxf.math import Vec2, is_point_in_polygon_2d
+
+    def inside(point, loop) -> int:  # 1 inside, 0 on an edge, -1 outside
+        return is_point_in_polygon_2d(Vec2(point), [Vec2(q) for q in loop])
+
+    edges = [(box[i], box[(i + 1) % len(box)]) for i in range(len(box))]
+
+    def gap(loop) -> float:
+        return min(
+            _segment_gap(p, q, loop[i], loop[(i + 1) % len(loop)])
+            for p, q in edges
+            for i in range(len(loop))
+        )
+
+    if inside(box[0], face.loop) <= 0 or gap(face.loop) < clearance:
+        return False
+    return all(
+        inside(box[0], hole) < 0 and inside(hole[0], box) < 0 and gap(hole) >= clearance
+        for hole in face.holes
     )
+
+
+def _outside(prims: tuple[Text, ...], boxes, face: Face) -> list[str]:
+    """The lines whose box comes closer to the face's edges than ``LABEL_CLEARANCE``."""
+    clearance = LABEL_CLEARANCE * min(p.height for p in prims)
+    return [
+        p.text
+        for p, box in zip(prims, boxes, strict=True)
+        if not _box_in_face(box, face, clearance)
+    ]
 
 
 async def _draw_label_prims(
@@ -370,7 +422,7 @@ async def _draw_label_prims(
     or on a plot); a drawing that already sets it keeps its choice. ``handles``
     are the texts, the name first (the room record goes on it). ``fits`` (None
     without a ``face``) is whether every text's measured box lies inside the
-    face; ``outside`` lists the texts that do not.
+    face with ``LABEL_CLEARANCE`` to spare; ``outside`` lists the texts that do not.
     """
     from engineering.mech.draw import (  # lazy: mech.draw imports the arch layer set
         _ensure_layers,
@@ -380,11 +432,7 @@ async def _draw_label_prims(
     shape = None
     masks: list[str] = []
     boxes = await _text_boxes(backend, prims)
-    outside = (
-        []
-        if face is None
-        else [p.text for p, box in zip(prims, boxes, strict=True) if not _box_in_face(box, face)]
-    )
+    outside = [] if face is None else _outside(prims, boxes, face)
     if mask:
         shape = room_label_mask(
             [
@@ -1002,7 +1050,7 @@ async def plain_label_outside(
     re-checks a label whose room changed shape but not area)."""
     prims = room_label_prims(measured, lang=lang, scale=scale, align=align)
     boxes = await _text_boxes(backend, prims)
-    return [p.text for p, box in zip(prims, boxes, strict=True) if not _box_in_face(box, face)]
+    return _outside(prims, boxes, face)
 
 
 async def _draw_label(
