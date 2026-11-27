@@ -764,6 +764,30 @@ async def test_entity_batch_create_advertises_and_enforces_one_item_schema(full_
     assert result.structured_content["created"] == 2
 
 
+async def test_a_long_batch_answer_counts_handles_and_critique_rows(client):
+    """Round 3: a critique step returned 60 000 characters (74 of 124 rows info)
+    and a 100+ entity batch printed every handle."""
+    entities = [{"type": "line", "x1": i, "y1": 0, "x2": i, "y2": 5} for i in range(120)]
+    entities += [{"type": "line", "x1": 0, "y1": 0, "x2": 1, "y2": 0, "color": 1}] * 2
+    steps = [
+        {"tool": "entity_batch_create", "args": {"entities": entities}, "bind": "made"},
+        {"tool": "entity_get", "args": {"handle": "$made.entities.121.handle"}},
+        {"tool": "entity_batch_create", "args": {"entities": entities}},
+        {"tool": "drawing_critique", "args": {}},
+    ]
+    result = await _batch(client, steps)
+    assert result["ok"] is True, result
+    made = result["results"][0]["result"]["handles"]
+    assert made["count"] == 122 and set(made) == {"count", "first", "last", "contiguous"}
+    assert result["results"][1]["status"] == "ok", "the bound result was whole"
+    critique = result["results"][3]["result"]
+    assert critique["total"] >= 1 and "duplicate_entities" in critique["by_focus"]
+    assert all(row["severity"] in ("warning", "error") for row in critique["issues"])
+    assert isinstance(result["changes"]["added"], (dict, list))
+    full = await _batch(client, [{"tool": "drawing_critique", "args": {}}], verbose=True)
+    assert isinstance(full["results"][0]["result"]["result"], list)
+
+
 async def test_an_unknown_item_key_is_named_with_the_keys_its_type_takes(client):
     """Round 3: "not valid under any of the given schemas" sent an agent guessing."""
     bad = {"type": "insert", "name": "B", "x": 0, "y": 0, "colour": 1}

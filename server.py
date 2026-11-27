@@ -6382,6 +6382,16 @@ def _compact_batch_result(result: Any, verbose: bool, tool: str | None = None) -
     """
     if verbose or not isinstance(result, dict):
         return result
+    if tool == "drawing_critique" and isinstance(result.get("result"), list):
+        # round 3: 124 rows (74 of them info) overran a client's limit inside a
+        # batch; there the counts and the warnings and errors, one row per code
+        from engineering.qa_coverage import summarize
+
+        rows = result["result"]
+        return {
+            **summarize(rows, summary=True, limit=20, min_severity="warning"),
+            "note": "warning+ rows grouped by code; every row: drawing_critique directly",
+        }
     if tool == "entity_batch_create" and "entities" in result:
         return _compact_batch_create(result)
     if tool == "arch_plan_from_spec" and "drawn" in result:
@@ -7269,7 +7279,42 @@ async def cad_batch(
             while len(_BATCH_FULL_CHANGES) >= 64:
                 _BATCH_FULL_CHANGES.pop(next(iter(_BATCH_FULL_CHANGES)))
             _BATCH_FULL_CHANGES[batch_id] = full
+    if not verbose:
+        _fold_batch_handles(payload)
     return payload
+
+
+#: A handle list longer than this is printed as its count and ends (round 3).
+_HANDLE_LIST_MAX = 100
+
+
+def _fold_handles(handles: list) -> Any:
+    """A long handle list as ``{count, first, last, contiguous}``; ``contiguous``
+    says every handle between the ends is in it, so the range is the list."""
+    if not isinstance(handles, list) or len(handles) <= _HANDLE_LIST_MAX:
+        return handles
+    try:
+        numbers = sorted(int(str(h), 16) for h in handles)
+    except ValueError:
+        return handles
+    return {
+        "count": len(handles),
+        "first": handles[0],
+        "last": handles[-1],
+        "contiguous": numbers[-1] - numbers[0] + 1 == len(set(numbers)),
+    }
+
+
+def _fold_batch_handles(payload: dict) -> None:
+    """Fold every long ``handles`` / ``changes.added`` list of a batch answer;
+    a bound step still hands the next step the whole list."""
+    for row in payload.get("results") or ():
+        result = row.get("result")
+        if isinstance(result, dict) and "handles" in result:
+            result["handles"] = _fold_handles(result["handles"])
+    changes = payload.get("changes")
+    if isinstance(changes, dict) and "added" in changes:
+        changes["added"] = _fold_handles(changes["added"])
 
 
 def _result_handles(results: list[dict]) -> list[str]:
@@ -13884,17 +13929,23 @@ async def arch_catalogue_list(
     accepts. Refusals: a `family` other than furniture/sanitary and a `lang`
     other than en/tr/pl, each with the list.
     """
-    from engineering.arch.catalogue import FAMILIES, SIZE_BASIS, catalogue
+    from engineering.arch.catalogue import FAMILIES, FRONT_DIR, ORIGIN, SIZE_BASIS, catalogue
 
     try:
         rows = catalogue(query, family, lang=lang)
     except ValueError as exc:
         raise ToolError(str(exc)) from exc
+    # round 3: what every row repeated (the frame, the size basis, the labels
+    # in the other languages, width / depth beside size) said once
+    shared = ("label_en", "label_tr", "label_pl", "width", "depth", "origin", "front_dir")
     return {
         "count": len(rows),
         "families": list(FAMILIES),
         "size_basis": SIZE_BASIS,
-        "items": list(rows),
+        "frame": {"origin": ORIGIN, "front_dir": list(FRONT_DIR)},
+        "items": [
+            {k: v for k, v in row.items() if k not in shared and k != "size_basis"} for row in rows
+        ],
     }
 
 

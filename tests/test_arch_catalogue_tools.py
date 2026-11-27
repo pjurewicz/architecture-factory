@@ -31,6 +31,9 @@ async def test_list_searches_in_turkish_and_states_the_size_basis(client):
     assert result["items"][0]["label"] == "tek kişilik yatak"
     assert result["size_basis"] == SIZE_BASIS
     assert result["families"] == ["furniture", "sanitary"]
+    # round 3: shared values once, only the asked language's label per row
+    assert result["frame"]["front_dir"] == [0, 1]
+    assert not {"size_basis", "label_en", "label_tr", "origin"} & set(result["items"][0])
 
 
 async def test_insert_twice_defines_once(client):
