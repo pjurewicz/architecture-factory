@@ -51,6 +51,7 @@ __all__ = [
     "QA_SNAPSHOT_KEY",
     "ScanCoverage",
     "entity_infos_all_spaces",
+    "snapshot_lacks_app",
     "qa_snapshot",
     "shared_index",
     "with_insert_boxes",
@@ -216,6 +217,26 @@ async def entity_infos_all_spaces(backend, spaces=None) -> list:
     """
     wanted = None if spaces is None else set(spaces)
     return await _async_readonly(backend, lambda: _ezdxf_infos(backend._require_doc(), wanted))
+
+
+async def snapshot_lacks_app(backend, shared: dict, app_id: str, types=None) -> bool:
+    """True when the run's complete QA snapshot shows no entity (of ``types``,
+    when given) carrying the XDATA application ``app_id``.
+
+    A domain index (``mech_*``, ``arch_*``) reads every entity again to find
+    its payloads; on a drawing with none this settles the empty answer from
+    the read the run already made. An incomplete or failed snapshot answers
+    False, so the domain reads the drawing as before.
+    """
+    snap, coverage = await qa_snapshot(backend, shared)
+    if snap is None or not coverage.complete:
+        return False
+    return not any(
+        app == app_id
+        for record in snap.records
+        if types is None or record.type in types
+        for app, _ in record.xdata
+    )
 
 
 class _FailedBuild:

@@ -254,7 +254,10 @@ async def test_the_dispatch_entries_share_one_index_per_run(backend):
     # 1.8-16: beside the one index, the run's coverage ledger - one row per focus.
     from engineering.qa_coverage import LEDGER_KEY
 
-    assert [key for key in shared if key != LEDGER_KEY] == ["arch_index"]
+    # The run's QA snapshot, read first to skip a drawing without a payload.
+    from engineering.qa_scan import QA_SNAPSHOT_KEY
+
+    assert [key for key in shared if key not in (LEDGER_KEY, QA_SNAPSHOT_KEY)] == ["arch_index"]
     assert sorted(r.focus for r in shared[LEDGER_KEY].rows) == sorted(ARCH_FOCUSES)
 
 

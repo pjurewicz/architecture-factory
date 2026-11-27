@@ -38,7 +38,7 @@ from typing import TYPE_CHECKING
 
 from engineering.plan_spec import Issue
 from engineering.qa_coverage import domain_row
-from engineering.qa_scan import shared_index
+from engineering.qa_scan import shared_index, snapshot_lacks_app
 
 from .lang import fmt_area_m2
 from .layers import ARCH_ROLE_LAYER
@@ -481,9 +481,18 @@ def issues_for(focus: str, index: dict) -> list[Issue]:
     return _CHECKS[focus](index)
 
 
+async def _run_index(backend: AutoCADBackend, shared: dict) -> dict:
+    """``build_index``, skipped when the run's QA snapshot holds no ACADMCP_ARCH record."""
+    if await snapshot_lacks_app(backend, shared, APP_ID):
+        return {bucket: {} for bucket in _BUCKETS.values()} | {"faces": []}
+    return await build_index(backend)
+
+
 def _make(focus: str):
     async def check(backend: AutoCADBackend, shared: dict) -> list[Issue]:
-        index = await shared_index(shared, _KEY, build_index, backend)
+        index = await shared_index(
+            shared, _KEY, lambda backend: _run_index(backend, shared), backend
+        )
         records = sum(len(index[b]) for b in ("walls", "openings", "stairs", "rooms"))
         domain_row(shared, focus, present=has_arch_content(index), n=records)
         return issues_for(focus, index)

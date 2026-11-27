@@ -467,7 +467,12 @@ async def test_the_v7_zero_issue_tasks_stay_at_zero(task_id, tmp_path):
 # -- a domain index that cannot read is check_failed, not an empty index -------------------
 
 
+async def _never_lacks(*_args, **_kwargs):
+    return False
+
+
 async def test_a_mechanical_index_that_cannot_read_fails_every_mech_focus(backend, monkeypatch):
+    import engineering.mech.critique as mech_critique
     from engineering.mech.critique import MECH_FOCUSES
 
     calls = []
@@ -477,6 +482,9 @@ async def test_a_mechanical_index_that_cannot_read_fails_every_mech_focus(backen
         raise RuntimeError("entity_list down")
 
     monkeypatch.setattr(backend, "entity_list", broken_list)
+    # An empty drawing skips the index read (no ACADMCP_MECH in the snapshot);
+    # the read under test is the one a drawing with a payload makes.
+    monkeypatch.setattr(mech_critique, "snapshot_lacks_app", _never_lacks)
     issues = await run_critique(backend, list(MECH_FOCUSES))
 
     assert [i.focus for i in issues] == list(MECH_FOCUSES)
@@ -486,6 +494,7 @@ async def test_a_mechanical_index_that_cannot_read_fails_every_mech_focus(backen
 
 
 async def test_an_architectural_index_that_cannot_read_fails_every_arch_focus(backend, monkeypatch):
+    import engineering.arch.critique as arch_critique
     import engineering.qa_scan as qa_scan
     from engineering.arch.critique import ARCH_FOCUSES
 
@@ -495,6 +504,7 @@ async def test_an_architectural_index_that_cannot_read_fails_every_arch_focus(ba
     # The index reads every space through entity_infos_all_spaces (not the
     # current space's entity_list), so that is the read to break.
     monkeypatch.setattr(qa_scan, "entity_infos_all_spaces", broken_read)
+    monkeypatch.setattr(arch_critique, "snapshot_lacks_app", _never_lacks)
     issues = await run_critique(backend, list(ARCH_FOCUSES))
 
     assert [i.focus for i in issues] == list(ARCH_FOCUSES)
