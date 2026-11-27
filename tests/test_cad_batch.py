@@ -196,6 +196,25 @@ async def test_entity_batch_create_reports_only_handles_unless_verbose(client):
     assert full["results"][0]["result"]["entities"][1]["type"] == "CIRCLE"
 
 
+async def test_a_viewport_fit_with_intrusions_survives_compaction(client):
+    """viewport_create(fit_region=)'s fit names what else the viewport shows;
+    no entity_get gives that back, so verbose=False keeps it while it has rows."""
+    await client.call_tool("entity_create_line", {"x1": 90, "y1": 50, "x2": 120, "y2": 50})
+    await client.call_tool("layout_create", {"name": "S"})
+    fit = {"tool": "viewport_create", "args": {"layout": "S", "center_x": 200, "center_y": 150}}
+    result = await _batch(
+        client,
+        [
+            {**fit, "args": {**fit["args"], "fit_region": [0, 0, 100, 100]}},
+            {**fit, "args": {**fit["args"], "fit_region": [0, 0, 10, 10]}},
+        ],
+    )
+    crossing, clean = (row["result"] for row in result["results"])
+    assert crossing["fit"]["intrusion_count"] == 1
+    assert crossing["fit"]["intrusions"][0]["reason"] == "crosses_region"
+    assert set(clean) == {"handle"}
+
+
 async def test_a_result_without_a_handle_is_never_trimmed(client):
     """Compaction only drops what ``entity_get(handle)`` can give back."""
     result = await _batch(client, [{"tool": "drawing_info", "args": {}}])

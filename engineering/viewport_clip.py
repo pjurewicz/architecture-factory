@@ -82,6 +82,14 @@ def _mtext_corners(e) -> list[Pt]:
     ]
 
 
+def mtext_box(e) -> list[Pt]:
+    """An MTEXT's lettering box as four WCS corners (:func:`_mtext_corners`),
+    or ``[]`` for an empty one or one in a plane tilted out of WCS XY.
+    ``viewport_create(fit_region=)`` measures MTEXT with it too, so a fit
+    report and this focus agree on where the lettering is."""
+    return _mtext_corners(e) if _flat(e) and (e.plain_text() or "").strip() else []
+
+
 def _box_corners(e) -> list[Pt]:
     from ezdxf import bbox as ezbbox
 
@@ -103,7 +111,7 @@ def _piece(e) -> list[Pt]:
     if kind == "LINE":
         return [(e.dxf.start.x, e.dxf.start.y), (e.dxf.end.x, e.dxf.end.y)]
     if kind == "MTEXT" and _flat(e):
-        return _mtext_corners(e) if (e.plain_text() or "").strip() else []
+        return mtext_box(e)
     if kind in ("TEXT", "ATTRIB") and _flat(e):
         if not str(e.dxf.get("text", "") or "").strip():
             return []

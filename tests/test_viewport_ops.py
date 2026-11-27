@@ -453,6 +453,24 @@ async def test_fit_region_sizes_the_viewport_and_names_what_else_it_shows(backen
     assert row["view_center"][:2] == pytest.approx([3500.0, 3250.0])
 
 
+async def test_fit_region_measures_an_mtext_by_its_lettering_box(backend):
+    """A 5 mm "ABS 2 mm" with no width is 36 x 5 mm of ink, the box
+    viewport_clip measures; ezdxf.bbox wraps it at every word (14 x 23 mm),
+    which put it inside the region and kept it out of the report."""
+    label = await backend.entity_create_mtext("ABS 2 mm", 80, 50, width=0, height=5)
+    await _sheet(backend)
+
+    result = await backend.viewport_create(
+        SHEET, 210, 148.5, scale=1.0, fit_region=[0, 0, 100, 100], margin_mm=5
+    )
+
+    rows = {row["handle"]: row for row in result["fit"]["intrusions"]}
+    assert rows[label.handle]["reason"] == "crosses_region"
+    x0, y0, x1, y1 = rows[label.handle]["extents"]
+    assert (x0, y0, y1) == pytest.approx((80.0, 45.0, 50.0))
+    assert x1 > 110.0
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [

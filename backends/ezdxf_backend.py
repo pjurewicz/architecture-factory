@@ -31,6 +31,7 @@ from typing import Any
 import config
 from engineering import measure
 from engineering.errors import DimensionRenderError, EntityNotFoundError, InvalidArgsError
+from engineering.viewport_clip import mtext_box
 
 from . import dwg_read, lineage, ocs
 from .atomic_write import atomic_write_dxf, file_sha256, resolve_pending
@@ -4232,15 +4233,22 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         unmeasured = 0
         cache = ezdxf_bbox.Cache() if _BBOX_OK else None
         for ent in doc.modelspace():
-            try:
-                box = ezdxf_bbox.extents([ent], cache=cache)
-            except Exception:
-                unmeasured += 1
-                continue
-            if not box.has_data:
-                continue
-            ex0, ey0 = float(box.extmin.x), float(box.extmin.y)
-            ex1, ey1 = float(box.extmax.x), float(box.extmax.y)
+            # An MTEXT is its lettering box, as viewport_clip measures it:
+            # ezdxf.bbox wraps an MTEXT with no width at every word.
+            corners = mtext_box(ent) if ent.dxftype() == "MTEXT" else []
+            if corners:
+                xs, ys = [p[0] for p in corners], [p[1] for p in corners]
+                ex0, ey0, ex1, ey1 = min(xs), min(ys), max(xs), max(ys)
+            else:
+                try:
+                    box = ezdxf_bbox.extents([ent], cache=cache)
+                except Exception:
+                    unmeasured += 1
+                    continue
+                if not box.has_data:
+                    continue
+                ex0, ey0 = float(box.extmin.x), float(box.extmin.y)
+                ex1, ey1 = float(box.extmax.x), float(box.extmax.y)
             if ex1 < wx0 or ex0 > wx1 or ey1 < wy0 or ey0 > wy1:
                 continue
             if ex0 >= rx0 - tol and ey0 >= ry0 - tol and ex1 <= rx1 + tol and ey1 <= ry1 + tol:

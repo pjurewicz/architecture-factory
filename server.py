@@ -6134,7 +6134,12 @@ def _compact_batch_result(result: Any, verbose: bool, tool: str | None = None) -
     if handle is _MISSING:
         return result
     # A composite (callout) names handles one entity_get cannot give back.
-    return {"handle": handle, **{k: result[k] for k in _COMPOSITE_KEYS if k in result}}
+    kept = {"handle": handle, **{k: result[k] for k in _COMPOSITE_KEYS if k in result}}
+    # viewport_create(fit_region=)'s intrusions are a measurement, not the entity.
+    fit = result.get("fit")
+    if isinstance(fit, dict) and fit.get("intrusion_count", 0) > 0:
+        kept["fit"] = fit
+    return kept
 
 
 _BATCH_CHECK_NOTE = (
