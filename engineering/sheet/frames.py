@@ -425,3 +425,43 @@ async def draw_sheet_frame(
         "bbox": {"min": [ox, oy], "max": [ox + w, oy + h]},
         **report,
     }
+
+
+async def sheet_fit_warnings(backend: AutoCADBackend, layout: str | None, box) -> list[str]:
+    """What a block drawn at ``box`` ``((x0, y0), (x1, y1))`` on ``layout`` runs
+    into (round 4): the paper's edge (the page setup's ``size_mm``) and every
+    model viewport its rectangle overlaps. Model space has neither: ``[]``."""
+    if layout is None:
+        return []
+    (x0, y0), (x1, y1) = box
+    lo_x, hi_x, lo_y, hi_y = min(x0, x1), max(x0, x1), min(y0, y1), max(y0, y1)
+    warnings: list[str] = []
+    rows = await backend.page_setup_list()
+    row = next((r for r in rows if r.get("layout") == layout), None)
+    if row is not None:
+        w, h = (float(v) for v in row["size_mm"])
+        if lo_x < -0.01 or lo_y < -0.01 or hi_x > w + 0.01 or hi_y > h + 0.01:
+            warnings.append(
+                f"off_paper: the block spans x {lo_x:g}..{hi_x:g}, y {lo_y:g}..{hi_y:g} mm; "
+                f"the {layout!r} paper is 0..{w:g} x 0..{h:g} mm"
+            )
+
+    def _viewports():
+        doc = backend._require_doc()
+        out = []
+        for vp in doc.paperspace(layout).query("VIEWPORT"):
+            if int(vp.dxf.get("id", 0)) == 1:  # the layout's own overall viewport
+                continue
+            cx, cy = vp.dxf.center[0], vp.dxf.center[1]
+            hw, hh = vp.dxf.width / 2.0, vp.dxf.height / 2.0
+            if cx - hw < hi_x and lo_x < cx + hw and cy - hh < hi_y and lo_y < cy + hh:
+                out.append(vp.dxf.handle)
+        return out
+
+    hit = await backend._async(_viewports, readonly=True)
+    if hit:
+        warnings.append(
+            f"covers_viewport: the block overlaps viewport(s) {', '.join(hit)}; "
+            "move it (x, y) or make it smaller"
+        )
+    return warnings

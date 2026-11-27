@@ -107,3 +107,66 @@ async def test_refusals_draw_nothing(backend):
     with pytest.raises(ValueError, match="give fields, notes or both"):
         await draw_title_block(backend, at=(0, 0))
     assert len(backend._doc.modelspace()) == before
+
+
+@pytest.mark.asyncio
+async def test_cells_side_by_side_fit_a_short_block_and_the_notes_go_apart(backend):
+    """Round 4 (A2): 8 values in 85 mm - as stacked rows 56 mm high, as cells
+    side by side with smaller lettering within 40; the notes in their own box;
+    a block over a viewport says so."""
+    await _sheet(backend)
+    await backend.viewport_create(
+        layout="A3",
+        center_x=250,
+        center_y=130,
+        width=300,
+        height=220,
+        view_center_x=0,
+        view_center_y=0,
+    )
+    pairs = [
+        ["Inwestor", "Anna Kowalska"],
+        ["Adres", "ul. Długa 12/4, Gdańsk"],
+        ["Tytuł", "RZUT OŚWIETLENIA"],
+        ["Autor", "arch. Jan Nowak"],
+        ["Data", "11.2026"],
+        ["Etap", "PW"],
+        ["Skala", "1:50"],
+        ["Nr", "E-02"],
+    ]
+    with pytest.raises(ValueError, match=r"max_height: the block needs 56\.0 mm, over 40"):
+        await draw_title_block(
+            backend,
+            layout="A3",
+            corner="bottom_left",
+            at=(4.2, 5.7),
+            width=85.3,
+            fields=pairs,
+            max_height=40,
+        )
+    rows = [pairs[0], pairs[1], [pairs[3], pairs[2]], [pairs[4], pairs[5], pairs[6], pairs[7]]]
+    result = await draw_title_block(
+        backend,
+        layout="A3",
+        corner="bottom_left",
+        at=(4.2, 5.7),
+        width=85.3,
+        fields=rows,
+        text_height=2.0,
+        label_position="above",
+        max_height=40,
+        lang="pl",
+        notes=NOTES,
+        notes_box={"x": 100, "y": 5.7, "width": 120},
+    )
+    height = result["bbox"]["max"][1] - result["bbox"]["min"][1]
+    assert height <= 40 and result["bbox"]["min"] == pytest.approx([4.2, 5.7])
+    assert result["rows"] == ["Inwestor", "Adres", "Autor | Tytuł", "Data | Etap | Skala | Nr"]
+    texts = {t.dxf.text: t for t in _texts(backend, result["handles"])}
+    date, stage = texts["11.2026"], texts["PW"]
+    assert date.dxf.insert.y == pytest.approx(stage.dxf.insert.y)  # one row, side by side
+    assert date.dxf.insert.x < stage.dxf.insert.x
+    assert texts["Data"].dxf.insert.y > date.dxf.insert.y  # the label above its value
+    assert texts["1."].dxf.insert.x > 100  # the notes in their own box
+    assert result["notes_bbox"]["min"] == [100.0, 5.7]
+    assert any(w.startswith("notes_box covers_viewport") for w in result["warnings"])

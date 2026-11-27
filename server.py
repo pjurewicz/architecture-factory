@@ -5270,7 +5270,8 @@ async def block_define(
         "type=line {x1,y1,x2,y2} | circle {cx,cy,radius} | "
         "arc {cx,cy,radius,start_angle,end_angle} | polyline {points,closed,bulges?} | "
         "text {text,x,y,height,rotation?,align? (left, center, right, middle, top_left ... bottom_right)} | solid {points (3-4)} | "
-        "wipeout {points (3+), closed polygon; masks what is drawn before it, so list it first}. "
+        "wipeout {points (3+), closed polygon; masks what is drawn before it, so list it first} | "
+        "hatch {points | circle [cx,cy,r]}, a solid fill. "
         "Optional layer (default 0).",
     ],
     attdefs: Annotated[
@@ -13305,6 +13306,8 @@ async def arch_wall(
 ) -> dict:
     """Add walls to the plan network already on the drawing and resolve every junction.
 
+    Details:
+
     Two ends at one point mitre into a clean L; an end inside another wall is a
     T (the stem stops on the crossing wall's near face, which is cut there); two
     axes crossing are an X (all four faces cut). A wall of another material
@@ -13474,6 +13477,8 @@ async def arch_stair(
     ctx: Context = None,
 ) -> dict:
     """A stair in plan: every riser as a line, the outline, the walking line with its arrow.
+
+    Details:
 
     The label ("UP" / "ÇIKIŞ") sits on the first tread at 2.5 mm × `scale`. The
     result reports `blondel` - 2R + G against 600-650 mm, the step-length rule
@@ -13668,6 +13673,8 @@ async def arch_dimension_chains(
 ) -> dict:
     """The three exterior chains an architectural plan carries, as real DIMENSIONs.
 
+    Details:
+
     Nearest first: the openings row (every jamb in that facade), the walls row
     (both faces of every wall meeting it - wall thickness, clear width, wall
     thickness, ...) and the overall row. The points come from the wall engine's
@@ -13749,6 +13756,8 @@ async def arch_room(
 ) -> dict:
     """Label the room around (x, y) with its name, number and MEASURED area.
 
+    Details:
+
     The area is never typed: the tool reads the wall faces on the `wall` layer
     of the arch set and other `A-WALL*` layers (LINE and lightweight polyline; anything else
     there is listed in `skipped`), finds the closed face
@@ -13801,6 +13810,8 @@ async def arch_room_separator(
     `arch_room`, `arch_rooms_detect` and the critique. The engine never invents
     this line; a `room_open` warning names the free wall ends to run it between.
 
+    Details:
+
     Returns `open_ends`, the free wall and separator ends still on the plan. A
     label already drawn without an area is not relabelled: delete it and label
     the room again with `arch_room`. Refused: fewer than 2 points, a repeated
@@ -13842,6 +13853,8 @@ async def arch_rooms_detect(
     ctx: Context = None,
 ) -> dict:
     """Read the rooms of a plan - ours or a foreign one made of plain lines.
+
+    Details:
 
     Every LINE and lightweight polyline on the layers is split where lines
     cross or touch, and the closed faces they bound are measured (mm², net of
@@ -13892,6 +13905,8 @@ async def arch_schedule(
     ctx: Context = None,
 ) -> dict:
     """Draw a door, window or room schedule as a table - a read of the drawing.
+
+    Details:
 
     The rows come from the `ACADMCP_ARCH` records on the drawing (what
     `arch_wall` / `arch_opening` / `arch_room` write), never from the caller:
@@ -13949,6 +13964,8 @@ async def arch_catalogue_list(
     ctx: Context = None,
 ) -> dict:
     """Catalogue rows: name, family, labels, nominal size (width x depth, mm), block, layer.
+
+    Details:
 
     Every block shares one frame: `origin` back_left, back along +X, `front_dir`
     [0, 1] at rotation 0, the footprint [0, width] x [0, depth].
@@ -14037,6 +14054,8 @@ async def arch_catalogue_insert(
 ) -> dict:
     """Define the item's block once per footprint, insert it on the furniture or sanitary layer.
 
+    Details:
+
     `width` / `depth` redraw the symbol for that footprint (rails, rims and
     chairs keep their real sizes - it is not scaled); the nominal size is block
     ARCH_<NAME>, any other ARCH_<NAME>_<W>x<D>. Each item has a size range
@@ -14079,8 +14098,9 @@ async def arch_electrical(
         list[dict],
         Field(
             description=(
-                "[{kind?, at: [x, y], count?: 2 -> '2x', height?: mm -> 'H=30CM', "
-                "rotation?, label?}]"
+                "[{kind?, at: [x, y] | path: [[x, y], ...] (runs), count?: 2 -> '2x', "
+                "height?: mm -> 'H=30CM', label?, rotation?, circuit?, circuits?: [names] "
+                "(switch_frame)}]"
             )
         ),
     ],
@@ -14089,9 +14109,10 @@ async def arch_electrical(
         Field(
             default=None,
             description=(
-                "Default kind: socket | floor_box | light_outlet | wall_light | switch | data | "
-                "tv | sat | usb | smoke_detector | co_detector | flood_detector | thermostat | "
-                "intercom | panel"
+                "Default kind. Points: socket floor_box light_outlet ceiling_light pendant_light "
+                "spot spot_pair track_head wall_light switch switch_frame data tv sat usb "
+                "smoke_detector co_detector flood_detector motion_sensor thermostat intercom "
+                "panel led_driver. Runs (path): led_strip track track_pendant circuit_link"
             ),
         ),
     ] = None,
@@ -14099,20 +14120,39 @@ async def arch_electrical(
     snap: Annotated[
         float, Field(default=300.0, gt=0, description="Wall-face search radius, drawing units")
     ] = 300.0,
+    text_height: Annotated[float, Field(default=1.8, gt=0, description="Paper mm")] = 1.8,
+    layer: Annotated[str | None, Field(default=None, description="Default A-ELEC-E-N")] = None,
+    color: Annotated[int | None, Field(default=None, description="ACI; default ByLayer")] = None,
+    symbols: Annotated[
+        dict | None, Field(default=None, description="{kind: your block name}")
+    ] = None,
     ctx: Context = None,
 ) -> dict:
-    """Insert symbol blocks ARCH_E_<KIND>_<scale> on layer A-ELEC-E-N.
+    """Insert symbol blocks ARCH_E_<KIND>_<scale>; runs are polylines along `path`.
 
     A wall device without `rotation` snaps to the nearest wall face (arch_wall,
-    A-WALL* outline or line): origin on the face, facing the room. Count and
-    height are attributes N / H, kept horizontal beside the symbol. Graphics are
-    this server's nominal convention in paper mm x scale, not a standard.
+    A-WALL* outline or line): origin on the face, facing the room. Label, count
+    and height are attributes L / N / H, kept horizontal beside the symbol.
+    `symbols` draws a kind with your own block, anchored the same way. Every item
+    carries an ACADMCP_ELEC record (kind, circuit) that arch_legend reads.
+    Graphics are this server's nominal convention in paper mm x scale, not a
+    standard.
     """
     from engineering.arch.electrical import insert_devices
 
     await ctx.info(f"arch electrical: {len(items)} item(s) at 1:{scale:g}")
     try:
-        return await insert_devices(_backend(ctx), items, kind=kind, scale=scale, snap=snap)
+        return await insert_devices(
+            _backend(ctx),
+            items,
+            kind=kind,
+            scale=scale,
+            snap=snap,
+            text_height=text_height,
+            layer=layer,
+            color=color,
+            symbols=symbols,
+        )
     except ValueError as exc:
         raise ToolError(str(exc)) from exc
 
@@ -14134,22 +14174,47 @@ async def arch_legend(
     scale: Annotated[float, Field(default=50.0, gt=0, description="Plot-scale denominator")] = 50.0,
     lang: Annotated[str, Field(default="en", description="en | tr | pl")] = "en",
     labels: Annotated[
-        dict | None,
-        Field(default=None, description="{block or pattern name: text, or null to drop the row}"),
+        dict | None, Field(default=None, description="{key: text, or null to drop the row}")
     ] = None,
+    only: Annotated[list[str] | None, Field(default=None, description="Keys to keep (* ?)")] = None,
+    exclude: Annotated[list[str] | None, Field(default=None, description="Keys to drop")] = None,
+    layers: Annotated[
+        list[str] | None, Field(default=None, description="Source layers to keep")
+    ] = None,
+    extra: Annotated[
+        list[dict] | None,
+        Field(default=None, description="Rows not in the model: [{label, block?|pattern?|kind?}]"),
+    ] = None,
+    columns: Annotated[int | None, Field(default=None, ge=1)] = None,
+    max_height: Annotated[float | None, Field(default=None, description="Paper mm")] = None,
     ctx: Context = None,
 ) -> dict:
-    """One row per block and hatch pattern model space uses: the real block or
-    pattern at its plotted size in a cell, then its description - wall
-    materials, arch_electrical kinds and catalogue items named in `lang`,
-    anything else by its name.
+    """One row per item model space uses - every size of a catalogue item and
+    every scale of a symbol is one row - with a sample (block, hatch, or a line
+    for LED strips, tracks and circuit links) and its description in `lang`.
+
+    Keys are items (wall_light, led_strip, wardrobe), block names and hatch
+    patterns. Catalogue furniture and the wall poche are left out unless `only`
+    names them (`left_out` lists them). `warnings` reports a legend off the
+    layout's paper or over a viewport.
     """
     from engineering.arch.legend import draw_legend
 
     await ctx.info(f"arch legend at ({x}, {y}) on {layout or 'Model'}")
     try:
         return await draw_legend(
-            _backend(ctx), at=(x, y), layout=layout, scale=scale, lang=lang, labels=labels
+            _backend(ctx),
+            at=(x, y),
+            layout=layout,
+            scale=scale,
+            lang=lang,
+            labels=labels,
+            only=only,
+            exclude=exclude,
+            layers=layers,
+            extra=extra,
+            columns=columns,
+            max_height=max_height,
         )
     except (ValueError, RuntimeError) as exc:
         raise ToolError(str(exc)) from exc
@@ -14170,7 +14235,8 @@ async def arch_title_block(
             default=None,
             description=(
                 "{project, investor, address, stage, scale, date, designer, author, checked, "
-                "title, drawing_no, revision, or any label: value} or [[label, value], ...]"
+                "title, drawing_no, revision, or any label: value} or [[label, value] | "
+                "[[label, value], ...], ...]"
             ),
         ),
     ] = None,
@@ -14195,10 +14261,19 @@ async def arch_title_block(
         float, Field(default=50.0, gt=0, description="Plot scale in model space")
     ] = 50.0,
     lang: Annotated[str, Field(default="en", description="en | tr | pl")] = "en",
+    text_height: Annotated[float, Field(default=2.5, description="Value height, paper mm")] = 2.5,
+    label_position: Annotated[str, Field(default="left", description="left | above")] = "left",
+    max_height: Annotated[float | None, Field(default=None, description="Paper mm")] = None,
+    notes_box: Annotated[
+        dict | None, Field(default=None, description="{x, y, width, height?}: notes apart")
+    ] = None,
     ctx: Context = None,
 ) -> dict:
-    """Rows in the order given; long values wrap. Known keys are lettered in
+    """Rows in the order given; long values wrap. A row [[label, value], ...]
+    puts cells side by side (Date | Stage | Scale). Known keys are lettered in
     `lang`; lines on TITLEBLOCK, text on TEXT with an ACADMCP_ANNOT record.
+    Over `max_height` is refused with the height needed; `warnings` reports a
+    block off the paper or over a viewport.
     """
     from engineering.arch.sheetblock import draw_title_block
 
@@ -14217,6 +14292,10 @@ async def arch_title_block(
             width=width,
             scale=scale,
             lang=lang,
+            text_height=text_height,
+            label_position=label_position,
+            max_height=max_height,
+            notes_box=notes_box,
         )
     except (ValueError, RuntimeError) as exc:
         raise ToolError(str(exc)) from exc
@@ -14292,6 +14371,8 @@ async def arch_grid(
     """Axis lines on the arch grid layer (its CENTER linetype comes from the layer) and a
     5 mm bubble with its label at both ends of each axis, on the symbol layer.
 
+    Details:
+
     Numbers run along x and letters along y (A..Z, then AA, AB - no letter is
     skipped) unless `labels` names them. The bubble and label sizes are this
     server's declared drafting sizes in paper millimetres, not a standards value.
@@ -14357,6 +14438,8 @@ async def arch_symbol(
     ctx: Context = None,
 ) -> dict:
     """Draw one architectural symbol on the arch symbol layer.
+
+    Details:
 
     Sizes are this server's declared drafting sizes in paper millimetres times
     `scale` (a 16 mm north-arrow circle, 10 mm section and elevation bubbles),
@@ -14433,6 +14516,8 @@ async def interior_wall_elevation(
     ctx: Context = None,
 ) -> dict:
     """One wall of a room seen from inside, drawn in one transaction.
+
+    Details:
 
     The outline (floor, ceiling, wall ends) with floor and ceiling level marks;
     doors and windows as frames; skirting interrupted at the openings, worktops,

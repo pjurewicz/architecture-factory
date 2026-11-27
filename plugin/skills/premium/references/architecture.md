@@ -86,13 +86,23 @@ footprint, not scaled, and each footprint is its own block
 
 ## Interior sheets: electrical symbols, legend, title block
 
-Outlets, switches, data / TV / USB, detectors, thermostat, intercom and the
-distribution board are one `arch_electrical` call with every item
-(`[{kind, at, count, height}]`), never hand-made blocks: a wall device snaps
-to the nearest wall face and faces the room, `count` 2 prints `2x` and
-`height` 300 prints `H=30CM`, both kept horizontal. The graphics are a
-declared nominal convention. `arch_legend` then builds the legend from what
-model space uses (blocks and hatch patterns, each with a real sample), and
-`arch_title_block` draws the label / value title block and the numbered
-notes box in a corner of the sheet's frame - `titleblock_apply` stays the
-ISO 7200 block.
+Outlets, switches, data / TV / USB, detectors, thermostat, intercom, the
+distribution board and the lighting plan (ceiling, pendant, spot, spot pair,
+track head, wall light, motion sensor, LED driver access) are one
+`arch_electrical` call with every item (`[{kind, at, count, height, label,
+circuit}]`), never hand-made blocks: a wall device snaps to the nearest wall
+face and faces the room, `label` `HALL 01`, `count` 2 (`2x`) and `height` 300
+(`H=30CM`) are separate lines, kept horizontal, at a text height you give in paper mm.
+LED strips, surface / pendant track and circuit links are items with a `path`;
+`switch_frame` with `circuits: [...]` frames the circuit names beside a switch.
+The project's own symbol replaces ours with `symbols={kind: block}` (same
+anchoring, same record), and `layer` / `color` follow the office's layers.
+The graphics are a declared nominal convention. `arch_legend` then builds the
+legend from what model space uses - one row per item (every size of a
+wardrobe is one row), line samples for strips and tracks; furniture and wall
+poche only when `only` names them, `exclude` / `layers` filter, `extra` adds
+office rows, `columns` / `max_height` fold it - and `arch_title_block` draws
+the title block (a row `[[label, value], ...]` puts cells side by side,
+its lettering height, `label_position`, `max_height`) with the notes stacked or in
+their own `notes_box`; both report `warnings` when they leave the paper or
+cover a viewport. `titleblock_apply` stays the ISO 7200 block.

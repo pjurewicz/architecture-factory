@@ -9876,6 +9876,13 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     blk.add_solid(solid_vertices(spec["points"]), dxfattribs=attribs)
                 elif kind == "wipeout":
                     blk.add_wipeout(spec["points"], dxfattribs=attribs)
+                elif kind == "hatch":
+                    fill = blk.add_hatch(color=0, dxfattribs=attribs)
+                    if "circle" in spec:
+                        cx, cy, r = spec["circle"]
+                        fill.paths.add_edge_path().add_arc((cx, cy), r, 0.0, 360.0)
+                    else:
+                        fill.paths.add_polyline_path(spec["points"], is_closed=True)
             for att in atts:
                 attdef = blk.add_attdef(
                     att["tag"],

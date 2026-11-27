@@ -13,8 +13,17 @@ from backends.block_specs import (
 )
 
 
-def test_allowed_types_are_the_documented_seven():
-    assert ALLOWED_TYPES == ("line", "circle", "arc", "polyline", "text", "solid", "wipeout")
+def test_allowed_types_are_the_documented_eight():
+    assert ALLOWED_TYPES == (
+        "line",
+        "circle",
+        "arc",
+        "polyline",
+        "text",
+        "solid",
+        "wipeout",
+        "hatch",
+    )
 
 
 def test_empty_entities_is_refused():
@@ -32,9 +41,11 @@ def test_each_type_normalises_to_floats_and_layer_zero():
             {"type": "text", "text": "M", "x": 0, "y": 0, "height": 2},
             {"type": "solid", "points": [[0, 0], [1, 0], [0, 1]]},
             {"type": "wipeout", "points": [[0, 0], [2, 0], [2, 1], [1, 2], [0, 1]]},
+            {"type": "hatch", "circle": [0, 0, 1]},
         ]
     )
     assert [e["type"] for e in out] == list(ALLOWED_TYPES)
+    assert out[7]["circle"] == [0.0, 0.0, 1.0]
     assert len(out[6]["points"]) == 5  # no four-point cap, unlike a SOLID
     assert out[0] == {"type": "line", "layer": "0", "x1": 0.0, "y1": 0.0, "x2": 1.0, "y2": 0.0}
     assert out[3]["points"] == [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)]

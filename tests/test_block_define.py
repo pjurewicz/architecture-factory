@@ -143,3 +143,29 @@ async def test_block_text_takes_every_shared_alignment(backend):
     )
     (text,) = backend._doc.blocks.get("LBL").query("TEXT")
     assert text.get_align_enum().name == "TOP_RIGHT" and tuple(text.dxf.align_point)[:2] == (3, 4)
+
+
+async def test_a_hatch_fills_a_polygon_or_a_disc_and_a_bad_one_writes_nothing(backend):
+    """Round 4 (A9f): a solid fill inside a block - a filled circle needed a
+    SOLID fan before."""
+    from ezdxf import bbox
+
+    await backend.block_define(
+        "DOT",
+        [
+            {"type": "hatch", "circle": [0, 0, 2]},
+            {"type": "hatch", "points": [[5, 0], [9, 0], [9, 3]]},
+        ],
+    )
+    disc, tri = backend._doc.blocks.get("DOT").query("HATCH")
+    assert disc.dxf.solid_fill == 1 and disc.dxf.color == 0
+    box = bbox.extents([disc])
+    assert (round(box.extmin.x, 3), round(box.extmax.y, 3)) == (-2.0, 2.0)
+    assert len(tri.paths[0].vertices) == 3
+    for bad, message in (
+        ({"type": "hatch"}, "points .3\\+. or circle"),
+        ({"type": "hatch", "circle": [0, 0, -1]}, "circle\\[2\\] must be > 0"),
+    ):
+        with pytest.raises(TypeError, match=message):
+            await backend.block_define("BAD", [bad])
+    assert "BAD" not in backend._doc.blocks

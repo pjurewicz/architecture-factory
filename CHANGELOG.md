@@ -25,6 +25,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `arch_electrical` draws a lighting plan (round 4): ceiling, pendant, spot,
+  spot pair and track-head luminaires, a motion sensor and an LED driver
+  access hatch; LED strip, surface and pendant track and circuit links along
+  a `path`; `switch_frame` with a framed, horizontal list of its `circuits`.
+  `symbols={kind: block}` draws a kind with the project's own block (wall
+  anchoring, attributes - or TEXT where the block has none - and the legend
+  entry kept); `text_height`, `layer`, `color`. Every item carries an
+  `ACADMCP_ELEC` record with its `circuit`.
+- `arch_legend`: one row per item (every catalogue size, every symbol scale),
+  line samples for strips, tracks and circuit links, a project block named by
+  its record; `only` / `exclude` / `layers`, `extra` rows the model does not
+  use, `columns`, `max_height`; furniture and wall poche only when named
+  (`left_out`); `warnings` when it leaves the paper or covers a viewport.
+- `arch_title_block`: cells side by side (`[[label, value], ...]` in one
+  row), `text_height`, `label_position`, `max_height` (refused with the
+  height it needs), the notes in their own `notes_box`; `warnings` as above.
+- `block_define` takes `hatch {points | circle}`, a solid fill.
+
+### Fixed (round 4)
+
+- `arch_electrical`: an item's `label` replaced its mounting height, so
+  `height: 1500, label: "HALL 01"` drew no `H=150CM`. The label is its own
+  attribute `L`, above `N` and `H`; an older block without it is redefined in
+  place.
+
 - `image_map` (pack `arch`, read-only): scan pixels to drawing points and
   back through the same `overlay_align` pairs `view_screenshot` overlays
   with. Two pairs answer `fit.controlled: false` and ask for a third; three
