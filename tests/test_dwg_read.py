@@ -212,3 +212,30 @@ async def test_the_v9_task_without_a_converter_is_environment_blocked(tmp_path, 
     assert result.status == "environment_blocked", result
     assert result.metrics["twin_ok"] is True
     assert result.metrics["twin"] == {"kind": "unsupported", "capability": "dwg_read"}
+
+
+# ── the real converter on a slow display ────────────────────────────────────
+
+
+@pytest.mark.skipif(not eb._odafc_available(), reason="needs the ODA File Converter")
+def test_the_real_converter_waits_for_a_slow_xvfb(tmp_path, monkeypatch):
+    """ezdxf starts Xvfb and sleeps 0.1 s; an Xvfb slower than that (a loaded CI
+    runner) made the converter abort with "could not connect to display"."""
+    import shutil
+
+    real = shutil.which("Xvfb")
+    if real is None:
+        pytest.skip("needs Xvfb")
+    slow = tmp_path / "bin" / "Xvfb"
+    slow.parent.mkdir()
+    slow.write_text(f'#!/bin/sh\nsleep 1\nexec "{real}" "$@"\n')
+    slow.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{slow.parent}:{__import__('os').environ['PATH']}")
+
+    doc = ezdxf.new()
+    doc.modelspace().add_line((0, 0), (10, 5))
+    target = tmp_path / "slow.dwg"
+    dwg_read.odafc_module().export_dwg(doc, str(target), replace=True)
+    back, report = dwg_read.read_dwg(str(target), odafc=True)
+    assert report["route"] == "odafc"
+    assert [e.dxftype() for e in back.modelspace()] == ["LINE"]

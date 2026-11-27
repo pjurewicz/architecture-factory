@@ -3625,11 +3625,9 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             )
 
         def _sync():
-            from ezdxf.addons import odafc
-
             doc = self._preview_state(document).doc
             self._refuse_path_held_elsewhere("drawing_export_dwg", path)
-            odafc.export_dwg(doc, path, version=version, replace=True)
+            dwg_read.odafc_module().export_dwg(doc, path, version=version, replace=True)
             return {
                 "ok": True,
                 "path": path,

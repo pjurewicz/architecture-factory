@@ -14,7 +14,11 @@ Windows and an AutoCAD install; this fork removed it with the live engine.)
 from __future__ import annotations
 
 import os
+import select
+import shutil
+import subprocess
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 from .base import FeatureCapability, UnsupportedCapabilityError
@@ -22,6 +26,7 @@ from .base import FeatureCapability, UnsupportedCapabilityError
 __all__ = [
     "DwgConversionError",
     "capability",
+    "odafc_module",
     "read_dwg",
     "refusal",
 ]
@@ -61,10 +66,58 @@ def refusal(path: str, backend: str = "ezdxf") -> UnsupportedCapabilityError:
     )
 
 
-def _read_with_odafc(source: str):
+@contextmanager
+def _ready_xvfb_display():
+    """A private Xvfb display, yielded once it accepts connections.
+
+    Replaces ezdxf's ``odafc._linux_dummy_display``, which starts Xvfb on
+    ``:<pid>`` and sleeps 0.1 s: on a loaded machine Xvfb is not up yet and the
+    converter aborts with "could not connect to display"; two conversions in one
+    process also claim the same display. ``-displayfd`` makes Xvfb pick a free
+    display and write its number only when it is ready.
+    """
+    if not shutil.which("Xvfb"):
+        with _EZDXF_DUMMY_DISPLAY() as display:
+            yield display
+        return
+    read_fd, write_fd = os.pipe()
+    proc = subprocess.Popen(
+        ["Xvfb", "-displayfd", str(write_fd), "-screen", "0", "800x600x24"],
+        pass_fds=(write_fd,),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    os.close(write_fd)
+    try:
+        with os.fdopen(read_fd) as ready:
+            if not select.select([ready], [], [], _XVFB_START_TIMEOUT_S)[0]:
+                raise RuntimeError(f"Xvfb did not start within {_XVFB_START_TIMEOUT_S} s")
+            number = ready.readline().strip()
+        if not number:
+            raise RuntimeError(f"Xvfb exited before it was ready (exit code {proc.poll()})")
+        yield f":{number}"
+    finally:
+        proc.terminate()
+        proc.wait()
+
+
+_XVFB_START_TIMEOUT_S = 10
+_EZDXF_DUMMY_DISPLAY = None
+
+
+def odafc_module():
+    """``ezdxf.addons.odafc``, running the converter on a display that is ready."""
+    global _EZDXF_DUMMY_DISPLAY
     from ezdxf.addons import odafc
 
-    return odafc.readfile(source)
+    if _EZDXF_DUMMY_DISPLAY is None:
+        _EZDXF_DUMMY_DISPLAY = odafc._linux_dummy_display
+        odafc._linux_dummy_display = _ready_xvfb_display
+    return odafc
+
+
+def _read_with_odafc(source: str):
+    return odafc_module().readfile(source)
 
 
 def read_dwg(path: str, *, odafc: bool) -> tuple[object, dict]:
