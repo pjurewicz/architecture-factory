@@ -3602,6 +3602,15 @@ async def dimension_chain(
         str | None, Field(default=None, description="Default: the layer set's DIM")
     ] = None,
     dry_run: Annotated[bool, Field(default=False, description="Plan only")] = False,
+    ext_length: Annotated[
+        float | None,
+        Field(
+            default=None,
+            gt=0,
+            description="Fixed extension-line length from the dimension line toward each "
+            "point (DIMFXL); with offset 0 a tick through each point. Default: to the point",
+        ),
+    ] = None,
     ctx: Context = None,
 ) -> dict:
     """One continuous chain of linear DIMENSIONs through any points (a section's
@@ -3634,6 +3643,7 @@ async def dimension_chain(
             merge_repeats=merge_repeats,
             axis=axis,
             dry_run=dry_run,
+            ext_length=ext_length,
         )
     except ValueError as exc:
         from engineering.errors import InvalidArgsError

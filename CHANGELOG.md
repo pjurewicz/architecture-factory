@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `dimension_chain(ext_length=)` gives every extension line a fixed length
+  from the dimension line toward its point (DIMFXLON / DIMFXL, in drawing
+  units): at `offset` 0, where a zero-length extension line is suppressed, each
+  point now gets a tick through the line.
+
 - `view_screenshot(background="white")` draws on paper, as a PDF does: thin
   coloured lines on the dark model background read as grey (`auto`, the
   space's own background, stays the default; `black` too).

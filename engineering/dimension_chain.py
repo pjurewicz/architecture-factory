@@ -45,7 +45,9 @@ station is drawn with the CENTER linetype (DIMLTEX1 / DIMLTEX2), the axis
 convention; the dimension's linetype scale is fitted so that line holds two
 CENTER sequences on paper (a shorter line plots solid, in AutoCAD too). An extension line of zero length - a point on its own dimension
 line, as ``offset`` 0 gives - is suppressed (DIMSE1 / DIMSE2) instead of
-leaving a DIMEXE tick; an axis station there is warned ``axis_on_line``.
+leaving a DIMEXE tick, unless ``ext_length`` fixes every extension line's
+length (DIMFXL): then each point gets a tick through it; an axis station on
+the line is warned ``axis_on_line``.
 
 ISO 129-1: each measurement once - the overall row is drawn only when the
 chain has two rows or more.
@@ -396,10 +398,11 @@ def _row(row, a, b, line, along, across, placement) -> dict:
     }
 
 
-def _extension_vars(extension) -> dict:
+def _extension_vars(extension, fixed: bool = False) -> dict:
+    """DIMSE / DIMLTEX overrides of a row; a fixed length keeps every line."""
     out = {}
     for end, kind in enumerate(extension, start=1):
-        if kind == "suppressed":
+        if kind == "suppressed" and not fixed:
             out[f"dimse{end}"] = 1
         elif kind == "axis":
             out[f"dimltex{end}"] = "CENTER"
@@ -420,12 +423,16 @@ async def draw_chain(
     merge_repeats: bool = False,
     axis=None,
     dry_run: bool = False,
+    ext_length=None,
 ) -> dict:
     """``plan_chain`` drawn as real linear DIMENSIONs inside one transaction.
 
     ``scale`` (a plot-scale denominator) is DIMSCALE while the chain is drawn,
     the drawing's own put back afterwards; None draws at the drawing's DIMSCALE.
-    A failure half way rolls the whole chain back.
+    A failure half way rolls the whole chain back. ``ext_length`` (drawing
+    units) gives every extension line that fixed length from the dimension
+    line toward its point (DIMFXLON / DIMFXL), so a chain at ``offset`` 0
+    still shows a tick through each point.
     """
     from engineering.mech.draw import guarded_transaction
 
@@ -436,6 +443,12 @@ async def draw_chain(
     previous = await backend.system_get_variable("DIMSCALE")
     previous = 1.0 if previous in (None, 0, 0.0) else float(previous)
     factor = previous if scale is None else scale
+    fixed = {}
+    if ext_length is not None:
+        ext_length = _number(ext_length, "ext_length")
+        if ext_length <= 0:
+            raise ValueError(f"ext_length: must be positive, got {ext_length:g}")
+        fixed = {"dimfxlon": 1, "dimfxl": ext_length / factor}  # DIMFXL is scaled by DIMSCALE
     style = {name: await backend.system_get_variable(name.upper()) for name in _STYLE_VARS}
     plan = plan_chain(
         points,
@@ -493,7 +506,7 @@ async def draw_chain(
                     text_override=row.get("text"),
                     text_at=tuple(row["text_at"]),
                     text_leader=row["leader"],
-                    dimvars=_extension_vars(row["extension"]),
+                    dimvars={**_extension_vars(row["extension"], bool(fixed)), **fixed},
                 )
                 row["handle"] = info.handle
                 handles.append(info.handle)

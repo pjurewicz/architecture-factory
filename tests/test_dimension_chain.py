@@ -117,6 +117,26 @@ async def test_offset_zero_puts_the_line_on_the_points_texts_above_or_left(backe
     assert dims[2].dxf.defpoint.x < 10
 
 
+@pytest.mark.asyncio
+async def test_ext_length_puts_a_fixed_tick_through_each_point_at_offset_zero(backend):
+    def ticks(handle):
+        dim = backend._require_doc().entitydb[handle]
+        lines = [e for e in dim.get_geometry_block() if e.dxftype() == "LINE"]
+        return sorted(
+            (round(e.dxf.start.x, 6), round(e.dxf.start.y, 6), round(e.dxf.end.y, 6))
+            for e in lines
+            if math.isclose(e.dxf.start.x, e.dxf.end.x, abs_tol=1e-9)
+        )
+
+    plain = await draw_chain(backend, [[0, 0], [100, 0]], 0, overall=False)
+    assert ticks(plain["handles"][0]) == [], "a zero-length extension line is suppressed"
+    # DIMSCALE 2: 6 drawing units below the line, DIMEXE 1.25 x 2 above
+    out = await draw_chain(backend, [[0, 0], [100, 0]], 0, overall=False, scale=2, ext_length=6)
+    assert ticks(out["handles"][0]) == [(0.0, -6.0, 2.5), (100.0, -6.0, 2.5)]
+    with pytest.raises(ValueError, match="ext_length"):
+        await draw_chain(backend, [[0, 0], [100, 0]], 0, ext_length=0)
+
+
 # a joist run at 1:50: 300, then 4 x 205 whose texts (281 wide at h 125) do not fit, then 300
 JOISTS = [[0, 0], [300, 0], [505, 0], [710, 0], [915, 0], [1120, 0], [1420, 0]]
 
