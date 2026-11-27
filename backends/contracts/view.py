@@ -48,6 +48,9 @@ class ViewContract(ABC):
         region: list[float] | None = None,
         max_px: int = 1568,
         overlay_handles: bool = False,
+        overlay_image: str | None = None,
+        overlay_align: list | None = None,
+        overlay_opacity: float = 0.5,
     ) -> dict:
         """A PNG of ``region`` (``[x0, y0, x1, y1]``, WCS) and the scale it was drawn at (1.8-07).
 
@@ -58,5 +61,9 @@ class ViewContract(ABC):
         renderer (``source: "export_snapshot"``) and no region is the window
         capture (``source: "window"``, ``region``/``px_per_unit`` None). A
         degenerate region or ``max_px`` outside 64-4096 is ``ValueError``.
+        ``overlay_image`` + ``overlay_align`` (two ``[u, v, x, y]`` pairs, image
+        pixel -> WCS) draw a scan under the geometry at ``overlay_opacity``;
+        the report then carries ``overlay`` {pixels, units_per_px,
+        rotation_deg, bounds, opacity}. A bad pair or opacity is ``ValueError``.
         """
         ...

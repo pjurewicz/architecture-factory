@@ -94,6 +94,7 @@ from .region_render import (
     PAPERSPACE_LAST,
     check_max_px,
     draw_layout,
+    load_overlay,
     normalize_region,
     paperspace_last,
     render_layout,
@@ -9947,14 +9948,24 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         max_px: int = DEFAULT_MAX_PX,
         overlay_handles: bool = False,
         document: str | None = None,
+        overlay_image: str | None = None,
+        overlay_align: list | None = None,
+        overlay_opacity: float = 0.5,
     ) -> dict:
         """The current space drawn at a stated scale, the window applied (1.8-07).
 
         ``document`` (preview.py only) names another open document by its
         ``document_id``; it is drawn in model space and stays inactive.
+        ``overlay_image`` (a path the caller validated) is drawn under the CAD
+        geometry, placed by the two ``overlay_align`` pairs (``load_overlay``).
         """
         wanted = normalize_region(region)
         size = check_max_px(max_px)
+        if (overlay_image is None) != (overlay_align is None):
+            raise ValueError(
+                "overlay_image and overlay_align go together: the scan needs two "
+                "calibration pairs [[u, v, x, y], [u, v, x, y]] to be placed"
+            )
 
         def _sync():
             state = self._preview_state(document)
@@ -9969,6 +9980,9 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     overlay_handles=overlay_handles,
                     max_labels=DEFAULT_MAX_HANDLE_LABELS,
                     label_anchor=_label_anchor,
+                    overlay=None
+                    if overlay_image is None
+                    else load_overlay(overlay_image, overlay_align, overlay_opacity),
                 )
             except ImportError:
                 log.warning("matplotlib not installed - region render unavailable")

@@ -1694,6 +1694,8 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "show me the drawing",
             "zoom then capture",
             "visual check",
+            "overlay the cad on a scan",
+            "compare the redraw with the scanned plan",
         ),
     ),
     # ── P&ID ────────────────────────────────────────────────────────────────

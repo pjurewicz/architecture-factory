@@ -5869,7 +5869,9 @@
         "what does it look like",
         "show me the drawing",
         "zoom then capture",
-        "visual check"
+        "visual check",
+        "overlay the cad on a scan",
+        "compare the redraw with the scanned plan"
       ],
       "tags": [
         "screenshot",

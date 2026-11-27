@@ -15,6 +15,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is set up on ISO_A2 (594 × 420 mm), zero margins, `arch_monochrome.ctb`,
   scaled to fit. Template specs carry `ctb` (default `monochrome.ctb`), listed by
   `drawing_template_list`. No `.dwt` twin.
+- `view_screenshot(overlay_image=, overlay_align=, overlay_opacity=0.5)`: a
+  scan drawn semi-transparent under the CAD, so a redraw that missed a jog or
+  a skewed wall shows against its source. `overlay_align` is two pairs
+  `[[u, v, x, y], [u, v, x, y]]` (image pixel, origin top-left, v down ->
+  WCS point), which fix a similarity (scale, rotation, shift); the report's
+  `overlay` gives `pixels`, `units_per_px`, `rotation_deg` and `bounds`, and
+  without a region the framing covers the scan. The path goes through
+  `validate_path`; coincident pairs, an opacity outside 0-1, an unreadable
+  image and an image without its pairs are refused by name. The drawing is
+  not changed (an IMAGE entity from `image_attach` is still not rendered).
 - `arch_symbol(kind="elevation_mark")` takes `directions` as a mapping from
   direction to its letter (`{"up": "A", "right": "B", "down": "C"}`): one
   bubble with a pointer per direction and a 2.5 mm letter inside the circle by

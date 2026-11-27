@@ -7410,6 +7410,20 @@ async def view_screenshot(
         int,
         Field(description="Long side of the image in pixels (64-4096).", ge=64, le=4096),
     ] = 1568,
+    overlay_image: Annotated[
+        str | None,
+        "Scan or photo (PNG/JPG/TIFF...) drawn under the CAD lines, to compare a "
+        "redraw with its source. Needs overlay_align.",
+    ] = None,
+    overlay_align: Annotated[
+        list[list[float]] | None,
+        "Two calibration pairs [[u, v, x, y], [u, v, x, y]]: image pixel (u, v; "
+        "origin top-left, v down) lands on drawing point (x, y). Fixes scale, "
+        "rotation and shift.",
+    ] = None,
+    overlay_opacity: Annotated[
+        float, Field(description="Opacity of the scan, 0-1.", ge=0, le=1)
+    ] = 0.5,
     ctx: Context = None,
 ):
     """Capture a screenshot of the current drawing view, rendered via matplotlib.
@@ -7427,13 +7441,25 @@ async def view_screenshot(
     on. Crowded drawings are capped and the image says how many of how many were
     labelled.
 
+    With `overlay_image` + `overlay_align` a scan is drawn semi-transparent
+    under the CAD ("CAD on scan"), so a missed offset or skewed wall shows;
+    the report's `overlay` gives its `units_per_px`, `rotation_deg` and
+    `bounds`. Without a region the framing covers the scan too.
+
     Returns an Image content block with the PNG data, then the report as JSON.
     """
     await ctx.info("Capturing drawing screenshot")
     await ctx.report_progress(0, 100)
 
+    overlay = {}
+    if overlay_image is not None:
+        overlay = {"overlay_image": str(validate_path(overlay_image))}
+    if overlay_align is not None:
+        overlay["overlay_align"] = overlay_align
+    if overlay:
+        overlay["overlay_opacity"] = overlay_opacity
     report = await _view_render(
-        _backend(ctx), region=region, max_px=max_px, overlay_handles=overlay_handles
+        _backend(ctx), region=region, max_px=max_px, overlay_handles=overlay_handles, **overlay
     )
     await ctx.report_progress(100, 100)
     return _view_image_result(
@@ -7442,10 +7468,12 @@ async def view_screenshot(
     )
 
 
-async def _view_render(b, *, region, max_px: int, overlay_handles: bool = False) -> dict:
-    """``b.view_render``, a bad region or size turned into a ToolError naming it."""
+async def _view_render(b, *, region, max_px: int, overlay_handles: bool = False, **overlay) -> dict:
+    """``b.view_render``, a bad region, size or overlay turned into a ToolError naming it."""
     try:
-        return await b.view_render(region=region, max_px=max_px, overlay_handles=overlay_handles)
+        return await b.view_render(
+            region=region, max_px=max_px, overlay_handles=overlay_handles, **overlay
+        )
     except ValueError as exc:
         raise ToolError(str(exc)) from exc
 

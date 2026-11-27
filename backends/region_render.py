@@ -87,6 +87,113 @@ def normalize_region(region) -> Region | None:
     return (x0, y0, x1, y1)
 
 
+#: A scan's long side is reduced to this before drawing: the output is at most
+#: MAX_MAX_PX wide, so more source pixels only cost memory.
+OVERLAY_MAX_SOURCE_PX = 4096
+
+
+def overlay_transform(align) -> tuple[complex, complex]:
+    """(a, b) with model = a·(u - i·v) + b, from ``[[u, v, x, y], [u, v, x, y]]``.
+
+    ``(u, v)`` is an image pixel (origin top-left, v down), ``(x, y)`` the WCS
+    point it must land on. Two pairs fix a similarity (uniform scale, rotation,
+    shift; no shear, no mirror). ``ValueError`` names ``overlay_align``.
+    """
+    if (
+        isinstance(align, str | bytes)
+        or not isinstance(align, Sequence)
+        or len(align) != 2
+        or any(
+            isinstance(p, str | bytes) or not isinstance(p, Sequence) or len(p) != 4 for p in align
+        )
+    ):
+        raise ValueError(
+            "overlay_align must be two calibration pairs [[u, v, x, y], [u, v, x, y]] "
+            f"(image pixel -> drawing point), got {align!r}"
+        )
+    try:
+        (u1, v1, x1, y1), (u2, v2, x2, y2) = ([float(v) for v in p] for p in align)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"overlay_align must hold numbers, got {align!r}") from exc
+    if not all(math.isfinite(v) for v in (u1, v1, x1, y1, u2, v2, x2, y2)):
+        raise ValueError(f"overlay_align must hold finite numbers, got {align!r}")
+    p1, p2 = complex(u1, -v1), complex(u2, -v2)
+    z1, z2 = complex(x1, y1), complex(x2, y2)
+    if p1 == p2 or z1 == z2:
+        raise ValueError(
+            "overlay_align: the two calibration points must differ both in the image "
+            f"and in the drawing, got {align!r}"
+        )
+    a = (z2 - z1) / (p2 - p1)
+    return a, z1 - a * p1
+
+
+def check_opacity(opacity) -> float:
+    """``overlay_opacity`` as a float in [0, 1], or ``ValueError`` naming it."""
+    try:
+        value = float(opacity)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"overlay_opacity must be a number in 0-1, got {opacity!r}") from exc
+    if isinstance(opacity, bool) or not 0.0 <= value <= 1.0:
+        raise ValueError(f"overlay_opacity must be between 0 and 1, got {opacity!r}")
+    return value
+
+
+def load_overlay(path: str, align, opacity) -> dict:
+    """The scan at ``path`` read and calibrated; ``ValueError`` names what is wrong."""
+    a, b = overlay_transform(align)
+    alpha = check_opacity(opacity)
+    from PIL import Image, UnidentifiedImageError
+
+    try:
+        with Image.open(path) as source:
+            width, height = source.size
+            image = source.convert("RGBA")
+    except (FileNotFoundError, IsADirectoryError) as exc:
+        raise ValueError(f"overlay_image: {path} does not exist") from exc
+    except (UnidentifiedImageError, OSError) as exc:
+        raise ValueError(f"overlay_image: {path} is not an image Pillow can read") from exc
+    if max(width, height) > OVERLAY_MAX_SOURCE_PX:
+        image.thumbnail((OVERLAY_MAX_SOURCE_PX, OVERLAY_MAX_SOURCE_PX))
+    corners = [
+        a * complex(u, -v) + b for u, v in ((0, 0), (width, 0), (width, height), (0, height))
+    ]
+    xs, ys = [c.real for c in corners], [c.imag for c in corners]
+    return {
+        "image": image,
+        "a": a,
+        "b": b,
+        "report": {
+            "path": str(path),
+            "pixels": [width, height],
+            "opacity": alpha,
+            "units_per_px": abs(a),
+            "rotation_deg": math.degrees(math.atan2(a.imag, a.real)),
+            "bounds": [min(xs), min(ys), max(xs), max(ys)],
+        },
+    }
+
+
+def _draw_overlay(ax, overlay: dict) -> None:
+    """The scan under everything ezdxf drew (whose z-order starts at 0)."""
+    import numpy as np
+    from matplotlib.transforms import Affine2D
+
+    a, b = overlay["a"], overlay["b"]
+    width, height = overlay["report"]["pixels"]
+    matrix = Affine2D(np.array([[a.real, -a.imag, b.real], [a.imag, a.real, b.imag], [0, 0, 1]]))
+    ax.imshow(
+        np.asarray(overlay["image"]),
+        origin="upper",
+        # Pixel edges in (u, -v): the array may be reduced, the extent is the original.
+        extent=(0, width, -height, 0),
+        transform=matrix + ax.transData,
+        alpha=overlay["report"]["opacity"],
+        interpolation="bilinear",
+        zorder=-1,
+    )
+
+
 def frame(region: Region, max_px: int) -> tuple[int, int, Region, float]:
     """(width_px, height_px, drawn region, px_per_unit) for ``region``.
 
@@ -424,11 +531,14 @@ def render_layout(
     overlay_handles: bool = False,
     max_labels: int = 40,
     label_anchor: Callable | None = None,
+    overlay: dict | None = None,
 ) -> dict:
     """Render ``layout`` of ``doc`` to PNG; ``region`` None frames the extents.
 
     Raises ``ImportError`` when matplotlib is missing; the caller decides how
     to say so. ``region`` must already be normalised (``normalize_region``).
+    ``overlay`` (``load_overlay``) is a calibrated scan drawn under the CAD
+    geometry; without a region the framing then covers the scan too.
     """
     from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
 
@@ -444,6 +554,12 @@ def render_layout(
             ex0, ex1 = ex0 - 0.5, ex0 + 0.5
         if not ey1 - ey0 > 0:
             ey0, ey1 = ey0 - 0.5, ey0 + 0.5
+        if overlay is not None:
+            ox0, oy0, ox1, oy1 = overlay["report"]["bounds"]
+            if any(True for _ in layout):
+                ex0, ey0, ex1, ey1 = min(ex0, ox0), min(ey0, oy0), max(ex1, ox1), max(ey1, oy1)
+            else:  # nothing drawn yet: the autoscaled (0, 1) box is not content
+                ex0, ey0, ex1, ey1 = ox0, oy0, ox1, oy1
         target: Region = (ex0, ey0, ex1, ey1)
         framing = "extents"
     else:
@@ -453,6 +569,8 @@ def render_layout(
     width, height, drawn, ppu = frame(target, max_px)
     fig.set_size_inches(width / _DPI, height / _DPI)
     ax.set_aspect("auto")
+    if overlay is not None:
+        _draw_overlay(ax, overlay)
     ax.set_xlim(drawn[0], drawn[2])
     ax.set_ylim(drawn[1], drawn[3])
 
@@ -516,6 +634,7 @@ def render_layout(
         "labelled": len(labels),
         "total": total,
         "truncated": truncated,
+        **({} if overlay is None else {"overlay": overlay["report"]}),
     }
 
 
