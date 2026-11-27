@@ -29,18 +29,21 @@ DECLARED, not standard:
   two values of the ISO 3098-1 series; which line gets which is this module's
   choice. The line pitch of 1.6 x the text height is this module's choice too.
 * ``align="center"`` centres every line on the label point and the whole
-  stack on it vertically; ``fit=True`` shrinks the stack (never grows it) so
-  its estimated extent fits inside the room around the point, down to
-  ``MIN_FIT_HEIGHT`` on paper. The width of a line is estimated, not measured:
-  ``CHAR_WIDTH_FACTOR`` (0.9 text heights per character, generous for
-  capitals) times its length; the result reports the factor applied and
-  whether the label fits at it.
+  stack on it vertically; ``fit=True`` makes the label's estimated extent fit
+  inside the room around the point by first wrapping the name onto two lines
+  at a space, then shrinking the name (never growing it) down to
+  ``MIN_FIT_HEIGHT`` on paper - the 2.5 mm ISO 3098 floor the ``iso128``
+  critique checks, so a fitted label never trips ``plotted_text_too_small``
+  at its own plot scale. The number and area lines are never shrunk. The
+  width of a line is estimated, not measured: ``CHAR_WIDTH_FACTOR`` (0.9 text
+  heights per character, generous for capitals) times its length; the result
+  reports the name height and lines chosen and whether the label fits.
 * ``mask=True`` (the default) draws a WIPEOUT under the label on its layer,
   so walls, hatches and grid lines drawn before it do not run through the
   text. Its rectangle is the texts' measured extent plus ``MASK_MARGIN``
   (0.25 x the smallest line height) all round, clipped to the room's face so
   it never hides a wall; a room with no face (an open room) gets the bare
-  rectangle. The texts stay three TEXTs, the name carrying the room record.
+  rectangle. Every line stays a TEXT, the (first) name line carrying the room record.
 * ``MIN_ROOM_WIDTH``: a face whose mean width (2 x area / perimeter) is under
   600 mm is taken for a wall body or an opening reveal, not a room. That is
   this reader's heuristic, not a building rule - a 200 mm wall ring measures
@@ -103,7 +106,10 @@ __all__ = [
 NAME_HEIGHT = 3.5  # mm on paper (ISO 3098-1 series value)
 TEXT_HEIGHT = 2.5  # mm on paper (ISO 3098-1 series value)
 LINE_PITCH = 1.6  # baseline step, x the height of the line being placed
-MIN_FIT_HEIGHT = 1.8  # mm on paper: the smallest ISO 3098-1 series value fit shrinks to
+#: mm on paper: the smallest name height fit shrinks to - the same 2.5 mm floor
+#: as ``engineering.critique.ISO_3098_MIN_TEXT_MM``, so fit never draws what the
+#: critique then reports as ``plotted_text_too_small``.
+MIN_FIT_HEIGHT = 2.5
 #: Character advance in text heights, deliberately generous: room names are capitals,
 #: and over-estimating only makes a fitted label smaller, never spill out of the room.
 CHAR_WIDTH_FACTOR = 0.9
@@ -170,13 +176,21 @@ def _positive(value, where: str) -> float:
 
 
 def _label_lines(
-    room: Room, lang: str, factor: float, with_area: bool = True
+    room: Room,
+    lang: str,
+    scale: float,
+    with_area: bool = True,
+    *,
+    name_lines: tuple[str, ...] | None = None,
+    name_height: float = NAME_HEIGHT,
 ) -> list[tuple[str, float]]:
-    lines = [(room.name, NAME_HEIGHT * factor)]
+    """``(text, drawing height)`` per line: the name (on ``name_lines`` when
+    wrapped) at ``name_height`` paper mm, number and area at ``TEXT_HEIGHT``."""
+    lines = [(text, name_height * scale) for text in (name_lines or (room.name,))]
     if room.number:
-        lines.append((str(room.number), TEXT_HEIGHT * factor))
+        lines.append((str(room.number), TEXT_HEIGHT * scale))
     if with_area:
-        lines.append((fmt_area_m2(room.area, lang), TEXT_HEIGHT * factor))
+        lines.append((fmt_area_m2(room.area, lang), TEXT_HEIGHT * scale))
     return lines
 
 
@@ -199,23 +213,28 @@ def room_label_prims(
     lang: str = "en",
     scale=50,
     align: str = "left",
-    shrink: float = 1.0,
     with_area: bool = True,
+    name_lines: tuple[str, ...] | None = None,
+    name_height: float = NAME_HEIGHT,
 ) -> tuple[Text, ...]:
     """Name, number (when there is one) and measured area, stacked down
     (``with_area=False``: no area line, for a room with no closed face).
 
     Heights are paper millimetres times the plot-scale denominator (at 1:50 the
-    3.5 mm name is 175 drawing units high), times ``shrink``. ``align="left"``:
+    3.5 mm name is 175 drawing units high); ``name_lines`` / ``name_height``
+    (paper mm) are what ``fit_factor`` chose for the name. ``align="left"``:
     the first baseline starts at ``room.at`` and each next one is 1.6 x its own
     height lower. ``align="center"``: every line is centred on ``room.at``'s x
     and the stack's middle is at its y.
     """
     _check_lang(lang)
     _check_align(align)
-    factor = _positive(scale, "scale") * _positive(shrink, "shrink")
+    factor = _positive(scale, "scale")
+    _positive(name_height, "name_height")
     x, y = float(room.at[0]), float(room.at[1])
-    lines = _label_lines(room, lang, factor, with_area)
+    lines = _label_lines(
+        room, lang, factor, with_area, name_lines=name_lines, name_height=name_height
+    )
     baseline = y
     if align == "center":
         baseline = y + _block_height(lines) / 2.0 - lines[0][1]
@@ -374,31 +393,75 @@ def _chord(loops, point: Pt, axis: int) -> tuple[float, float]:
     return lo, hi
 
 
-def fit_factor(room: Room, face: Face, *, lang: str, scale, align: str) -> dict:
-    """How much to shrink the label so its estimated extent fits the face around ``room.at``.
+def _name_wraps(name: str) -> list[tuple[str, ...]]:
+    """The name on one line, then every two-line split at a space."""
+    words = name.split()
+    return [(name,)] + [(" ".join(words[:i]), " ".join(words[i:])) for i in range(1, len(words))]
 
-    ``{"factor", "fits", "estimated": True}``: ``factor`` is at most 1 and at
-    least ``MIN_FIT_HEIGHT / NAME_HEIGHT``; ``fits`` is False when even the
-    smallest factor leaves the estimate outside the room.
-    """
-    factor = _positive(scale, "scale")
-    lines = _label_lines(room, lang, factor)
+
+def _overflow(lines, room: Room, free: tuple[float, float, float, float], align: str) -> float:
+    """The largest share of ``FIT_MARGIN`` x the free run a part of the label's
+    estimate needs; at most 1 means it fits."""
+    left, right, below, above = free
     width = max(CHAR_WIDTH_FACTOR * height * len(text) for text, height in lines)
     block = _block_height(lines)
     x, y = float(room.at[0]), float(room.at[1])
-    loops = (face.loop, *face.holes)
-    left, right = _chord(loops, (x, y), 0)
-    below, above = _chord(loops, (x, y), 1)
     if align == "center":
-        limits = (2.0 * min(x - left, right - x) / width, 2.0 * min(y - below, above - y) / block)
+        needs = ((width, 2.0 * min(x - left, right - x)), (block, 2.0 * min(y - below, above - y)))
     else:
         # the stack runs from the name's top, one name height above the point,
         # down to the last baseline
         top = lines[0][1]
-        limits = ((right - x) / width, (above - y) / top, (y - below) / (block - top))
-    wanted = min(1.0, *(FIT_MARGIN * limit for limit in limits))
-    floor = MIN_FIT_HEIGHT / NAME_HEIGHT
-    return {"factor": max(wanted, floor), "fits": wanted >= floor, "estimated": True}
+        needs = ((width, right - x), (top, above - y), (block - top, y - below))
+    return max(need / (FIT_MARGIN * run) if run > 0 else math.inf for need, run in needs)
+
+
+def fit_factor(room: Room, face: Face, *, lang: str, scale, align: str) -> dict:
+    """How to set the name so the label's estimated extent fits the face around ``room.at``.
+
+    Tried in order: the name on one line at ``NAME_HEIGHT``, wrapped onto two
+    lines at a space, then shrunk - whichever wrap allows the larger name - down
+    to ``MIN_FIT_HEIGHT``. Number and area stay at ``TEXT_HEIGHT``. Returns
+    ``{"factor", "fits", "estimated": True, "name_height_mm", "name_lines"}``:
+    ``factor`` is the name height over ``NAME_HEIGHT``; ``fits`` is False when
+    even the floor leaves the estimate outside the room (the floor is drawn).
+    """
+    factor = _positive(scale, "scale")
+    loops = (face.loop, *face.holes)
+    x, y = float(room.at[0]), float(room.at[1])
+    left, right = _chord(loops, (x, y), 0)
+    below, above = _chord(loops, (x, y), 1)
+    free = (left, right, below, above)
+
+    def over(wrap, height):
+        lines = _label_lines(room, lang, factor, name_lines=wrap, name_height=height)
+        return _overflow(lines, room, free, align)
+
+    best = None  # (height, wrap) of the largest name that fits
+    for wrap in _name_wraps(room.name):
+        if over(wrap, MIN_FIT_HEIGHT) > 1.0:
+            continue
+        lo, hi = MIN_FIT_HEIGHT, NAME_HEIGHT
+        if over(wrap, hi) <= 1.0:
+            lo = hi
+        else:
+            for _ in range(40):  # the overflow grows with the name height
+                mid = (lo + hi) / 2.0
+                lo, hi = (mid, hi) if over(wrap, mid) <= 1.0 else (lo, mid)
+        if best is None or lo > best[0] + 1e-9:
+            best = (lo, wrap)
+    fits = best is not None
+    if best is None:
+        wraps = _name_wraps(room.name)
+        best = (MIN_FIT_HEIGHT, min(wraps, key=lambda wrap: over(wrap, MIN_FIT_HEIGHT)))
+    height, wrap = best
+    return {
+        "factor": height / NAME_HEIGHT,
+        "fits": fits,
+        "estimated": True,
+        "name_height_mm": height,
+        "name_lines": list(wrap),
+    }
 
 
 def _face_offsets(wall: Wall) -> tuple[float, float]:
@@ -865,11 +928,18 @@ async def _draw_label(
     fitted = (
         fit_factor(measured, face, lang=lang, scale=scale, align=align)
         if fit
-        else {"factor": 1.0, "fits": None, "estimated": True}
+        else {"name_height_mm": NAME_HEIGHT, "name_lines": [measured.name]}
     )
     drawn = await _draw_label_prims(
         backend,
-        room_label_prims(measured, lang=lang, scale=scale, align=align, shrink=fitted["factor"]),
+        room_label_prims(
+            measured,
+            lang=lang,
+            scale=scale,
+            align=align,
+            name_lines=tuple(fitted["name_lines"]),
+            name_height=fitted["name_height_mm"],
+        ),
         face,
         mask=mask,
     )
@@ -891,7 +961,7 @@ async def _draw_label(
         "mask": drawn["mask"],
         "layer": ARCH_ROLE_LAYER["room"],
         "align": align,
-        "fit": {**fitted, "name_height_mm": NAME_HEIGHT * fitted["factor"]} if fit else None,
+        "fit": fitted if fit else None,
     }
 
 

@@ -16,12 +16,14 @@ import ezdxf
 import pytest
 from ezdxf import bbox
 
+from engineering.arch.faces import Face
 from engineering.arch.layers import ARCH_ROLE_LAYER
 from engineering.arch.model import APP_ID, Opening, Room, Wall, decode, to_payload, to_values
 from engineering.arch.rooms import (
     CONFIDENCE_FOREIGN,
     CONFIDENCE_OURS,
     detect_rooms,
+    fit_factor,
     label_room,
     opening_closures,
     read_records,
@@ -112,6 +114,31 @@ def test_label_prims_refuse_an_unknown_language_or_scale(kwargs, message):
 
 
 # ── pure: openings close their gap ──────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("name", "height_mm", "fits"),
+    [
+        # one word, 9 x 0.9 x 175 = 1417.5 over the 1125 free: shrunk to 1125 / (9 x 0.9 x 50)
+        ("STOREROOM", 1125 / (9 * 0.9 * 50), True),
+        # 14 characters would need 1.79 mm: held at the 2.5 mm floor and reported
+        ("WARDROBECLOSET", 2.5, False),
+    ],
+)
+def test_fit_shrinks_only_the_name_and_never_below_the_iso_3098_floor(name, height_mm, fits):
+    loop = ((100.0, 0.0), (1350.0, 0.0), (1350.0, 4000.0), (100.0, 4000.0))
+    face = Face(loop=loop, area=1250.0 * 4000.0, centroid=(725.0, 2000.0))
+    room = Room(id="R1", name=name, number="02", at=(725.0, 2000.0), area=face.area)
+    fitted = fit_factor(room, face, lang="pl", scale=50, align="center")
+    assert fitted["name_lines"] == [name]
+    assert fitted["name_height_mm"] == pytest.approx(height_mm)
+    assert fitted["fits"] is fits
+    prims = room_label_prims(
+        room, lang="pl", scale=50, align="center", name_height=fitted["name_height_mm"]
+    )
+    # number and area keep 2.5 mm x 50 whatever the name does
+    assert [p.height for p in prims[1:]] == pytest.approx([125.0, 125.0])
+    assert min(p.height for p in prims) >= 2.5 * 50 - 1e-9
 
 
 def test_an_opening_is_closed_along_both_wall_faces():

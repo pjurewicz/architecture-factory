@@ -25,8 +25,10 @@ Place furniture against a wall with `anchor: "back_center"` on the wall face and
 `rotation` = the face's direction with the room on its left; the result's
 `footprint` and `front_dir` say where it landed - no offsets by eye.
 A `rooms[]` item takes `arch_room`'s label options too: `align: "center"`
-centres the label on `at`, and `fit: true` shrinks it to fit a small room
-(defaults `left` / `false`, as on `arch_room`).
+centres the label on `at`, and `fit: true` fits it into a small room by
+wrapping the name onto two lines first, then shrinking the name - never below
+the 2.5 mm ISO 3098 floor `drawing_critique` checks; number and area keep
+2.5 mm (defaults `left` / `false`, as on `arch_room`).
 
 ## Areas are measured, never typed
 

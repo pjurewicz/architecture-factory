@@ -220,8 +220,15 @@ async def test_a_centred_label_is_centred_and_fit_shrinks_it_into_a_narrow_room(
         "arch_room",
         {"name": "STORAGE CLOSET", "x": 725, "y": 2000, "align": "center", "fit": True},
     )
-    # 1250 mm clear width, 14 characters at 0.9 heights: 3.5 mm -> ~1.8 mm floor
-    assert narrow["fit"]["factor"] < 1.0
-    assert narrow["fit"]["name_height_mm"] == pytest.approx(1.8)
+    # 1250 mm clear width (1125 with the margin): 14 characters at 0.9 x 175 need
+    # 2205, so the name wraps; "STORAGE" needs 1102.5 and keeps its 3.5 mm
+    assert narrow["fit"]["name_lines"] == ["STORAGE", "CLOSET"]
+    assert narrow["fit"]["name_height_mm"] == pytest.approx(3.5)
+    assert narrow["fit"]["fits"] is True
+    heights = [
+        (await call(client, "entity_get", {"handle": h}))["properties"]["height"]
+        for h in narrow["handles"]
+    ]
+    assert heights == pytest.approx([175.0, 175.0, 125.0])
     small = await call(client, "arch_room", {"name": "X", "x": 725, "y": 3500, "fit": True})
     assert "already labelled" in small["error"]
