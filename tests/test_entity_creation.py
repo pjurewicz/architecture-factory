@@ -159,3 +159,46 @@ async def test_batch_create_refuses_an_unknown_align_by_name(backend):
         [{"type": "text", "text": "A", "x": 0, "y": 0, "align": "diagonal"}]
     )
     assert result["created"] == 0 and "'diagonal'" in result["errors"][0]["error"]
+
+
+async def test_batch_create_shared_linetype_style_and_line_spacing(backend):
+    await backend.textstyle_create("ISO", "isocp.shx")
+    result = await backend.entity_batch_create(
+        [
+            {
+                "type": "arc",
+                "cx": 0,
+                "cy": 0,
+                "radius": 5,
+                "start_angle": 0,
+                "end_angle": 90,
+                "linetype": "DASHDOT",
+            },
+            {"type": "rectangle", "x1": 0, "y1": 0, "x2": 5, "y2": 5, "linetype": "HIDDEN"},
+            {"type": "text", "text": "A", "x": 0, "y": 0, "style": "ISO"},
+            {"type": "mtext", "text": "A\\PB", "x": 0, "y": 0, "style": "ISO", "line_spacing": 1.5},
+        ]
+    )
+    assert result["errors"] == []
+    arc, rect, text, mtext = (backend._doc.entitydb[e["handle"]] for e in result["entities"])
+    assert (arc.dxf.linetype, rect.dxf.linetype) == ("DASHDOT", "HIDDEN")
+    assert "DASHDOT" in backend._doc.linetypes  # loaded, not just named
+    assert text.dxf.style == mtext.dxf.style == "ISO"
+    assert mtext.dxf.line_spacing_factor == pytest.approx(1.5)
+
+    before = len(backend._doc.modelspace())
+    refused = await backend.entity_batch_create(
+        [{"type": "text", "text": "A", "x": 0, "y": 0, "style": "NOPE"}]
+    )
+    assert refused["created"] == 0 and "'NOPE'" in refused["errors"][0]["error"]
+    assert len(backend._doc.modelspace()) == before  # the refused text was removed
+
+
+async def test_edit_text_sets_height_and_style(backend):
+    await backend.textstyle_create("ISO", "isocp.shx")
+    info = await backend.entity_create_text("A", 0, 0, height=2.5)
+    await backend.entity_edit_text(info.handle, height=2.0, style="ISO")
+    ent = backend._doc.entitydb[info.handle]
+    assert (ent.dxf.height, ent.dxf.style) == (2.0, "ISO")
+    with pytest.raises(Exception, match="line_spacing"):
+        await backend.entity_edit_text(info.handle, line_spacing=1.5)

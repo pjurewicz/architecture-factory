@@ -7200,8 +7200,6 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         prepared = prepare_xdata(xdata)
 
         def _sync():
-            from engineering.errors import InvalidArgsError
-
             dx, dy = float(x2) - float(x1), float(y2) - float(y1)
             length = math.hypot(dx, dy)
             if length < 1e-9:
@@ -7774,13 +7772,35 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         rotation=None,
         x=None,
         y=None,
+        style=None,
+        line_spacing=None,
     ) -> EntityInfo:
         def _sync():
             ent = self._get_entity(handle)
             et = ent.dxftype()
+            # every refusal before anything is written
+            doc = self._require_doc()
+            if style is not None and style not in doc.styles:
+                known = sorted(s.dxf.name for s in doc.styles)
+                raise InvalidArgsError(
+                    f"invalid_args: no text style {style!r}; the drawing has {', '.join(known)}"
+                )
+            if line_spacing is not None:
+                if et != "MTEXT":
+                    raise InvalidArgsError(
+                        f"invalid_args: line_spacing is an MTEXT's; {handle} is {et}"
+                    )
+                if not 0.25 <= float(line_spacing) <= 4.0:
+                    raise InvalidArgsError(
+                        f"invalid_args: line_spacing must be 0.25-4.0, got {line_spacing}"
+                    )
             if et in ("TEXT", "MTEXT"):
                 # refused (tilted plane) before anything else is written
                 self._move_text(ent, handle, x, y, "entity_edit_text")
+                if style is not None:
+                    ent.dxf.style = style
+                if line_spacing is not None:
+                    ent.dxf.line_spacing_factor = float(line_spacing)
             if et == "TEXT":
                 if text is not None:
                     ent.dxf.text = str(text)

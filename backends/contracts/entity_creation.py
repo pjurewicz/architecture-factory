@@ -74,6 +74,15 @@ def batch_create_adapter():
         base = {k: v for k, v in shapes[target].items() if k not in ("points", "closed")}
         corners = ("x1", "y1", "x2", "y2", "x", "y", "width", "height")
         shapes[alias] = {key: (float | None, None) for key in corners} | base
+    # The shared fields an item takes whether or not its create does, applied
+    # after it (entity_batch_create): linetype on every type, a text style on
+    # TEXT / MTEXT, the line spacing factor on MTEXT.
+    for kind, fields in shapes.items():
+        fields.setdefault("linetype", (str | None, None))
+        if kind in ("text", "mtext"):
+            fields["style"] = (str | None, None)
+        if kind == "mtext":
+            fields["line_spacing"] = (Annotated[float, Field(ge=0.25, le=4.0)] | None, None)
     models = [
         create_model(
             kind,
@@ -421,7 +430,9 @@ class EntityCreationContract(ABC):
 
         A spec is ``{"type": <BATCH_CREATE_TYPES or _ALIASES>, ...that create's
         arguments}`` plus an optional ``lineweight`` (refused by name before
-        the create, so a bad one draws nothing). ``errors`` rows are
+        the create, so a bad one draws nothing), ``linetype`` on a type whose
+        create has none, and ``style`` / ``line_spacing`` on text and mtext
+        (set after the create; a refused one deletes the entity it drew). ``errors`` rows are
         ``{index, error}`` for a missing or unknown type and
         ``{index, type, error}`` for a create that raised; ``entities`` the
         created ``EntityInfo`` as dicts, in spec order. ``progress(i, total)``
@@ -453,11 +464,29 @@ class EntityCreationContract(ABC):
             try:
                 # Parsed before the create, so a refused lineweight draws nothing.
                 weight = parse_lineweight(spec.pop("lineweight", None))
+                has_linetype = "linetype" in inspect.signature(creator).parameters
+                linetype = None if has_linetype else spec.pop("linetype", None)
+                text_props = {
+                    key: value
+                    for key in ("style", "line_spacing")
+                    if target in ("text", "mtext") and (value := spec.pop(key, None)) is not None
+                }
                 spec = self.batch_create_spec(name, spec)
                 info = await creator(**spec)
-                if weight is not None:
-                    await self.entity_set_properties(info.handle, lineweight=weight)
-                    info.lineweight_name = lineweight_name(weight)
+                try:
+                    if weight is not None or linetype is not None:
+                        await self.entity_set_properties(
+                            info.handle, lineweight=weight, linetype=linetype
+                        )
+                        if weight is not None:
+                            info.lineweight_name = lineweight_name(weight)
+                        if linetype is not None:
+                            info.linetype = linetype
+                    if text_props:
+                        info = await self.entity_edit_text(info.handle, **text_props)
+                except Exception:
+                    await self.entity_delete(info.handle)  # nothing half-styled stays
+                    raise
                 results.append(asdict(info))
             except Exception as exc:
                 errors.append({"index": index, "type": kind, "error": str(exc)})

@@ -2495,7 +2495,7 @@
       "name": "entity_batch_modify",
       "group": "batch",
       "cost": "destructive",
-      "summary": "Move, rotate, scale, restyle or delete many entities in one call.",
+      "summary": "Move, rotate, scale, restyle, edit texts or delete many entities in one call.",
       "acad": [],
       "synonyms": [
         "bulk edit",
@@ -3040,7 +3040,7 @@
       "name": "entity_edit_text",
       "group": "entity_modification",
       "cost": "mutate",
-      "summary": "Reword a label, or change its height or rotation, keeping its handle.",
+      "summary": "Reword a label, or change its height, rotation or style, keeping its handle.",
       "acad": [
         "DDEDIT",
         "TEXTEDIT"

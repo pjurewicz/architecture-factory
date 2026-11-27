@@ -3964,7 +3964,7 @@ async def entity_set_properties(
 
 
 @cad_tool(
-    summary="Reword a label, or change its height or rotation, keeping its handle.",
+    summary="Reword a label, or change its height, rotation or style, keeping its handle.",
     cost="mutate",
 )
 @mcp.tool(
@@ -3978,6 +3978,8 @@ async def entity_edit_text(
     rotation: Annotated[float | None, "New rotation in degrees (unchanged if omitted)"] = None,
     x: Annotated[float | None, "New insertion X, WCS (unchanged if omitted)"] = None,
     y: Annotated[float | None, "New insertion Y, WCS (unchanged if omitted)"] = None,
+    style: Annotated[str | None, "Text style name (unchanged if omitted)"] = None,
+    line_spacing: Annotated[float | None, "MTEXT line spacing factor, 0.25-4.0"] = None,
     ctx: Context = None,
 ) -> dict:
     """Edit an existing text label in place — change its content, height, rotation or position.
@@ -3989,7 +3991,9 @@ async def entity_edit_text(
     refused (capability ``ocs_tilted_plane``) — use ``entity_move``.
     """
     await ctx.debug(f"Editing text entity {handle}")
-    result = await _backend(ctx).entity_edit_text(handle, text, height, rotation, x=x, y=y)
+    result = await _backend(ctx).entity_edit_text(
+        handle, text, height, rotation, x=x, y=y, style=style, line_spacing=line_spacing
+    )
     return _dc(result)
 
 
@@ -7096,8 +7100,8 @@ async def entity_batch_create(
                 "items": _inline_json_schema(_batch_create_adapter().json_schema()),
                 "description": "One item per entity: 'type' and that create's arguments, plus "
                 "an optional 'lineweight' (hundredths of a mm, or 'ByLayer' = -1, 'ByBlock' = -2, "
-                "'Default' = -3 - not ByLayer). A whole part: dimension_auto, not dimension_linear "
-                "per feature.",
+                "'Default' = -3 - not ByLayer) and 'linetype'; text / mtext take 'style', mtext "
+                "'line_spacing'. A whole part: dimension_auto, not dimension_linear per feature.",
             }
         ),
     ],
@@ -7176,7 +7180,7 @@ async def entity_batch_create(
 
 
 @cad_tool(
-    summary="Move, rotate, scale, restyle or delete many entities in one call.",
+    summary="Move, rotate, scale, restyle, edit texts or delete many entities in one call.",
     cost="destructive",
 )
 @mcp.tool(
@@ -7186,7 +7190,7 @@ async def entity_batch_create(
 async def entity_batch_modify(
     operations: Annotated[
         list[dict],
-        "List of operations. Each dict: {handle, action, ...params}. Actions: move(dx,dy), rotate(base_x,base_y,angle_deg), scale(base_x,base_y,factor), delete, set_properties(layer,color,linetype,lineweight,visible). "
+        "List of operations. Each dict: {handle, action, ...params}. Actions: move(dx,dy), rotate(base_x,base_y,angle_deg), scale(base_x,base_y,factor), delete, set_properties(layer,color,linetype,lineweight,visible), edit_text(text,height,rotation,x,y,style,line_spacing). "
         "lineweight: hundredths of a mm, or 'ByLayer' = -1, 'ByBlock' = -2, 'Default' = -3 - not ByLayer",
     ],
     ctx: Context = None,
@@ -7195,7 +7199,8 @@ async def entity_batch_modify(
 
     Example: [{"handle": "1A", "action": "move", "dx": 10, "dy": 20}, {"handle": "2B", "action": "delete"}]
 
-    Covers move/rotate/scale/delete/set_properties only. For anything else, for
+    Covers move/rotate/scale/delete/set_properties/edit_text only (edit_text: a
+    TEXT / MTEXT's content, height, style... in place). For anything else, for
     ordering, or to feed one step's result into the next, use cad_batch.
 
     Every handle is checked first, in one read: one that names no entity
@@ -7252,6 +7257,10 @@ async def entity_batch_modify(
                     visible=op.get("visible"),
                 )
                 results.append({"handle": handle, "action": "set_properties", "ok": True})
+            elif action == "edit_text":
+                keys = ("text", "height", "rotation", "x", "y", "style", "line_spacing")
+                await b.entity_edit_text(handle, **{k: op[k] for k in keys if k in op})
+                results.append({"handle": handle, "action": "edit_text", "ok": True})
             else:
                 errors.append({"index": i, "error": f"Unknown action: {action}"})
         except Exception as exc:

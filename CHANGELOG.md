@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `entity_batch_create` items take the fields their own create lacks: a
+  `linetype` on every type (it was the line's alone, so a dashed arc or
+  polyline needed its own layer; a standard linetype is loaded), a text
+  `style` on text / mtext and `line_spacing` on mtext. They are set after the
+  create, and a refused one (an unknown style) removes the entity it drew, so
+  the batch stays all or none. `entity_edit_text` takes `style` and
+  `line_spacing`, and `entity_batch_modify` the action `edit_text` (content,
+  height, rotation, position, style, line spacing of many labels in one call:
+  shrinking texts no longer means `scale` about each insertion point). Hatch
+  islands and arcs stay `hatch_add_boundary`'s (a step of the same
+  `cad_batch`), and the other dimension and leader tools are `cad_batch` steps.
+
 - Door frames (ościeżnice) in plan: `door`, `double_door` and `sliding_door`
   get a 50 mm frame in each jamb across the full wall thickness, built from
   the engine's cut corners (so the same in left-, centre- and right-justified
