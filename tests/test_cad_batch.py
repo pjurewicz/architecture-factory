@@ -1607,3 +1607,12 @@ async def test_layer_and_chain_steps_answer_names_counts_and_handles(client):
     linear = {"x1": 0, "y1": 0, "x2": 132.5, "y2": 0, "dim_x": 50, "dim_y": -20}
     (row,) = (await _batch(client, [{"tool": "dimension_linear", "args": linear}]))["results"]
     assert set(row["result"]) == {"handle", "text"} and row["result"]["text"] == "132.5"
+
+
+async def test_a_created_handle_is_printed_once_not_again_in_changes_added(client):
+    result = await _batch(client, [_line(), _line(y1=5.0, y2=5.0)])
+    named = [row["result"]["handle"] for row in result["results"]]
+    assert result["changes"]["added"] == []
+    assert result["changes"]["added_in_results"] == 2 and len(set(named)) == 2
+    full = await _batch(client, [_line()], verbose=True)
+    assert full["changes"]["added"] == [full["results"][0]["result"]["handle"]]

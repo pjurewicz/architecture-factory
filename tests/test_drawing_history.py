@@ -181,7 +181,9 @@ async def test_cad_batch_sums_its_steps_and_a_failed_batch_says_what_it_undid():
             },
         )
         rows = (await _call(client, "system_status", {"detail": "operations"}))["operations"]
-    assert ok["changes"]["added"] == handles and ok["changes"]["complete"] is True
+    # the step rows name both handles; changes.added does not print them again
+    assert ok["changes"]["added"] == [] and ok["changes"]["added_in_results"] == 2
+    assert ok["changes"]["complete"] is True
     assert ok["changes"]["counts"] == {"Model": {"added": 2}}
     assert failed["ok"] is False and failed["atomicity"]["rolled_back"] is True
     assert failed["changes"]["added"] == [] and failed["changes"]["rolled_back"] is True

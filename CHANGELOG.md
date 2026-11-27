@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `cad_batch` prints a created handle once: `changes.added` leaves out the
+  handles the step rows already name and says how many in
+  `added_in_results` (`verbose=True` and the journal's `drawing_history`
+  keep the full list). `page_setup_apply`, `dimstyle_modify` and `cad_batch`
+  descriptions lose their change history (issue numbers, measurement dates,
+  "since 1.8.0").
+
 - `cad_batch` answers less by default (`verbose=False`): a `layer_create` /
   `layer_modify` step its layer `name` (21 layers: 5.0 -> 1.8 kB), a
   `dimension_chain` step its counts, handles and any warnings instead of every

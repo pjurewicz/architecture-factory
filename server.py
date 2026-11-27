@@ -833,7 +833,9 @@ def _change_summary(backend, tool: str, mark, result) -> dict | None:
         if tool == "cad_batch":
             payload = getattr(result, "structured_content", None)
             if isinstance(payload, dict):
-                return payload.get("changes") or payload.get("partial_changes")
+                # the journal keeps the summary before the reply's dedupe
+                full = _BATCH_FULL_CHANGES.pop(payload.get("operation_id"), None)
+                return full or payload.get("changes") or payload.get("partial_changes")
             return None
         if mark is None:
             return None
@@ -6495,10 +6497,9 @@ async def cad_batch(
     (drawing_history lists them). Pass `operation_id` (or the
     request's `_meta.operation_id`) to make a retry safe: the same id with the
     same steps replays the recorded result instead of drawing twice, also
-    after a restart (the journal is durable since 1.8.0).
+    after a restart.
 
-    ATOMICITY is reported, not assumed. The default on_error="auto" (since
-    1.8.0; 1.7 defaulted to "stop") makes a batch with at least one mutating
+    ATOMICITY is reported, not assumed. The default on_error="auto" makes a batch with at least one mutating
     step all or nothing: a run-time failure restores a full document
     snapshot. A read-only batch opens no checkpoint, and neither does one with
     a transaction_begin / transaction_commit / transaction_rollback step: it
@@ -7178,7 +7179,45 @@ async def cad_batch(
         )
     if not verbose and not rolled_back:
         _trim_atomicity(payload["atomicity"])
+    if not verbose and isinstance(payload.get("changes"), dict):
+        full = payload["changes"]
+        payload["changes"] = dict(full)
+        if _dedupe_added(payload["changes"], results):
+            # the journal row keeps every handle (drawing_history)
+            while len(_BATCH_FULL_CHANGES) >= 64:
+                _BATCH_FULL_CHANGES.pop(next(iter(_BATCH_FULL_CHANGES)))
+            _BATCH_FULL_CHANGES[batch_id] = full
     return payload
+
+
+def _result_handles(results: list[dict]) -> list[str]:
+    """The entity handles the step rows name, in step order."""
+    found: list[str] = []
+    for row in results:
+        result = row.get("result")
+        if not isinstance(result, dict):
+            continue
+        if isinstance(result.get("handle"), str):
+            found.append(result["handle"])
+        found.extend(h for h in result.get("handles") or () if isinstance(h, str))
+    return found
+
+
+#: cad_batch's full change summary by operation id, until the journal reads it.
+_BATCH_FULL_CHANGES: dict[str, dict] = {}
+
+
+def _dedupe_added(changes: dict, results: list[dict]) -> bool:
+    """``changes.added`` without the handles a step row already names: each
+    entity's handle was printed twice. ``added_in_results`` counts them."""
+    shown = set(_result_handles(results))
+    added = changes.get("added") or []
+    rest = [handle for handle in added if handle not in shown]
+    if len(rest) == len(added):
+        return False
+    changes["added"] = rest
+    changes["added_in_results"] = len(added) - len(rest)
+    return True
 
 
 def _trim_atomicity(block: dict) -> None:
@@ -10448,9 +10487,7 @@ async def dimstyle_create(
 async def dimstyle_modify(
     name: Annotated[str, "Existing dimension style name"],
     overrides: Annotated[dict, "DIM* variables to change, e.g. {DIMDEC: 3, DIMTXT: 3.5}"],
-    rerender: Annotated[
-        bool, "Redraw the dimensions using the style (False: the 1.7 behaviour, left stale)"
-    ] = True,
+    rerender: Annotated[bool, "Redraw the dimensions using the style (False: left stale)"] = True,
     force: Annotated[bool, "Let the redraw re-place a text its author positioned"] = False,
     ctx: Context = None,
 ) -> dict:
@@ -10458,7 +10495,7 @@ async def dimstyle_modify(
 
     `changed` names only the variables that actually moved — re-setting a
     value to itself is not a change. `dimensions_using_style` lists the
-    dimensions already drawn with it, and since 1.8.0 they are redrawn
+    dimensions already drawn with it, and they are redrawn
     (`rerendered`). A text its author placed keeps its position (`text_kept`)
     unless `force`. `rerender_required: true` means a dimension still shows
     the old style (`rerender=False`). Refuses a missing style, an empty `overrides`, a key
@@ -10731,18 +10768,11 @@ async def page_setup_apply(
     written and reported `plot_style_known: false` (a missing ctb only matters
     at plot time). Viewports on the sheet are never touched.
 
-    Full-bleed and expanded media (issue #18): `paper` also takes any
-    canonical media name the device offers, e.g.
-    `ISO_full_bleed_A3_(420.00_x_297.00_MM)` or
-    `ISO_expand_A4_(210.00_x_297.00_MM)`; it is written unchanged, its numbers
-    are the sheet size, and they fix the orientation (reported in `applied`).
-    Or keep a catalogue paper and pass `bleed="full_bleed"` / `"expand"`,
-    which builds `ISO_full_bleed_A3_(…)` / `ISO_expand_A3_(…)`. The ISO
-    full-bleed and expand names were listed by `DWG To PDF.pc3` and
-    `AutoCAD PDF (High Quality Print).pc3` on AutoCAD 2026 (measured
-    2026-11-05); the ANSI ones (`ANSI_full_bleed_B_(…)`) follow the same
-    pattern unmeasured. There is no device to check against: the name is
-    written as given.
+    Full-bleed and expanded media: `paper` also takes a canonical media name,
+    e.g. `ISO_full_bleed_A3_(420.00_x_297.00_MM)`, written unchanged; its
+    numbers are the sheet size and fix the orientation (reported in
+    `applied`). Or keep a catalogue paper and pass `bleed="full_bleed"` /
+    `"expand"`. The name is written as given (no device to check against).
 
     Refused before anything is written: an unknown paper, orientation, scale,
     plot_area or bleed, an orientation that contradicts a canonical media
