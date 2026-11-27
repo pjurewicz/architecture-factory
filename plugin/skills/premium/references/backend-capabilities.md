@@ -6,7 +6,7 @@ reason. Ask it instead of assuming.
 
 | Feature | headless (`ezdxf`) |
 |---|---|
-| DWG | `drawing_open` converts a `.dwg` through the ODA File Converter when installed (`"dwg_read"`); saving onto a `.dwg` is refused (`"dwg"`) - use `drawing_export_dwg`, which also needs the ODA File Converter (`"dwg_write"`) |
+| DWG | `drawing_open` converts a `.dwg` through the ODA File Converter when installed (`"dwg_read"`); `drawing_save()` in place on it is refused (`"dwg"`) - use `drawing_save(path='<name>.dwg', version=)`, which also needs the ODA File Converter (`"dwg_write"`) and never re-points |
 | Undo / rollback | full document snapshots |
 | Checkpoints | restore in place or as a new document; `drawing_undo` steps back to them after a restart |
 | Views | screenshots are rendered, never captured from a window |
@@ -38,7 +38,7 @@ call `layout_set_current` first.
 A call that outruns its deadline while its worker still writes quarantines
 the document: later calls on it are refused `quarantined`; the exits that
 replace the document (`drawing_open` of the saved file, `drawing_new`,
-`drawing_close`) still work. What the abandoned call wrote is unknown - never
+`document_close(discard=True)`) still work. What the abandoned call wrote is unknown - never
 save over the last good file from a quarantined document. A read-only call
 that runs long never quarantines; others answer `busy` until it ends.
 `drawing_history` lists recent operations and how each ended.

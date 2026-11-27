@@ -110,7 +110,7 @@ happens only when asked: `drawing_open(path, recover=True)` reports
 what it cannot parse, so compare `entities_read` with what the drawing should
 hold and report the losses. The recovered drawing will not save over the
 damaged file unless `drawing_save(overwrite_source=True)`; save it under a new
-name with `drawing_save_as` instead. Never hand-repair the file text and
+name with `drawing_save(path)` instead. Never hand-repair the file text and
 present the result as the original drawing.
 
 Saves are atomic (a checked temporary file renamed over the target);

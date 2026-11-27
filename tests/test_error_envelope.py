@@ -208,7 +208,7 @@ async def _provoke(client, tmp_path, monkeypatch, case: str) -> tuple[str, dict]
         monkeypatch.setattr(config.settings, "allowed_paths", [allowed.resolve()])
         return "drawing_open", {"path": str(tmp_path / "elsewhere.dxf")}
     if case == "unsupported":
-        return "drawing_save_as", {"path": str(tmp_path / "part.dwg")}
+        return "drawing_save", {"path": str(tmp_path / "part.dwt")}
     if case == "stale_preview":
         await client.call_tool("entity_create_text", {"text": "OLD", "x": 0, "y": 0})
         status = (await client.call_tool("system_status", {})).structured_content
@@ -382,16 +382,16 @@ async def test_a_locked_target_is_save_locked_refused_and_retryable(client, tmp_
     monkeypatch.setattr(os, "replace", replace)
     await client.call_tool("entity_create_line", {"x1": 0, "y1": 0, "x2": 5, "y2": 0})
     args = {"path": str(target)}
-    payload = await _routes_agree(client, "drawing_save_as", args, "save_locked")
+    payload = await _routes_agree(client, "drawing_save", args, "save_locked")
     assert payload["retryable"] is True and payload["category"] == "file"
     assert target.read_bytes() == b"previous bytes\n", "the target is untouched"
     assert not list(tmp_path.glob("part.dxf.acadmcp-*.tmp")), "the tmp was removed"
 
     meta = {"operation_id": "locked-save-1"}
-    first = await client.call_tool("drawing_save_as", args, raise_on_error=False, meta=meta)
+    first = await client.call_tool("drawing_save", args, raise_on_error=False, meta=meta)
     assert first.structured_content["kind"] == "save_locked"
     locked["on"] = False  # the other program let go
-    retry = await client.call_tool("drawing_save_as", args, raise_on_error=False, meta=meta)
+    retry = await client.call_tool("drawing_save", args, raise_on_error=False, meta=meta)
     assert retry.is_error is False, retry.structured_content
     assert not (retry.structured_content or {}).get("replayed")
     assert ezdxf.readfile(target).modelspace().query("LINE")
@@ -407,7 +407,7 @@ async def test_a_save_that_fails_its_check_is_failed_not_retryable(client, tmp_p
     monkeypatch.setattr(atomic_write, "_verify", mismatch)
     target = tmp_path / "part.dxf"
     payload = await _routes_agree(
-        client, "drawing_save_as", {"path": str(target)}, "save_verify_failed"
+        client, "drawing_save", {"path": str(target)}, "save_verify_failed"
     )
     assert payload["retryable"] is False
     assert not target.exists(), "nothing was put in place"
@@ -492,7 +492,7 @@ async def test_the_wire_text_is_byte_for_byte_what_it_was(client, tmp_path):
     assert result.content[0].text == (
         "Internal error: Error calling tool 'entity_get': Entity with handle 'FFFFFF' not found."
     )
-    result, payload = await _error(client, "drawing_save_as", {"path": str(tmp_path / "x.dwg")})
+    result, payload = await _error(client, "drawing_save", {"path": str(tmp_path / "x.dwt")})
     assert result.content[0].text == payload["error"] == payload["message"]
 
 

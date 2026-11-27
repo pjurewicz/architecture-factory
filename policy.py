@@ -24,8 +24,8 @@ The policy is checked at four points (``check`` is the one rule they share):
 3. ``cad_batch`` at plan time, for every step (steps skip the middleware);
 4. ``security.validate_path(allow_write=True)`` - every file write. A file
    write is ``mutate``-class whatever its tool's label, so a writer labelled
-   ``read`` or ``safe`` (``drawing_verify_requirements(report_path=)``,
-   ``drawing_export_dwg``) is still refused under a ceiling below ``mutate``.
+   ``read`` or ``safe`` (``drawing_verify_requirements(report_path=)``) is
+   still refused under a ceiling below ``mutate``.
 
 ``cad_batch`` is judged per step: its own label (``destructive``, the worst
 case it can reach) is not held against the ceiling, every step it plans is.

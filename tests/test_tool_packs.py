@@ -77,13 +77,11 @@ PAGE_SETUP_TOOLS = {
     "plot_style_list",
     "batch_plot",
     "drawing_template_list",
-    "drawing_template_save",
 }
 
 SETTINGS_TOOLS = {
     "document_list",
     "document_activate",
-    "document_close",
     "layer_state_save",
     "layer_state_restore",
     "layer_state_list",
@@ -128,7 +126,6 @@ SHEET_TOOLS = {
     "xref_attach",
     "xref_manage",
     "image_attach",
-    "drawing_export_dwg",
 }
 
 ARCH_TOOLS = {
@@ -207,7 +204,7 @@ def test_pack_registry_names_real_tools_and_only_them():
     assert server.PACK_TOOL_NAMES["settings"] == frozenset(SETTINGS_TOOLS)
     assert server.PACK_TOOL_NAMES["arch"] == frozenset(ARCH_TOOLS)
     assert server.PACK_TOOL_NAMES["plant"] == frozenset(PLANT_TOOLS)
-    assert len(SETTINGS_TOOLS) == 16
+    assert len(SETTINGS_TOOLS) == 15  # document_close is core and lean
     assert len(MECH_TOOLS) == 15  # + mech_part_revise (1.8-19)
     assert (
         len(ARCH_TOOLS) == 15
@@ -312,9 +309,10 @@ async def test_lean_intersects_with_packs(monkeypatch):
 async def test_lean_carries_the_five_settings_essentials_and_nothing_from_the_settings_pack(
     monkeypatch,
 ):
-    """Spec §8.2: lean = 66 (55 + the five mechanical/sheet essentials + track
+    """Spec §8.2: lean = 64 (55 + the five mechanical/sheet essentials + track
     F's four architectural ones + track H's `drawing_understand` + 1.7.0's
-    `drawing_verify_requirements`). The five
+    `drawing_verify_requirements`, after drawing_save absorbed two lean tools
+    and document_close replaced drawing_close). The five
     settings essentials and `drawing_understand` are core-pack tools, so
     `TOOL_PACKS=core` leaves them on a lean surface; no environment tool and no
     takeoff is lean."""
@@ -325,14 +323,14 @@ async def test_lean_carries_the_five_settings_essentials_and_nothing_from_the_se
     assert server.LEAN_TOOL_NAMES & UNDERSTAND_TOOLS == LEAN_UNDERSTAND_ESSENTIALS
     assert not (PLANT_TOOLS & server.LEAN_TOOL_NAMES)
     assert not (SETTINGS_TOOLS & server.LEAN_TOOL_NAMES)
-    assert len(server.LEAN_TOOL_NAMES) == 66  # - view_zoom_extents (fork)
+    assert len(server.LEAN_TOOL_NAMES) == 64  # - view_zoom_extents (fork), - save_as / export_dxf
     monkeypatch.setattr(config.settings, "tool_packs", "core")
     info = await server._apply_tool_profile("lean")
     disabled = set(info["disabled_tools"])
     assert not (LEAN_SETTINGS_ESSENTIALS & disabled)
     assert not ({"sheet_frame", "titleblock_apply"} & disabled), "sheet tools are core"
     assert "drawing_understand" not in disabled, "the one-call report is core"
-    assert info["enabled_count"] == 66 - 10, (
+    assert info["enabled_count"] == 64 - 10, (
         "lean minus the three pid, three mech and four arch tools"
     )
 

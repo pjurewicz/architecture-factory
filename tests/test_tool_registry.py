@@ -642,6 +642,12 @@ async def test_tool_group_sizes_are_unchanged():
     and `view_zoom_extents` / `view_zoom_window` (`view` 4 -> 2): 242 tools.
     `arch_room_separator` (an open room's explicit boundary) joins
     `architecture`; with `draw_order` and `interior_tile_layout`: 245 tools.
+
+    `drawing_save` absorbed `drawing_save_as`, `drawing_export_dxf`
+    (`drawing`), `drawing_export_dwg` (`sheet` 11 -> 10) and
+    `drawing_template_save` (`page_setup` 6 -> 5); `document_close` replaced
+    `drawing_close` and moved from `environment` (16 -> 15) to `drawing`
+    (11 -> 9); `view_zoom_and_screenshot` went (`view` 2 -> 1): 242 tools.
     """
     sizes = {label: len(names) for label, names in (await server._tool_groups()).items()}
     assert sizes == {
@@ -651,26 +657,26 @@ async def test_tool_group_sizes_are_unchanged():
         "blocks": 9,
         "corner_ops": 4,
         "dimensions": 6,  # + dimension_chain
-        "drawing": 11,
+        "drawing": 9,
         "engineering": 10,
         "entity_creation": 19,  # + callout
         "entity_modification": 18,  # + entity_modify_where (1.8-12), draw_order
         "entity_query": 9,
-        "environment": 16,
+        "environment": 15,
         "layers": 16,  # + layer_rename, layer_merge (1.8-12)
         "layouts": 12,
         "mechanical": 15,  # + mech_part_revise (1.8-19)
-        "page_setup": 6,
+        "page_setup": 5,
         "pid": 10,  # + pid_project (1.8-21)
         "plant": 2,
         "premium": 12,
-        "sheet": 11,
+        "sheet": 10,
         "styles": 10,
         "system": 5,
         "templates": 2,
         "transactions": 7,
         "understanding": 5,
         "validation": 1,
-        "view": 2,
+        "view": 1,
     }
-    assert sum(sizes.values()) == 248
+    assert sum(sizes.values()) == 242

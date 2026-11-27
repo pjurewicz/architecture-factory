@@ -204,10 +204,7 @@ async def _three_rounds(client, tmp_path, *, label_round_2: bool = True) -> str:
             {"spec": _plate(diameter), "at_x": 200.0 * index, "dimension": False},
             meta=meta,
         )
-        await client.call_tool(
-            "drawing_save_as" if index == 1 else "drawing_save",
-            {"path": path} if index == 1 else {},
-        )
+        await client.call_tool("drawing_save", {"path": path} if index == 1 else {})
     return path
 
 
@@ -367,7 +364,7 @@ async def test_detail_changes_diffs_the_checkpoints_around_an_unlabelled_round(t
         hole = await _call(
             client, "entity_create_circle", {"cx": 50, "cy": 50, "radius": 5, "layer": "GEOMETRY"}
         )
-        await client.call_tool("drawing_save_as", {"path": str(tmp_path / "r.dxf")})
+        await client.call_tool("drawing_save", {"path": str(tmp_path / "r.dxf")})
         await client.call_tool("entity_edit_geometry", {"handle": hole["handle"], "radius": 6})
         await client.call_tool("drawing_save", {})
         await client.call_tool("entity_edit_geometry", {"handle": hole["handle"], "radius": 8})
@@ -521,7 +518,7 @@ async def test_a_call_whose_final_state_a_kill_lost_is_bounded_by_the_next_call(
     async with Client(server.mcp) as client:
         await client.call_tool("drawing_new", {})
         hole = await _call(client, "entity_create_circle", {"cx": 0, "cy": 0, "radius": 5})
-        await client.call_tool("drawing_save_as", {"path": str(tmp_path / "k.dxf")})
+        await client.call_tool("drawing_save", {"path": str(tmp_path / "k.dxf")})
         edit = await client.call_tool(
             "entity_edit_geometry", {"handle": hole["handle"], "radius": 6}
         )

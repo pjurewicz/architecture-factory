@@ -754,12 +754,14 @@ async def test_a_tool_hidden_by_the_profile_is_not_reachable_through_a_batch(cli
 async def test_a_backend_capability_refusal_is_typed_as_unsupported(client, tmp_path):
     result = await _batch(
         client,
-        [{"tool": "drawing_save_as", "args": {"path": str(tmp_path / "part.dwg")}}],
+        [{"tool": "drawing_save", "args": {"path": str(tmp_path / "part.dwt")}}],
         on_error="continue",
     )
     error = result["results"][0]["error"]
     assert error["kind"] == "unsupported"
-    assert error["capability"] == "dwg", "the capability key must survive the re-entrant wrapper"
+    assert error["capability"] == "dwt_write", (
+        "the capability key must survive the re-entrant wrapper"
+    )
 
 
 async def test_the_classifier_reads_the_cause_chain_not_the_message():
@@ -812,7 +814,7 @@ async def test_a_missing_handle_is_typed_as_not_found(client):
 async def test_a_deliberate_tool_refusal_is_typed_as_refused(client, tmp_path):
     result = await _batch(
         client,
-        [{"tool": "drawing_save_as", "args": {"path": str(tmp_path / "no" / "part.dxf")}}],
+        [{"tool": "drawing_save", "args": {"path": str(tmp_path / "no" / "part.dxf")}}],
         on_error="continue",
     )
     assert result["results"][0]["error"]["kind"] == "refused"
@@ -847,7 +849,7 @@ async def test_every_reported_kind_is_a_declared_kind(client, tmp_path):
         [
             _line(bind="l"),
             _fails_on("l"),
-            {"tool": "drawing_save_as", "args": {"path": str(tmp_path / "p.dwg")}},
+            {"tool": "drawing_save", "args": {"path": str(tmp_path / "p.dwt")}},
             _line(),
         ],
         on_error="continue",
@@ -1123,14 +1125,14 @@ async def test_a_literal_handle_after_a_document_switch_is_checked_when_it_runs(
     assert result["results"][1]["error"]["kind"] == "not_found"
 
 
-async def test_drawing_close_is_a_pre_check_barrier_and_auto_runs_it_as_stop(client):
-    """After drawing_close no document is left to judge a literal handle against,
+async def test_document_close_is_a_pre_check_barrier_and_auto_runs_it_as_stop(client):
+    """After document_close no document is left to judge a literal handle against,
     and a checkpoint of the closed document cannot undo the close."""
     result = await _batch(
         client,
         [
             _line(),
-            {"tool": "drawing_close", "args": {"save": False}},
+            {"tool": "document_close", "args": {"discard": True}},
             {"tool": "entity_get", "args": {"handle": "DEAD"}},
         ],
     )
@@ -1138,7 +1140,7 @@ async def test_drawing_close_is_a_pre_check_barrier_and_auto_runs_it_as_stop(cli
     assert [row["status"] for row in result["results"]] == ["ok", "ok", "error"]
     assert result["atomicity"]["mode"] == "stop"
     assert result["atomicity"]["default_applied"] is False
-    assert "drawing_close" in result["atomicity"]["note"]
+    assert "document_close" in result["atomicity"]["note"]
 
 
 async def test_a_reference_is_not_pre_checked(client):
@@ -1300,7 +1302,7 @@ async def test_rollback_puts_the_target_space_back(client, tmp_path):
     await client.call_tool("entity_create_circle", {"cx": 0, "cy": 0, "radius": 1})
     await client.call_tool("layout_create", {"name": "A1"})
     occupied = tmp_path / "open.dxf"
-    await client.call_tool("drawing_save_as", {"path": str(occupied)})
+    await client.call_tool("drawing_save", {"path": str(occupied)})
     await client.call_tool("drawing_new", {})
     await client.call_tool("entity_create_circle", {"cx": 0, "cy": 0, "radius": 1})
     await client.call_tool("entity_create_circle", {"cx": 5, "cy": 0, "radius": 1})
@@ -1310,7 +1312,7 @@ async def test_rollback_puts_the_target_space_back(client, tmp_path):
         [
             {"tool": "layout_set_current", "args": {"name": "A1"}},
             _line(),
-            {"tool": "drawing_save_as", "args": {"path": str(occupied)}},
+            {"tool": "drawing_save", "args": {"path": str(occupied)}},
         ],
     )
     assert result["ok"] is False, result["results"]

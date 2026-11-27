@@ -113,13 +113,14 @@ async def test_system_about_total_tools_matches_count(backend):
     assert grouped == about["total_tools"]
 
 
-async def test_drawing_close_appears_in_groups(backend):
+async def test_document_close_appears_in_groups(backend):
     import server
 
     about = await server.system_about(ctx=_Ctx(backend))
     all_listed = {name for names in about["tool_groups"].values() for name in names}
-    # drawing_close was omitted by the old static dict.
-    assert "drawing_close" in all_listed
+    # The close tool (drawing_close, omitted by the old static dict, until it
+    # was replaced by document_close) files under a group.
+    assert "document_close" in all_listed
 
 
 # ── R20 — system_status reports a real tool_count, never -1 ──────────────────

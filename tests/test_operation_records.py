@@ -219,13 +219,13 @@ async def test_a_cancelled_write_is_unknown_commit_and_its_retry_must_reconcile(
 @pytest.mark.asyncio
 async def test_a_refusal_names_the_operation_it_ended(client, tmp_path):
     result = await client.call_tool(
-        "drawing_save_as", {"path": str(tmp_path / "part.dwg")}, raise_on_error=False
+        "drawing_save", {"path": str(tmp_path / "part.dwt")}, raise_on_error=False
     )
     payload = result.structured_content
     assert payload["kind"] == "unsupported"
     (row,) = [r for r in await _operations(client) if r["operation_id"] == payload["operation_id"]]
     assert (row["tool"], row["state"], row["error_kind"]) == (
-        "drawing_save_as",
+        "drawing_save",
         "refused",
         "unsupported",
     )

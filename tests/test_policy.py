@@ -315,14 +315,12 @@ async def test_max_tool_cost_safe_refuses_mutate_and_file_writes(monkeypatch, tm
     try:
         created = await client.call_tool("entity_create_line", LINE_ARGS, raise_on_error=False)
         current = await client.call_tool("layer_set_current", {"name": "0"})
-        dwg = await client.call_tool(
-            "drawing_export_dwg", {"path": str(target)}, raise_on_error=False
-        )
+        dwg = await client.call_tool("drawing_save", {"path": str(target)}, raise_on_error=False)
     finally:
         await client.__aexit__(None, None, None)
     assert created.structured_content["policy"] == "max_tool_cost"
     assert not current.is_error
-    # drawing_export_dwg is labelled `safe`; its write is still `mutate`.
+    # A DWG copy is a file write: `mutate`, above the ceiling.
     assert dwg.is_error and dwg.structured_content["kind"] == "policy_refused"
     assert dwg.structured_content["cost"] == "mutate"
     assert not target.exists()
@@ -387,7 +385,7 @@ async def test_every_writer_costs_mutate_or_is_covered_by_the_path_guard(monkeyp
     # The pid list tools write through deliverables.write_csv; data_extract,
     # the takeoffs and verify_requirements directly.
     assert {
-        "drawing_save_as",
+        "drawing_save",
         "data_extract",
         "drawing_verify_requirements",
         "pid_instrument_index",

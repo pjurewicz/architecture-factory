@@ -51,7 +51,7 @@ async def test_save_as_dwg_refuses_with_capability_tagged_shape(backend, tmp_pat
     lowered = message.lower()
     assert "dwg" in lowered
     assert ".dxf" in lowered  # points at the headless alternative
-    assert "drawing_export_dwg" in lowered  # ...and at the ODA route
+    assert "drawing_save(path='<name>.dwg')" in lowered  # ...and at the ODA route
     assert not target.exists(), "refusal must not leave a mislabelled file behind"
 
 

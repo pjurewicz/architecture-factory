@@ -89,7 +89,7 @@ def test_a_kill_parked_at_a_barrier_is_finished_by_the_next_startup(harness):
     server = harness.spawn(barrier=f"save.before_replace:{target.name}")
     server.call("drawing_new")
     assert server.call("entity_create_line", _LINE)["is_error"] is False
-    server.send("tools/call", {"name": "drawing_save_as", "arguments": {"path": str(target)}})
+    server.send("tools/call", {"name": "drawing_save", "arguments": {"path": str(target)}})
 
     parked = harness.wait_barrier("save.before_replace")
     assert parked["key"] == target.name
@@ -120,7 +120,7 @@ def test_the_variable_alone_never_parks_a_server(harness):
     assert str(MARKER_DIR) not in env.get("PYTHONPATH", "")
     server = harness.spawn(env=env)
     server.call("drawing_new")
-    saved = server.call("drawing_save_as", {"path": str(target)}, timeout=60)
+    saved = server.call("drawing_save", {"path": str(target)}, timeout=60)
     assert saved["is_error"] is False and target.is_file()
     assert not list(harness.signals.iterdir()), "no barrier fired"
     assert server.kill() is True

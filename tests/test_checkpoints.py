@@ -294,7 +294,7 @@ async def test_journal_rows_carry_the_checkpoint_before_and_after(tmp_path):
     async with Client(server.mcp) as client:
         await client.call_tool("drawing_new", {})
         line = await client.call_tool("entity_create_line", {"x1": 0, "y1": 0, "x2": 5, "y2": 0})
-        saved = await client.call_tool("drawing_save_as", {"path": str(tmp_path / "j.dxf")})
+        saved = await client.call_tool("drawing_save", {"path": str(tmp_path / "j.dxf")})
         await client.call_tool(
             "entity_move", {"handle": line.structured_content["handle"], "dx": 1, "dy": 0}
         )
@@ -302,7 +302,7 @@ async def test_journal_rows_carry_the_checkpoint_before_and_after(tmp_path):
         status = (
             await client.call_tool("system_status", {"detail": "operations"})
         ).structured_content
-    first_save = [r for r in status["operations"] if r["tool"] == "drawing_save_as"][-1]
+    first_save = [r for r in status["operations"] if r["tool"] == "drawing_save"][0]
     # Before the first save the S0 is still pending (nothing written): no row
     # may name a checkpoint that does not exist yet.
     assert "checkpoint_before" not in first_save
@@ -473,7 +473,7 @@ async def test_an_evicted_checkpoint_is_refused_by_kind_through_the_server(tmp_p
         path = str(tmp_path / "e.dxf")
         for y in range(3):
             await client.call_tool("entity_create_line", {"x1": 0, "y1": y, "x2": 5, "y2": y})
-            await client.call_tool("drawing_save_as", {"path": path})
+            await client.call_tool("drawing_save", {"path": path})
         listed = (await client.call_tool("checkpoint_list", {})).structured_content
         evicted = [r["cp"] for r in listed["checkpoints"] if r["evicted"]]
         assert evicted, listed
@@ -506,7 +506,7 @@ async def test_undo_after_popen_kill_and_the_unsaved_variant(outside_repo_dir, t
     try:
         first.call("drawing_new")
         handle = first.call("entity_create_line", {"x1": 0, "y1": 0, "x2": 10, "y2": 0})["handle"]
-        first.call("drawing_save_as", {"path": path})
+        first.call("drawing_save", {"path": path})
         first.call("entity_move", {"handle": handle, "dx": 5, "dy": 5})
         first.call("drawing_save", {})
     finally:

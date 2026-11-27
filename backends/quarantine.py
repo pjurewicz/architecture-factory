@@ -16,7 +16,7 @@ document of a state that never existed. Only the timed-out caller was warned.
 
 So the abandonment quarantines the DOCUMENT, not the backend. The document stays
 untrusted until it is REPLACED by an object the abandoned thread has no
-reference to (``drawing_open`` / ``drawing_new`` / ``drawing_close``), or until
+reference to (``drawing_open`` / ``drawing_new`` / ``document_close``), or until
 the abandoned call is seen to finish cleanly — see ``AbandonedCall``.
 
 This module deliberately has no ezdxf import: ``server.py`` needs the exception
@@ -340,7 +340,7 @@ def quarantine_refusal(record: QuarantineRecord) -> DocumentQuarantineError:
         f"thread ({thread}) cannot be cancelled, so it may still be mutating this "
         "drawing. Every call on it is refused, reads included - a read of a container "
         "another thread is appending to does not fail loudly, it never finishes. "
-        "Recover with drawing_open(path), drawing_new() or drawing_close(): those "
+        "Recover with drawing_open(path), drawing_new() or document_close(discard=True): those "
         "rebind the document to a freshly constructed object the abandoned thread "
         "cannot reach. Undo and rollback are not a way back - their snapshots may "
         "themselves have been serialised mid-write. system_status() stays answerable "
@@ -386,7 +386,7 @@ class DetachedRead:
     exists to prevent. From the call's ORIGINAL deadline on, the read is
     *detached*: every other call on that document is refused by name (a
     ``DocumentBusyError``) until the read ends, and the exits that replace the
-    document object - ``drawing_open`` / ``drawing_new`` / ``drawing_close`` /
+    document object - ``drawing_open`` / ``drawing_new`` /
     ``document_activate`` / ``document_close`` - do not wait for it, so nothing
     needs a restart. They are not answered at once while the read computes: its
     worker holds the GIL (``EzdxfBackend._async`` has the measurement).
@@ -446,7 +446,6 @@ class DetachedRead:
 DETACHED_READ_EXITS = (
     "drawing_open(path)",
     "drawing_new()",
-    "drawing_close()",
     "document_activate(<another document>)",
     "document_close()",
 )

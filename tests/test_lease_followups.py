@@ -309,7 +309,7 @@ async def test_a_readonly_overrun_is_recorded_and_detached(backend, monkeypatch,
         await backend._async(lambda: "write")
     assert time.perf_counter() - asked < AT_ONCE
     message = str(refused.value)
-    for word in ("'body'", "running", "drawing_open", "drawing_new", "drawing_close"):
+    for word in ("'body'", "running", "drawing_open", "drawing_new", "document_close"):
         assert word in message, word
     assert refused.value.to_dict()["kind"] == "busy"
     status = await backend.system_status()

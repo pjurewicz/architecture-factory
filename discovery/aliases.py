@@ -57,7 +57,7 @@ class ToolAliases:
 
 # AutoCAD commands that legitimately route to more than one tool.
 #
-#   ARRAY, LAYER, LAYOUT, MEASUREGEOM, ZOOM  -- option/dialog-driven umbrella
+#   ARRAY, LAYER, LAYOUT, MEASUREGEOM  -- option/dialog-driven umbrella
 #       commands in AutoCAD itself; this server splits each into discrete tools.
 #   SETVAR -- one command both reads and writes a system variable; the server
 #       splits read and write.
@@ -89,10 +89,6 @@ class ToolAliases:
 #       (page_setup_list vs page_setup_apply).
 #   PLOT -- one sheet to PDF (drawing_export_pdf) or every sheet in one go
 #       (batch_plot); a drafter typing it could mean either.
-#   SAVEAS -- the same command saves a copy (drawing_save_as) or a template
-#       (drawing_template_save, its "Drawing Template" file type).
-#   CLOSE -- the active document (drawing_close) or one named document
-#       (document_close); a drafter typing it could mean either.
 #   LAYERSTATE, VIEW, UCS -- umbrella dialog/option commands (save, restore,
 #       list, delete in one) that this server splits into discrete tools.
 #   REVCLOUD -- one command draws a bare cloud (entity_create_revcloud) or a
@@ -112,7 +108,6 @@ SHARED_ACAD_COMMANDS: frozenset[str] = frozenset(
         "ARRAY",
         "BLOCK",
         "CHPROP",
-        "CLOSE",
         "DIMSTYLE",
         "DWGPROPS",
         "ERASE",
@@ -128,14 +123,12 @@ SHARED_ACAD_COMMANDS: frozenset[str] = frozenset(
         "QSELECT",
         "RENAME",
         "REVCLOUD",
-        "SAVEAS",
         "SECTIONPLANE",
         "SETVAR",
         "STYLE",
         "TABLE",
         "UCS",
         "VIEW",
-        "ZOOM",
     }
 )
 
@@ -518,10 +511,6 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "corrupt drawing",
         ),
     ),
-    "drawing_close": ToolAliases(
-        acad=("CLOSE",),
-        synonyms=("close the drawing", "shut the file", "finish with this drawing"),
-    ),
     "drawing_critique": ToolAliases(
         synonyms=(
             "review the drawing",
@@ -539,10 +528,6 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "hand off the drawing",
             "final deliverable",
         ),
-    ),
-    "drawing_export_dxf": ToolAliases(
-        acad=("DXFOUT",),
-        synonyms=("export dxf", "save as dxf", "interchange file", "dxf output"),
     ),
     "drawing_export_pdf": ToolAliases(
         acad=("PLOT", "PRINT", "EXPORTPDF"),
@@ -641,17 +626,25 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "repair loop",
         ),
     ),
+    # 1.8.x: drawing_save absorbed drawing_save_as, drawing_export_dxf,
+    # drawing_export_dwg and drawing_template_save, and their vocabulary with them.
     "drawing_save": ToolAliases(
-        acad=("QSAVE", "SAVE"),
-        synonyms=("save", "save the drawing", "write the file", "keep my changes"),
-    ),
-    "drawing_save_as": ToolAliases(
-        acad=("SAVEAS",),
+        acad=("QSAVE", "SAVE", "SAVEAS", "DXFOUT"),
         synonyms=(
+            "save",
+            "save the drawing",
+            "write the file",
+            "keep my changes",
             "save as",
             "save a copy",
             "write to a new file",
-            "save as a template",
+            "export dxf",
+            "save as dxf",
+            "export dwg",
+            "save as dwg",
+            "dwg olarak kaydet",
+            "save as template",
+            "template from this drawing",
         ),
     ),
     "drawing_settings": ToolAliases(
@@ -1179,18 +1172,6 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "excele aktar",
         ),
     ),
-    "drawing_export_dwg": ToolAliases(
-        acad=("SAVEAS",),
-        synonyms=(
-            "export dwg",
-            "save as dwg",
-            "write a dwg",
-            "autocad 2018 format",
-            "downgrade to r2000",
-            "dwg olarak kaydet",
-            "save this drawing as a dwg",
-        ),
-    ),
     # ── Layers & linetypes ──────────────────────────────────────────────────
     "layer_create": ToolAliases(
         acad=("LAYER", "LA"),
@@ -1710,14 +1691,8 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "render an image",
             "preview",
             "what does it look like",
-        ),
-    ),
-    "view_zoom_and_screenshot": ToolAliases(
-        acad=("ZOOM",),
-        synonyms=(
             "show me the drawing",
             "zoom then capture",
-            "fit and screenshot",
             "visual check",
         ),
     ),
@@ -1929,16 +1904,6 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "dwt list",
         ),
     ),
-    "drawing_template_save": ToolAliases(
-        acad=("SAVEAS",),
-        synonyms=(
-            "save as template",
-            "make a dwt",
-            "template from this drawing",
-            "save as dwt",
-            "reuse this sheet setup",
-        ),
-    ),
     "page_setup_apply": ToolAliases(
         acad=("PAGESETUP",),
         synonyms=(
@@ -1985,6 +1950,8 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
     "document_close": ToolAliases(
         acad=("CLOSE",),
         synonyms=(
+            "close the drawing",
+            "shut the file",
             "close a drawing by name",
             "close the other drawing",
             "close without saving",

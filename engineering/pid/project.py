@@ -272,7 +272,7 @@ async def _read_file_sheet(backend: AutoCADBackend, path: str, label: str) -> tu
         raise UnsupportedCapabilityError(
             "dwg",
             f"pid_project: sheet {label} ({path}) is a DWG, which the headless engine cannot "
-            "read. Convert it to DXF (drawing_open then drawing_save_as a .dxf) and list "
+            "read. Convert it to DXF (drawing_open then drawing_save to a .dxf) and list "
             "the .dxf.",
         )
     sha = await asyncio.to_thread(file_sha256, path)

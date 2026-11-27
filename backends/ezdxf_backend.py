@@ -300,7 +300,7 @@ _DWG_WRITE_REFUSAL = (
     "{operation}: the headless ezdxf backend cannot write DWG. ezdxf has no DWG "
     "writer, and writing DXF bytes to '{path}' would produce a file AutoCAD "
     "refuses or misreads. Save with a .dxf extension instead, or use "
-    "drawing_export_dwg with the ODA File Converter installed for real DWG output."
+    "drawing_save(path='<name>.dwg') with the ODA File Converter installed for real DWG output."
 )
 
 
@@ -2453,7 +2453,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 if not state.path:
                     raise ValueError(
                         f"document_close: {label!r} has never been saved, so save=True has "
-                        "nowhere to write; drawing_save_as(path) first, or pass discard=True"
+                        "nowhere to write; drawing_save(path) first, or pass discard=True"
                     )
                 # ``drawing_close`` reaches here without the resolver, so the
                 # one-entry-per-file check is made at the write itself: a
@@ -2464,7 +2464,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 state.dirty = False
                 saved = True
             elif not discard:
-                where = f" to {state.path}" if state.path else " (after drawing_save_as)"
+                where = f" to {state.path}" if state.path else " (after drawing_save(path))"
                 raise ValueError(
                     f"document_close: {label!r} has unsaved changes; pass save=True to write "
                     f"them{where}, or discard=True to drop them"
@@ -2550,7 +2550,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             "cannot be cancelled, so this one was abandoned and may still be "
             "writing to the drawing. Every later call on this document is refused - "
             "reads included - until drawing_open(path), drawing_new() or "
-            "drawing_close() rebinds it, or until the abandoned call is seen to finish "
+            "document_close() rebinds it, or until the abandoned call is seen to finish "
             "cleanly, which lifts the refusal by itself. system_status() stays "
             "answerable throughout. Raise EZDXF_CALL_TIMEOUT (seconds; 0 disables the "
             "timeout entirely) if this operation is legitimately slow."
@@ -3029,7 +3029,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     f"ezdxf read '{name}' timed out after {timeout:g}s. It is read-only, so "
                     "the document is NOT quarantined. Its worker cannot be cancelled and still "
                     "reads the drawing, so until it finishes every other call on this document "
-                    "answers 'busy' by name; drawing_open(path), drawing_new(), drawing_close(), "
+                    "answers 'busy' by name; drawing_open(path), drawing_new(), "
                     "document_activate(<another document>) and document_close() do not wait for "
                     "it (while it computes, every answer is slower). Raise EZDXF_CALL_TIMEOUT "
                     "(seconds; 0 disables the timeout entirely - then nothing is detached and a "
@@ -3609,7 +3609,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 "ODA File Converter, which is not installed here. Install it from "
                 "https://www.opendesign.com/guestfiles/oda_file_converter and this call "
                 "starts working, or save it as DWG in AutoCAD. "
-                "drawing_export_dxf writes a DXF that AutoCAD opens unchanged.",
+                "drawing_save(path='<name>.dxf') writes a DXF that AutoCAD opens unchanged.",
             )
 
         def _sync():
@@ -5622,7 +5622,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     "drawing another thread may still have been mutating"
                     if quarantined
                     else f"{key} had never been saved, so save=True had nowhere to write; "
-                    "its changes were discarded. drawing_save_as(path) before closing, or "
+                    "its changes were discarded. drawing_save(path) before closing, or "
                     "document_close(discard=True) to say so explicitly."
                 )
             return result

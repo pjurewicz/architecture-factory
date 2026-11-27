@@ -21,7 +21,7 @@ a fresh server on the same state folder, which must see what the kill left::
     with FaultHarness() as fh:                      # a kill *inside* a call
         server = fh.spawn(barrier="save.before_replace")
         ...
-        server.send("tools/call", {"name": "drawing_save_as", ...})
+        server.send("tools/call", {"name": "drawing_save", ...})
         fh.wait_barrier("save.before_replace")      # the child is parked there
         server.kill()
 

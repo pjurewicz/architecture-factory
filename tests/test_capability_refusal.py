@@ -54,16 +54,16 @@ async def client(monkeypatch):
 
 
 async def test_refusal_reaches_the_client_as_a_machine_readable_payload(client, tmp_path):
-    target = tmp_path / "part.dwg"
-    result = await client.call_tool("drawing_save_as", {"path": str(target)}, raise_on_error=False)
+    target = tmp_path / "part.dwt"
+    result = await client.call_tool("drawing_save", {"path": str(target)}, raise_on_error=False)
 
     assert result.is_error is True
     payload = result.structured_content
     assert isinstance(payload, dict), "a refusal must not arrive as prose only"
     assert payload["ok"] is False
     assert payload["kind"] == "unsupported"
-    assert payload["capability"] == "dwg"
-    assert payload["tool"] == "drawing_save_as"
+    assert payload["capability"] == "dwt_write"
+    assert payload["tool"] == "drawing_save"
     assert payload["backend"] == "ezdxf"
 
     # The prose channel still works for clients that only read text, and it is
@@ -79,7 +79,7 @@ async def test_the_capability_is_a_key_a_client_can_pre_check(client, tmp_path):
     features = caps["features"]
 
     result = await client.call_tool(
-        "drawing_save_as", {"path": str(tmp_path / "x.dwg")}, raise_on_error=False
+        "drawing_save", {"path": str(tmp_path / "x.dwt")}, raise_on_error=False
     )
     capability = result.structured_content["capability"]
     assert features[capability]["supported"] is False

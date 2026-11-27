@@ -25,7 +25,7 @@ A `.dwg`: `drawing_open(path)` converts it to DXF through the ODA File
 Converter (the result's `dwg_read` names the route); without the converter it
 is refused with capability `dwg_read`, and a failed conversion is
 `dwg_conversion_failed`. Save the
-result with `drawing_save_as` to a `.dxf` - never onto the `.dwg`.
+result with `drawing_save(path)` to a `.dxf` - never onto the `.dwg`.
 
 ## 2. Checks that never write
 

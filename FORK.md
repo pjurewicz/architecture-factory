@@ -13,7 +13,7 @@ the live engine* below); `AUTOCAD_MCP_BACKEND=com` already fails startup.
 ## Assumptions
 
 - **No AutoCAD.** Drawings are built in memory with [ezdxf](https://ezdxf.mozman.at/).
-  DWG is read and written through the ODA File Converter (`drawing_export_dwg`, and
+  DWG is read and written through the ODA File Converter (`drawing_save` to a `.dwg`, and
   `drawing_open` on a `.dwg`). PDF and PNG previews come from ezdxf's own renderer.
   Nothing needs Windows or an Autodesk licence.
 - **Runs on a server, Linux or macOS.** The target is a container or an Amp orb,

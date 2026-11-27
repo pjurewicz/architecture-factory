@@ -57,6 +57,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `drawing_save(path?, copy=False, version?, overwrite_source=False)` is the
+  one save tool: no path saves in place, a `.dxf` path re-points the document
+  (SAVEAS), `copy=True` writes a copy and keeps the document where it is (and
+  requires a path, else `invalid_args`), a `.dwg` path writes a real DWG
+  through the ODA File Converter and never re-points (`version` is DWG-only:
+  with any other path it is `invalid_args`), and a `.dwt` is refused
+  `dwt_write` (a template is a `.dxf`).
+- `document_close` is a core and lean tool (it was `settings`-pack): with no
+  `name_or_path` it closes the active document, and it never drops unsaved
+  work unless `discard=True`. `lean` is 64 tools (54 with `TOOL_PACKS=core`).
+- `drawing_finalize` and `drawing_deliver` open with contrasting first
+  sentences: the quality gate on the active drawing, against the hashed
+  release bundle in `output_dir`.
 - `block_define` primitives and ATTDEFs use the key names of `entity_create_*`
   and `entity_batch_create`: `radius`, `start_angle`, `end_angle`, `rotation`.
   The old `r`, `start_deg`, `end_deg`, `rotation_deg` are refused as unknown
@@ -83,6 +96,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- The tools `drawing_save_as`, `drawing_export_dxf`, `drawing_export_dwg` and
+  `drawing_template_save` (all `drawing_save` now), `drawing_close` (whose
+  `save=True` default discarded an untitled document's changes with only a
+  warning; use `document_close`) and `view_zoom_and_screenshot` (a duplicate of
+  `view_screenshot(region=)`). No aliases: 242 tools.
 - The collected-test count on README's release-snapshot line and its
   `scripts/check_doc_numbers.py` row: it moved with every test added, so any
   two branches that each added a test conflicted on it, and it said nothing

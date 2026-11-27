@@ -270,8 +270,12 @@ async def test_template_save_refuses_other_suffixes(backend, tmp_path):
         await backend.drawing_template_save(str(tmp_path / "mine.txt"))
 
 
-async def test_template_save_tool_validates_the_path(backend, tmp_path):
+async def test_a_template_is_saved_by_drawing_save(backend, tmp_path):
     with pytest.raises(ToolError):
-        await server.drawing_template_save("../../outside.dxf", ctx=_Ctx(backend))
-    result = await server.drawing_template_save(str(tmp_path / "t.dxf"), ctx=_Ctx(backend))
-    assert result["ok"] and result["name"] == "t"
+        await server.drawing_save("../../outside.dxf", ctx=_Ctx(backend))
+    with pytest.raises(UnsupportedCapabilityError) as excinfo:
+        await server.drawing_save(str(tmp_path / "t.dwt"), ctx=_Ctx(backend))
+    assert excinfo.value.capability == "dwt_write" and "t.dxf" in str(excinfo.value)
+    assert not (tmp_path / "t.dwt").exists()
+    result = await server.drawing_save(str(tmp_path / "t.dxf"), ctx=_Ctx(backend))
+    assert result["ok"] and (tmp_path / "t.dxf").is_file()

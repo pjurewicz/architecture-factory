@@ -11,8 +11,8 @@ to is not evidence of anything.
 Rules the cases follow:
 
 * Every ``expect`` is a tool that genuinely, unambiguously does the job. Where
-  two tools would both be defensible answers (``view_screenshot`` vs
-  ``view_zoom_and_screenshot``, ``entity_delete`` vs ``entity_delete_many``)
+  two tools would both be defensible answers (``entity_delete`` vs
+  ``entity_delete_many``)
   the query is worded to pick one, or the case is left out. A golden set that
   scores ambiguity is measuring the author, not the ranker.
 * ``kind`` records what the case exercises, so accuracy can be reported per
@@ -64,7 +64,7 @@ TUNING_CASES: tuple[GoldenCase, ...] = (
     GoldenCase("LAYISO", "layer_isolate", "command"),
     GoldenCase("XLINE", "construction_xline", "command"),
     GoldenCase("EXPLODE", "block_explode", "command"),
-    GoldenCase("DXFOUT", "drawing_export_dxf", "command"),
+    GoldenCase("DXFOUT", "drawing_save", "command"),
     GoldenCase("QDIM", "dimension_auto", "command"),
     GoldenCase("CHA", "entity_chamfer", "command"),
     GoldenCase("DLI", "dimension_linear", "command"),
@@ -164,7 +164,7 @@ TUNING_CASES: tuple[GoldenCase, ...] = (
     GoldenCase("STYLE", "textstyle_create", "command"),
     GoldenCase("iso 25 dimension style", "dimstyle_create", "synonym"),
     GoldenCase("layer snapshot", "layer_state_save", "synonym"),
-    GoldenCase("save this drawing as a template", "drawing_template_save", "paraphrase"),
+    GoldenCase("save this drawing as a template", "drawing_save", "paraphrase"),
     GoldenCase("switch to the other open drawing", "document_activate", "paraphrase"),
     GoldenCase(
         "what does the LTSCALE variable mean",
@@ -187,7 +187,7 @@ TUNING_CASES: tuple[GoldenCase, ...] = (
     GoldenCase("iso 5457 sheet frame", "sheet_frame", "synonym"),
     GoldenCase("put an m12 hex bolt on the drawing", "std_part_insert", "paraphrase"),
     GoldenCase("draw the parts list table on the sheet", "bom_table", "paraphrase"),
-    GoldenCase("save this drawing as a dwg", "drawing_export_dwg", "paraphrase"),
+    GoldenCase("save this drawing as a dwg", "drawing_save", "paraphrase"),
     # v1.6 track F - the architectural plan. Written before the merged alias
     # records were measured against them; a miss is fixed by adding vocabulary
     # to that tool's record in discovery/aliases.py, never by moving the

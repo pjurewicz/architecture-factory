@@ -17,7 +17,7 @@ listed by `drawing_template_list`. Start from one with
 - `<name>.dxf` — the headless twin. Produced by
   `uv run --frozen python scripts/build_templates.py`, which runs
   `drawing_new → apply_layer_set → styles → drawing_settings → layout rename →
-  titleblock_apply_iso_a3 (A3 sheets) → page_setup_apply → drawing_save_as`.
+  titleblock_apply_iso_a3 (A3 sheets) → page_setup_apply → drawing_save`.
   `scripts/build_templates.py --check` rebuilds into a temporary folder and
   fails if any committed DXF differs (the save-time stamps `$TDCREATE`,
   `$TDUPDATE`, `$FINGERPRINTGUID`, `$VERSIONGUID` and the two `EZDXF_META`

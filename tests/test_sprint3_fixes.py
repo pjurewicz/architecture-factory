@@ -1,6 +1,6 @@
 """Regression tests for the CI-verifiable (ezdxf / shared) Sprint-3 fixes.
 
-* N2  — drawing_save_as derives the on-disk format from the path extension
+* N2  — drawing_save derives the on-disk format from the path extension
 * N3  — ARC carries a `length` property; entity_select_smart length_range selects it
 * N5  — properties parity: ezdxf sets bounding_box; MTEXT carries char_height + rotation
 * NEW-dimauto-baseline-rotation — baseline dims run parallel to a rotated baseline
@@ -28,17 +28,32 @@ class _Ctx:
 # ── N2 — format follows the file extension ──────────────────────────────────
 
 
-async def test_save_as_derives_format_from_extension(backend):
+async def test_save_derives_format_from_extension(backend, monkeypatch):
+    import ezdxf
+
     import server
 
     ctx = _Ctx(backend)
     d = tempfile.mkdtemp()
-    res = await server.drawing_save_as(path=os.path.join(d, "part.dxf"), ctx=ctx)
-    assert res.get("format") == "dxf"  # not the old "dwg" default
+    await server.drawing_save(path=os.path.join(d, "part.dxf"), ctx=ctx)
+    assert ezdxf.readfile(os.path.join(d, "part.dxf"))  # DXF bytes under a .dxf name
 
-    # ezdxf cannot write real DWG — must refuse rather than mislabel a .dwg file.
-    with pytest.raises(RuntimeError):
-        await server.drawing_save_as(path=os.path.join(d, "part.dwg"), ctx=ctx)
+    # A .dwg name is a DWG request: it goes to the ODA writer, never to the DXF
+    # writer under a mislabelled name.
+    def no_dxf(*_a, **_k):
+        raise AssertionError("a .dwg path reached the DXF writer")
+
+    monkeypatch.setattr(backend, "drawing_save", no_dxf)
+    monkeypatch.setattr(backend, "drawing_export_dxf", no_dxf)
+    seen = []
+
+    async def dwg(path, version):
+        seen.append(path)
+        return {"ok": True, "path": path}
+
+    monkeypatch.setattr(backend, "drawing_export_dwg", dwg)
+    await server.drawing_save(path=os.path.join(d, "part.dwg"), ctx=ctx)
+    assert seen == [os.path.join(d, "part.dwg")]
 
 
 # ── N3 — ARC length + length_range selection ────────────────────────────────

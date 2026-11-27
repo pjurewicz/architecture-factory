@@ -1,7 +1,8 @@
 """Task 17 (B23 residue): exporting a DXF never re-points the open document.
 
-`drawing_save_as` keeps its re-pointing semantics; `drawing_export_dxf` writes a
-copy and leaves the document's path, saved flag and revision alone.
+The backend's `drawing_save_as` keeps its re-pointing semantics; its
+`drawing_export_dxf` writes a copy and leaves the document's path, saved flag
+and revision alone. The one tool over both is `drawing_save(path, copy=)`.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ import ezdxf
 import pytest
 
 from backends.base import UnsupportedCapabilityError
+from backends.ezdxf_backend import EzdxfBackend
 from engineering.understand.snapshot import dxf_version_of
 from engineering.verification.report import document_identity_of
 
@@ -55,3 +57,55 @@ async def test_save_as_keeps_re_pointing_the_document(backend, tmp_path):
     await backend.drawing_save_as(str(target), "dxf")
     info = await backend.drawing_info()
     assert (info.full_path, info.saved) == (str(target), True)
+
+
+@pytest.mark.asyncio
+async def test_drawing_save_routes_by_path_copy_and_extension(monkeypatch, tmp_path):
+    """The one save tool: refusals before writing, SAVEAS, a copy, DWT and DWG."""
+    from fastmcp import Client
+
+    import server
+
+    dwg_calls = []
+
+    async def fake_dwg(self, path, version="R2018", *, document=None):
+        dwg_calls.append((path, version))
+        return {"ok": True, "path": path, "version": version}
+
+    monkeypatch.setattr(EzdxfBackend, "drawing_export_dwg", fake_dwg)
+    async with Client(server.mcp) as client:
+
+        async def save(**args):
+            result = await client.call_tool("drawing_save", args, raise_on_error=False)
+            return result.is_error, result.structured_content
+
+        async def where():
+            info = (await client.call_tool("drawing_info", {})).structured_content
+            return info["full_path"], info["saved"]
+
+        await client.call_tool("drawing_new", {})
+        await client.call_tool("entity_create_circle", {"cx": 0, "cy": 0, "radius": 20})
+        a, b = tmp_path / "a.dxf", tmp_path / "b.dxf"
+
+        error, payload = await save(copy=True)
+        assert error and payload["kind"] == "invalid_args" and "requires path" in payload["message"]
+        error, payload = await save(path=str(a), version="R2018")
+        assert error and payload["kind"] == "invalid_args" and not a.exists()
+
+        assert not (await save(path=str(a)))[0]
+        assert await where() == (str(a), True)  # SAVEAS re-points
+        await client.call_tool("entity_create_circle", {"cx": 50, "cy": 0, "radius": 5})
+        error, payload = await save(path=str(b), copy=True)
+        assert not error and payload["repointed"] is False
+        assert await where() == (str(a), False)  # still a.dxf, still unsaved
+        assert len(ezdxf.readfile(b).modelspace().query("CIRCLE")) == 2
+        assert len(ezdxf.readfile(a).modelspace().query("CIRCLE")) == 1
+
+        error, payload = await save(path=str(tmp_path / "t.dwt"))
+        assert error and payload["capability"] == "dwt_write" and "t.dxf" in payload["message"]
+        assert not (tmp_path / "t.dwt").exists()
+
+        error, payload = await save(path=str(tmp_path / "c.dwg"), version="R2013")
+        assert not error and payload["repointed"] is False
+        assert dwg_calls == [(str(tmp_path / "c.dwg"), "R2013")]
+        assert await where() == (str(a), False)  # a DWG is always a copy

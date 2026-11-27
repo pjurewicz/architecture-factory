@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Amp orb setup: the headless engine (ezdxf, PNG/PDF rendering, XLSX) and the
-# ODA File Converter, which drawing_open and drawing_export_dwg use for DWG.
+# ODA File Converter, which drawing_open and drawing_save (.dwg) use for DWG.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

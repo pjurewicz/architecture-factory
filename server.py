@@ -86,13 +86,10 @@ from engineering.measure import is_self_intersecting, polygon_area_perimeter
 from security import (
     DIRECTORY,
     KINDS_DRAWING,
-    KINDS_DWG,
-    KINDS_DXF,
     KINDS_IMAGE,
     KINDS_PDF,
     KINDS_REPORT,
     KINDS_TABLE,
-    KINDS_TEMPLATE,
     validate_path,
 )
 from version import __version__
@@ -1827,7 +1824,7 @@ def cad_tool(*, summary: str, cost: str):
 # Some MCP clients degrade (or hard-cap) when a server exposes 100+ tools.
 # TOOL_PROFILE selects how much of the surface is advertised:
 #   full — everything (default, backwards compatible)
-#   lean — a curated 66-tool drafting/inspection core (LEAN_TOOL_NAMES)
+#   lean — a curated 64-tool drafting/inspection core (LEAN_TOOL_NAMES)
 # Disabled tools stay registered (system_about still reports the full
 # inventory) but are hidden from MCP list_tools and rejected if called.
 
@@ -1849,12 +1846,10 @@ LEAN_TOOL_NAMES = frozenset(
         "drawing_new",
         "drawing_open",
         "drawing_save",
-        "drawing_save_as",
-        "drawing_export_dxf",
         "drawing_export_pdf",
         "drawing_info",
         "drawing_audit",
-        "drawing_close",
+        "document_close",
         # entity creation
         "entity_create_line",
         "entity_create_circle",
@@ -1956,8 +1951,10 @@ LEAN_TOOL_NAMES = frozenset(
         # Set-based edits (1.8-12) - the verb a tight-cap client otherwise
         # spends one call per entity on. layer_rename / layer_merge stay full:
         # this one moves a layer's entities and layer_delete drops the layer.
-        # A core-pack tool; lean is 66 (56 with TOOL_PACKS=core) since the fork
-        # removed view_zoom_extents.
+        # A core-pack tool; lean was 66 (56 with TOOL_PACKS=core) since the fork
+        # removed view_zoom_extents, and is 64 (54) since drawing_save absorbed
+        # drawing_save_as / drawing_export_dxf and document_close replaced
+        # drawing_close.
         "entity_modify_where",
     }
 )
@@ -1984,12 +1981,12 @@ PACK_TOOL_NAMES: dict[str, frozenset[str]] = {
             "pid_project",
         }
     ),
-    # SECTION 20 — the 16 environment tools (spec §7, §8.2).
+    # SECTION 20 — the 15 environment tools (spec §7, §8.2); document_close
+    # is core, the only close tool.
     "settings": frozenset(
         {
             "document_list",
             "document_activate",
-            "document_close",
             "layer_state_save",
             "layer_state_restore",
             "layer_state_list",
@@ -2198,7 +2195,7 @@ async def _apply_tool_profile(profile: str | None = None) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 1: Drawing Management (12 tools) ────────────────────────────────
+# ── SECTION 1: Drawing Management (10 tools) ────────────────────────────────
 # ---------------------------------------------------------------------------
 
 
@@ -2378,88 +2375,84 @@ def _journal_external_edit(ctx: Context, backend, result: dict) -> None:
         log.warning("external_edit not journalled: %s", exc)
 
 
-@cad_tool(summary="Write the drawing back to its file, or to a path you give.", cost="mutate")
+@cad_tool(
+    summary="Save the drawing (SAVE / SAVEAS), or write a DXF / DWG copy with copy=True.",
+    cost="mutate",
+)
 @mcp.tool(
     annotations={"title": "Save Drawing"},
     tags={"drawing"},
 )
 async def drawing_save(
-    path: Annotated[str | None, "Optional save path; uses current path if omitted"] = None,
+    path: Annotated[
+        str | None,
+        "Destination .dxf or .dwg; omit to save to the document's own path. "
+        "The extension picks the format.",
+    ] = None,
+    copy: Annotated[
+        bool,
+        "Write a copy and keep the document on its own path (DXFOUT / export); "
+        "requires path. False: the document is re-pointed to path (SAVEAS).",
+    ] = False,
+    version: Annotated[
+        str | None,
+        "DWG only: R2000 | R2004 | R2007 | R2010 | R2013 | R2018 (default R2018).",
+    ] = None,
     overwrite_source: Annotated[
         bool,
         "Allow saving a drawing opened with recover=True over its damaged source file.",
     ] = False,
     ctx: Context = None,
 ) -> dict:
-    """Save the current drawing. Optionally specify a new path.
+    """Save the current drawing: to its own path, to a new one, or as a copy.
 
-    The write is atomic: a temporary file beside the target, checked,
-    then renamed over it - a killed save never leaves a half-written drawing.
-    A document opened with recover=True is refused onto its damaged source
-    (`recovered_source_protected`) unless overwrite_source=True.
+    - no path: save in place (QSAVE).
+    - `.dxf` path: SAVEAS - the document now lives at path. A template is the
+      same call: `drawing_new(template=<path>)` opens any .dxf.
+    - `.dxf` path with copy=True: a copy; name, path and saved flag stay.
+    - `.dwg` path: a real DWG through the ODA File Converter (capability
+      `dwg_write` when it is absent), always a copy - the document stays DXF.
+
+    The write is atomic: a temporary file beside the target, checked, then
+    renamed over it. Refused before writing: copy=True without path, version
+    with a non-.dwg path, a .dwt (capability `dwt_write`: save a .dxf template),
+    and a recovered document onto its damaged source (`recovered_source_protected`)
+    unless overwrite_source=True.
     """
-    if path is not None:
-        validated = validate_path(path, allow_write=True, kinds=KINDS_DRAWING)
-        path = str(validated)
-    await ctx.info("Saving drawing")
-    if overwrite_source:
-        result = await _backend(ctx).drawing_save(path, overwrite_source=True)
-    else:
-        result = await _backend(ctx).drawing_save(path)
-    return artifact_links.add_link(result, path)
-
-
-@cad_tool(
-    summary="Save a copy under a new name; the extension picks DXF, DWG or DWT.",
-    cost="mutate",
-)
-@mcp.tool(
-    annotations={"title": "Save As"},
-    tags={"drawing"},
-)
-async def drawing_save_as(
-    path: Annotated[str, "Full destination path including extension"],
-    format: Annotated[
-        str,
-        "Output format override: dwg, dxf, dwt. Default: derive "
-        "from the path extension (the extension is authoritative).",
-    ] = "",
-    ctx: Context = None,
-) -> dict:
-    """Save current drawing to a new path/format (DWG, DXF, or DWT template).
-
-    The on-disk format is derived from the file extension so the bytes always
-    match the name (N2) — e.g. 'part.dxf' writes DXF, not DWG. `format` overrides
-    only when the path has no recognised extension.
-    """
-    validated = validate_path(path, allow_write=True, kinds=KINDS_DRAWING)
     from pathlib import Path as _P
 
-    ext = _P(str(validated)).suffix.lstrip(".").lower()
-    fmt = ext if ext in ("dxf", "dwg", "dwt") else (format.lower() or "dxf")
-    await ctx.info(f"Saving as {fmt}: {validated}")
-    return await _backend(ctx).drawing_save_as(str(validated), fmt)
+    from backends.base import UnsupportedCapabilityError
+    from engineering.errors import InvalidArgsError
 
-
-@cad_tool(summary="Write a DXF interchange copy of the drawing.", cost="mutate")
-@mcp.tool(
-    annotations={"title": "Export DXF"},
-    tags={"drawing", "export"},
-)
-async def drawing_export_dxf(
-    path: Annotated[str, "Output .dxf file path"],
-    ctx: Context = None,
-) -> dict:
-    """Export the current drawing as a DXF copy.
-
-    The open document is never re-pointed: it keeps its name, path and saved flag
-    (drawing_save_as is the call that re-points); the copy is written by ezdxf. The
-    result names the method and the DXF version written. Refused: a name that is not
-    .dxf (a .dwg with capability `dwg`).
-    """
-    validated = validate_path(path, allow_write=True, kinds=KINDS_DXF)
-    await ctx.info(f"Exporting DXF: {validated}")
-    return await _backend(ctx).drawing_export_dxf(str(validated))
+    if copy and path is None:
+        raise InvalidArgsError("invalid_args: copy=True requires path")
+    if path is not None:
+        path = str(validate_path(path, allow_write=True, kinds=KINDS_DRAWING))
+    suffix = _P(path).suffix.lower() if path is not None else ""
+    if version is not None and suffix != ".dwg":
+        raise InvalidArgsError(f"invalid_args: version is for a .dwg path only, got {path!r}")
+    b = _backend(ctx)
+    await ctx.info(f"Saving drawing{f' to {path}' if path else ''}{' (copy)' if copy else ''}")
+    if suffix == ".dwg":
+        try:
+            result = await b.drawing_export_dwg(path, version or "R2018")
+        except ValueError as exc:  # an unknown version, named with the six
+            raise InvalidArgsError(f"invalid_args: {exc}") from exc
+        result.setdefault("repointed", False)
+    elif suffix == ".dwt":
+        raise UnsupportedCapabilityError(
+            "dwt_write",
+            "drawing_save: a .dwt is a DWG container and the headless engine has no DWT "
+            f"writer. Save the template as .dxf instead (drawing_new(template="
+            f"'{_P(path).stem}.dxf') opens it).",
+        )
+    elif copy:
+        result = await b.drawing_export_dxf(path)
+    elif overwrite_source:
+        result = await b.drawing_save(path, overwrite_source=True)
+    else:
+        result = await b.drawing_save(path)
+    return artifact_links.add_link(result, path)
 
 
 @cad_tool(summary="Plot the drawing, or one paper-space layout, to PDF.", cost="mutate")
@@ -2520,6 +2513,36 @@ async def drawing_purge(ctx: Context = None) -> dict:
     return await backend.drawing_purge()
 
 
+@cad_tool(
+    summary="Close one open document by name; never drops unsaved work unless told to.",
+    cost="destructive",
+)
+@mcp.tool(
+    annotations={"title": "Close Document", "destructiveHint": True},
+    tags={"drawing"},
+)
+async def document_close(
+    name_or_path: Annotated[
+        str | None, "A name from document_list or the full path; omit for the active document"
+    ] = None,
+    save: Annotated[bool, "Write unsaved changes to the document's own path first"] = False,
+    discard: Annotated[bool, "Close even with unsaved changes, dropping them"] = False,
+    ctx: Context = None,
+) -> dict:
+    """Close a document and report `saved`, `discarded_changes` and the new `active`.
+
+    Refusals, all before anything is closed: unsaved changes with neither
+    `save` nor `discard`; `save` on a document that has never been saved (no
+    path to write); `save` together with `discard`. Closing the last
+    document leaves the backend with none open, which every tool already
+    reports. Omit `name_or_path` to close the active document. Pack: core · lean: yes.
+    """
+    await ctx.info(
+        f"Closing document {name_or_path or '(active)'} (save={save}, discard={discard})"
+    )
+    return await _backend(ctx).document_close(name_or_path, save, discard)
+
+
 @cad_tool(summary="Scan the drawing for structural errors and repair what it finds.", cost="mutate")
 @mcp.tool(
     annotations={"title": "Audit Drawing", "readOnlyHint": False},
@@ -2534,24 +2557,6 @@ async def drawing_audit(ctx: Context = None) -> dict:
     """
     await ctx.info("Auditing drawing")
     return await _backend(ctx).drawing_audit()
-
-
-@cad_tool(summary="Close the drawing, saving first unless you say otherwise.", cost="destructive")
-@mcp.tool(
-    annotations={"title": "Close Drawing", "destructiveHint": True},
-    tags={"drawing"},
-)
-async def drawing_close(
-    save: Annotated[bool, "Save the drawing before closing"] = True,
-    ctx: Context = None,
-) -> dict:
-    """Close the active document. If save is True (default), the drawing is
-    saved to its current path before closing; an untitled document is closed
-    and `warning` says its changes were discarded. The
-    active-document case of `document_close`; after the last document is
-    closed, call drawing_new or drawing_open before any other tool."""
-    await ctx.info(f"Closing drawing (save={save})")
-    return await _backend(ctx).drawing_close(save)
 
 
 @cad_tool(summary="Step back one operation.", cost="safe")
@@ -5381,7 +5386,6 @@ _BATCH_PRECHECK_BARRIERS = frozenset(
     {
         "drawing_new",
         "drawing_open",
-        "drawing_close",
         "document_activate",
         "document_close",
         "checkpoint_restore",
@@ -5398,7 +5402,6 @@ _BATCH_DOCUMENT_SWITCHES = frozenset(
     {
         "drawing_new",
         "drawing_open",
-        "drawing_close",
         "document_activate",
         "document_close",
         "checkpoint_restore",
@@ -7186,7 +7189,7 @@ async def validation_check(
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 9: View & Screenshot (2 tools) ──────────────────────────────────
+# ── SECTION 9: View & Screenshot (1 tool)   ──────────────────────────────────
 # ---------------------------------------------------------------------------
 
 
@@ -7267,60 +7270,6 @@ def _view_image_result(report: dict, unavailable: str) -> ToolResult:
         ],
         structured_content=payload,
     )
-
-
-@cad_tool(
-    summary="Fit the drawing on screen, then capture it: the quickest visual check.",
-    cost="read",
-)
-@mcp.tool(
-    annotations={"title": "Zoom and Screenshot", "readOnlyHint": True},
-    tags={"view", "screenshot"},
-)
-async def view_zoom_and_screenshot(
-    x1: Annotated[float | None, "Optional: zoom to this window corner X1"] = None,
-    y1: Annotated[float | None, "Optional: zoom to window corner Y1"] = None,
-    x2: Annotated[float | None, "Optional: zoom to window corner X2"] = None,
-    y2: Annotated[float | None, "Optional: zoom to window corner Y2"] = None,
-    max_px: Annotated[
-        int,
-        Field(description="Long side of the image in pixels (64-4096).", ge=64, le=4096),
-    ] = 1568,
-    ctx: Context = None,
-):
-    """Zoom to extents (or window if coordinates given), then capture a screenshot.
-
-    The most useful tool for visually inspecting drawing state.
-
-    The window is drawn as that window at a stated scale; without one, the
-    extents. The report beside the image is the one `view_screenshot` gives —
-    `applied`, `px`, `region`, `px_per_unit`. Give all
-    four corners or none: a partial window is refused, never silently widened
-    to the extents.
-    """
-    await ctx.info("Zooming and capturing screenshot")
-    b = _backend(ctx)
-
-    corners = {"x1": x1, "y1": y1, "x2": x2, "y2": y2}
-    missing = [name for name, value in corners.items() if value is None]
-    if missing and len(missing) < len(corners):
-        raise ToolError(
-            f"view_zoom_and_screenshot: a window needs all four corners; missing "
-            f"{', '.join(missing)} (or give none for the extents)"
-        )
-
-    await ctx.report_progress(10, 100)
-    if not missing:
-        await b.view_zoom_window(x1, y1, x2, y2)
-        region = [x1, y1, x2, y2]
-    else:
-        await b.view_zoom_extents()
-        region = None
-
-    await ctx.report_progress(50, 100)
-    report = await _view_render(b, region=region, max_px=max_px)
-    await ctx.report_progress(100, 100)
-    return _view_image_result(report, "Screenshot unavailable. Check backend capabilities.")
 
 
 # ---------------------------------------------------------------------------
@@ -8057,7 +8006,7 @@ GATE_DETAILS = ("summary", "full")
 
 
 @cad_tool(
-    summary="Finish the drawing: validate, critique, save, screenshot and score it.",
+    summary="Quality gate on the active drawing: validator + critique + score, optional save/PNG.",
     cost="destructive",
 )
 @mcp.tool(
@@ -8115,8 +8064,12 @@ async def drawing_finalize(
     ] = "summary",
     ctx: Context = None,
 ) -> dict:
-    """Premium completion gate: runs BOTH the 8-step validator AND the premium critique focuses
-    (each named below), then saves to disk, exports a screenshot, and returns the DWG path.
+    """Quality gate on the active drawing (validator + critique + score, optional save/PNG).
+
+    For a release bundle of files use `drawing_deliver`. Runs BOTH the 8-step
+    validator AND the premium critique focuses (each named below); with
+    `save_path` it saves the document there (SAVEAS: it is re-pointed), with
+    `screenshot_path` it writes a PNG, and it returns the score.
 
     The premium critique focuses
     (iso128, layer_color, dim_overlap, untrimmed_corner, duplicate_entities, construction_left,
@@ -8340,7 +8293,7 @@ async def drawing_finalize(
 
 
 @cad_tool(
-    summary="Hand the drawing off: a hashed, validated bundle of files plus a manifest.",
+    summary="Build a hashed release bundle in output_dir (manifest, DXF/PDF/PNG, reopen parity).",
     cost="destructive",
 )
 @mcp.tool(
@@ -8394,7 +8347,11 @@ async def drawing_deliver(
     ] = "summary",
     ctx: Context = None,
 ) -> dict:
-    """Create a hashed, validated delivery bundle and verify DXF save/reopen parity.
+    """Build a hashed release bundle in output_dir (manifest.json, DXF/PDF/PNG, reopen parity) without re-pointing the active drawing.
+
+    The bundle passes the validator + critique + score gate with stricter
+    defaults (min_score 95, strict_critique); for the gate alone on the open
+    drawing use `drawing_finalize`.
 
     The result status is ``success``, ``failed_validation``, ``failed_export`` or
     ``failed_acceptance``. Failure intentionally keeps all generated artifacts for
@@ -10179,7 +10136,7 @@ async def drawing_apply_standard(
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 19: Page Setup & Templates (6 tools) ────────────────────────────
+# ── SECTION 19: Page Setup & Templates (5 tools) ────────────────────────────
 # ---------------------------------------------------------------------------
 
 
@@ -10407,43 +10364,8 @@ async def drawing_template_list(ctx: Context = None) -> dict:
     }
 
 
-@cad_tool(
-    summary="Save the current drawing as a .dxf template.",
-    cost="mutate",
-)
-@mcp.tool(
-    annotations={"title": "Save As Template", "destructiveHint": False},
-    tags={"pagesetup", "template", "drawing"},
-)
-async def drawing_template_save(
-    path: Annotated[str, "Destination .dxf (a .dwt is refused, capability dwt_write)."],
-    name: Annotated[str | None, "Template name for the report (default: the file stem)."] = None,
-    description: Annotated[
-        str | None, "Template description (DXF cannot keep it: description_written false)."
-    ] = None,
-    ctx: Context = None,
-) -> dict:
-    """AutoCAD's SAVEAS → Drawing Template, as a DXF.
-
-    A `.dxf` template is written — `drawing_new(template=<path>)` opens it —
-    and a `.dwt` request is refused with capability `dwt_write` (the message
-    names the DXF route); a description is reported
-    `description_written: false` because DXF has nowhere to keep it. Any other
-    suffix, and any path outside the allowed directories, is refused before
-    a byte is written.
-
-    Pack: core · lean: no (`drawing_save_as` is not lean either).
-    """
-    validated = validate_path(path, allow_write=True, kinds=KINDS_TEMPLATE)
-    await ctx.info(f"Saving template: {validated}")
-    try:
-        return await _backend(ctx).drawing_template_save(str(validated), name, description)
-    except ValueError as exc:
-        raise ToolError(str(exc)) from exc
-
-
 # ---------------------------------------------------------------------------
-# ── SECTION 20: Environment (16 tools) ──────────────────────────────────────
+# ── SECTION 20: Environment (15 tools) ──────────────────────────────────────
 # ---------------------------------------------------------------------------
 
 
@@ -10495,37 +10417,6 @@ async def document_activate(
     """
     await ctx.info(f"Activating document {name_or_path!r}")
     return await _backend(ctx).document_activate(name_or_path)
-
-
-@cad_tool(
-    summary="Close one open document by name; never drops unsaved work unless told to.",
-    cost="destructive",
-)
-@mcp.tool(
-    annotations={"title": "Close Document", "destructiveHint": True},
-    tags={"environment", "drawing"},
-)
-async def document_close(
-    name_or_path: Annotated[
-        str | None, "A name from document_list or the full path; omit for the active document"
-    ] = None,
-    save: Annotated[bool, "Write unsaved changes to the document's own path first"] = False,
-    discard: Annotated[bool, "Close even with unsaved changes, dropping them"] = False,
-    ctx: Context = None,
-) -> dict:
-    """Close a document and report `saved`, `discarded_changes` and the new `active`.
-
-    Refusals, all before anything is closed: unsaved changes with neither
-    `save` nor `discard`; `save` on a document that has never been saved (no
-    path to write); `save` together with `discard`. Closing the last
-    document leaves the backend with none open, which every tool already
-    reports. `drawing_close` is the same operation for the active document
-    with its 1.4 contract kept. Pack: settings · lean: no.
-    """
-    await ctx.info(
-        f"Closing document {name_or_path or '(active)'} (save={save}, discard={discard})"
-    )
-    return await _backend(ctx).document_close(name_or_path, save, discard)
 
 
 @cad_tool(
@@ -11931,7 +11822,7 @@ async def hatch_material(
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 24: Sheet & Delivery (11 tools) ─────────────────────────────────
+# ── SECTION 24: Sheet & Delivery (10 tools) ─────────────────────────────────
 # ---------------------------------------------------------------------------
 
 
@@ -12521,36 +12412,6 @@ async def data_extract(
     rows = rows_from_records(records, columns=columns, group_by=group_by or None)
     await ctx.info(f"Data extract: {len(rows)} rows -> {validated}")
     return write_rows(rows, str(validated), columns=columns, fmt=fmt)
-
-
-@cad_tool(summary="Write the drawing as a real DWG at a chosen AutoCAD version.", cost="safe")
-@mcp.tool(
-    annotations={"title": "Drawing: Export DWG", "destructiveHint": False},
-    tags={"sheet", "drawing"},
-)
-async def drawing_export_dwg(
-    path: Annotated[str, Field(description="Full path of the .dwg to write.")],
-    version: Annotated[
-        str,
-        Field(
-            default="R2018",
-            description="R2000 | R2004 | R2007 | R2010 | R2013 | R2018.",
-        ),
-    ] = "R2018",
-    ctx: Context = None,
-) -> dict:
-    """Write a real DWG — not a DXF under a .dwg name.
-
-    It needs the ODA File Converter; when that is absent the call is refused with
-    `capability: "dwg_write"` and the refusal names the install route and
-    `drawing_export_dxf`, which writes a DXF AutoCAD opens unchanged. Check
-    `system_capabilities` first: the flag is re-evaluated at call time, so installing
-    the converter changes it without a restart. An unknown version is refused by name
-    with the six.
-    """
-    validated = validate_path(path, allow_write=True, kinds=KINDS_DWG)
-    await ctx.info(f"DWG export {version}: {validated}")
-    return await _backend(ctx).drawing_export_dwg(str(validated), version)
 
 
 # ---------------------------------------------------------------------------
@@ -15164,11 +15025,11 @@ Create entities in logical order:
 
 STEP 4 — VERIFY
 Use analysis_entity_stats() to confirm what was created.
-Use view_zoom_and_screenshot() to see the current state.
+Use view_screenshot() to see the current state.
 Use entity_list() to check specific entities.
 
 STEP 5 — SAVE
-Use drawing_save() or drawing_export_dxf() to save the result.
+Use drawing_save() (or drawing_save(path, copy=True) for a copy) to save the result.
 
 TIPS:
 - Use transaction_begin() before complex operations

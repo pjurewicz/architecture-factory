@@ -115,7 +115,7 @@ async def test_an_external_edit_is_journalled_as_its_own_row(tmp_path):
     async with Client(server.mcp) as client:
         await client.call_tool("drawing_new", {})
         await client.call_tool("entity_create_line", {"x1": 0, "y1": 0, "x2": 10, "y2": 0})
-        await client.call_tool("drawing_save_as", {"path": str(path)})
+        await client.call_tool("drawing_save", {"path": str(path)})
         foreign = ezdxf.readfile(path)
         foreign.modelspace().add_circle((0, 0), 5)
         foreign.saveas(path)

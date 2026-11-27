@@ -1,7 +1,7 @@
 """1.8-07 - an honest region image (ergo-9, narrowed).
 
-Before 1.8.0 the headless ``view_zoom_and_screenshot`` passed its window to a
-no-op ``view_zoom_window`` and then rendered the whole model space: the caller
+Before 1.8.0 the headless zoom-and-screenshot tool (since removed) passed its
+window to a no-op ``view_zoom_window`` and then rendered the whole model space: the caller
 asked for one corner of the sheet and got the sheet, with nothing saying so
 (the C2 class of false success). ``view_screenshot`` had no region at all, so a
 detail cost a full-page PNG.
@@ -218,39 +218,3 @@ async def test_view_screenshot_tool_reports_the_region():
     assert report["px"] == [256, 256] and png_size(png) == (256, 256)
     assert report["px_per_unit"] == pytest.approx(12.8)
     assert "png" not in report
-
-
-@pytest.mark.asyncio
-async def test_view_zoom_and_screenshot_applies_the_window_headlessly():
-    from fastmcp import Client
-
-    import server
-
-    async with Client(server.mcp) as client:
-        await client.call_tool("drawing_new", {})
-        await client.call_tool("entity_create_circle", {"cx": 0, "cy": 0, "radius": RADIUS})
-        await client.call_tool("entity_create_circle", {"cx": 1000, "cy": 0, "radius": RADIUS})
-        result = await client.call_tool(
-            "view_zoom_and_screenshot",
-            {"x1": 990, "y1": -10, "x2": 1010, "y2": 10, "max_px": 200},
-        )
-    png, report = _tool_report(result)
-    assert report["applied"] is True and report["framing"] == "region"
-    assert report["region"] == pytest.approx([990, -10, 1010, 10])
-    ink = _ink_box(png)
-    expected = _expected_box(report, *RIGHT, RADIUS)
-    for got, want in zip(ink, expected, strict=True):
-        assert got == pytest.approx(want, abs=3)
-
-
-@pytest.mark.asyncio
-async def test_a_partial_window_is_refused_not_ignored():
-    from fastmcp import Client
-    from fastmcp.exceptions import ToolError
-
-    import server
-
-    async with Client(server.mcp) as client:
-        await client.call_tool("drawing_new", {})
-        with pytest.raises(ToolError, match="y2"):
-            await client.call_tool("view_zoom_and_screenshot", {"x1": 0, "y1": 0, "x2": 10})

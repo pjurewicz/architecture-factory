@@ -3,7 +3,7 @@
   "schema_version": 2,
   "package_version": "1.8.0",
   "totals": {
-    "tools": 248,
+    "tools": 242,
     "resources": 13,
     "prompts": 5,
     "groups": 27
@@ -15,27 +15,27 @@
     "blocks": 9,
     "corner_ops": 4,
     "dimensions": 6,
-    "drawing": 11,
+    "drawing": 9,
     "engineering": 10,
     "entity_creation": 19,
     "entity_modification": 18,
     "entity_query": 9,
-    "environment": 16,
+    "environment": 15,
     "layers": 16,
     "layouts": 12,
     "mechanical": 15,
-    "page_setup": 6,
+    "page_setup": 5,
     "pid": 10,
     "plant": 2,
     "premium": 12,
-    "sheet": 11,
+    "sheet": 10,
     "styles": 10,
     "system": 5,
     "templates": 2,
     "transactions": 7,
     "understanding": 5,
     "validation": 1,
-    "view": 2
+    "view": 1
   },
   "tools": [
     {
@@ -1588,13 +1588,15 @@
     },
     {
       "name": "document_close",
-      "group": "environment",
+      "group": "drawing",
       "cost": "destructive",
       "summary": "Close one open document by name; never drops unsaved work unless told to.",
       "acad": [
         "CLOSE"
       ],
       "synonyms": [
+        "close the drawing",
+        "shut the file",
         "close a drawing by name",
         "close the other drawing",
         "close without saving",
@@ -1602,8 +1604,7 @@
         "close all but this one"
       ],
       "tags": [
-        "drawing",
-        "environment"
+        "drawing"
       ],
       "annotations": {
         "title": "Close Document",
@@ -1725,27 +1726,6 @@
       }
     },
     {
-      "name": "drawing_close",
-      "group": "drawing",
-      "cost": "destructive",
-      "summary": "Close the drawing, saving first unless you say otherwise.",
-      "acad": [
-        "CLOSE"
-      ],
-      "synonyms": [
-        "close the drawing",
-        "shut the file",
-        "finish with this drawing"
-      ],
-      "tags": [
-        "drawing"
-      ],
-      "annotations": {
-        "title": "Close Drawing",
-        "destructiveHint": true
-      }
-    },
-    {
       "name": "drawing_critique",
       "group": "premium",
       "cost": "read",
@@ -1773,7 +1753,7 @@
       "name": "drawing_deliver",
       "group": "engineering",
       "cost": "destructive",
-      "summary": "Hand the drawing off: a hashed, validated bundle of files plus a manifest.",
+      "summary": "Build a hashed release bundle in output_dir (manifest, DXF/PDF/PNG, reopen parity).",
       "acad": [],
       "synonyms": [
         "delivery bundle",
@@ -1833,54 +1813,6 @@
       }
     },
     {
-      "name": "drawing_export_dwg",
-      "group": "sheet",
-      "cost": "safe",
-      "summary": "Write the drawing as a real DWG at a chosen AutoCAD version.",
-      "acad": [
-        "SAVEAS"
-      ],
-      "synonyms": [
-        "export dwg",
-        "save as dwg",
-        "write a dwg",
-        "autocad 2018 format",
-        "downgrade to r2000",
-        "dwg olarak kaydet",
-        "save this drawing as a dwg"
-      ],
-      "tags": [
-        "drawing",
-        "sheet"
-      ],
-      "annotations": {
-        "title": "Drawing: Export DWG",
-        "destructiveHint": false
-      }
-    },
-    {
-      "name": "drawing_export_dxf",
-      "group": "drawing",
-      "cost": "mutate",
-      "summary": "Write a DXF interchange copy of the drawing.",
-      "acad": [
-        "DXFOUT"
-      ],
-      "synonyms": [
-        "export dxf",
-        "save as dxf",
-        "interchange file",
-        "dxf output"
-      ],
-      "tags": [
-        "drawing",
-        "export"
-      ],
-      "annotations": {
-        "title": "Export DXF"
-      }
-    },
-    {
       "name": "drawing_export_pdf",
       "group": "drawing",
       "cost": "mutate",
@@ -1909,7 +1841,7 @@
       "name": "drawing_finalize",
       "group": "engineering",
       "cost": "destructive",
-      "summary": "Finish the drawing: validate, critique, save, screenshot and score it.",
+      "summary": "Quality gate on the active drawing: validator + critique + score, optional save/PNG.",
       "acad": [],
       "synonyms": [
         "finish the drawing",
@@ -2190,43 +2122,34 @@
       "name": "drawing_save",
       "group": "drawing",
       "cost": "mutate",
-      "summary": "Write the drawing back to its file, or to a path you give.",
+      "summary": "Save the drawing (SAVE / SAVEAS), or write a DXF / DWG copy with copy=True.",
       "acad": [
         "QSAVE",
-        "SAVE"
+        "SAVE",
+        "SAVEAS",
+        "DXFOUT"
       ],
       "synonyms": [
         "save",
         "save the drawing",
         "write the file",
-        "keep my changes"
+        "keep my changes",
+        "save as",
+        "save a copy",
+        "write to a new file",
+        "export dxf",
+        "save as dxf",
+        "export dwg",
+        "save as dwg",
+        "dwg olarak kaydet",
+        "save as template",
+        "template from this drawing"
       ],
       "tags": [
         "drawing"
       ],
       "annotations": {
         "title": "Save Drawing"
-      }
-    },
-    {
-      "name": "drawing_save_as",
-      "group": "drawing",
-      "cost": "mutate",
-      "summary": "Save a copy under a new name; the extension picks DXF, DWG or DWT.",
-      "acad": [
-        "SAVEAS"
-      ],
-      "synonyms": [
-        "save as",
-        "save a copy",
-        "write to a new file",
-        "save as a template"
-      ],
-      "tags": [
-        "drawing"
-      ],
-      "annotations": {
-        "title": "Save As"
       }
     },
     {
@@ -2334,31 +2257,6 @@
       "annotations": {
         "title": "List Drawing Templates",
         "readOnlyHint": true
-      }
-    },
-    {
-      "name": "drawing_template_save",
-      "group": "page_setup",
-      "cost": "mutate",
-      "summary": "Save the current drawing as a .dxf template.",
-      "acad": [
-        "SAVEAS"
-      ],
-      "synonyms": [
-        "save as template",
-        "make a dwt",
-        "template from this drawing",
-        "save as dwt",
-        "reuse this sheet setup"
-      ],
-      "tags": [
-        "drawing",
-        "pagesetup",
-        "template"
-      ],
-      "annotations": {
-        "title": "Save As Template",
-        "destructiveHint": false
       }
     },
     {
@@ -5968,29 +5866,9 @@
         "picture of the drawing",
         "render an image",
         "preview",
-        "what does it look like"
-      ],
-      "tags": [
-        "screenshot",
-        "view"
-      ],
-      "annotations": {
-        "title": "Screenshot",
-        "readOnlyHint": true
-      }
-    },
-    {
-      "name": "view_zoom_and_screenshot",
-      "group": "view",
-      "cost": "read",
-      "summary": "Fit the drawing on screen, then capture it: the quickest visual check.",
-      "acad": [
-        "ZOOM"
-      ],
-      "synonyms": [
+        "what does it look like",
         "show me the drawing",
         "zoom then capture",
-        "fit and screenshot",
         "visual check"
       ],
       "tags": [
@@ -5998,7 +5876,7 @@
         "view"
       ],
       "annotations": {
-        "title": "Zoom and Screenshot",
+        "title": "Screenshot",
         "readOnlyHint": true
       }
     },

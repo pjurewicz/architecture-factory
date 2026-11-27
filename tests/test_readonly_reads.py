@@ -85,11 +85,11 @@ async def test_every_read_cost_tool_reaches_the_engine_readonly(
         "entity_create_text", {"text": "PUMP P-101", "x": 10, "y": 10, "height": 2.5}
     )
     reference = tmp_path / "reference.dxf"
-    await client.call_tool("drawing_save_as", {"path": str(reference)})
+    await client.call_tool("drawing_save", {"path": str(reference)})
     assert line and other and circle
     # The other half of the rule: a mutating call never passes readonly=True.
     mutating = {qualname.split(".")[1] for _tool, qualname, readonly in calls if not readonly}
-    assert {"entity_create_line", "entity_create_circle", "drawing_save_as"} <= mutating
+    assert {"entity_create_line", "entity_create_circle", "drawing_save"} <= mutating
     assert [q for _t, q, readonly in calls if readonly and "create" in q] == []
     calls.clear()
 

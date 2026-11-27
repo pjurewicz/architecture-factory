@@ -644,7 +644,7 @@ async def _setup_history(client: Any, work: Path) -> dict[str, Any]:
                 client, "entity_edit_geometry", {"handle": hole["handle"], "radius": diameter / 2}
             )
         path = work / f"round{index}.dxf"
-        await _quiet(client, "drawing_save_as", {"path": str(path)})
+        await _quiet(client, "drawing_save", {"path": str(path)})
         paths.append(str(path))
     return {"rounds": paths, "handle": hole["handle"]}
 

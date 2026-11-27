@@ -2290,7 +2290,7 @@ class AutoCADMCPProAdapter(BenchmarkAdapter):
                 drawn = await client.call_tool("pid_from_spec", {"spec": spec})
                 handles[number] = (drawn.structured_content or {}).get("handles") or {}
                 path = work / f"{number}.dxf"
-                await client.call_tool("drawing_save_as", {"path": str(path)})
+                await client.call_tool("drawing_save", {"path": str(path)})
                 manifest["sheets"].append({"path": str(path), "number": number})
             checked = await client.call_tool(
                 "pid_project",
@@ -2512,7 +2512,7 @@ class AutoCADMCPProAdapter(BenchmarkAdapter):
                 "drawing_open", {"path": str(dwg)}, raise_on_error=False
             )
             saved = await client.call_tool(
-                "drawing_save_as", {"path": str(target)}, raise_on_error=False
+                "drawing_save", {"path": str(target)}, raise_on_error=False
             )
         report = (opened.structured_content or {}).get("dwg_read") or {}
         metrics["dwg_read"] = {
@@ -2838,7 +2838,7 @@ class AutoCADMCPProAdapter(BenchmarkAdapter):
                 handle = first.call(
                     "entity_create_line", {"x1": 0, "y1": 0, "x2": 10, "y2": 0}
                 ).get("handle")
-                first.call("drawing_save_as", {"path": path})
+                first.call("drawing_save", {"path": path})
                 first.call("entity_move", {"handle": handle, "dx": 5, "dy": 5})
                 first.call("drawing_save", {})
             finally:
@@ -3063,7 +3063,7 @@ class AutoCADMCPProAdapter(BenchmarkAdapter):
                 first = fh.spawn()
                 first.call("drawing_new")
                 seen["ran"] = first.call("cad_batch", batch)
-                first.call("drawing_save_as", {"path": path})
+                first.call("drawing_save", {"path": path})
                 seen["kill_1"] = first.kill()
                 second = fh.spawn()
                 second.call("drawing_open", {"path": path})
@@ -3448,12 +3448,12 @@ class AutoCADMCPProAdapter(BenchmarkAdapter):
             ).structured_content or {}
             rows = made.get("entities") or []
             default = sorted(row["handle"] for row in rows[:22])
-            await client.call_tool("drawing_save_as", {"path": str(first)})
+            await client.call_tool("drawing_save", {"path": str(first)})
             issues = await critique(client)
             await client.call_tool(
                 "drawing_refine", {"focus": ["property_override"], "min_score": 100.0}
             )
-            await client.call_tool("drawing_save_as", {"path": str(repaired)})
+            await client.call_tool("drawing_save", {"path": str(repaired)})
             after = await critique(client)
         on_disk = weights(first)
         fixed = weights(repaired)
@@ -3547,7 +3547,7 @@ class AutoCADMCPProAdapter(BenchmarkAdapter):
             circle = (
                 await client.call_tool("entity_create_circle", {"cx": 5, "cy": 5, "radius": 2})
             ).structured_content or {}
-            await client.call_tool("drawing_save_as", {"path": str(saved)})
+            await client.call_tool("drawing_save", {"path": str(saved)})
             await client.call_tool(
                 "ucs_set",
                 {

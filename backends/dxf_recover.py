@@ -122,5 +122,5 @@ def recovered_source_refusal(op: str, label: str, source: str) -> RecoveredSourc
         f"{op}: {label!r} was opened with drawing_open(recover=True) from {source}; saving onto "
         "that damaged source would replace the only copy of what the recover reader could not "
         "read. Nothing was written. Pass overwrite_source=True to drawing_save to replace it, or "
-        "save to another path with drawing_save_as."
+        "save to another path with drawing_save(path)."
     )

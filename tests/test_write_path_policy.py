@@ -155,10 +155,10 @@ async def test_data_extract_acaddoc_lsp_is_refused(client, tmp_path):
 @pytest.mark.parametrize(
     ("tool", "args"),
     [
-        ("drawing_save_as", {"path": "{dir}/acad.lsp"}),
-        ("drawing_export_dxf", {"path": "{dir}/drawing.scr"}),
+        ("drawing_save", {"path": "{dir}/acad.lsp"}),
+        ("drawing_save", {"path": "{dir}/drawing.scr"}),
         ("drawing_export_pdf", {"path": "{dir}/sheet.dxf"}),
-        ("drawing_template_save", {"path": "{dir}/t.mnl"}),
+        ("drawing_save", {"path": "{dir}/t.mnl"}),
         ("pid_instrument_index", {"csv_path": "{dir}/acad.pgp"}),
         ("pipe_takeoff", {"output": "{dir}/run.bat"}),
     ],

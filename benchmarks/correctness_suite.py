@@ -2227,14 +2227,13 @@ def _region_report(result, requested: tuple[float, float, float, float]) -> bool
 
 
 async def region_render_applied():
-    """A window is really drawn, at a stated scale, on both region tools (1.8-07).
+    """A window is really drawn, at a stated scale (1.8-07).
 
     ``view_screenshot(region=[0, 0, 100, 50], max_px=400)`` must answer
     ``applied: true`` with ``px`` [400, 200] (the PNG's own size; a 2:1 window
-    at a 400 px long side) and ``px_per_unit`` 4 on x and on y.
-    ``view_zoom_and_screenshot`` with the same four corners must do the same
-    headlessly - 1.7.0 passed the window to a no-op zoom and rendered the whole
-    model space, with nothing saying so; ``view_screenshot`` had no region.
+    at a 400 px long side) and ``px_per_unit`` 4 on x and on y. 1.7.0's
+    ``view_screenshot`` had no region (and its zoom-and-screenshot tool, since
+    removed, rendered the whole model space with nothing saying so).
     """
     requested = (0.0, 0.0, 100.0, 50.0)
     async with _served_headless() as client:
@@ -2243,12 +2242,7 @@ async def region_render_applied():
         shot = await client.call_tool(
             "view_screenshot", {"region": list(requested), "max_px": 400}, raise_on_error=False
         )
-        zoomed = await client.call_tool(
-            "view_zoom_and_screenshot",
-            {"x1": 0, "y1": 0, "x2": 100, "y2": 50, "max_px": 400},
-            raise_on_error=False,
-        )
-    return _region_report(shot, requested) and _region_report(zoomed, requested)
+    return _region_report(shot, requested)
 
 
 async def qa_coverage_not_checked():
@@ -2446,7 +2440,7 @@ async def policy_read_only_batch():
 async def write_path_autoload_refused():
     """No tool writes a file AutoCAD autoloads (1.8-17).
 
-    ``data_extract`` to ``acaddoc.lsp`` and ``drawing_save_as`` to ``acad.lsp``
+    ``data_extract`` to ``acaddoc.lsp`` and ``drawing_save`` to ``acad.lsp``
     in a scratch folder must both be refused ``path_refused`` with nothing
     written - 1.7.0 checked no extension on either.
     """
@@ -2455,7 +2449,7 @@ async def write_path_autoload_refused():
     folder = Path(_scratch_dir("acadmcp_autoload_"))
     targets = {
         "data_extract": folder / "acaddoc.lsp",
-        "drawing_save_as": folder / "acad.lsp",
+        "drawing_save": folder / "acad.lsp",
     }
     kinds = {}
     async with _served_headless() as client:
@@ -3011,7 +3005,7 @@ def _undo_after_restart() -> bool:
         handle = first.call("entity_create_line", {"x1": 0, "y1": 0, "x2": 10, "y2": 0}).get(
             "handle"
         )
-        first.call("drawing_save_as", {"path": path})
+        first.call("drawing_save", {"path": path})
         moved = first.call("entity_move", {"handle": handle, "dx": 5, "dy": 5})
         saved = first.call("drawing_save", {})
     finally:
@@ -3220,14 +3214,14 @@ def _history_rounds(script: str, env: dict, folder: str, log_path: str) -> dict:
                 params["_meta"] = {"label": "round 2"}
             first.request("tools/call", params, 60.0)
             if index == 1:
-                first.call("drawing_save_as", {"path": labelled})
+                first.call("drawing_save", {"path": labelled})
             else:
                 first.call("drawing_save", {})
         first.call("drawing_new")
         hole = first.call(
             "entity_create_circle", {"cx": 50.0, "cy": 50.0, "radius": 5.0, "layer": "GEOMETRY"}
         ).get("handle")
-        first.call("drawing_save_as", {"path": plain})
+        first.call("drawing_save", {"path": plain})
         for radius in (6.0, 8.0):
             first.call("entity_edit_geometry", {"handle": hole, "radius": radius})
             first.call("drawing_save", {})
