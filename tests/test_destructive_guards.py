@@ -124,6 +124,7 @@ async def test_a_clean_delete_commits_and_answers_ok(client):
     payload = (
         await client.call_tool("entity_delete_many", {"handles": handles})
     ).structured_content
+    assert payload.pop("unsaved")  # an untitled drawing
     assert payload == {"ok": True, "deleted": 2, "errors": []}
     for handle in handles:
         assert not await _exists(client, handle)

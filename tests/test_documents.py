@@ -723,3 +723,24 @@ async def test_hard_link_over_the_wire_is_one_document(monkeypatch, tmp_path):
         rows = (await client.call_tool("document_list", {})).structured_content
         assert rows["count"] == 1 and rows["documents"][0]["saved"] is True
     assert _modelspace_types(target) == ["CIRCLE"]
+
+
+@pytest.mark.asyncio
+async def test_a_change_to_a_document_without_a_file_says_so_until_it_is_saved(tmp_path):
+    """Round 3: an untitled drawing of 612 entities was lost with its session."""
+    import json
+
+    from fastmcp import Client
+
+    import server
+
+    async with Client(server.mcp) as client:
+        await client.call_tool("drawing_new", {})
+        drawn = await client.call_tool("entity_create_line", {"x1": 0, "y1": 0, "x2": 1, "y2": 1})
+        assert "drawing_save" in drawn.structured_content["unsaved"]
+        assert json.loads(drawn.content[0].text)["unsaved"]
+        read = await client.call_tool("drawing_info", {})
+        assert "unsaved" not in read.structured_content, "a read changes nothing"
+        await client.call_tool("drawing_save", {"path": str(tmp_path / "kept.dxf")})
+        again = await client.call_tool("entity_create_line", {"x1": 0, "y1": 0, "x2": 2, "y2": 1})
+        assert "unsaved" not in again.structured_content

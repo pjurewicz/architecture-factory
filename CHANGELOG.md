@@ -76,6 +76,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Round 3 fixes. A call that changes a document with no file answers an
+  `unsaved` note until it is saved. No open document is its own error kind,
+  `no_document` (the hint says how to open one); a bad screenshot region is
+  `invalid_args`. An `entity_batch_create` item refused by its schema names
+  the key and the keys its type takes, and every item takes `color`.
+  `entity_batch_modify` is all or nothing (`ok: false`, `rolled_back`), as
+  `entity_batch_create` is; `edit_text` takes `width_factor`, and a TEXT
+  given a style takes the style's width factor. `view_screenshot(layout=)`
+  ignores `background` (`background_ignored`) instead of refusing it.
+  A dimension's `*D` block follows its layer and colour (it used to stay on
+  layer 0 and draw black), and the renderer resolves a ByBlock part from the
+  dimension; a dimension drawn on its own layer says so (`layer_note`).
+  `entity_list(space=)` reads a layout, model, every sheet or all.
+  `entity_modify_where.set` takes `pattern`, `pattern_scale`, `pattern_angle`
+  (HATCH), `text_style`, `text_height` and `width_factor`; `textstyle_modify`
+  is new. A `SOLID` hatch is a solid fill (ezdxf drew ANSI31 lines under the
+  name). A `drawing_critique` step in `cad_batch` answers counts and the
+  warning and error rows; `arch_catalogue_list` states shared values once;
+  a batch prints a list of more than 100 handles as `{count, first, last,
+  contiguous}`. `poche: "solid"` fills every cut wall face; `arch_wall_gap`
+  names the move that closes the gap (`extend_to` / `move_by`); setting
+  LTSCALE or PSLTSCALE warns about the viewports it affects.
+
 - `cad_batch` prints a created handle once: `changes.added` leaves out the
   handles the step rows already name and says how many in
   `added_in_results` (`verbose=True` and the journal's `drawing_history`

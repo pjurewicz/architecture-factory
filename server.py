@@ -492,6 +492,7 @@ class AuditMiddleware(Middleware):
         # 1.8-10: what a mutating call added and deleted, for its journal row
         # (cad_batch sums its steps' own; backends/change_sets.py).
         mark = _change_mark(backend, effective)
+        before = _identity_of(backend)
         token = CURRENT_OPERATION.set(record.operation_id)
         try:
             result = await self._logged(context, call_next, tool_name, start)
@@ -518,15 +519,16 @@ class AuditMiddleware(Middleware):
         finally:
             CURRENT_OPERATION.reset(token)
         state, kind = _result_outcome(effective, result, backend, record.operation_id)
+        after = _identity_of(backend)
         journal.finish(
             record,
             state,
             result=None if _retryable_result(result) else result,
             error_kind=kind,
-            document=_identity_of(backend),
+            document=after,
             changes=_change_summary(backend, effective, mark, result),
         )
-        return result
+        return _unsaved_note(result, before, after)
 
     @staticmethod
     async def _logged(context: MiddlewareContext, call_next, tool_name: str, start: float):
@@ -845,6 +847,42 @@ def _change_summary(backend, tool: str, mark, result) -> dict | None:
         return backend.change_summary(mark)
     except Exception:  # evidence only
         return None
+
+
+def _unsaved_note(result, before: dict | None, after: dict | None):
+    """A call that changed a document with no file says so (round 3: 612 entities
+    of an untitled drawing were lost with its session). The journal keeps the
+    result as it was; only the answer carries the note."""
+    if (
+        not after
+        or after.get("path")
+        or not after.get("document_id")
+        or not before
+        or before.get("document_id") != after.get("document_id")
+        or before.get("revision") == after.get("revision")
+        or getattr(result, "is_error", False)
+    ):
+        return result
+    payload = getattr(result, "structured_content", None)
+    if not isinstance(payload, dict):
+        return result
+    from mcp.types import TextContent
+
+    note = (
+        f"{after.get('name')} has no file: drawing_save(path=...) now; "
+        "it is lost when this session ends"
+    )
+    payload = {**payload, "unsaved": note}
+    content = list(result.content or [])
+    if content and isinstance(content[0], TextContent):
+        try:
+            json.loads(content[0].text)
+            content[0] = TextContent(
+                type="text", text=json.dumps(payload, ensure_ascii=False, default=str)
+            )
+        except ValueError:
+            pass
+    return ToolResult(content=content, structured_content=payload, meta=result.meta)
 
 
 def _identity_of(backend) -> dict | None:
@@ -4054,13 +4092,9 @@ async def entity_edit_text(
     width_factor: Annotated[float | None, "TEXT width factor (a style sets its own)"] = None,
     ctx: Context = None,
 ) -> dict:
-    """Edit an existing text label in place — change its content, height, rotation or position.
-
-    Use this to rename/relabel/move without deleting and recreating (which would
-    lose the handle and its XDATA). Works on both TEXT and MTEXT. ``x``/``y``
-    move the label so its reported ``insertion`` lands there; an aligned TEXT's
-    alignment point moves with it. A TEXT in a plane tilted out of WCS XY is
-    refused (capability ``ocs_tilted_plane``) — use ``entity_move``.
+    """Edit a TEXT or MTEXT in place (content, height, rotation, position, style),
+    keeping its handle and XDATA. ``x``/``y`` put its ``insertion`` there; a
+    TEXT tilted out of WCS XY is refused (``ocs_tilted_plane``): entity_move.
     """
     await ctx.debug(f"Editing text entity {handle}")
     result = await _backend(ctx).entity_edit_text(
@@ -4343,9 +4377,8 @@ async def entity_modify_where(
         Field(
             description=(
                 "What to write, at least one key: layer (created when missing), color "
-                "(0-256), linetype, lineweight ('ByLayer' = -1, never -3), visible; on their "
-                "types only: pattern, pattern_scale, pattern_angle (HATCH), text_style, "
-                "text_height (TEXT, MTEXT), width_factor (TEXT)."
+                "(0-256), linetype, lineweight ('ByLayer' = -1, never -3), visible; HATCH: "
+                "pattern, pattern_scale, pattern_angle; text: text_style, text_height, width_factor."
             )
         ),
     ],
@@ -4531,20 +4564,14 @@ async def entity_list(
     ] = None,
     ctx: Context = None,
 ) -> list[dict] | dict:
-    """List entities in the drawing with optional type and layer filters.
+    """List entities with optional type and layer filters: handle, type, layer,
+    color and type-specific properties.
 
-    Returns handle, type, layer, color, and type-specific properties.
-    Use handles with entity_get, entity_move, entity_delete, etc.
-
-    This is the most expensive result on the server — the full record runs
-    ~250 characters per entity, and `properties.bounding_box` alone is about a
-    third of it. When all you need is handles, say so::
+    Costly (~250 characters a row); for handles only::
 
         entity_list(layer_filter="GEOMETRY", fields=["handle", "type"], compact=True)
 
-    Paging honesty: a plain list has nowhere to say that more entities followed
-    the page, so `compact=True` is the only mode that reports `total`,
-    `truncated` and `next_offset` — all measured against the same filters.
+    Only `compact=True` reports `total`, `truncated` and `next_offset`.
     """
     capped = min(int(limit), config.settings.max_list_limit)
     if capped < limit:
@@ -10736,11 +10763,9 @@ async def textstyle_create(
 ) -> dict:
     """Create a text style.
 
-    A font nobody can find is *written* and reported `font_resolved: false` (AutoCAD
-    substitutes at open; the renderer falls back), because a DXF stores only the name.
-    `render_font` names the face screenshots and PDFs here draw it with instead.
-    Refuses, before any write: a name that exists, an empty font, `width_factor <= 0`,
-    `height < 0`, an oblique angle outside ±85°.
+    A font nobody can find is *written*, `font_resolved: false` (a DXF stores only
+    the name); `render_font` names the face renders here use instead. Refuses an
+    existing name, an empty font, `width_factor <= 0`, `height < 0`, oblique > ±85°.
     """
     await ctx.info(f"Text style {name!r} with font {font!r}")
     return await _backend(ctx).textstyle_create(
@@ -10757,14 +10782,13 @@ async def textstyle_create(
 )
 async def textstyle_modify(
     name: Annotated[str, "Existing text style (any case)"],
-    font: Annotated[str | None, "Font name or file"] = None,
-    height: Annotated[float | None, "Fixed height; 0 = per text"] = None,
-    width_factor: Annotated[float | None, "Width factor (> 0)"] = None,
+    font: str | None = None,
+    height: Annotated[float | None, "0 = per text"] = None,
+    width_factor: float | None = None,
     oblique_deg: Annotated[float | None, "-85..85"] = None,
     ctx: Context = None,
 ) -> dict:
-    """Change a text style; omitted fields stay. `changed` {field: [old, new]};
-    a TEXT keeps its own width (`texts_own_width`; entity_modify_where set width_factor)."""
+    """Omitted fields stay. A TEXT keeps its own width (`texts_own_width`)."""
     return await _backend(ctx).textstyle_modify(name, font, height, width_factor, oblique_deg)
 
 
@@ -13260,8 +13284,8 @@ async def arch_wall(
     ] = [],  # noqa: B006 - pydantic copies a default; the body never mutates it
     polygons: Annotated[list[dict], Field(default=[], description="[{id, points, material}]")] = [],  # noqa: B006
     poche: Annotated[
-        bool,
-        Field(default=True, description="Hatch the cut wall faces in their material (ISO 128-50)"),
+        bool | Literal["solid"],
+        Field(default=True, description="Hatch cut faces by material (ISO 128-50); 'solid': fill"),
     ] = True,
     scale: Annotated[
         float,
@@ -13355,7 +13379,8 @@ async def arch_opening(
     ] = None,
     lang: Annotated[str, Field(default="en", description="Tag language: en | tr | pl")] = "en",
     poche: Annotated[
-        bool, Field(default=True, description="Hatch the redrawn wall's cut faces")
+        bool | Literal["solid"],
+        Field(default=True, description="Hatch the redrawn wall's cut faces; 'solid': fill"),
     ] = True,
     scale: Annotated[
         float,

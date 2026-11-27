@@ -190,7 +190,8 @@ async def test_entity_batch_create_reports_only_handles_unless_verbose(client):
     )
     step = batched["results"][0]["result"]
     for payload in (direct, step):
-        assert set(payload) == {"ok", "created", "errors", "handles"}, payload
+        # a direct call on an untitled drawing also carries its `unsaved` note
+        assert set(payload) - {"unsaved"} == {"ok", "created", "errors", "handles"}, payload
         assert payload["created"] == 2 and len(payload["handles"]) == 2
     # the binding still sees the full result
     assert batched["results"][1]["result"]["handle"] == step["handles"][1]
