@@ -92,6 +92,7 @@ from security import (
     KINDS_REPORT,
     KINDS_TABLE,
     KINDS_UPLOAD,
+    file_roots,
     validate_path,
 )
 from version import __version__
@@ -1020,11 +1021,12 @@ class CapabilityRefusalMiddleware(Middleware):
     - the function ``cad_batch`` types a step with, so both routes give one kind
     - and returned as ``ToolResult(is_error=True)`` whose structured content is
     ``{ok: false, kind, category, retryable, hint, tool, backend, operation_id,
-    message, ...the kind's own fields}``. The text content is what the client
-    read before, byte for byte: the full sentence for the 1.7 refusal kinds,
-    and for everything else the text FastMCP's ``ErrorHandlingMiddleware``
-    used to put on the wire (``Internal error: ...``), computed by that same
-    middleware's transform. ``error`` stays on the 1.7 refusal kinds
+    message, ...the kind's own fields}``. The text content is the full
+    sentence for the 1.7 refusal kinds, ``<kind>: <message> Hint: <hint>`` for
+    every other typed kind (a client that shows only the text still reads the
+    kind and the hint), and for ``internal`` the text FastMCP's
+    ``ErrorHandlingMiddleware`` puts on the wire (``Internal error: ...``),
+    computed by that same middleware's transform. ``error`` stays on the 1.7 refusal kinds
     (``_LEGACY_ERROR_KEY``) beside ``message``. ``retryable`` is true only when
     the operation record is ``refused`` or ``cancelled`` - nothing was written.
     """
@@ -1042,6 +1044,8 @@ _LEGACY_ERROR_KEY = frozenset({"unsupported", "stale_revision", "busy", "quarant
 
 #: Used only for its transform: the text a non-legacy error had on the wire.
 _WIRE_ERRORS = ErrorHandlingMiddleware(logger=log)
+#: FastMCP's envelope prefixes, possibly nested (``call_tool``).
+_WIRE_PREFIX = re.compile(r"^(?:(?:Internal error|Not found|Error calling tool '[^']*'): )+")
 
 
 def _wire_text(context, exc: BaseException) -> str:
@@ -1090,8 +1094,15 @@ def _error_envelope(context, exc: BaseException) -> ToolResult:
     if kind in _LEGACY_ERROR_KEY:
         content = message  # prose-only clients still get a full sentence
         payload["error"] = message
-    else:
+    elif kind == "internal":
         content = _wire_text(context, exc)
+    else:
+        # A client that shows only the text content still reads the kind and
+        # the hint the instructions tell the model to act on; the sentence is
+        # the wire text without FastMCP's envelope prefixes.
+        text = _WIRE_PREFIX.sub("", _wire_text(context, exc))
+        content = text if text.startswith(f"{kind}:") else f"{kind}: {text}"
+        content += f" Hint: {spec.hint}"
     return ToolResult(content=content, structured_content=payload, is_error=True)
 
 
@@ -7816,6 +7827,9 @@ async def system_status(
 
     `metrics` (only with metrics=True) counts this connection's earlier calls
     (`session`: calls, by_tool, result_bytes, errors_by_kind, p50_ms, p95_ms).
+
+    `files`: `allowed_dirs` (ALLOWED_PATHS; null = any non-system folder) and
+    `relative_to`, the folder a relative path resolves in.
     """
     b = ctx.lifespan_context.get("backend")
     journal = _operations_journal(ctx.lifespan_context)
@@ -7839,6 +7853,7 @@ async def system_status(
         if metrics:
             out["metrics"] = _metrics_payload(ctx, None)
         out["policy"] = policy.describe()
+        out["files"] = file_roots()
         return out
     status = await b.system_status()
     status["server"] = "AutoCAD MCP Pro"
@@ -7852,6 +7867,7 @@ async def system_status(
         status["metrics"] = _metrics_payload(ctx, b)
     # 1.8-17: the tool policy in force (READ_ONLY, allow/deny lists, MAX_TOOL_COST).
     status["policy"] = policy.describe()
+    status["files"] = file_roots()
     return status
 
 

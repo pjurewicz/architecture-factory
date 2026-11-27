@@ -905,9 +905,9 @@ def _refusal(excinfo, tool: str) -> str:
     ``Not found: Error calling tool 'describe_tool': Unknown tool: 'x'``.
     """
     text = str(excinfo.value).replace(f"Error calling tool '{tool}': ", "")
-    for envelope in ("Internal error: ", "Not found: "):
+    for envelope in ("Internal error: ", "Not found: ", "unknown_tool: "):
         text = text.replace(envelope, "")
-    return text
+    return text.split(" Hint: ")[0]
 
 
 async def test_describe_tool_returns_the_full_mode_schema_of_every_visible_tool():
@@ -990,7 +990,7 @@ async def test_describe_tool_refuses_hidden_and_unknown_names_as_call_tool_does(
             await client.call_tool("call_tool", {"name": name, "arguments": {}})
     assert _refusal(described, "describe_tool") == _refusal(called, "call_tool")
     assert _refusal(described, "describe_tool") == f"Unknown tool: {name!r}"
-    assert "Not found: " in str(described.value)
+    assert str(described.value).startswith("unknown_tool: ")
 
 
 def _first_pid_tool_outside_lean() -> str:
@@ -1025,7 +1025,7 @@ async def test_describe_tool_refuses_a_profile_or_pack_hidden_tool_as_call_tool_
         await server._apply_tool_profile()
     assert _refusal(described, "describe_tool") == _refusal(called, "call_tool")
     assert _refusal(described, "describe_tool") == f"Unknown tool: {name!r}"
-    assert "Not found: " in str(described.value)
+    assert str(described.value).startswith("unknown_tool: ")
 
 
 @pytest.mark.parametrize("name", ["search_tools", "call_tool", "describe_tool"])

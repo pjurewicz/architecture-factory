@@ -300,6 +300,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A typed error read as `Internal error: ...` to a client that shows only the
+  text content (`drawing_save(path="x.dxf")` outside `ALLOWED_PATHS`), although
+  the instructions tell the model to read `kind` and `hint`. The text is now
+  `<kind>: <message> Hint: <hint>` for every typed kind (`internal` keeps
+  `Internal error:`, the 1.7 refusal kinds their sentence). A relative path
+  resolves in the first `ALLOWED_PATHS` folder instead of the server's cwd,
+  which need not be allowed; a path outside them is refused with
+  `reason: outside_allowed_paths` and `allowed_dirs`, and `system_status.files`
+  lists `allowed_dirs` and `relative_to` up front.
+
 - `dimension_aligned` put the dimension line at the point's distance from the
   first point instead of through the point: a `dim_x, dim_y` on the measured
   segment drew the line 37.6 units beside it. The line now passes through the

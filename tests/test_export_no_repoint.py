@@ -137,7 +137,23 @@ async def test_drawing_save_creates_missing_folders_only_inside_the_allowed_path
 
         error, payload = await save(path=str(tmp_path / "elsewhere" / "part.dxf"))
         assert error and payload["kind"] == "path_refused"
+        assert payload["allowed_dirs"] == [str(allowed.resolve())]
         assert not (tmp_path / "elsewhere").exists()
+
+        # a relative path lands in the first allowed folder, not the process cwd
+        error, payload = await save(path="rel/part.dxf", copy=True)
+        assert not error and payload["path"] == str(allowed.resolve() / "rel" / "part.dxf")
+        status = (await client.call_tool("system_status", {})).structured_content
+        assert status["files"] == {
+            "allowed_dirs": [str(allowed.resolve())],
+            "relative_to": str(allowed.resolve()),
+        }
+        refused = await client.call_tool(
+            "drawing_save", {"path": "/srv/x.dxf"}, raise_on_error=False
+        )
+        text = refused.content[0].text
+        assert text.startswith("path_refused: ") and str(allowed.resolve()) in text
+        assert " Hint: " in text
 
         error, _ = await save(path=str(allowed / "tpl" / "t.dwt"))
         assert error and not (allowed / "tpl").exists()

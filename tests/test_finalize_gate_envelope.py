@@ -50,9 +50,10 @@ async def test_a_failed_critique_gate_returns_its_blocking_handles(client, tmp_p
     )
     assert result.is_error is True
     assert result.content[0].text.startswith(
-        "Internal error: drawing_finalize: critique gate failed with 1 blocking issue(s). "
+        "critique_gate_failed: drawing_finalize: critique gate failed with 1 blocking issue(s). "
         "First: construction_left:"
-    ), "the prose is the 1.7 sentence"
+    ), "the prose names the kind"
+    assert result.content[0].text.endswith(" Hint: " + errors.describe("critique_gate_failed").hint)
     payload = result.structured_content
     assert payload["kind"] == "critique_gate_failed" and payload["category"] == "validation"
     assert payload["retryable"] is False
@@ -107,7 +108,7 @@ async def test_a_failed_validator_is_validation_failed_direct_and_in_a_batch(cli
 @pytest.mark.asyncio
 async def test_detail_is_validated_and_typed_invalid_args(client, tmp_path, tool, args):
     """A bad ``detail`` is the caller's argument (invalid_args), never the tool
-    declining (refused); the sentence on the wire is the one it was."""
+    declining (refused); the text on the wire names the kind and the hint."""
     args = {k: str(tmp_path / v) if k == "output_dir" else v for k, v in args.items()}
     result = await client.call_tool(tool, args, raise_on_error=False)
     assert result.is_error is True
@@ -117,7 +118,8 @@ async def test_detail_is_validated_and_typed_invalid_args(client, tmp_path, tool
     assert payload["retryable"] is False
     assert payload["hint"] == errors.describe("invalid_args").hint
     assert result.content[0].text == (
-        "Internal error: invalid_args: detail must be one of ('summary', 'full'), got 'everything'"
+        "invalid_args: detail must be one of ('summary', 'full'), got 'everything'"
+        " Hint: " + errors.describe("invalid_args").hint
     )
     status = (await client.call_tool("system_status", {"detail": "operations"})).structured_content
     (record,) = [r for r in status["operations"] if r["operation_id"] == payload["operation_id"]]

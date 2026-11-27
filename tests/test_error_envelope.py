@@ -486,11 +486,13 @@ async def test_a_malformed_operation_id_carries_the_envelope(client):
 
 
 @pytest.mark.asyncio
-async def test_the_wire_text_is_byte_for_byte_what_it_was(client, tmp_path):
-    """The prose a 1.7 client read, measured on 1.7.0 before the change."""
-    result, _ = await _error(client, "entity_get", {"handle": "FFFFFF"})
+async def test_the_wire_text_names_the_kind_and_the_hint(client, tmp_path):
+    """A client that shows only the text reads the kind and the hint (the 1.7
+    prose was ``Internal error: Error calling tool ...`` for every typed kind);
+    the 1.7 refusal kinds keep their sentence."""
+    result, payload = await _error(client, "entity_get", {"handle": "FFFFFF"})
     assert result.content[0].text == (
-        "Internal error: Error calling tool 'entity_get': Entity with handle 'FFFFFF' not found."
+        "not_found: Entity with handle 'FFFFFF' not found. Hint: " + payload["hint"]
     )
     result, payload = await _error(client, "drawing_save", {"path": str(tmp_path / "x.dwt")})
     assert result.content[0].text == payload["error"] == payload["message"]

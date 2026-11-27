@@ -178,6 +178,21 @@ def _check_write_target(original: str, resolved: Path, kinds) -> None:
         )
 
 
+def _relative_base() -> Path:
+    """Where a relative path resolves: the first ALLOWED_PATHS entry, else the cwd."""
+    allowed = list(config.settings.allowed_paths or ())
+    return Path(allowed[0]).resolve() if allowed else Path.cwd()
+
+
+def file_roots() -> dict:
+    """``system_status.files``: the folders a path may name, and where a relative one lands."""
+    allowed = list(config.settings.allowed_paths or ())
+    return {
+        "allowed_dirs": [str(Path(p).resolve()) for p in allowed] or None,
+        "relative_to": str(_relative_base()),
+    }
+
+
 def validate_path(
     path: str,
     *,
@@ -222,7 +237,9 @@ def validate_path(
             "Use absolute paths without '..' components."
         )
 
-    resolved = Path(path).resolve()
+    # A relative path lands in the first allowed folder, not in the server
+    # process's cwd, which ALLOWED_PATHS need not contain.
+    resolved = (_relative_base() / path).resolve()
 
     # After .resolve() (drive is only meaningful once resolved) and before the
     # system-directory loop, whose comparisons this is protecting. POSIX has no
@@ -267,8 +284,10 @@ def validate_path(
             log.warning("Path outside allowed directories: %s", resolved)
             raise PathRefusedError(
                 f"Path rejected: '{resolved}' is not inside any allowed directory. "
-                f"Allowed directories: {allowed_str}. "
-                "Set ALLOWED_PATHS environment variable to configure."
+                f"Allowed directories: {allowed_str}. Name a path inside one of them; "
+                "a relative path resolves in the first.",
+                reason="outside_allowed_paths",
+                allowed_dirs=[str(p) for p in config.settings.allowed_paths],
             )
 
     if allow_write:
