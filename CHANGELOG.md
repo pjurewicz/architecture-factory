@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `view_screenshot(background="white")` draws on paper, as a PDF does: thin
+  coloured lines on the dark model background read as grey (`auto`, the
+  space's own background, stays the default; `black` too).
+
 - `search_tools` answers a start / workflow / guide query with the drawing's
   workflow as one line, in order and naming only the tools the surface has
   (`drawing_new` -> `drawing_apply_standard` / `drawing_settings` -> layers ->

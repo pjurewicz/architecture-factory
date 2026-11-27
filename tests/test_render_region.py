@@ -83,6 +83,23 @@ async def test_a_window_on_one_of_two_far_circles_draws_only_that_one(backend):
 
 
 @pytest.mark.asyncio
+async def test_a_white_background_draws_colours_as_on_paper(backend):
+    """A thin green line on the dark model background read as grey, twice."""
+    await backend.entity_create_circle(*LEFT, RADIUS, color=3)
+
+    def pixels(report):
+        image = Image.open(io.BytesIO(report["png"])).convert("RGB")
+        return image.getpixel((0, 0)), set(image.getdata())
+
+    paper, white = pixels(
+        await backend.view_render(region=[-10, -10, 10, 10], max_px=128, background="white")
+    )
+    screen, _ = pixels(await backend.view_render(region=[-10, -10, 10, 10], max_px=128))
+    assert paper == (255, 255, 255) and sum(screen) < 200
+    assert any(g == 255 and r < 40 and b < 40 for r, g, b in white), "ACI 3 is green on paper"
+
+
+@pytest.mark.asyncio
 async def test_a_window_between_the_circles_draws_nothing(backend):
     await _two_circles(backend)
     report = await backend.view_render(region=[400, -10, 600, 10], max_px=200)

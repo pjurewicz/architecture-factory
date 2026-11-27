@@ -713,6 +713,7 @@ def render_layout(
     max_labels: int = 40,
     label_anchor: Callable | None = None,
     overlay: dict | None = None,
+    background: str = "auto",
 ) -> dict:
     """Render ``layout`` of ``doc`` to PNG; ``region`` None frames the extents.
 
@@ -728,7 +729,7 @@ def render_layout(
     ax = fig.add_axes((0.0, 0.0, 1.0, 1.0))
     out = MatplotlibBackend(ax, adjust_figure=False)
     warnings: list[str] = []
-    plot_style = draw_layout(doc, layout, out, plot=False, warnings=warnings)
+    plot_style = draw_layout(doc, layout, out, plot=False, background=background, warnings=warnings)
 
     if region is None:
         (ex0, ex1), (ey0, ey1) = ax.get_xlim(), ax.get_ylim()

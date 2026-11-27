@@ -10231,6 +10231,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         overlay_image: str | None = None,
         overlay_align: list | None = None,
         overlay_opacity: float = 0.5,
+        background: str = "auto",
     ) -> dict:
         """The current space drawn at a stated scale, the window applied (1.8-07).
 
@@ -10263,6 +10264,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     overlay=None
                     if overlay_image is None
                     else load_overlay(overlay_image, overlay_align, overlay_opacity),
+                    background=background,
                 )
             except ImportError:
                 log.warning("matplotlib not installed - region render unavailable")

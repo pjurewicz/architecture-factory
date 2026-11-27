@@ -51,6 +51,7 @@ class ViewContract(ABC):
         overlay_image: str | None = None,
         overlay_align: list | None = None,
         overlay_opacity: float = 0.5,
+        background: str = "auto",
     ) -> dict:
         """A PNG of ``region`` (``[x0, y0, x1, y1]``, WCS) and the scale it was drawn at (1.8-07).
 
@@ -65,5 +66,7 @@ class ViewContract(ABC):
         pixel -> WCS) draw a scan under the geometry at ``overlay_opacity``;
         the report then carries ``overlay`` {pixels, units_per_px,
         rotation_deg, bounds, opacity}. A bad pair or opacity is ``ValueError``.
+        ``background`` ``auto`` (the space's own, dark for model) | ``white``
+        (paper, as a PDF) | ``black``.
         """
         ...

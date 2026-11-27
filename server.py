@@ -7537,6 +7537,10 @@ async def view_screenshot(
     overlay_opacity: Annotated[
         float, Field(description="Opacity of the scan, 0-1.", ge=0, le=1)
     ] = 0.5,
+    background: Annotated[
+        Literal["auto", "white", "black"],
+        "white: paper as in a PDF (thin colours read true); auto: the space's own (dark model)",
+    ] = "auto",
     ctx: Context = None,
 ):
     """Capture a screenshot of the current drawing view, rendered via matplotlib.
@@ -7574,7 +7578,12 @@ async def view_screenshot(
     if overlay:
         overlay["overlay_opacity"] = overlay_opacity
     report = await _view_render(
-        _backend(ctx), region=region, max_px=max_px, overlay_handles=overlay_handles, **overlay
+        _backend(ctx),
+        region=region,
+        max_px=max_px,
+        overlay_handles=overlay_handles,
+        background=background,
+        **overlay,
     )
     await ctx.report_progress(100, 100)
     return _view_image_result(
