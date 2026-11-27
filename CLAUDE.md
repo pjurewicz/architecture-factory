@@ -176,6 +176,7 @@ Tools are organized into sections (counts are indicative — `system_about` is a
 
 ### Key Conventions
 
+- **Default layer** (`_layer_for`): explicit `layer=` wins; semantic tools (dimensions, callout, leader, arch/interior, image) use their own layer; primitives use `$CLAYER` unless it is `0`, then `TEXT` for text/mtext/table if that layer exists, else `0`.
 - **Entity handles**: hex strings (e.g. `"1A2B"`). Always returned from create/copy operations; required by all modify/query operations.
 - **Coordinates**: drawing units (mm by default); angles in degrees, counter-clockwise from X axis.
   **Every coordinate in or out of a tool is WCS.** DXF stores

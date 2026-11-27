@@ -5918,15 +5918,35 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
 
     # ── internal: apply common attrs ──────────────────────────────────────────
 
+    def _layer_for(self, layer, *, annotation: bool = False, own: str | None = None) -> str:
+        """The layer a create call draws on, made to exist. An explicit ``layer``
+        wins; a semantic tool's ``own`` layer (DIM) ignores $CLAYER; a primitive
+        takes $CLAYER when it is not "0", else "TEXT" for ``annotation`` when the
+        drawing has that layer (never created unasked), else "0"."""
+        doc = self._require_doc()
+        name = layer or own
+        if not name:
+            current = str(doc.header.get("$CLAYER", "0"))
+            if current != "0":
+                name = current
+            elif annotation and "TEXT" in doc.layers:
+                name = "TEXT"
+            else:
+                name = "0"
+        if name not in doc.layers:
+            doc.layers.add(name)
+        return name
+
     def _apply_attrs(
-        self, entity, layer: str | None, color: int | None, linetype: str | None = None
+        self,
+        entity,
+        layer: str | None,
+        color: int | None,
+        linetype: str | None = None,
+        *,
+        annotation: bool = False,
     ):
-        if layer is not None:
-            entity.dxf.layer = layer
-            # Ensure layer exists
-            doc = self._require_doc()
-            if layer not in doc.layers:
-                doc.layers.add(layer)
+        entity.dxf.layer = self._layer_for(layer, annotation=annotation)
         if color is not None:
             entity.dxf.color = int(color)
         if linetype is not None:
@@ -6188,7 +6208,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             if align not in (None, "left"):
                 # insert and align_point both on (x, y), as AutoCAD's own TEXT does.
                 ent.set_placement((float(x), float(y)), align=TextEntityAlignment[align.upper()])
-            self._apply_attrs(ent, layer, color)
+            self._apply_attrs(ent, layer, color, annotation=True)
             self._attach_xdata(ent, prepared)
             self._mark_dirty()
             return _entity_info_dxf(ent)
@@ -6224,7 +6244,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 ent.dxf.rotation = float(rotation)  # NEW-mtext-1: honor caller rotation
             if align is not None:
                 ent.dxf.attachment_point = MTEXT_ALIGN[align]
-            self._apply_attrs(ent, layer, color)
+            self._apply_attrs(ent, layer, color, annotation=True)
             self._mark_dirty()
             return _entity_info_dxf(ent)
 
@@ -6240,7 +6260,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         row_height=7.0,
         text_height=2.5,
         title=None,
-        layer="TEXT",
+        layer=None,
         xdata=None,
         layout=None,
     ) -> EntityInfo:
@@ -6251,6 +6271,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
 
         def _sync():
             msp = self._space(layout, "entity_create_table")
+            table_layer = self._layer_for(layer, annotation=True)
             children = []
             x0, y0 = float(x), float(y)
             x_positions = [x0]
@@ -6260,7 +6281,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             for row_index in range(grid.row_count + 1):
                 yy = y0 - grid.row_top(row_index)
                 line = msp.add_line((x0, yy), (x0 + grid.width, yy))
-                self._apply_attrs(line, layer, None)
+                self._apply_attrs(line, table_layer, None)
                 children.append(line)
             last = len(x_positions) - 1
             for index, xx in enumerate(x_positions):
@@ -6269,7 +6290,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 inner = 0 < index < last
                 top = y0 - grid.row_heights[0] if grid.title_row and inner else y0
                 line = msp.add_line((xx, top), (xx, y0 - grid.height))
-                self._apply_attrs(line, layer, None)
+                self._apply_attrs(line, table_layer, None)
                 children.append(line)
 
             # the cell margin scales with the lettering: 1.0 at the default 2.5
@@ -6293,7 +6314,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                         y0 - grid.row_top(row_index) - padding,
                         0.0,
                     )
-                    self._apply_attrs(text_entity, layer, None)
+                    self._apply_attrs(text_entity, table_layer, None)
                     children.append(text_entity)
 
             # the composite has no one entity to carry a tag: every child does
@@ -6305,7 +6326,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             return EntityInfo(
                 handle=child_handles[0],
                 type="TABLE",
-                layer=layer,
+                layer=table_layer,
                 color=256,
                 linetype="ByLayer",
                 visible=True,
@@ -6471,7 +6492,9 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                         )
                     sheet_order = {"paperspace_last": True, "set": not was}
                 # First, so the leader and the lettering lie on top of it.
-                parts["mask"] = space.add_wipeout(plan.mask, dxfattribs=attribs).dxf.handle
+                mask = space.add_wipeout(plan.mask, dxfattribs=attribs)
+                mask.dxf.layer = layer  # ezdxf's set_masking_area resets it to "0"
+                parts["mask"] = mask.dxf.handle
 
             parts["leader"] = space.add_lwpolyline(plan.leader, dxfattribs=attribs).dxf.handle
             fill = space.add_hatch(dxfattribs=attribs)
@@ -6637,8 +6660,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     "rotation": float(rotation),
                 },
             )
-            if layer:
-                ent.dxf.layer = layer
+            ent.dxf.layer = self._layer_for(layer)
             self._mark_dirty()
             return _entity_info_dxf(ent)
 
@@ -6866,8 +6888,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 }
             msp = self._msp()
             entity = msp.add_wipeout(vertices)
-            if layer:
-                entity.dxf.layer = layer
+            entity.dxf.layer = self._layer_for(layer)
             self._mark_dirty()
             return {
                 "ok": True,
@@ -6915,8 +6936,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             # revision cloud rather than a wobbly polyline.
             msp = self._msp()
             entity = add_revcloud(msp, vertices, length)
-            if layer:
-                entity.dxf.layer = layer
+            entity.dxf.layer = self._layer_for(layer)
             self._mark_dirty()
             return {
                 "ok": True,
@@ -6989,8 +7009,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 dim.set_location(location, leader=True)
             dim.render()
             ent = dim.dimension
-            if layer:
-                ent.dxf.layer = layer
+            ent.dxf.layer = self._layer_for(layer, own="DIM")
             self._attach_xdata(ent, prepared)
             self._mark_dirty()
             return _entity_info_dxf(ent)
@@ -7023,8 +7042,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             )
             dim.render()
             ent = dim.dimension
-            if layer:
-                ent.dxf.layer = layer
+            ent.dxf.layer = self._layer_for(layer, own="DIM")
             self._attach_xdata(ent, prepared)
             self._mark_dirty()
             return _entity_info_dxf(ent)
@@ -7056,8 +7074,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             )
             dim.render()
             ent = dim.dimension
-            if layer:
-                ent.dxf.layer = layer
+            ent.dxf.layer = self._layer_for(layer, own="DIM")
             self._mark_dirty()
             return _entity_info_dxf(ent)
 
@@ -7104,8 +7121,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             )
             dim.render()
             ent = dim.dimension
-            if layer:
-                ent.dxf.layer = layer
+            ent.dxf.layer = self._layer_for(layer, own="DIM")
             self._attach_xdata(ent, prepared)
             self._mark_dirty()
             return _entity_info_dxf(ent)
@@ -7166,8 +7182,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             )
             dim.render()
             ent = dim.dimension
-            if layer:
-                ent.dxf.layer = layer
+            ent.dxf.layer = self._layer_for(layer, own="DIM")
             self._attach_xdata(ent, prepared)
             self._mark_dirty()
             return _entity_info_dxf(ent)
@@ -8692,9 +8707,8 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 "yscale": float(scale_y),
                 "rotation": float(rotation),
             }
-            if layer:
-                attribs["layer"] = layer
             self._require_block(name)
+            attribs["layer"] = self._layer_for(layer)
             ref = msp.add_blockref(name, (float(x), float(y)), dxfattribs=attribs)
             # Every ATTDEF gets its ATTRIB, with the default where no value is
             # given - what the live `InsertBlock` does (measured on AutoCAD

@@ -2936,7 +2936,7 @@ async def entity_create_table(
     row_height: Annotated[float, Field(default=7.0, gt=0)] = 7.0,
     text_height: Annotated[float, Field(default=2.5, gt=0)] = 2.5,
     title: Annotated[str | None, "Optional title row"] = None,
-    layer: Annotated[str, "Target layer"] = "TEXT",
+    layer: Annotated[str | None, "Layer; default $CLAYER, else TEXT if it exists"] = None,
     layout: Annotated[str, Field(default="", description="Layout name; '' = current space.")] = "",
     ctx: Context = None,
 ) -> dict:
@@ -4736,7 +4736,8 @@ async def layer_set_current(
     name: Annotated[str, "Layer name to set as current"],
     ctx: Context = None,
 ) -> dict:
-    """Set the active/current layer for new entities."""
+    """Set the current layer ($CLAYER). entity_create_* without layer= draw on it;
+    dimensions, callouts and arch tools keep their own layers."""
     await ctx.info(f"Setting current layer to '{name}'")
     return await _backend(ctx).layer_set_current(name)
 

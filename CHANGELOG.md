@@ -211,6 +211,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The default layer of a create call (one rule, `EzdxfBackend._layer_for`).
+  An explicit `layer=` always wins. Drawing primitives (`entity_create_*`,
+  `block_insert`, every `entity_batch_create` item, with or without `layout=`)
+  draw on `$CLAYER` when it is not `0`, so `layer_set_current` now works as in
+  AutoCAD. On `0`, text, mtext and tables go to `TEXT` when the drawing has
+  that layer (the bootstrap and the bundled templates do; a bare DXF gets `0`
+  and no TEXT layer), and everything else to `0`. `entity_create_table` no
+  longer defaults to `TEXT` unconditionally. Semantic tools keep their own layer
+  whatever `$CLAYER` is: `dimension_linear` / `aligned` / `angular` / `radius` /
+  `diameter` without `layer` now draw on `DIM`, not `0`, and a callout's
+  WIPEOUT mask now sits on the callout's layer, not `0` (ezdxf's
+  `set_masking_area` reset it).
+
 - The `*_arch` templates (`iso_a1_arch`, `iso_a2_arch`, `ansi_d_arch`, all mm)
   dimension in whole millimetres: their dimension style and `$DIMDEC` are 0, so
   an oblique plan reads "9250", not "9250,48" (template specs carry

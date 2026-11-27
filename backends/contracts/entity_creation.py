@@ -226,7 +226,7 @@ class EntityCreationContract(ABC):
         row_height: float = 7.0,
         text_height: float = 2.5,
         title: str | None = None,
-        layer: str = "TEXT",
+        layer: str | None = None,
         xdata: dict[str, list] | None = None,
         layout: str | None = None,
     ) -> EntityInfo:
