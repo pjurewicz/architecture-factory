@@ -7,7 +7,13 @@
 # so CI can cache it between runs.
 set -euo pipefail
 
-apt_packages=(xvfb xauth libopengl0 libxkbcommon-x11-0)
+# The system libraries the converter and its bundled Qt xcb plugin link (the
+# same names on Debian 13 and Ubuntu 24.04); the rest are their dependencies.
+apt_packages=(
+  xvfb xauth
+  libegl1 libgl1 libglx0 libopengl0 libfontconfig1 libglib2.0-0t64 libdbus-1-3
+  libxkbcommon0 libxkbcommon-x11-0 libx11-xcb1
+)
 missing=()
 for p in "${apt_packages[@]}"; do
   dpkg -s "$p" >/dev/null 2>&1 || missing+=("$p")
@@ -28,3 +34,12 @@ if ! dpkg -s odafileconverter >/dev/null 2>&1; then
   [[ -n "${ODA_DEB_DIR:-}" ]] || rm -rf "$deb_dir"
 fi
 command -v ODAFileConverter
+
+# Fail here, naming the library, rather than as exit code 127 inside a test.
+oda_dir="$(dirname "$(readlink -f "$(ls -d /usr/bin/ODAFileConverter_*/ODAFileConverter | head -1)")")"
+unresolved="$(ldd "$oda_dir/ODAFileConverter" "$oda_dir"/plugins/platforms/*.so | grep 'not found' | sort -u || true)"
+if [[ -n "$unresolved" ]]; then
+  echo "ODA File Converter is missing system libraries:" >&2
+  echo "$unresolved" >&2
+  exit 1
+fi
