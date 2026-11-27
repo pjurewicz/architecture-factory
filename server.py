@@ -1379,6 +1379,62 @@ def _install_tool_definition_cache() -> bool:
 _install_tool_definition_cache()
 
 
+def _install_schema_validator_cache() -> bool:
+    """A tool call's schema check builds its validator once per schema, not per call.
+
+    The low-level MCP server checks every result against the tool's
+    ``outputSchema`` with ``jsonschema.validate``, which first validates the
+    schema itself against the draft 2020-12 meta-schema and then builds a new
+    validator - on every call, for a schema that never changes. MEASURED
+    2026-11-27 (2,000 ``entity_create_line`` calls through an in-memory
+    client, ``DISCOVERY_MODE=off``): 6.0 s -> 4.8 s. Here the checked
+    validator is kept per schema (keyed by its JSON), so a call pays only
+    ``iter_errors``; the error raised and its message are ``validate``'s own.
+
+    ``jsonschema`` as a module attribute of ``mcp.server.lowlevel.server`` is
+    private to ``mcp`` 1.x; if it moves, nothing is installed (False, logged)
+    and the stock, slower check runs.
+    """
+    import functools
+    import types as _types
+
+    import jsonschema
+
+    try:
+        from mcp.server.lowlevel import server as low
+    except ImportError:
+        low = None
+    if getattr(getattr(low, "jsonschema", None), "_acadmcp_cached", False):
+        return True  # a second import of this module (the tests load it twice)
+    if getattr(low, "jsonschema", None) is not jsonschema:
+        log.warning("schema validator cache not installed (the MCP server layout changed)")
+        return False
+
+    @functools.lru_cache(maxsize=1024)
+    def _validator(key: str):
+        schema = json.loads(key)
+        cls = jsonschema.validators.validator_for(schema)
+        cls.check_schema(schema)
+        return cls(schema)
+
+    def validate(instance, schema, *args, **kwargs):
+        if args or kwargs:
+            return jsonschema.validate(instance, schema, *args, **kwargs)
+        error = jsonschema.exceptions.best_match(
+            _validator(json.dumps(schema, sort_keys=True)).iter_errors(instance)
+        )
+        if error is not None:
+            raise error
+
+    low.jsonschema = _types.SimpleNamespace(
+        validate=validate, ValidationError=jsonschema.ValidationError, _acadmcp_cached=True
+    )
+    return True
+
+
+_install_schema_validator_cache()
+
+
 # ---------------------------------------------------------------------------
 # Backend access helper
 # ---------------------------------------------------------------------------

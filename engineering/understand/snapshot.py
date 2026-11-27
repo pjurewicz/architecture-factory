@@ -49,6 +49,7 @@ from backends.entity_fields import (
     dimension_fields,
     dimension_rendered,
     dimension_style_vars,
+    entity_extents,
     hatch_loops,
 )
 from backends.ocs import is_flat_frame, to_wcs_2d, wcs_arc_angles, wcs_bulge
@@ -191,7 +192,7 @@ def _box(entity) -> tuple[float, float, float, float] | None:
         if entity.dxftype() == "INSERT":
             box = ezbbox.extents(entity.virtual_entities(), fast=True)
         else:
-            box = ezbbox.extents([entity], fast=True)
+            box = entity_extents(entity, fast=True)
     except Exception:  # a proxy or a malformed entity has no box; the record stays
         return None
     if not box.has_data:

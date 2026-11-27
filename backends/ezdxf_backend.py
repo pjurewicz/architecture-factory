@@ -65,6 +65,7 @@ from .entity_fields import (
     DIMTYPE_NAMES,
     dimension_fields,
     dimension_props,
+    entity_extents,
     hatch_loops,
     hatch_props,
     nesting_depths,
@@ -1373,9 +1374,7 @@ def _label_anchor(ent) -> tuple[float, float] | None:
     the label lands where the entity is *drawn* even in a rotated frame (T0.4).
     """
     try:
-        from ezdxf import bbox as _bbox
-
-        box = _bbox.extents([ent])
+        box = entity_extents(ent)
         if not box.has_data:
             return None
         return (
@@ -1640,9 +1639,7 @@ def _entity_info_dxf(ent, *, detail: bool = False) -> EntityInfo:
     # bounding_box as {min, max}, the shape clients read from
     # properties["bounding_box"] (N5).
     try:
-        from ezdxf import bbox as _bbox
-
-        _bb = _bbox.extents([ent])
+        _bb = entity_extents(ent)
         if _bb.has_data:
             props["bounding_box"] = {
                 "min": [float(_bb.extmin.x), float(_bb.extmin.y)],
@@ -9361,7 +9358,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             if _BBOX_OK:
                 for ent in msp:
                     try:
-                        bb = ezdxf_bbox.extents([ent])
+                        bb = entity_extents(ent)
                         if (
                             bb
                             and bb.extmin.x >= mn_x

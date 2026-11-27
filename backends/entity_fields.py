@@ -34,6 +34,9 @@ from __future__ import annotations
 import json
 import math
 
+from ezdxf import bbox
+from ezdxf.math import BoundingBox
+
 from backends.ocs import is_flat_frame, to_wcs_2d, wcs_arc_angles, wcs_bulge
 from engineering.measure import polygon_area_perimeter
 
@@ -45,6 +48,7 @@ __all__ = [
     "dimension_props",
     "dimension_rendered",
     "dimension_style_vars",
+    "entity_extents",
     "filled_area",
     "hatch_loops",
     "hatch_props",
@@ -67,6 +71,19 @@ DIMTYPE_NAMES = {
 #: Samples per full turn of an ellipse edge (its loop then says it is not exact).
 _ELLIPSE_SAMPLES = 72
 _TAU = 2.0 * math.pi
+
+
+def entity_extents(entity, *, fast: bool = False):
+    """``ezdxf.bbox.extents([entity])``, with a LINE read straight off its two points.
+
+    A LINE's points are WCS and its box is exactly theirs, which is what
+    ezdxf answers too - by building a path per call. MEASURED 2026-11-27
+    (10,000 lines): ``analysis_entities_in_region`` 396 -> 103 ms,
+    ``drawing_critique(None)`` 1681 -> 753 ms.
+    """
+    if entity.dxftype() == "LINE":
+        return BoundingBox((entity.dxf.start, entity.dxf.end))
+    return bbox.extents([entity], fast=fast)
 
 
 def _xy(point) -> tuple[float, float]:

@@ -134,6 +134,17 @@ async def test_the_definition_cache_is_installed():
     assert isinstance(low._tool_cache, dict)
 
 
+async def test_the_schema_validator_cache_is_installed_and_still_refuses():
+    from mcp.server.lowlevel import server as low
+
+    cached = low.jsonschema
+    assert getattr(cached, "_acadmcp_cached", False) is True
+    schema = {"type": "object", "required": ["handle"]}
+    cached.validate(instance={"handle": "1A"}, schema=schema)
+    with pytest.raises(cached.ValidationError, match="'handle' is a required property"):
+        cached.validate(instance={}, schema=schema)
+
+
 async def test_a_call_of_an_unlisted_tool_lists_nothing_on_the_server(
     search_mode, refreshes, monkeypatch
 ):
