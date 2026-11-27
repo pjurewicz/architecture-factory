@@ -314,12 +314,22 @@ def test_the_release_gate_covers_the_platforms_ci_covers() -> None:
     """`release.yml` publishes to PyPI; a lane CI has and it lacks is a hole.
 
     Its test job was one ubuntu/3.11 run. (The Windows lane left with the live
-    COM engine; this fork is headless only.)
+    COM engine; this fork is headless only.) The fork tests one Python, the one
+    in ``.python-version``, which the orb and the Docker image run.
     """
-    release = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    workflows = ROOT / ".github" / "workflows"
+    release = (workflows / "release.yml").read_text(encoding="utf-8")
     gate = release.split("build:", 1)[0]
+    ci = (workflows / "ci.yml").read_text(encoding="utf-8")
+    test_linux = ci.split("test-linux:", 1)[1].split("\n  package:", 1)[0]
+    pinned = (ROOT / ".python-version").read_text(encoding="utf-8").strip()
 
-    assert "3.12" in gate, "the release test gate never runs on Python 3.12"
+    def versions(text: str) -> set[str]:
+        return set(re.findall(r'python-version:\s*"([\d.]+)"', text))
+
+    assert versions(test_linux) == {pinned}, "ci.yml test-linux must run .python-version"
+    assert versions(gate) == {pinned}, "the release test gate must run .python-version"
+    assert f"FROM python:{pinned}-" in (ROOT / "Dockerfile").read_text(encoding="utf-8")
     assert "uv sync --locked" in gate, "the release gate must install from the lockfile"
 
 

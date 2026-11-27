@@ -40,6 +40,7 @@ pip install -e ".[full]"
 pytest
 pytest tests/test_specific.py::test_name   # single test
 pytest -x                                   # stop on first failure
+pytest -n auto                              # whole suite in parallel (pytest-xdist), ~4x faster
 ```
 
 Uses `pytest-asyncio` for async test support.

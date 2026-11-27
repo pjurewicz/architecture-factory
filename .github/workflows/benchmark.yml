@@ -29,7 +29,7 @@ jobs:
       - uses: actions/setup-python@v5
         id: python
         with:
-          python-version: "3.12"
+          python-version: "3.13"
       - run: pip install "uv==${{ env.LOCKED_UV_VERSION }}"
       - name: Install the locked harness environment
         # This lane publishes evidence, so the harness must not float: an ezdxf

@@ -27,21 +27,17 @@ on:
 jobs:
   floating:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.13"
       - name: Install from the declared ranges (uv.lock deliberately ignored)
         run: |
           pip install -e ".[pdf]"
-          pip install pytest pytest-asyncio
+          pip install pytest pytest-asyncio pytest-xdist
       - name: Record what actually resolved
         # Printed unconditionally: when this job fails, the version list is the
         # first thing needed to tell which upstream moved.
         run: pip list
-      - run: pytest -q
+      - run: pytest -q -n auto

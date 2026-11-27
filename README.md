@@ -458,11 +458,11 @@ The full production loop adds `drawing_preflight` and `drawing_plan` at the fron
 
 ```bash
 uv sync --locked --all-extras
-uv run pytest
+uv run pytest -n auto
 uv run ruff check . && uv run ruff format --check .
 ```
 
-`uv.lock` pins the whole transitive graph, so this reproduces CI exactly. CI runs Linux (3.11 / 3.12), plus package, Docker and MCP-registry jobs. It also runs `claude plugin validate --strict` on the marketplace and the plugin, the generated-file gates (`build_plugin.py --check`, `generate_tool_inventory.py --check`, `check_doc_numbers.py`), the `token-budget` job (`python -m benchmarks.token_suite --lanes idle,task --budget benchmarks/token_budget.json` and `python -m benchmarks.call_budget`: a `ci`-gated ceiling breached, an idle row grown more than 5 % over the published report or a scripted job not done fails the PR) and a contents check of the built wheel and sdist: the wheel holds the server and nothing else, and the sdist holds only what git tracks. The release gate runs the same test lanes, plus a headless lane that runs the correctness suite against the previous tag with `--fail-on-regression`, before anything reaches PyPI. Releases are tag-driven: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+`uv.lock` pins the whole transitive graph, so this reproduces CI exactly. CI runs Linux (Python 3.13, the version in `.python-version`, which the orb and the Docker image run), plus package, Docker and MCP-registry jobs. It also runs `claude plugin validate --strict` on the marketplace and the plugin, the generated-file gates (`build_plugin.py --check`, `generate_tool_inventory.py --check`, `check_doc_numbers.py`), the `token-budget` job (`python -m benchmarks.token_suite --lanes idle,task --budget benchmarks/token_budget.json` and `python -m benchmarks.call_budget`: a `ci`-gated ceiling breached, an idle row grown more than 5 % over the published report or a scripted job not done fails the PR) and a contents check of the built wheel and sdist: the wheel holds the server and nothing else, and the sdist holds only what git tracks. The release gate runs the same test lanes, plus a headless lane that runs the correctness suite against the previous tag with `--fail-on-regression`, before anything reaches PyPI. Releases are tag-driven: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 
 ## Roadmap
 

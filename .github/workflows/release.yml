@@ -21,35 +21,24 @@ env:
 
 jobs:
   test:
-    # The same lanes as ci.yml. The fork runs only on Linux / macOS servers,
-    # so the Windows lane left with the live COM engine.
-    strategy:
-      fail-fast: true
-      matrix:
-        include:
-          - os: ubuntu-latest
-            python-version: "3.11"
-            extra: pdf
-          - os: ubuntu-latest
-            python-version: "3.12"
-            extra: pdf
-    runs-on: ${{ matrix.os }}
+    # The same lane as ci.yml's test-linux: one Linux runner, one Python.
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         id: python
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.13"
       - run: pip install "uv==${{ env.LOCKED_UV_VERSION }}"
       - name: Install the locked environment
         # `--locked` refuses to re-resolve, so the artifact that goes to PyPI is
         # gated by the exact dependency set the suite was run against — not by
         # whatever the index happens to serve at tag time. ruff's version comes
         # from [dependency-groups] dev via the lock; it is not restated here.
-        run: uv sync --locked --extra ${{ matrix.extra }} --python "${{ steps.python.outputs.python-path }}"
+        run: uv sync --locked --extra pdf --python "${{ steps.python.outputs.python-path }}"
       - run: uv run --no-sync ruff check .
       - run: uv run --no-sync ruff format --check .
-      - run: uv run --no-sync pytest -q
+      - run: uv run --no-sync pytest -q -n auto
 
   headless-gates:
     # The release's headless lane. The correctness A/B suite runs against the
@@ -66,7 +55,7 @@ jobs:
       - uses: actions/setup-python@v5
         id: python
         with:
-          python-version: "3.11"
+          python-version: "3.13"
       - run: pip install "uv==${{ env.LOCKED_UV_VERSION }}"
       - run: uv sync --locked --all-extras --python "${{ steps.python.outputs.python-path }}"
       - name: Correctness A/B against the previous release
@@ -101,7 +90,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.13"
       - name: Verify tag matches package version
         run: |
           pip install tomli-w 2>/dev/null || true

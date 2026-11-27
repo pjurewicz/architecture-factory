@@ -107,6 +107,9 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "pytest-cov>=5.0",
+    # `pytest -n auto`: the suite is CPU-bound and test-isolated (a private
+    # state folder per test), so it scales with the cores.
+    "pytest-xdist>=3.5",
     # Exact pin *and* locked: the formatter's output changes between minors, so
     # a floating ruff makes `ruff format --check .` fail on unchanged code. This
     # is now the only place the version is written — the workflows install ruff
