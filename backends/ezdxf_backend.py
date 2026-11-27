@@ -1977,10 +1977,11 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         holder = self._path_holder(path, exclude=self._active_key)
         if holder is None:
             return
-        label = self._docs[holder].label
+        state = self._docs[holder]
         raise ValueError(
-            f"{op}: {label!r} is already open as document {holder!r}; a file is held by "
-            "one open document at a time - document_close it first, or save to another path"
+            f"{op}: {state.label!r} is already open as document {holder!r} (document_id "
+            f"{state.document_id}); a file is held by one open document at a time - "
+            "document_close it first, or save to another path"
         )
 
     @property
@@ -3156,8 +3157,22 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
 
         return await self._async(_sync, readonly=True)
 
-    async def drawing_new(self, template: str | None = None) -> dict:
+    async def drawing_new(
+        self, template: str | None = None, *, close_current: bool = False
+    ) -> dict:
         def _sync():
+            # T-16: the document this call replaces is closed by document_close's
+            # rule - unsaved work is refused, before anything is read or replaced.
+            previous = self._active_key if close_current else None
+            if previous is not None and self._quarantine is not None:
+                previous = None  # evicted below, as every drawing_new evicts it
+            if previous is not None and self._docs[previous].dirty:
+                state = self._docs[previous]
+                raise ValueError(
+                    f"drawing_new: close_current would close {state.label!r} (document_id "
+                    f"{state.document_id}), which has unsaved changes; drawing_save it, or "
+                    "document_close(discard=True) it, first - nothing was created"
+                )
             if template and Path(template).exists():
                 doc = ezdxf.readfile(template)
                 _normalise_dimstyle_rounding(doc)
@@ -3187,6 +3202,13 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             }
             if released is not None:
                 result["quarantine_cleared"] = released.to_dict()
+            if close_current:
+                closed = None
+                if previous is not None:
+                    self._close_document_sync(previous, save=False, discard=False)
+                    closed = previous
+                result["closed_previous"] = closed
+                result["open_documents"] = len(self._docs)
             return result
 
         return await self._async(_sync, quarantine_exit=True)

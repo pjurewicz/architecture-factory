@@ -105,6 +105,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `drawing_new(close_current=True)` closes the document that was active once
+  the new one is created and reports it in `closed_previous` (`null` with
+  nothing open). It follows `document_close`'s rule: a document with unsaved
+  changes refuses the call before anything is created, naming its
+  `document_id`. A save onto a file another open document holds is refused as
+  before, and the message now names that document's `document_id`.
+- `entity_batch_create` answers `{ok, created, handles, errors}` by default
+  (`verbose=False`), as `cad_batch` already did for its steps; pass
+  `verbose=True` for each entity's full record (one `entity_get` away
+  otherwise). A caller that read `entities[i].handle` reads `handles[i]`.
+  Inside `cad_batch` a binding still sees the full rows.
 - `drawing_save(path?, copy=False, version?, overwrite_source=False)` is the
   one save tool: no path saves in place, a `.dxf` path re-points the document
   (SAVEAS), `copy=True` writes a copy and keeps the document where it is (and

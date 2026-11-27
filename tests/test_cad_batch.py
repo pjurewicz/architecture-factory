@@ -169,14 +169,18 @@ async def test_verbose_restores_the_full_step_result(client):
 
 
 async def test_entity_batch_create_reports_only_handles_unless_verbose(client):
-    """Its rows are EntityInfo, so verbose=False (its own or the batch's) keeps only the handles."""
+    """Its rows are EntityInfo, so by default (its own or the batch's) only the handles stay."""
     entities = [
         {"type": "line", "x1": 0, "y1": 0, "x2": 10, "y2": 0},
         {"type": "circle", "cx": 5, "cy": 5, "radius": 2},
     ]
     direct = (
-        await client.call_tool("entity_batch_create", {"entities": entities, "verbose": False})
+        await client.call_tool("entity_batch_create", {"entities": entities})
     ).structured_content
+    rows = (
+        await client.call_tool("entity_batch_create", {"entities": entities, "verbose": True})
+    ).structured_content["entities"]
+    assert [row["type"] for row in rows] == ["LINE", "CIRCLE"]
     batched = await _batch(
         client,
         [
@@ -691,9 +695,9 @@ async def test_entity_batch_create_draws_the_rectangle_its_schema_lists(client):
         )
     ).structured_content
     assert result["ok"] is True and result["errors"] == []
-    (entity,) = result["entities"]
+    (handle,) = result["handles"]
     measured = (
-        await client.call_tool("analysis_measure_entity", {"handle": entity["handle"]})
+        await client.call_tool("analysis_measure_entity", {"handle": handle})
     ).structured_content
     assert measured["area"] == pytest.approx(300.0) and measured["perimeter"] == pytest.approx(80.0)
 

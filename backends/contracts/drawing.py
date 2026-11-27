@@ -19,7 +19,12 @@ class DrawingContract(ABC):
     async def drawing_info(self) -> DrawingInfo: ...
 
     @abstractmethod
-    async def drawing_new(self, template: str | None = None) -> dict: ...
+    async def drawing_new(
+        self, template: str | None = None, *, close_current: bool = False
+    ) -> dict:
+        """``close_current=True`` closes the document active before the call, by
+        ``document_close``'s rule: unsaved changes refuse the call before anything
+        is created; the result names it in ``closed_previous``."""
 
     @abstractmethod
     async def drawing_open(self, path: str, recover: bool = False) -> dict:

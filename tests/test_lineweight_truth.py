@@ -244,7 +244,7 @@ async def test_batch_create_and_modify_take_a_lineweight(served):
             },
         )
     ).structured_content
-    handle = created["entities"][0]["handle"]
+    handle = created["handles"][0]
     assert backend._doc.entitydb[handle].dxf.lineweight == -3
 
     await client.call_tool(

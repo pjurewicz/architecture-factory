@@ -2352,6 +2352,11 @@ async def drawing_new(
             "HATCH, TEXT, TITLEBLOCK). Disable for vanilla DXF.",
         ),
     ] = True,
+    close_current: Annotated[
+        bool,
+        "Close the document that was active, as document_close would: refused, before "
+        "anything is created, when it has unsaved changes.",
+    ] = False,
     ctx: Context = None,
 ) -> dict:
     """Create a new drawing, optionally from a template.
@@ -2364,6 +2369,10 @@ async def drawing_new(
     exist, and a path outside the allowed directories. With `bootstrap=True`
     (default) the standard engineering linetypes and layers are ensured
     afterwards — idempotent on a template that already has them.
+
+    `close_current=True` closes the previously active document and reports it
+    in `closed_previous` (null when none was open); it never drops unsaved
+    work - save it or `document_close(discard=True)` it first.
     """
     from pathlib import Path as _P
 
@@ -2385,7 +2394,7 @@ async def drawing_new(
             template_info = {"name": template.strip().lower(), "path": resolved, "source": source}
         template = resolved
     await ctx.info(f"Creating new drawing (template={template}, bootstrap={bootstrap})")
-    raw = await backend.drawing_new(template)
+    raw = await backend.drawing_new(template, close_current=close_current)
     result = dict(raw) if isinstance(raw, dict) else {"result": raw}
     if template_info is not None:
         result["template"] = template_info
@@ -6727,6 +6736,11 @@ async def cad_batch(
                 # the audit/timing chain, and skipping it keeps the error one wrap
                 # deep instead of three, which is what makes the taxonomy above
                 # readable. Each step is logged here instead, tagged as a batch step.
+                # entity_batch_create answers handles only by default (T-16); a
+                # binding still sees its full rows, and the batch's own verbose
+                # trims what the caller reads (_compact_batch_result).
+                if name == "entity_batch_create" and "verbose" not in args:
+                    args = {**args, "verbose": True}
                 outcome = await ctx.fastmcp.call_tool(name, args, run_middleware=False)
             except asyncio.CancelledError:
                 journal.finish(
@@ -7015,8 +7029,8 @@ async def entity_batch_create(
     ],
     verbose: Annotated[
         bool,
-        "False: return {ok, created, handles, errors} instead of each entity's full record.",
-    ] = True,
+        "True: also return each entity's full record; default {ok, created, handles, errors}.",
+    ] = False,
     ctx: Context = None,
 ) -> dict:
     """Create multiple entities in a single call for better performance.

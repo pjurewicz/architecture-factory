@@ -3444,7 +3444,7 @@ class AutoCADMCPProAdapter(BenchmarkAdapter):
         async with self._served() as client:
             await client.call_tool("drawing_apply_iso_layers", {"standard": "mech"})
             made = (
-                await client.call_tool("entity_batch_create", {"entities": specs})
+                await client.call_tool("entity_batch_create", {"entities": specs, "verbose": True})
             ).structured_content or {}
             rows = made.get("entities") or []
             default = sorted(row["handle"] for row in rows[:22])

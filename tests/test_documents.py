@@ -160,9 +160,13 @@ async def test_save_refuses_a_path_that_another_open_document_holds(backend, tmp
     second = (await backend.drawing_new())["document"]
     await backend.entity_create_circle(0, 0, 5)
     before = path.read_bytes()
+    holder_id = {r["key"]: r for r in await backend.document_list()}[key]["document_id"]
 
     for call in (backend.drawing_save_as, backend.drawing_save):
-        with pytest.raises(ValueError, match="gear.dxf.*already open.*document_close"):
+        # T-16: the refusal names the blocking document's document_id.
+        with pytest.raises(
+            ValueError, match=f"gear.dxf.*already open.*document_id {holder_id}.*document_close"
+        ):
             await call(str(path))
         assert path.read_bytes() == before, "a refusal writes nothing"
 
@@ -555,6 +559,38 @@ async def test_layout_and_viewport_mutators_mark_the_document_unsaved(
         assert changed_on_disk(path)
     finally:
         await backend.disconnect()
+
+
+async def test_drawing_new_close_current_closes_only_the_active_document(backend, tmp_path):
+    """T-16: close_current closes the document that was active, by document_close's
+    rule - unsaved work refuses the call before anything is created."""
+    background = (await backend.document_list())[0]["key"]
+    await backend.entity_create_line(0, 0, 1, 1)  # the background one stays dirty
+    active = (await backend.drawing_new())["document"]
+    await backend.entity_create_circle(0, 0, 5)
+    active_id = backend.document_identity()["document_id"]
+
+    with pytest.raises(ValueError, match=f"{active}.*document_id {active_id}.*unsaved changes"):
+        await backend.drawing_new(close_current=True)
+    rows = {r["key"]: r for r in await backend.document_list()}
+    assert set(rows) == {background, active} and rows[active]["active"], "nothing created"
+
+    await backend.drawing_save(str(tmp_path / "part.dxf"))
+    saved_key = backend.document_identity()["path"]
+    result = await backend.drawing_new(close_current=True)
+    assert result["closed_previous"] == os.path.abspath(saved_key)
+    rows = {r["key"]: r for r in await backend.document_list()}
+    assert set(rows) == {background, result["document"]} and result["open_documents"] == 2
+    assert rows[result["document"]]["active"] and rows[background]["saved"] is False
+
+    plain = await backend.drawing_new()
+    assert "closed_previous" not in plain and plain["open_documents"] == 3
+
+
+async def test_drawing_new_close_current_with_nothing_open(backend):
+    await backend.document_close(discard=True)
+    result = await backend.drawing_new(close_current=True)
+    assert result["closed_previous"] is None and result["open_documents"] == 1
 
 
 async def test_close_with_save_writes_the_file(backend, tmp_path):
