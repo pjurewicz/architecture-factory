@@ -33,6 +33,7 @@ EXPECTED_LAYERS = {
     "A-STAIR-E-N": ("Continuous", 0.25),
     "A-FURN-E-N": ("Continuous", 0.18),
     "A-SANR-E-N": ("Continuous", 0.18),
+    "A-ELEC-E-N": ("Continuous", 0.18),
     "A-GRID-E-N": ("CENTER", 0.18),
     "A-ROOM-T-N": ("Continuous", 0.25),
     "A-ROOM-E-N": ("Continuous", 0.13),
@@ -49,7 +50,7 @@ EXPECTED_LAYERS = {
 }
 
 
-def test_the_arch_set_is_the_twenty_pinned_layers_plus_zero():
+def test_the_arch_set_is_the_pinned_layers_plus_zero():
     rows = {name: (linetype, lw) for name, _aci, linetype, lw, _d in ARCH_LAYERS}
     assert rows.pop("0") == ("Continuous", 0.25)
     assert rows == EXPECTED_LAYERS
@@ -79,6 +80,7 @@ def test_every_role_maps_onto_a_layer_of_the_set():
         "stair": "A-STAIR-E-N",
         "furniture": "A-FURN-E-N",
         "sanitary": "A-SANR-E-N",
+        "electrical": "A-ELEC-E-N",
         "grid": "A-GRID-E-N",
         "room": "A-ROOM-T-N",
         "room_separator": "A-ROOM-E-N",

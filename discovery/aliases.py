@@ -2445,6 +2445,28 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "mobilya yerlestir",
         ),
     ),
+    "arch_electrical": ToolAliases(
+        synonyms=(
+            "electrical outlet symbol",
+            "socket outlet",
+            "power socket on plan",
+            "light switch symbol",
+            "lighting outlet ceiling light",
+            "rj45 data outlet tv sat usb",
+            "smoke detector co sensor flood sensor",
+            "thermostat intercom distribution board",
+            "floor box",
+            "electrical layout interior plan",
+            "gniazdo wtyczkowe",
+            "gniazdka elektryczne",
+            "wypust oswietleniowy",
+            "lacznik",
+            "rozdzielnica",
+            "wideodomofon",
+            "czujka dymu",
+            "priz anahtar",
+        ),
+    ),
     "interior_tile_layout": ToolAliases(
         acad=(),
         synonyms=(

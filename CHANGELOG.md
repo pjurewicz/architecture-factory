@@ -23,6 +23,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that is not shipped. `fonts_substituted` / `render_font` name the narrowed
   face (`acadmcp-dejavusans-x0.815.ttf`); a machine with the real face uses it.
 
+### Added
+
+- `arch_electrical(items, kind?, scale=50, snap=300)` (pack `arch`): an
+  interior plan's electrical symbols in one call - socket (`count` 2 -> `2x`),
+  floor box, ceiling and wall lighting outlet, switch, RJ45 / TV / SAT / USB
+  outlet, smoke / CO / flood detector, thermostat, video door phone and
+  distribution board. Round 3's agent defined 13 blocks by hand and inserted
+  about 95 (`search_tools("electrical outlet symbol")` found P&ID and weld
+  symbols). A wall device without `rotation` snaps to the nearest wall face -
+  the `arch_wall` junction engine's faces, an `A-WALL*` outline, or a bare
+  `A-WALL*` line (the room side then from the point) - with its origin on the
+  face and its front into the room. One block per kind and scale
+  (`ARCH_E_<KIND>_<scale>`, layer `A-ELEC-E-N`, added to the `arch` set) with
+  the attributes `ITEM` (invisible), `CODE`, `N` (`2x`) and `H` (`H=30CM`
+  from `height` in mm, or `label`), the visible ones turned to 0 degrees and
+  set beside the symbol on its room side whatever the wall. The graphics are
+  the repository's nominal convention in paper mm x `scale`, not a standard
+  (`symbol_basis` in every result). Refusals - an unknown kind with the list,
+  a bad count / height / point, a wall device with no face within `snap` -
+  fire before anything is drawn.
+
 ### Changed
 
 - `cad_batch` prints a created handle once: `changes.added` leaves out the

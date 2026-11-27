@@ -2169,6 +2169,7 @@ PACK_TOOL_NAMES: dict[str, frozenset[str]] = {
             "arch_symbol",
             "arch_catalogue_list",
             "arch_catalogue_insert",
+            "arch_electrical",
             "arch_dimension_chains",
             "arch_plan_from_spec",
             "arch_plan_patch",
@@ -13053,7 +13054,7 @@ async def data_extract(
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 25: Architecture (16 tools) ─────────────────────────────────────
+# ── SECTION 25: Architecture (17 tools) ─────────────────────────────────────
 # ---------------------------------------------------------------------------
 
 
@@ -13845,6 +13846,57 @@ async def arch_catalogue_insert(
             depth=depth,
             height=height,
         )
+    except ValueError as exc:
+        raise ToolError(str(exc)) from exc
+
+
+@cad_tool(
+    summary="Place electrical outlets, switches and devices on an interior plan, in one batch.",
+    cost="mutate",
+)
+@mcp.tool(
+    annotations={"title": "Architecture: Electrical Symbols", "destructiveHint": False},
+    tags={"arch", "create"},
+)
+async def arch_electrical(
+    items: Annotated[
+        list[dict],
+        Field(
+            description=(
+                "[{kind?, at: [x, y], count?: 2 -> '2x', height?: mm -> 'H=30CM', "
+                "rotation?, label?}]"
+            )
+        ),
+    ],
+    kind: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description=(
+                "Default kind: socket | floor_box | light_outlet | wall_light | switch | data | "
+                "tv | sat | usb | smoke_detector | co_detector | flood_detector | thermostat | "
+                "intercom | panel"
+            ),
+        ),
+    ] = None,
+    scale: Annotated[float, Field(default=50.0, gt=0, description="Plot-scale denominator")] = 50.0,
+    snap: Annotated[
+        float, Field(default=300.0, gt=0, description="Wall-face search radius, drawing units")
+    ] = 300.0,
+    ctx: Context = None,
+) -> dict:
+    """Insert symbol blocks ARCH_E_<KIND>_<scale> on layer A-ELEC-E-N.
+
+    A wall device without `rotation` snaps to the nearest wall face (arch_wall,
+    A-WALL* outline or line): origin on the face, facing the room. Count and
+    height are attributes N / H, kept horizontal beside the symbol. Graphics are
+    this server's nominal convention in paper mm x scale, not a standard.
+    """
+    from engineering.arch.electrical import insert_devices
+
+    await ctx.info(f"arch electrical: {len(items)} item(s) at 1:{scale:g}")
+    try:
+        return await insert_devices(_backend(ctx), items, kind=kind, scale=scale, snap=snap)
     except ValueError as exc:
         raise ToolError(str(exc)) from exc
 

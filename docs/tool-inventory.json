@@ -3,14 +3,14 @@
   "schema_version": 2,
   "package_version": "1.8.0",
   "totals": {
-    "tools": 244,
+    "tools": 245,
     "resources": 13,
     "prompts": 5,
     "groups": 27
   },
   "groups": {
     "analysis": 12,
-    "architecture": 16,
+    "architecture": 17,
     "batch": 3,
     "blocks": 9,
     "corner_ops": 4,
@@ -360,6 +360,41 @@
       ],
       "annotations": {
         "title": "Architecture: Dimension Chains",
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "arch_electrical",
+      "group": "architecture",
+      "cost": "mutate",
+      "summary": "Place electrical outlets, switches and devices on an interior plan, in one batch.",
+      "acad": [],
+      "synonyms": [
+        "electrical outlet symbol",
+        "socket outlet",
+        "power socket on plan",
+        "light switch symbol",
+        "lighting outlet ceiling light",
+        "rj45 data outlet tv sat usb",
+        "smoke detector co sensor flood sensor",
+        "thermostat intercom distribution board",
+        "floor box",
+        "electrical layout interior plan",
+        "gniazdo wtyczkowe",
+        "gniazdka elektryczne",
+        "wypust oswietleniowy",
+        "lacznik",
+        "rozdzielnica",
+        "wideodomofon",
+        "czujka dymu",
+        "priz anahtar"
+      ],
+      "tags": [
+        "arch",
+        "create"
+      ],
+      "annotations": {
+        "title": "Architecture: Electrical Symbols",
         "destructiveHint": false
       }
     },
