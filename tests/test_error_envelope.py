@@ -219,6 +219,9 @@ async def _provoke(client, tmp_path, monkeypatch, case: str) -> tuple[str, dict]
         }
     if case == "missing_file":
         return "drawing_open", {"path": str(tmp_path / "missing.dxf")}
+    if case == "no_document":
+        await client.call_tool("document_close", {"discard": True})
+        return "drawing_info", {}
     raise AssertionError(case)
 
 
@@ -229,6 +232,7 @@ CASES = {
     "unsupported": "unsupported",
     "stale_preview": "stale_revision",
     "missing_file": "file_not_found",
+    "no_document": "no_document",
 }
 
 
@@ -254,6 +258,13 @@ async def test_a_provoked_error_has_one_kind_direct_and_as_a_batch_step(
     step = await _step_error(client, tool, args)
     assert step["kind"] == STEP_KINDS.get(case, kind), "the direct route and the batch step agree"
     assert step["category"] == spec.category and isinstance(step["retryable"], bool)
+
+
+@pytest.mark.asyncio
+async def test_a_bad_screenshot_region_is_invalid_args_with_its_hint(client):
+    _, payload = await _error(client, "view_screenshot", {"region": [0, 0, 0, 5]})
+    assert payload["kind"] == "invalid_args"
+    assert payload["hint"] == errors.describe("invalid_args").hint
 
 
 #: 1.8-09: a LITERAL handle that names nothing never reaches its step - the

@@ -160,6 +160,7 @@ ERROR_KINDS = BATCH_KINDS_1_7 + (
     "file_not_found",
     "internal",
     "requires_reconcile",
+    "no_document",
     *GATE_KINDS,
     *FILE_KINDS,
     "process_exit",
@@ -222,6 +223,9 @@ ERROR_TABLE: dict[str, KindSpec] = {
         "policy", False, "The server's tool policy refused the call; nothing ran."
     ),
     "file_not_found": KindSpec("file", False, "No file at that path."),
+    "no_document": KindSpec(
+        "input", False, "Open one: drawing_new() or drawing_open(path); document_list names them."
+    ),
     "internal": KindSpec("internal", False, "A server bug; report it with the operation_id."),
     "validation_failed": KindSpec(
         "validation", False, "Fix the blocking findings and finalize again."
@@ -320,6 +324,19 @@ class EntityNotFoundError(RuntimeError):
     def __init__(self, handle, message: str | None = None):
         self.handle = str(handle)
         super().__init__(message or f"Entity with handle '{handle}' not found.")
+
+
+class NoDocumentError(RuntimeError):
+    """A call that needs a document while none is active. A ``RuntimeError``
+    with the sentence the engine raised before, typed so its hint says how to
+    open one instead of the ``failed`` row's "check the drawing"."""
+
+    kind = "no_document"
+
+    def __init__(
+        self, message: str = "No document open. Call drawing_new() or drawing_open() first."
+    ):
+        super().__init__(message)
 
 
 class DimensionRenderError(RuntimeError):
@@ -792,6 +809,7 @@ def classify(exc: BaseException) -> dict:
         EntityNotFoundError,
         InvalidArgsError,
         DimensionRenderError,
+        NoDocumentError,
     ):
         found = _first_of(exc, typed)
         if found is not None:

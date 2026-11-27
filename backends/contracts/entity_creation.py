@@ -81,10 +81,11 @@ def batch_create_adapter():
         corners = ("x1", "y1", "x2", "y2", "x", "y", "width", "height")
         shapes[alias] = {key: (float | None, None) for key in corners} | base
     # The shared fields an item takes whether or not its create does, applied
-    # after it (entity_batch_create): linetype on every type, a text style on
+    # after it (entity_batch_create): linetype and color on every type, a text style on
     # TEXT / MTEXT, the line spacing factor on MTEXT.
     for kind, fields in shapes.items():
         fields.setdefault("linetype", (str | None, None))
+        fields.setdefault("color", (int | None, None))
         if kind in ("text", "mtext"):
             fields["style"] = (str | None, None)
         if kind == "mtext":
@@ -441,7 +442,7 @@ class EntityCreationContract(ABC):
 
         A spec is ``{"type": <BATCH_CREATE_TYPES or _ALIASES>, ...that create's
         arguments}`` plus an optional ``lineweight`` (refused by name before
-        the create, so a bad one draws nothing), ``linetype`` on a type whose
+        the create, so a bad one draws nothing), ``linetype`` / ``color`` on a type whose
         create has none, and ``style`` / ``line_spacing`` on text and mtext
         (set after the create; a refused one deletes the entity it drew). ``errors`` rows are
         ``{index, error}`` for a missing or unknown type and
@@ -475,8 +476,9 @@ class EntityCreationContract(ABC):
             try:
                 # Parsed before the create, so a refused lineweight draws nothing.
                 weight = parse_lineweight(spec.pop("lineweight", None))
-                has_linetype = "linetype" in inspect.signature(creator).parameters
-                linetype = None if has_linetype else spec.pop("linetype", None)
+                accepted = inspect.signature(creator).parameters
+                linetype = None if "linetype" in accepted else spec.pop("linetype", None)
+                color = None if "color" in accepted else spec.pop("color", None)
                 text_props = {
                     key: value
                     for key in ("style", "line_spacing")
@@ -485,10 +487,12 @@ class EntityCreationContract(ABC):
                 spec = self.batch_create_spec(name, spec)
                 info = await creator(**spec)
                 try:
-                    if weight is not None or linetype is not None:
+                    if weight is not None or linetype is not None or color is not None:
                         await self.entity_set_properties(
-                            info.handle, lineweight=weight, linetype=linetype
+                            info.handle, lineweight=weight, linetype=linetype, color=color
                         )
+                        if color is not None:
+                            info.color = color
                         if weight is not None:
                             info.lineweight_name = lineweight_name(weight)
                         if linetype is not None:

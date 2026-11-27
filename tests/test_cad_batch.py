@@ -764,6 +764,22 @@ async def test_entity_batch_create_advertises_and_enforces_one_item_schema(full_
     assert result.structured_content["created"] == 2
 
 
+async def test_an_unknown_item_key_is_named_with_the_keys_its_type_takes(client):
+    """Round 3: "not valid under any of the given schemas" sent an agent guessing."""
+    bad = {"type": "insert", "name": "B", "x": 0, "y": 0, "colour": 1}
+    entities = [_line()["args"]] * 2 + [bad]
+    entities = [{"type": "line", **e} for e in entities]
+    planned = await _batch(
+        client, [{"tool": "entity_batch_create", "args": {"entities": entities}}], dry_run=True
+    )
+    direct = await client.call_tool(
+        "entity_batch_create", {"entities": entities}, raise_on_error=False
+    )
+    for text in (json.dumps(planned), direct.content[0].text):
+        assert "unknown key" in text and "colour" in text and "type=insert" in text
+        assert "allowed: attributes, color," in text
+
+
 @pytest.mark.parametrize(
     "bad",
     [

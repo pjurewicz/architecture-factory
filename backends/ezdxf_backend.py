@@ -35,6 +35,7 @@ from engineering.errors import (
     DimensionRenderError,
     EntityNotFoundError,
     InvalidArgsError,
+    NoDocumentError,
     UnknownHandleError,
 )
 from engineering.viewport_clip import mtext_box
@@ -2572,7 +2573,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         """Registry key for ``None`` (the active document), a key, a path or a basename."""
         if name_or_path is None:
             if self._active_key is None:
-                raise RuntimeError("No document open. Call drawing_new() or drawing_open() first.")
+                raise NoDocumentError()
             return self._active_key
         if not isinstance(name_or_path, str):
             raise TypeError(f"name_or_path must be a string, got {type(name_or_path).__name__}")
@@ -2708,7 +2709,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
 
     def _require_doc(self):
         if self._doc is None:
-            raise RuntimeError("No document open. Call drawing_new() or drawing_open() first.")
+            raise NoDocumentError()
         return self._doc
 
     def _require_block(self, name):

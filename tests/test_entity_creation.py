@@ -174,7 +174,15 @@ async def test_batch_create_shared_linetype_style_and_line_spacing(backend):
                 "end_angle": 90,
                 "linetype": "DASHDOT",
             },
-            {"type": "rectangle", "x1": 0, "y1": 0, "x2": 5, "y2": 5, "linetype": "HIDDEN"},
+            {
+                "type": "rectangle",
+                "x1": 0,
+                "y1": 0,
+                "x2": 5,
+                "y2": 5,
+                "linetype": "HIDDEN",
+                "color": 3,
+            },
             {"type": "text", "text": "A", "x": 0, "y": 0, "style": "ISO"},
             {"type": "mtext", "text": "A\\PB", "x": 0, "y": 0, "style": "ISO", "line_spacing": 1.5},
         ]
@@ -182,6 +190,7 @@ async def test_batch_create_shared_linetype_style_and_line_spacing(backend):
     assert result["errors"] == []
     arc, rect, text, mtext = (backend._doc.entitydb[e["handle"]] for e in result["entities"])
     assert (arc.dxf.linetype, rect.dxf.linetype) == ("DASHDOT", "HIDDEN")
+    assert rect.dxf.color == 3
     assert "DASHDOT" in backend._doc.linetypes  # loaded, not just named
     assert text.dxf.style == mtext.dxf.style == "ISO"
     assert mtext.dxf.line_spacing_factor == pytest.approx(1.5)

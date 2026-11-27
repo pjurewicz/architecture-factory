@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextvars
+import functools
 import json
 import logging
 import math
@@ -5984,13 +5985,49 @@ def _validate_batch_args(schema: dict, args: dict) -> str | None:
     if not problems:
         return None
     problems.sort(key=lambda error: list(error.absolute_path))
-    first = problems[0]
+    first = _batch_branch_error(problems[0])
     where = "/".join(str(part) for part in first.absolute_path)
     detail = " ".join(str(first.message).split())
+    if first.validator == "additionalProperties" and isinstance(first.instance, dict):
+        allowed = sorted(first.schema.get("properties", {}))
+        extra = sorted(set(first.instance) - set(allowed))
+        kind = first.instance.get("type")
+        detail = (
+            f"unknown key {', '.join(extra)}"
+            + (f" for type={kind}" if isinstance(kind, str) else "")
+            + f"; allowed: {', '.join(allowed)}"
+        )
     text = f"{where}: {detail}" if where else detail
     if len(problems) > 1:
         text = f"{text} (+{len(problems) - 1} more)"
     return text[:_BATCH_MESSAGE_CHARS]
+
+
+def _batch_branch_error(error):
+    """A ``oneOf`` / ``anyOf`` failure narrowed to the branch the item meant:
+    the one whose ``type`` const is the item's own ``type`` (entity_batch_create
+    items), so the message names the key that broke it, not "not valid under
+    any of the given schemas"."""
+    while error.validator in ("oneOf", "anyOf") and error.context:
+        kind = error.instance.get("type") if isinstance(error.instance, dict) else None
+        branches = error.schema.get(error.validator, [])
+        chosen = [
+            sub
+            for sub in error.context
+            if isinstance(kind, str)
+            and sub.relative_schema_path
+            and isinstance(sub.relative_schema_path[0], int)
+            and sub.relative_schema_path[0] < len(branches)
+            and branches[sub.relative_schema_path[0]]
+            .get("properties", {})
+            .get("type", {})
+            .get("const")
+            == kind
+        ]
+        if not chosen:
+            break
+        error = min(chosen, key=lambda sub: len(sub.relative_schema_path))
+    return error
 
 
 def _batch_dim_overrides(args: dict) -> None:
@@ -7251,6 +7288,16 @@ def _trim_atomicity(block: dict) -> None:
         block.pop("note", None)
 
 
+@functools.cache
+def _batch_item_keys(kind: str) -> tuple[str, ...]:
+    """The keys an ``entity_batch_create`` item of ``kind`` accepts."""
+    for branch in _inline_json_schema(_batch_create_adapter().json_schema()).get("oneOf", []):
+        props = branch.get("properties", {})
+        if props.get("type", {}).get("const") == kind:
+            return tuple(props)
+    return ()
+
+
 @cad_tool(summary="Draw many entities in one call instead of one round trip each.", cost="mutate")
 @mcp.tool(
     annotations={"title": "Batch Create Entities", "readOnlyHint": False},
@@ -7309,10 +7356,14 @@ async def entity_batch_create(
         try:
             _batch_create_adapter().validate_python({**spec, "type": str(spec["type"]).lower()})
         except ValidationError as exc:
-            problems += [
-                f"entities[{i}].{'.'.join(map(str, err['loc'][1:]))}: {err['msg']}"
-                for err in exc.errors()
-            ]
+            kind = str(spec["type"]).lower()
+            for err in exc.errors():
+                where = f"entities[{i}].{'.'.join(map(str, err['loc'][1:]))}"
+                if err["type"] == "extra_forbidden":
+                    allowed = ", ".join(sorted(_batch_item_keys(kind)))
+                    problems.append(f"{where}: unknown key for type={kind}; allowed: {allowed}")
+                else:
+                    problems.append(f"{where}: {err['msg']}")
     if problems:
         raise InvalidArgsError(f"invalid_args: {'; '.join(problems[:10])} - nothing was drawn")
     total = len(entities)
@@ -7740,7 +7791,7 @@ async def _view_render(b, *, region, max_px: int, overlay_handles: bool = False,
             region=region, max_px=max_px, overlay_handles=overlay_handles, **overlay
         )
     except ValueError as exc:
-        raise ToolError(str(exc)) from exc
+        raise InvalidArgsError(str(exc)) from exc
 
 
 def _view_image_result(report: dict, unavailable: str) -> ToolResult:
