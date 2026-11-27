@@ -31,8 +31,23 @@ a text that leaves its own span gets a leader to its dimension line
 moves out until it clears every chain text. Text widths are estimated from the
 formatted value (``TEXT_WIDTH_FACTOR``), not measured from a font.
 
+Repeated tight spans - two or more equal neighbours whose texts do not fit,
+a stair's or a joist spacing's 4 x 205 - are reported in ``repeats`` with a
+``tight_repeats`` warning. ``merge_repeats=True`` draws each such run as one
+dimension over the whole run with the override ``4 × 205 = <>``: the number it
+claims is its own measurement (820), so the sheet stays honest under
+``dimension_truth`` (a count prefix is never the claimed size); the stations
+inside the run lose their extension lines.
+
+``axis`` names the points (indices into ``points``) that lie on a wall's or a
+partition's axis rather than on a face: every extension line at such a
+station is drawn with the CENTER linetype (DIMLTEX1 / DIMLTEX2), the axis
+convention. An extension line of zero length - a point on its own dimension
+line, as ``offset`` 0 gives - is suppressed (DIMSE1 / DIMSE2) instead of
+leaving a DIMEXE tick; an axis station there is warned ``axis_on_line``.
+
 ISO 129-1: each measurement once - the overall row is drawn only when the
-chain has two spans or more.
+chain has two rows or more.
 """
 
 from __future__ import annotations
@@ -78,6 +93,21 @@ def _points(points) -> list[tuple[float, float]]:
     return out
 
 
+def _axis(axis, count: int) -> set[int]:
+    if axis is None:
+        return set()
+    if not isinstance(axis, (list, tuple)):
+        raise ValueError(f"axis: expected a list of point indices, got {axis!r}")
+    out = set()
+    for i, k in enumerate(axis):
+        if isinstance(k, bool) or not isinstance(k, int) or not 0 <= k < count:
+            raise ValueError(
+                f"axis[{i}]: expected an index into points (0..{count - 1}), got {k!r}"
+            )
+        out.add(k)
+    return out
+
+
 def plan_chain(
     points,
     offset,
@@ -91,18 +121,22 @@ def plan_chain(
     style_vars=None,
     ext_beyond=None,
     leader: bool = True,
+    merge_repeats: bool = False,
+    axis=None,
 ) -> dict:
     """The chain's dimensions and their text places, in drawing units; draws nothing.
 
     ``text_height`` and ``gap`` are DIMTXT and DIMGAP times DIMSCALE, ``step``
     the distance from the chain row to the overall row (default
     ``STEP_PAPER_MM`` times ``text_height / 2.5``). Returns ``{orientation,
-    angle, rows: [{row, from, to, value, dim_at, text_at, placement, leader}],
-    merged}``; ``placement`` is ``inline`` (where the style puts it),
+    angle, rows: [{row, from, to, value, dim_at, text_at, placement, leader,
+    extension}], merged, repeats, warnings}``; a merged repeat row also carries
+    ``repeat {count, value}`` and its ``text`` override; ``placement`` is ``inline`` (where the style puts it),
     ``staggered`` (the other side of the line, inside its span) or ``moved``
     (slid out of its span).
     """
     pts = _points(points)
+    on_axis = _axis(axis, len(pts))
     offset = _number(offset, "offset")
     if orientation not in ORIENTATIONS:
         raise ValueError(f"orientation: {orientation!r} is not one of {', '.join(ORIENTATIONS)}")
@@ -154,29 +188,29 @@ def plan_chain(
     # stations: one point per projection, the one nearest the dimension line
     extent = max(1.0, *(abs(c) for p in pts for c in p))
     eps = 1e-9 * extent
-    stations: list[tuple[float, float, tuple[float, float]]] = []
+    # (along, across, point, on an axis)
+    stations: list[tuple[float, float, tuple[float, float], bool]] = []
     merged: list[dict] = []
-    for p in sorted(pts, key=lambda q: local(q)[0]):
+    for i, p in sorted(enumerate(pts), key=lambda q: local(q[1])[0]):
         s, t = local(p)
         if stations and abs(s - stations[-1][0]) <= eps:
             keep = stations[-1]
             nearer = t * side > keep[1] * side
             drop = keep[2] if nearer else p
-            if nearer:
-                stations[-1] = (keep[0], t, p)
+            kept = (keep[0], t, p) if nearer else keep[:3]
+            stations[-1] = (*kept, keep[3] or i in on_axis)
             merged.append({"point": list(drop), "kept": list(stations[-1][2])})
             continue
-        stations.append((s, t, p))
+        stations.append((s, t, p, i in on_axis))
     if len(stations) < 2:
         raise ValueError(
             f"points: all project onto one station along the {orientation} direction; "
             "nothing to dimension"
         )
 
-    outer = max(t * side for _, t, _ in stations) * side
+    outer = max(st[1] * side for st in stations) * side
     chain_line = outer + side * abs(offset)
     spans = list(zip(stations, stations[1:], strict=False))
-    with_overall = bool(overall) and len(spans) >= 2
 
     # across positions as distances from a row's line, + away from the geometry;
     # a linear dimension's text stands on local +t ("above") when DIMTAD is set
@@ -189,8 +223,62 @@ def plan_chain(
     sep = max(g, h)  # closer, "60" and "105" read as "60105"
     boxes: list[tuple[float, float, float, float]] = []  # along lo/hi, away lo/hi
 
-    def width(value: float) -> float:
-        return len(format_value(value, 0, style_vars)) * TEXT_WIDTH_FACTOR * h
+    def fmt(value: float) -> str:
+        return format_value(value, 0, style_vars)
+
+    def width(text: str) -> float:
+        return len(text) * TEXT_WIDTH_FACTOR * h
+
+    def tight(span) -> bool:
+        length = span[1][0] - span[0][0]
+        return width(fmt(length)) + 2.0 * g > length
+
+    # runs of two or more equal neighbouring spans whose texts do not fit
+    runs: list[tuple[int, int]] = []
+    i = 0
+    while i < len(spans):
+        j = i + 1
+        if tight(spans[i]):
+            length = spans[i][1][0] - spans[i][0][0]
+            while (
+                j < len(spans)
+                and abs(spans[j][1][0] - spans[j][0][0] - length) <= eps
+                and tight(spans[j])
+            ):
+                j += 1
+        if j - i >= 2:
+            runs.append((i, j))
+        i = j
+    repeats, warnings = [], []
+    # units: (start station, end station, repeat (count, value) or None, text or None)
+    units = [(a, b, None, None) for a, b in spans]
+    for i, j in reversed(runs):
+        a, b = spans[i][0], spans[j - 1][1]
+        count, value = j - i, round(spans[i][1][0] - spans[i][0][0], 9)
+        total = b[0] - a[0]
+        repeats.append({"count": count, "value": value, "from": list(a[2]), "to": list(b[2])})
+        if merge_repeats:
+            units[i:j] = [(a, b, (count, value), f"{count} × {fmt(value)} = <>")]
+        else:
+            warnings.append(
+                {
+                    "code": "tight_repeats",
+                    "count": count,
+                    "value": value,
+                    "from": list(a[2]),
+                    "to": list(b[2]),
+                    "message": f"{count} equal spans of {fmt(value)} do not fit their texts; "
+                    f"merge_repeats=True draws one {count} × {fmt(value)} = {fmt(total)}",
+                }
+            )
+    repeats.reverse()
+    warnings.reverse()
+    with_overall = bool(overall) and len(units) >= 2
+
+    def label(unit) -> str:
+        a, b, _, text = unit
+        total = fmt(b[0] - a[0])
+        return text.replace("<>", total) if text else total
 
     def free(rect, lines_away=()) -> bool:
         if any(rect[2] - g < at < rect[3] + g for at in lines_away):
@@ -205,8 +293,9 @@ def plan_chain(
 
     texts: list[tuple[float, float, str]] = []  # along, away from the chain line, placement
     tight: list[int] = []
-    for i, (a, b) in enumerate(spans):
-        mid, w = (a[0] + b[0]) / 2.0, width(b[0] - a[0])
+    for i, unit in enumerate(units):
+        a, b = unit[0], unit[1]
+        mid, w = (a[0] + b[0]) / 2.0, width(label(unit))
         r = rect(mid, w, t0)
         texts.append((mid, t0, "inline"))
         if w + 2.0 * g <= b[0] - a[0] and free(r):
@@ -216,8 +305,8 @@ def plan_chain(
     # the overall row's extension lines run through the tiers at the chain's ends
     ends = (stations[0][0], stations[-1][0]) if with_overall else ()
     for i in tight:
-        a, b = spans[i]
-        mid, w = (a[0] + b[0]) / 2.0, width(b[0] - a[0])
+        a, b = units[i][0], units[i][1]
+        mid, w = (a[0] + b[0]) / 2.0, width(label(units[i]))
         spot = next(
             ((mid, away, "staggered") for away in tiers if free(rect(mid, w, away))),
             None,
@@ -226,7 +315,7 @@ def plan_chain(
             alongs = {mid}
             for o in boxes:
                 alongs |= {o[1] + sep + w / 2.0, o[0] - sep - w / 2.0}
-            for e in (s for s, _, _ in stations):
+            for e in (st[0] for st in stations):
                 alongs |= {e + g + w / 2.0, e - g - w / 2.0}
             spot = next(
                 (
@@ -243,8 +332,12 @@ def plan_chain(
         texts[i] = spot
 
     rows = []
-    for (a, b), (along, away, placement) in zip(spans, texts, strict=True):
-        rows.append(_row("chain", a, b, chain_line, along, chain_line + side * away, placement))
+    for (a, b, repeat, text), (along, away, placement) in zip(units, texts, strict=True):
+        row = _row("chain", a, b, chain_line, along, chain_line + side * away, placement)
+        if repeat:
+            row["repeat"] = {"count": repeat[0], "value": repeat[1]}
+            row["text"] = text
+        rows.append(row)
     overall_away = None
     if with_overall:
         # beyond every chain text by a gap, at least ``step`` from the chain line
@@ -255,14 +348,35 @@ def plan_chain(
         a, b = stations[0], stations[-1]
         rows.append(_row("overall", a, b, line, (a[0] + b[0]) / 2.0, line + side * t0, "inline"))
     for row in rows:
+        line = row.pop("_line")
+        row["extension"] = [
+            "axis"
+            if st[3] and abs(st[1] - line) > eps
+            else "line"
+            if abs(st[1] - line) > eps
+            else "suppressed"
+            for st in row.pop("_ends")
+        ]
         row["dim_at"] = [round(c, 9) for c in world(*row.pop("_dim"))]
         row["text_at"] = [round(c, 9) for c in world(*row.pop("_text"))]
         row["leader"] = bool(leader) and row["placement"] == "moved"
+    for st in stations:
+        if st[3] and abs(st[1] - chain_line) <= eps:
+            warnings.append(
+                {
+                    "code": "axis_on_line",
+                    "point": list(st[2]),
+                    "message": "an axis point on the chain's own dimension line has no "
+                    "extension line to draw dash-dot; give an offset to show it",
+                }
+            )
     return {
         "orientation": orientation,
         "angle": angle,
         "rows": rows,
         "merged": merged,
+        "repeats": repeats,
+        "warnings": warnings,
         "overall_offset": overall_away,
     }
 
@@ -274,9 +388,21 @@ def _row(row, a, b, line, along, across, placement) -> dict:
         "to": list(b[2]),
         "value": round(b[0] - a[0], 9),
         "placement": placement,
+        "_line": line,
+        "_ends": (a, b),
         "_dim": ((a[0] + b[0]) / 2.0, line),
         "_text": (along, across),
     }
+
+
+def _extension_vars(extension) -> dict:
+    out = {}
+    for end, kind in enumerate(extension, start=1):
+        if kind == "suppressed":
+            out[f"dimse{end}"] = 1
+        elif kind == "axis":
+            out[f"dimltex{end}"] = "CENTER"
+    return out
 
 
 async def draw_chain(
@@ -290,6 +416,8 @@ async def draw_chain(
     scale=None,
     layer: str | None = None,
     leader: bool = True,
+    merge_repeats: bool = False,
+    axis=None,
     dry_run: bool = False,
 ) -> dict:
     """``plan_chain`` drawn as real linear DIMENSIONs inside one transaction.
@@ -320,6 +448,8 @@ async def draw_chain(
         tad=int(style["dimtad"] or 0),
         style_vars={k: v for k, v in style.items() if v is not None},
         leader=leader,
+        merge_repeats=merge_repeats,
+        axis=axis,
     )
     layer = layer or backend._role_layer("dim")
     result = {
@@ -333,6 +463,8 @@ async def draw_chain(
         "moved": sum(r["placement"] == "moved" for r in plan["rows"]),
         "dimensions": plan["rows"],
         "merged": plan["merged"],
+        "repeats": plan["repeats"],
+        "warnings": plan["warnings"],
         "overall": any(r["row"] == "overall" for r in plan["rows"]),
         "dry_run": bool(dry_run),
         "backend": backend.name,
@@ -357,8 +489,10 @@ async def draw_chain(
                     row["dim_at"][1],
                     plan["angle"],
                     layer,
+                    text_override=row.get("text"),
                     text_at=tuple(row["text_at"]),
                     text_leader=row["leader"],
+                    dimvars=_extension_vars(row["extension"]),
                 )
                 row["handle"] = info.handle
                 handles.append(info.handle)

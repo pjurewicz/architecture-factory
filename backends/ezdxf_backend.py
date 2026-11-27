@@ -6912,6 +6912,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         *,
         text_at=None,
         text_leader=False,
+        dimvars=None,
     ) -> EntityInfo:
         prepared = prepare_xdata(xdata)
         from backends.contracts.dimensions import linear_rotation
@@ -6923,6 +6924,11 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
 
             override, text = build_dim_override(tol_upper, tol_lower, tol_mode, text_override)
             override = _with_header_dimvars(self._require_doc(), override)
+            if dimvars:
+                for name in ("dimltex1", "dimltex2"):
+                    if dimvars.get(name):
+                        _ensure_linetype_loaded(self._require_doc(), dimvars[name])
+                override = {**(override or {}), **dimvars}
             location = None
             if text_at is not None:
                 location = (float(text_at[0]), float(text_at[1]))

@@ -3563,6 +3563,17 @@ async def dimension_chain(
     leader: Annotated[
         bool, Field(default=True, description="Leader to a text moved out of its span")
     ] = True,
+    merge_repeats: Annotated[
+        bool,
+        Field(
+            default=False,
+            description="Draw a run of equal tight spans as one '4 × 205 = <>' dimension",
+        ),
+    ] = False,
+    axis: Annotated[
+        list[int] | None,
+        Field(default=None, description="Indices of points on a wall axis: CENTER extension lines"),
+    ] = None,
     layer: Annotated[
         str | None, Field(default=None, description="Default: the layer set's DIM")
     ] = None,
@@ -3577,7 +3588,9 @@ async def dimension_chain(
     A text wider than its span (e.g. 60 / 105 at 1:20) is staggered onto
     alternating tiers beyond the line, else slid to the nearest free place with
     a leader; the overall row moves out to clear them. Each row reports
-    `placement` inline | staggered | moved. Drawn in one transaction.
+    `placement` inline | staggered | moved. Equal tight neighbours are warned
+    `tight_repeats`; `merge_repeats` draws them as one `4 × 205 = 820`.
+    Drawn in one transaction.
 
     Refused by name: fewer than two stations, an unknown orientation.
     """
@@ -3594,6 +3607,8 @@ async def dimension_chain(
             scale=scale,
             layer=layer,
             leader=leader,
+            merge_repeats=merge_repeats,
+            axis=axis,
             dry_run=dry_run,
         )
     except ValueError as exc:

@@ -58,12 +58,14 @@ class DimensionContract(ABC):
         *,
         text_at: tuple[float, float] | None = None,
         text_leader: bool = False,
+        dimvars: dict | None = None,
     ) -> EntityInfo:
         """``rotation`` None picks horizontal or vertical like DIMLINEAR
         (:func:`linear_rotation`). ``text_at`` places the text's middle there and
         leaves the dimension line where ``dim_x, dim_y`` put it (DIMTMOVE 2: no
         leader; ``text_leader`` True: DIMTMOVE 1, a leader from the dimension
-        line's middle to the text); None lets the style place it."""
+        line's middle to the text); None lets the style place it. ``dimvars``
+        are per-dimension DIMSTYLE overrides (e.g. ``dimse1``, ``dimltex2``)."""
 
     @abstractmethod
     async def dimension_aligned(

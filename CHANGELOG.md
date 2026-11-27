@@ -94,6 +94,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `offset=0` draws the line through the outermost point (on the points when
   they are collinear: internal dimensions), every row on the text's side -
   above a horizontal or aligned chain, left of a vertical one.
+  Two or more equal neighbouring spans whose texts do not fit are reported in
+  `repeats` and warned `tight_repeats`; `merge_repeats=True` draws each run as
+  one dimension over the run with the override `4 × 205 = <>`, so the sheet
+  claims its own measurement (820) and `dimension_truth` binds it (a bare
+  `4 × 205` would claim 205). `axis=[i, ...]` marks points on a wall or
+  partition axis: their extension lines are drawn CENTER (DIMLTEX1/2), each row
+  reports `extension` (`line` / `axis` / `suppressed`), and an axis point on the
+  chain's own line is warned `axis_on_line`. A zero-length extension line (a
+  point on the dimension line, `offset=0`) is now suppressed (DIMSE1/2) instead
+  of leaving a DIMEXE tick. `dimension_linear`'s backend method takes `dimvars`.
 - Parametric catalogue items: `arch_catalogue_insert(width=, depth=, height=)`
   redraws an item's plan symbol for the given footprint (rails, rims and chairs
   keep their real sizes), within the range each row reports as `size_range`;

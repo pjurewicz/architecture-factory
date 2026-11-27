@@ -117,6 +117,69 @@ async def test_offset_zero_puts_the_line_on_the_points_texts_above_or_left(backe
     assert dims[2].dxf.defpoint.x < 10
 
 
+# a joist run at 1:50: 300, then 4 x 205 whose texts (281 wide at h 125) do not fit, then 300
+JOISTS = [[0, 0], [300, 0], [505, 0], [710, 0], [915, 0], [1120, 0], [1420, 0]]
+
+
+@pytest.mark.asyncio
+async def test_tight_repeats_are_warned_and_merged_into_one_honest_dimension(backend):
+    from engineering.critique import run_critique
+
+    warned = await draw_chain(backend, JOISTS, -500, scale=50, dry_run=True)
+    assert [r["value"] for r in warned["dimensions"]] == [300, 205, 205, 205, 205, 300, 1420]
+    assert [(w["code"], w["count"], w["value"]) for w in warned["warnings"]] == [
+        ("tight_repeats", 4, 205)
+    ]
+    # a 300 next to the run is not part of it, though it is tight too
+    assert warned["repeats"] == [{"count": 4, "value": 205, "from": [300, 0], "to": [1120, 0]}]
+
+    msp = backend._require_doc().modelspace()
+    for x, _ in JOISTS:
+        msp.add_line((x, 0), (x, 100))
+    out = await draw_chain(backend, JOISTS, -500, scale=50, merge_repeats=True)
+    assert out["warnings"] == []
+    chain = [r for r in out["dimensions"] if r["row"] == "chain"]
+    assert [r["value"] for r in chain] == [300, 820, 300]
+    assert chain[1]["repeat"] == {"count": 4, "value": 205}
+    dims = _dims(backend, out["handles"])
+    merged = dims[1]
+    assert round(merged.get_measurement(), 6) == 820
+    shown = [e.plain_text() for e in merged.get_geometry_block() if e.dxftype() == "MTEXT"]
+    assert shown == ["4 × 205 = 820"]
+    # the claimed size is the measurement (820), not the count's 205 or 4
+    issues = await run_critique(backend, ["dimension_truth"])
+    assert [i for i in issues if i.severity != "info"] == []
+
+
+@pytest.mark.asyncio
+async def test_axis_points_get_center_extension_lines_and_none_has_zero_length(backend):
+    out = await draw_chain(backend, [[0, -50], [100, 0], [250, -50]], 0, axis=[0])
+    dims = _dims(backend, out["handles"])
+
+    def extensions(dim):
+        lines = [e for e in dim.get_geometry_block() if e.dxftype() == "LINE"]
+        return {
+            round(e.dxf.start.x, 6): e.dxf.linetype
+            for e in lines
+            if abs(e.dxf.start.x - e.dxf.end.x) < 1e-9  # vertical: an extension line
+        }
+
+    # 100 lies on the line (offset 0): no extension line, no DIMEXE tick
+    assert extensions(dims[0]) == {0.0: "CENTER"}
+    assert extensions(dims[1]) == {250.0: "BYLAYER"}
+    assert extensions(dims[2]) == {0.0: "CENTER", 250.0: "BYLAYER"}
+    assert [r["extension"] for r in out["dimensions"]] == [
+        ["axis", "suppressed"],
+        ["suppressed", "line"],
+        ["axis", "line"],
+    ]
+
+    on_line = plan_chain([[0, 0], [100, 0], [250, 0]], 0, axis=[1])
+    assert [w["code"] for w in on_line["warnings"]] == ["axis_on_line"]
+    with pytest.raises(ValueError, match=r"axis\[0\]"):
+        plan_chain([[0, 0], [100, 0]], 5, axis=[2])
+
+
 def test_one_station_and_one_span_are_handled_by_name():
     plan = plan_chain([[0, 0], [0, 20], [5, 20]], 10, orientation="vertical")
     # two points on y = 20: the one nearer the dimension line keeps the station
