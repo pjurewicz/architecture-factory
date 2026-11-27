@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pytest
 
+from engineering.errors import InvalidArgsError
+
 pytestmark = pytest.mark.asyncio
 
 
@@ -201,6 +203,18 @@ async def test_batch_create_shared_linetype_style_and_line_spacing(backend):
     )
     assert refused["created"] == 0 and "'NOPE'" in refused["errors"][0]["error"]
     assert len(backend._doc.modelspace()) == before  # the refused text was removed
+
+
+async def test_a_text_given_a_style_takes_its_width_factor_unless_one_is_given(backend):
+    await backend.textstyle_create("NARROW", "isocp.shx", width_factor=0.7)
+    text = await backend.entity_create_text("A", 0, 0, height=2.5)
+    mtext = await backend.entity_create_mtext("B", 0, 5, height=2.5)
+    await backend.entity_edit_text(text.handle, style="NARROW")
+    assert backend._doc.entitydb[text.handle].dxf.width == pytest.approx(0.7)
+    await backend.entity_edit_text(text.handle, width_factor=1.2)
+    assert backend._doc.entitydb[text.handle].dxf.width == pytest.approx(1.2)
+    with pytest.raises(InvalidArgsError, match="width_factor is a TEXT's"):
+        await backend.entity_edit_text(mtext.handle, width_factor=0.8)
 
 
 async def test_edit_text_sets_height_and_style(backend):

@@ -101,6 +101,7 @@ class EntityQueryContract(ABC):
         y: float | None = None,
         style: str | None = None,
         line_spacing: float | None = None,
+        width_factor: float | None = None,
     ) -> EntityInfo:
         """Edit an existing TEXT or MTEXT entity in place. Any argument left
         None is unchanged. Returns the updated EntityInfo. Raises if the handle
@@ -108,7 +109,9 @@ class EntityQueryContract(ABC):
 
         ``style`` names a text style of the drawing (an unknown one is
         ``invalid_args``); ``line_spacing`` is an MTEXT's line spacing factor
-        (0.25-4.0), refused on a TEXT.
+        (0.25-4.0), refused on a TEXT. ``width_factor`` is a TEXT's own
+        (refused on an MTEXT); a TEXT given a ``style`` without one takes the
+        style's width factor, as AutoCAD does.
 
         ``x`` / ``y`` (v1.8.0) move the label so its reported ``insertion``
         lands there (WCS): the whole entity is translated, so an aligned TEXT's

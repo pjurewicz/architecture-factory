@@ -7961,6 +7961,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         y=None,
         style=None,
         line_spacing=None,
+        width_factor=None,
     ) -> EntityInfo:
         def _sync():
             ent = self._get_entity(handle)
@@ -7981,11 +7982,27 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     raise InvalidArgsError(
                         f"invalid_args: line_spacing must be 0.25-4.0, got {line_spacing}"
                     )
+            if width_factor is not None:
+                if et != "TEXT":
+                    raise InvalidArgsError(
+                        f"invalid_args: width_factor is a TEXT's; {handle} is {et}, which "
+                        "takes its style's (textstyle_modify) or an inline \\W code"
+                    )
+                if not 0.01 <= float(width_factor) <= 100:
+                    raise InvalidArgsError(
+                        f"invalid_args: width_factor must be 0.01-100, got {width_factor}"
+                    )
             if et in ("TEXT", "MTEXT"):
                 # refused (tilted plane) before anything else is written
                 self._move_text(ent, handle, x, y, "entity_edit_text")
                 if style is not None:
                     ent.dxf.style = style
+                    if et == "TEXT" and width_factor is None:
+                        # AutoCAD's rule: a TEXT given a style takes its width
+                        # factor (an MTEXT reads the style's at draw time).
+                        ent.dxf.width = float(doc.styles.get(style).dxf.get("width", 1.0) or 1.0)
+                if width_factor is not None:
+                    ent.dxf.width = float(width_factor)
                 if line_spacing is not None:
                     ent.dxf.line_spacing_factor = float(line_spacing)
             if et == "TEXT":

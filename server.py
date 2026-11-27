@@ -4039,6 +4039,7 @@ async def entity_edit_text(
     y: Annotated[float | None, "New insertion Y, WCS (unchanged if omitted)"] = None,
     style: Annotated[str | None, "Text style name (unchanged if omitted)"] = None,
     line_spacing: Annotated[float | None, "MTEXT line spacing factor, 0.25-4.0"] = None,
+    width_factor: Annotated[float | None, "TEXT width factor (a style sets its own)"] = None,
     ctx: Context = None,
 ) -> dict:
     """Edit an existing text label in place — change its content, height, rotation or position.
@@ -4051,7 +4052,15 @@ async def entity_edit_text(
     """
     await ctx.debug(f"Editing text entity {handle}")
     result = await _backend(ctx).entity_edit_text(
-        handle, text, height, rotation, x=x, y=y, style=style, line_spacing=line_spacing
+        handle,
+        text,
+        height,
+        rotation,
+        x=x,
+        y=y,
+        style=style,
+        line_spacing=line_spacing,
+        width_factor=width_factor,
     )
     return _dc(result)
 
@@ -7406,7 +7415,7 @@ async def entity_batch_create(
 async def entity_batch_modify(
     operations: Annotated[
         list[dict],
-        "List of operations. Each dict: {handle, action, ...params}. Actions: move(dx,dy), rotate(base_x,base_y,angle_deg), scale(base_x,base_y,factor), delete, set_properties(layer,color,linetype,lineweight,visible), edit_text(text,height,rotation,x,y,style,line_spacing). "
+        "List of operations. Each dict: {handle, action, ...params}. Actions: move(dx,dy), rotate(base_x,base_y,angle_deg), scale(base_x,base_y,factor), delete, set_properties(layer,color,linetype,lineweight,visible), edit_text(text,height,rotation,x,y,style,line_spacing,width_factor). "
         "lineweight: hundredths of a mm, or 'ByLayer' = -1, 'ByBlock' = -2, 'Default' = -3 - not ByLayer",
     ],
     ctx: Context = None,
@@ -7419,9 +7428,8 @@ async def entity_batch_modify(
     TEXT / MTEXT's content, height, style... in place). For anything else, for
     ordering, or to feed one step's result into the next, use cad_batch.
 
-    Every handle is checked first, in one read: one that names no entity
-    refuses the whole call with kind unknown_handle (`missing` lists each
-    index and handle) and nothing is modified.
+    All or none: a missing handle is unknown_handle before anything runs; a
+    failed operation rolls the others back (ok: false, errors).
     """
     from engineering.changes.precheck import require_handles
 
@@ -7438,52 +7446,86 @@ async def entity_batch_modify(
         subject=f"entity_batch_modify refused all {len(operations)} operation(s) - nothing was modified",
         modified=0,
     )
+    from engineering.errors import InvalidArgsError
+
+    actions = ("move", "rotate", "scale", "delete", "set_properties", "edit_text")
+    malformed = [
+        f"{i}: {op.get('action')!r}" if op.get("handle") else f"{i}: no handle"
+        for i, op in enumerate(operations)
+        if not op.get("handle") or str(op.get("action") or "").lower() not in actions
+    ]
+    if malformed:
+        raise InvalidArgsError(
+            f"invalid_args: unknown action or missing handle at index {', '.join(malformed[:10])}"
+            f" - nothing was modified. Actions: {', '.join(actions)}"
+        )
     results = []
     errors = []
     total = len(operations)
     await ctx.info(f"Batch modifying {total} entities")
-
-    for i, op in enumerate(operations):
-        await ctx.report_progress(i, total)
-        handle = op.get("handle")
-        action = op.get("action", "").lower()
-        if not handle or not action:
-            errors.append({"index": i, "error": "Missing 'handle' or 'action'"})
-            continue
-        try:
-            if action == "move":
-                await b.entity_move(handle, op.get("dx", 0), op.get("dy", 0), op.get("dz", 0))
-                results.append({"handle": handle, "action": "move", "ok": True})
-            elif action == "rotate":
-                await b.entity_rotate(handle, op["base_x"], op["base_y"], op["angle_deg"])
-                results.append({"handle": handle, "action": "rotate", "ok": True})
-            elif action == "scale":
-                await b.entity_scale(handle, op["base_x"], op["base_y"], op["factor"])
-                results.append({"handle": handle, "action": "scale", "ok": True})
-            elif action == "delete":
-                await b.entity_delete(handle)
-                results.append({"handle": handle, "action": "delete", "ok": True})
-            elif action == "set_properties":
-                await b.entity_set_properties(
-                    handle,
-                    layer=op.get("layer"),
-                    color=op.get("color"),
-                    linetype=op.get("linetype"),
-                    lineweight=op.get("lineweight"),
-                    visible=op.get("visible"),
-                )
-                results.append({"handle": handle, "action": "set_properties", "ok": True})
-            elif action == "edit_text":
-                keys = ("text", "height", "rotation", "x", "y", "style", "line_spacing")
-                await b.entity_edit_text(handle, **{k: op[k] for k in keys if k in op})
-                results.append({"handle": handle, "action": "edit_text", "ok": True})
-            else:
-                errors.append({"index": i, "error": f"Unknown action: {action}"})
-        except Exception as exc:
-            errors.append({"index": i, "handle": handle, "action": action, "error": str(exc)})
-
+    # Round 3: all or nothing, as entity_batch_create - a failed operation used
+    # to leave the others applied under ok, and cad_batch read the step as ok.
+    with anyio.CancelScope(shield=True):
+        opened = await b.transaction_begin()
+    in_transaction = isinstance(opened, dict) and bool(opened.get("ok"))
+    try:
+        for i, op in enumerate(operations):
+            await ctx.report_progress(i, total)
+            handle = op["handle"]
+            action = op["action"].lower()
+            try:
+                if action == "move":
+                    await b.entity_move(handle, op.get("dx", 0), op.get("dy", 0), op.get("dz", 0))
+                elif action == "rotate":
+                    await b.entity_rotate(handle, op["base_x"], op["base_y"], op["angle_deg"])
+                elif action == "scale":
+                    await b.entity_scale(handle, op["base_x"], op["base_y"], op["factor"])
+                elif action == "delete":
+                    await b.entity_delete(handle)
+                elif action == "set_properties":
+                    await b.entity_set_properties(
+                        handle,
+                        layer=op.get("layer"),
+                        color=op.get("color"),
+                        linetype=op.get("linetype"),
+                        lineweight=op.get("lineweight"),
+                        visible=op.get("visible"),
+                    )
+                else:
+                    keys = (
+                        "text", "height", "rotation", "x", "y", "style", "line_spacing",
+                        "width_factor",
+                    )  # fmt: skip
+                    await b.entity_edit_text(handle, **{k: op[k] for k in keys if k in op})
+                results.append({"handle": handle, "action": action, "ok": True})
+            except Exception as exc:
+                errors.append({"index": i, "handle": handle, "action": action, "error": str(exc)})
+    except BaseException:
+        if in_transaction:
+            with anyio.CancelScope(shield=True):
+                await b.transaction_rollback()
+        raise
     await ctx.report_progress(total, total)
-    return {"modified": len(results), "errors": errors, "results": results}
+    if not errors:
+        if in_transaction:
+            with anyio.CancelScope(shield=True):
+                await b.transaction_commit()
+        return {"ok": True, "modified": len(results), "errors": [], "results": results}
+    first = errors[0]
+    payload = {"ok": False, "modified": len(results), "errors": errors}
+    if in_transaction:
+        with anyio.CancelScope(shield=True):
+            outcome = await b.transaction_rollback()
+        payload["rolled_back"] = not isinstance(outcome, dict) or bool(outcome.get("ok", True))
+        if payload["rolled_back"]:
+            payload["modified"] = 0
+    else:
+        payload["rolled_back"] = False
+    payload["error"] = (
+        f"{len(errors)} of {total} operations failed (index {first['index']}: {first['error']}); "
+        + ("nothing was modified" if payload["rolled_back"] else "the others stay applied")
+    )
+    return payload
 
 
 # ---------------------------------------------------------------------------

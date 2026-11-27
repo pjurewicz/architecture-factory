@@ -175,6 +175,39 @@ async def test_batch_modify_refuses_a_missing_handle_before_moving_anything(clie
     assert line["properties"]["start"][:2] == [0.0, 0.0], "the move must not have run"
 
 
+async def test_batch_modify_is_all_or_nothing_and_fails_its_cad_batch_step(client):
+    """Round 3: 56 of 57 applied under ok, and the batch said ok: true."""
+    line = await _line(client)
+    block = await client.call_tool(
+        "block_define",
+        {"name": "B", "entities": [{"type": "line", "x1": 0, "y1": 0, "x2": 1, "y2": 0}]},
+    )
+    assert block.structured_content["ok"]
+    insert = (
+        await client.call_tool("block_insert", {"name": "B", "x": 0, "y": 0})
+    ).structured_content["handle"]
+    operations = [
+        {"handle": line, "action": "move", "dx": 5, "dy": 0},
+        {"handle": insert, "action": "edit_text", "text": "X"},  # not a TEXT
+    ]
+    payload = (
+        await client.call_tool("entity_batch_modify", {"operations": operations})
+    ).structured_content
+    assert payload["ok"] is False and payload["rolled_back"] is True
+    assert payload["modified"] == 0 and payload["errors"][0]["index"] == 1
+    got = (await client.call_tool("entity_get", {"handle": line})).structured_content
+    assert got["properties"]["start"][:2] == [0.0, 0.0], "the move was rolled back"
+
+    batch = (
+        await client.call_tool(
+            "cad_batch",
+            {"steps": [{"tool": "entity_batch_modify", "args": {"operations": operations}}]},
+            raise_on_error=False,
+        )
+    ).structured_content
+    assert batch["ok"] is False and batch["results"][0]["status"] != "ok"
+
+
 # ── the gates: the v9 task and the correctness checks ───────────────────────
 
 
