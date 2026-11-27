@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import re
 
+import ezdxf
 import pytest
+from ezdxf import bbox
 
 from engineering.arch.layers import ARCH_ROLE_LAYER
 from engineering.arch.model import APP_ID, Opening, Room, Wall, decode, to_payload, to_values
@@ -31,6 +33,10 @@ from engineering.mech.primitives import Text
 WALL = ARCH_ROLE_LAYER["wall"]
 ROOM = ARCH_ROLE_LAYER["room"]
 EPS = 1e-9
+
+
+def rect_points(x0, y0, x1, y1):
+    return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
 
 
 def rect(x0, y0, x1, y1):
@@ -200,6 +206,25 @@ async def test_a_4000_by_5000_room_between_200_mm_walls_is_labelled_20_m2(backen
     assert result["loop"] == [[0.0, 0.0], [4000.0, 0.0], [4000.0, 5000.0], [0.0, 5000.0]]
     labels = await texts(backend, ROOM)
     assert set(labels) == {"LIVING", "01", "20.00 m²"}
+    # the label is masked: a WIPEOUT under its texts, hugging their measured extent
+    (mask_handle,) = result["mask"]["handles"]
+    mask = backend._doc.entitydb[mask_handle]
+    assert mask.dxftype() == "WIPEOUT" and mask.dxf.layer == ROOM
+    # under the texts in the entity order too, for a viewer that ignores the SORTENTSTABLE
+    msp = backend._doc.modelspace()
+    label = [mask_handle, *result["handles"]]
+    for order in (
+        [e.dxf.handle for e in msp],
+        [e.dxf.handle for e in msp.entities_in_redraw_order()],
+    ):
+        assert [h for h in order if h in label] == label
+    x0, y0, x1, y1 = _extent(mask.boundary_path_wcs())
+    drawn = bbox.extents(backend._doc.entitydb[h] for h in result["handles"])
+    tx0, ty0, tx1, ty1 = _extent([drawn.extmin, drawn.extmax])
+    margin = 0.25 * 125.0  # 0.25 x the 2.5 mm lines at 1:50
+    assert (x0, y0, x1, y1) == pytest.approx(
+        (tx0 - margin, ty0 - margin, tx1 + margin, ty1 + margin)
+    )
     raw = await backend.entity_get_xdata(result["handle"], APP_ID)
     payload = decode(raw["xdata"][APP_ID])
     assert payload["kind"] == "room"
@@ -269,6 +294,53 @@ async def test_a_label_point_inside_a_wall_body_is_refused(backend):
         ValueError, match=re.escape("room.at: (-100, 2500) lies inside a wall body")
     ):
         await label_room(backend, {"name": "A", "at": [-100.0, 2500.0]})
+
+
+def _extent(points):
+    points = list(points)
+    xs, ys = [p[0] for p in points], [p[1] for p in points]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+@pytest.mark.asyncio
+async def test_a_label_mask_is_clipped_to_the_room_and_can_be_switched_off(backend):
+    await draw_lines(
+        backend, [*rect(-200.0, -200.0, 4200.0, 5200.0), *rect(0.0, 0.0, 4000.0, 5000.0)], WALL
+    )
+    # the name runs past the right wall face at x=4000: the mask stops at it
+    result = await label_room(backend, {"name": "BEDROOM", "at": [3300.0, 2500.0]})
+    assert result["mask"]["clipped"] is True
+    (handle,) = result["mask"]["handles"]
+    x0, _y0, x1, _y1 = _extent(backend._doc.entitydb[handle].boundary_path_wcs())
+    assert x1 == pytest.approx(4000.0) and x0 < 3300.0
+    await backend.entity_delete_many([*result["handles"], handle])
+    plain = await label_room(backend, {"name": "BEDROOM", "at": [1000.0, 2500.0]}, mask=False)
+    assert plain["mask"] is None
+    assert not list(backend._doc.modelspace().query("WIPEOUT"))
+
+
+@pytest.mark.asyncio
+async def test_a_masked_label_plots_without_a_frame_and_tiles_laid_later_stay_under_it(
+    backend, tmp_path
+):
+    from engineering.arch.draw import draw_tile_layout
+
+    await draw_lines(
+        backend, [*rect(-200.0, -200.0, 4200.0, 5200.0), *rect(0.0, 0.0, 4000.0, 5000.0)], WALL
+    )
+    label = await label_room(backend, {"name": "LIVING", "at": [1400.0, 2500.0]})
+    tiles = await draw_tile_layout(
+        backend, outline=rect_points(0.0, 0.0, 4000.0, 5000.0), length=600, width=600, joint=0
+    )
+    order = [e.dxf.handle for e in backend._doc.modelspace().entities_in_redraw_order()]
+    (mask,) = label["mask"]["handles"]
+    assert max(order.index(h) for h in tiles["handles"]) < order.index(mask)
+    path = tmp_path / "plan.dxf"
+    await backend.drawing_save_as(str(path))
+    saved = ezdxf.readfile(path)
+    assert saved.rootdict["ACAD_WIPEOUT_VARS"].dxf.frame == 0
+    variables = saved.rootdict["AcDbVariableDictionary"]
+    assert variables["WIPEOUTFRAME"].dxf.value == "0"
 
 
 # ── async: rooms_detect ─────────────────────────────────────────────────────

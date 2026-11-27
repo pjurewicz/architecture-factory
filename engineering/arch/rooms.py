@@ -35,6 +35,12 @@ DECLARED, not standard:
   ``CHAR_WIDTH_FACTOR`` (0.9 text heights per character, generous for
   capitals) times its length; the result reports the factor applied and
   whether the label fits at it.
+* ``mask=True`` (the default) draws a WIPEOUT under the label on its layer,
+  so walls, hatches and grid lines drawn before it do not run through the
+  text. Its rectangle is the texts' measured extent plus ``MASK_MARGIN``
+  (0.25 x the smallest line height) all round, clipped to the room's face so
+  it never hides a wall; a room with no face (an open room) gets the bare
+  rectangle. The texts stay three TEXTs, the name carrying the room record.
 * ``MIN_ROOM_WIDTH``: a face whose mean width (2 x area / perimeter) is under
   600 mm is taken for a wall body or an opening reveal, not a room. That is
   this reader's heuristic, not a building rule - a 200 mm wall ring measures
@@ -89,6 +95,7 @@ __all__ = [
     "opening_closures",
     "read_records",
     "read_segments",
+    "room_label_mask",
     "room_label_prims",
     "rooms_detect",
 ]
@@ -101,6 +108,7 @@ MIN_FIT_HEIGHT = 1.8  # mm on paper: the smallest ISO 3098-1 series value fit sh
 #: and over-estimating only makes a fitted label smaller, never spill out of the room.
 CHAR_WIDTH_FACTOR = 0.9
 FIT_MARGIN = 0.9  # the share of the free width / height a fitted label may fill
+MASK_MARGIN = 0.25  # the label mask's margin round the texts, x the smallest line height
 ALIGNS: tuple[str, ...] = ("left", "center")
 MIN_ROOM_WIDTH = 600.0  # mm; the wall-body heuristic above
 DEFAULT_MIN_AREA = 1.0e6  # mm^2 = 1 m^2
@@ -226,6 +234,126 @@ def room_label_prims(
             )
         )
     return tuple(prims)
+
+
+def room_label_mask(boxes, face: Face | None = None, *, margin: float) -> dict:
+    """The polygons a label's WIPEOUTs cover: the texts' extent plus ``margin``, inside the room.
+
+    ``boxes`` are the texts' measured extents, ``((x0, y0), (x1, y1))`` each.
+    With a ``face`` the rectangle is clipped to its outer loop, so the mask
+    never hides a wall face - one polygon per piece left. A hole of the face
+    (a column) under the rectangle cannot be left visible by a WIPEOUT clipped
+    this way, so then there is no mask and ``omitted`` says why.
+    ``{"polygons": [[[x, y], ...], ...], "clipped": bool, "omitted": str | None}``.
+    """
+    from ezdxf.math import Vec2
+    from ezdxf.math.clipping import ConcaveClippingPolygon2d
+
+    x0 = min(box[0][0] for box in boxes) - margin
+    y0 = min(box[0][1] for box in boxes) - margin
+    x1 = max(box[1][0] for box in boxes) + margin
+    y1 = max(box[1][1] for box in boxes) + margin
+    rect = [Vec2(x0, y0), Vec2(x1, y0), Vec2(x1, y1), Vec2(x0, y1)]
+    if face is None:
+        return {"polygons": [[[p.x, p.y] for p in rect]], "clipped": False, "omitted": None}
+    for hole in face.holes:
+        if ConcaveClippingPolygon2d([Vec2(p) for p in hole]).clip_polygon(rect):
+            return {
+                "polygons": [],
+                "clipped": False,
+                "omitted": "a hole of the room face (a column) lies under the label, and a "
+                "WIPEOUT over it would hide it; move the label point to show a mask",
+            }
+    pieces = ConcaveClippingPolygon2d([Vec2(p) for p in face.loop]).clip_polygon(rect)
+    polygons = []
+    for piece in pieces:
+        points = list(piece)
+        if len(points) > 1 and points[0].isclose(points[-1]):
+            points.pop()
+        if len(points) >= 3:
+            polygons.append([[p.x, p.y] for p in points])
+    clipped = (
+        len(polygons) != 1
+        or len(polygons[0]) != 4
+        or any(not any(Vec2(q).isclose(r) for r in rect) for q in polygons[0])
+    )
+    return {"polygons": polygons, "clipped": clipped, "omitted": None}
+
+
+async def _text_extents(backend: AutoCADBackend, prims: tuple[Text, ...]) -> list:
+    """Each text's extent as the backend will draw it, measured before it is drawn.
+
+    The texts are laid out in a scratch ezdxf document with the drawing's
+    current text style font (the style ``entity_create_text`` gives a new TEXT)
+    and measured with ``ezdxf.bbox`` - the measurement ``entity_get`` reports
+    for the drawn text. Nothing is written to the drawing.
+    """
+    import ezdxf
+    from ezdxf import bbox
+    from ezdxf.enums import TextEntityAlignment
+
+    style = next((row for row in await backend.textstyle_list() if row["current"]), None)
+    scratch = ezdxf.new()
+    if style and style["font"]:
+        scratch.styles.new("LABEL", dxfattribs={"font": style["font"]})
+    msp = scratch.modelspace()
+    boxes = []
+    for prim in prims:
+        text = msp.add_text(
+            prim.text,
+            dxfattribs={
+                "style": "LABEL" if style and style["font"] else "Standard",
+                "height": prim.height,
+                "rotation": prim.rotation,
+                "insert": prim.at,
+            },
+        )
+        if prim.align != "left":
+            text.set_placement(prim.at, align=TextEntityAlignment[prim.align.upper()])
+        box = bbox.extents([text])
+        boxes.append(((box.extmin.x, box.extmin.y), (box.extmax.x, box.extmax.y)))
+    return boxes
+
+
+async def _draw_label_prims(
+    backend: AutoCADBackend, prims: tuple[Text, ...], face: Face | None, *, mask: bool
+) -> dict:
+    """The label: (``mask``) its WIPEOUTs first, then its texts.
+
+    The mask is created before the texts, so it sits under them both in the
+    entity order and in the draw order - a viewer that ignores the
+    SORTENTSTABLE still shows the texts on top. The first WIPEOUT in a drawing
+    without wipeout variables sets ``WIPEOUTFRAME`` to 0 (no frame on screen
+    or on a plot); a drawing that already sets it keeps its choice. ``handles``
+    are the texts, the name first (the room record goes on it).
+    """
+    from engineering.mech.draw import (  # lazy: mech.draw imports the arch layer set
+        _ensure_layers,
+        draw_prims,
+    )
+
+    shape = None
+    masks: list[str] = []
+    if mask:
+        shape = room_label_mask(
+            await _text_extents(backend, prims),
+            face,
+            margin=MASK_MARGIN * min(p.height for p in prims),
+        )
+        layer = ARCH_ROLE_LAYER["room"]
+        await _ensure_layers(backend, [layer])
+        for polygon in shape["polygons"]:
+            made = await backend.entity_create_wipeout(polygon, layer)
+            if not made.get("ok"):
+                raise ValueError(f"room label mask: {made.get('error')}")
+            masks.append(made["handle"])
+    drawn = await draw_prims(backend, prims, role_layer=ARCH_ROLE_LAYER)
+    return {
+        "handles": list(drawn["handles"]),
+        "mask": None
+        if shape is None
+        else {"handles": masks, "clipped": shape["clipped"], "omitted": shape["omitted"]},
+    }
 
 
 def _chord(loops, point: Pt, axis: int) -> tuple[float, float]:
@@ -581,6 +709,7 @@ async def label_room(
     align: str = "left",
     fit: bool = False,
     open_room: bool = False,
+    mask: bool = True,
 ) -> dict:
     """Label the room around ``room_dict["at"]`` with its name, number and measured area.
 
@@ -589,6 +718,10 @@ async def label_room(
     only, without an area and without a room record (an unmeasured room must
     not enter a schedule total), and the result carries ``area: None`` and a
     ``warning`` with code ``room_open``. Every other refusal still refuses.
+
+    ``mask`` (default True) draws a WIPEOUT under the label, clipped to the
+    room (see the module docstring); the result's ``mask`` is
+    ``{handles, clipped, omitted}``, or None with ``mask=False``.
 
     Refused before anything is drawn: an ``area`` in the request (areas are
     measured, never typed), an unknown ``lang``, a non-positive ``scale``, an
@@ -610,6 +743,8 @@ async def label_room(
     _check_align(align)
     if not isinstance(fit, bool):
         raise ValueError(f"fit: expected true or false, got {fit!r}")
+    if not isinstance(mask, bool):
+        raise ValueError(f"mask: expected true or false, got {mask!r}")
     _positive(scale, "scale")
     records = await read_records(backend)
     taken = {room.id for room in records["rooms"]}
@@ -630,7 +765,7 @@ async def label_room(
     x, y = float(room.at[0]), float(room.at[1])
     if room.boundary is not None:
         return await _label_bounded_room(
-            backend, room, records, lang=lang, scale=scale, align=align, fit=fit
+            backend, room, records, lang=lang, scale=scale, align=align, fit=fit, mask=mask
         )
 
     wall_layer = ARCH_ROLE_LAYER["wall"]
@@ -653,7 +788,15 @@ async def label_room(
                 "or read a plan drawn by other means with arch_rooms_detect"
             )
         return await _label_open_room(
-            backend, room, where, ends, lang=lang, scale=scale, align=align, layers=layers
+            backend,
+            room,
+            where,
+            ends,
+            lang=lang,
+            scale=scale,
+            align=align,
+            layers=layers,
+            mask=mask,
         )
     polygon_ids = [p.id for p in records["wall_polygons"]]
     if is_wall_outline(face, [p.points for p in records["wall_polygons"]]):
@@ -691,6 +834,7 @@ async def label_room(
             scale=scale,
             align=align,
             fit=fit,
+            mask=mask,
         ),
         "area_source": "walls",
         "wall_layers": layers,
@@ -715,20 +859,19 @@ def _refuse_labelled(room: Room, records: dict, already: list) -> None:
 
 
 async def _draw_label(
-    backend: AutoCADBackend, measured: Room, face: Face, *, lang, scale, align, fit
+    backend: AutoCADBackend, measured: Room, face: Face, *, lang, scale, align, fit, mask
 ) -> dict:
     """The label of a measured room and its record on the name text."""
-    from engineering.mech.draw import draw_prims  # lazy: mech.draw imports the arch layer set
-
     fitted = (
         fit_factor(measured, face, lang=lang, scale=scale, align=align)
         if fit
         else {"factor": 1.0, "fits": None, "estimated": True}
     )
-    drawn = await draw_prims(
+    drawn = await _draw_label_prims(
         backend,
         room_label_prims(measured, lang=lang, scale=scale, align=align, shrink=fitted["factor"]),
-        role_layer=ARCH_ROLE_LAYER,
+        face,
+        mask=mask,
     )
     handle = drawn["handles"][0]
     await backend.entity_set_xdata(handle, APP_ID, to_values(to_payload(measured)))
@@ -745,6 +888,7 @@ async def _draw_label(
         },
         "handle": handle,
         "handles": list(drawn["handles"]),
+        "mask": drawn["mask"],
         "layer": ARCH_ROLE_LAYER["room"],
         "align": align,
         "fit": {**fitted, "name_height_mm": NAME_HEIGHT * fitted["factor"]} if fit else None,
@@ -752,7 +896,7 @@ async def _draw_label(
 
 
 async def _label_bounded_room(
-    backend: AutoCADBackend, room: Room, records: dict, *, lang, scale, align, fit
+    backend: AutoCADBackend, room: Room, records: dict, *, lang, scale, align, fit, mask
 ) -> dict:
     """A room with its own ``boundary``: the area is that polygon's, the walls are not read.
 
@@ -775,7 +919,14 @@ async def _label_bounded_room(
     face = Face(loop=loop, area=area, centroid=tuple(room.at))
     return {
         **await _draw_label(
-            backend, replace(room, area=area), face, lang=lang, scale=scale, align=align, fit=fit
+            backend,
+            replace(room, area=area),
+            face,
+            lang=lang,
+            scale=scale,
+            align=align,
+            fit=fit,
+            mask=mask,
         ),
         "area_source": "boundary",
         "loop": _wcs_loop(loop),
@@ -810,15 +961,23 @@ def _open_ends_text(ends: list[dict]) -> str:
 
 
 async def _label_open_room(
-    backend: AutoCADBackend, room: Room, where: str, ends: list[dict], *, lang, scale, align, layers
+    backend: AutoCADBackend,
+    room: Room,
+    where: str,
+    ends: list[dict],
+    *,
+    lang,
+    scale,
+    align,
+    layers,
+    mask,
 ) -> dict:
     """``label_room(open_room=True)`` for a point in no closed face: name and number, no area."""
-    from engineering.mech.draw import draw_prims  # lazy: mech.draw imports the arch layer set
-
-    drawn = await draw_prims(
+    drawn = await _draw_label_prims(
         backend,
         room_label_prims(room, lang=lang, scale=scale, align=align, with_area=False),
-        role_layer=ARCH_ROLE_LAYER,
+        None,
+        mask=mask,
     )
     message = (
         f"{where}; {room.id} {room.name!r} is labelled without an area and has no room "
@@ -837,6 +996,7 @@ async def _label_open_room(
         },
         "handle": drawn["handles"][0],
         "handles": list(drawn["handles"]),
+        "mask": drawn["mask"],
         "layer": ARCH_ROLE_LAYER["room"],
         "align": align,
         "fit": None,

@@ -183,13 +183,14 @@ def _list(spec: dict, key: str) -> list:
 
 #: The label options a ``rooms[]`` item takes beside the Room fields; they shape
 #: the label ``label_room`` draws and are not part of the stored room record.
-ROOM_LABEL_KEYS = ("align", "fit")
+ROOM_LABEL_KEYS = ("align", "fit", "mask")
 
 
 def _room_item_schema(schema: dict) -> dict:
     props = dict(schema["properties"])
     props["align"] = {"type": "string", "enum": list(_rooms.ALIGNS), "default": "left"}
     props["fit"] = {"type": "boolean", "default": False}
+    props["mask"] = {"type": "boolean", "default": True}
     return {**schema, "properties": props}
 
 
@@ -256,7 +257,7 @@ def validate_spec(spec: dict) -> dict:
 
     Returns ``{"sheet", "lang", "scale", "poche", "walls", "openings",
     "stairs", "room_separators", "rooms", "chains", "schedules"}`` with model objects in place of
-    dicts (rooms stay requests: ``{"room": dict, "align", "fit"}``, because
+    dicts (rooms stay requests: ``{"room": dict, "align", "fit", "mask"}``, because
     ``label_room`` takes the request, not a Room).
     """
     from engineering.arch.stairs import stair_prims
@@ -342,7 +343,10 @@ def validate_spec(spec: dict) -> dict:
         fit = item.get("fit", False)
         if not isinstance(fit, bool):
             raise ValueError(f"{path}.fit: expected true or false, got {fit!r}")
-        rooms.append({"room": dict(fields), "align": align, "fit": fit})
+        mask = item.get("mask", True)
+        if not isinstance(mask, bool):
+            raise ValueError(f"{path}.mask: expected true or false, got {mask!r}")
+        rooms.append({"room": dict(fields), "align": align, "fit": fit, "mask": mask})
 
     chains = spec.get("chains")
     sides: tuple[str, ...] | None = None
@@ -456,6 +460,7 @@ async def draw_plan_from_spec(backend: AutoCADBackend, spec: dict) -> dict:
                         scale=scale,
                         align=room["align"],
                         fit=room["fit"],
+                        mask=room["mask"],
                         open_room=True,
                     )
                 )

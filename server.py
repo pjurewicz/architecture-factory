@@ -12893,6 +12893,10 @@ async def arch_room(
     ] = 50.0,
     align: Literal["left", "center"] = "left",
     fit: bool = False,
+    mask: Annotated[
+        bool,
+        Field(default=True, description="WIPEOUT under the label, clipped to the room."),
+    ] = True,
     ctx: Context = None,
 ) -> dict:
     """Label the room around (x, y) with its name, number and MEASURED area.
@@ -12921,7 +12925,9 @@ async def arch_room(
         room["id"] = room_id
     await ctx.info(f"arch_room: {name!r} at ({x}, {y})")
     try:
-        return await label_room(_backend(ctx), room, lang=lang, scale=scale, align=align, fit=fit)
+        return await label_room(
+            _backend(ctx), room, lang=lang, scale=scale, align=align, fit=fit, mask=mask
+        )
     except ValueError as exc:
         raise ToolError(str(exc)) from exc
 
