@@ -44,6 +44,10 @@ LEVEL_TRIANGLE = 2.5
 LEVEL_LINE = 15.0
 LEVEL_TEXT_HEIGHT = 2.5
 LEVEL_TEXT_GAP = 1.0
+#: A per-direction elevation letter: its height, and its centre's distance
+#: from the bubble centre as a fraction of the bubble radius.
+ELEVATION_LETTER_HEIGHT = 2.5
+ELEVATION_LETTER_OFFSET = 0.65
 
 SYMBOL_KINDS: tuple[str, ...] = ("north_arrow", "section_mark", "level", "elevation_mark")
 SECTION_SIDES: tuple[str, ...] = ("left", "right")
@@ -294,27 +298,75 @@ def _level(at: Pt, k: float, lang: str, value=0.0) -> tuple[Prim, ...]:
     )
 
 
-def _elevation_mark(at: Pt, k: float, lang: str, label="1", directions=("up",)):
-    """A circle, the label in it, and one pointer per viewing direction.
+def _elevation_mark(at: Pt, k: float, lang: str, label=None, directions=("up",)):
+    """A circle and one pointer per viewing direction.
 
     Each pointer is the two tangents from an apex at ``r * sqrt(2)`` along the
     direction to the circle, touching it at the direction +/- 45 degrees.
+
+    ``directions`` is a list (``["up", "right"]``: one ``label``, default
+    ``"1"``, in the centre) or a mapping from direction to its own letter
+    (``{"up": "A", "right": "B", "down": "C"}``: a room's elevations in one
+    bubble). A letter stands inside the circle by its pointer, centred 0.65 r
+    from the centre and ``ELEVATION_LETTER_HEIGHT`` high; ``label`` is then
+    optional and drawn at that height in the centre. A text that would leave
+    the circle or touch another text is refused.
     """
-    text = _label(label, "elevation_mark.label")
-    names = list(directions) if not isinstance(directions, str) else [directions]
+    if isinstance(directions, dict):
+        names = list(directions)
+        letters = {n: _label(directions[n], f"elevation_mark.directions.{n}") for n in names}
+    else:
+        names = list(directions) if not isinstance(directions, str) else [directions]
+        letters = {}
     if not names:
         raise ValueError("elevation_mark.directions: name at least one direction.")
     for i, name in enumerate(names):
         if name not in ELEVATION_DIRECTIONS:
+            where = f".{name}" if letters else f"[{i}]"
             raise ValueError(
-                f"elevation_mark.directions[{i}]: must be one of "
+                f"elevation_mark.directions{where}: must be one of "
                 f"{', '.join(ELEVATION_DIRECTIONS)}, got {name!r}."
             )
     if len(set(names)) != len(names):
         raise ValueError(f"elevation_mark.directions: each direction once, got {names}.")
     r = BUBBLE_RADIUS * k
     ax, ay = at
-    prims: list[Prim] = [Circle((ax, ay), r, "symbol"), _centred(ax, ay, text, LABEL_HEIGHT * k)]
+    prims: list[Prim] = [Circle((ax, ay), r, "symbol")]
+    if not letters:
+        text = _label("1" if label is None else label, "elevation_mark.label")
+        prims.append(_centred(ax, ay, text, LABEL_HEIGHT * k))
+    else:
+        h = ELEVATION_LETTER_HEIGHT * k
+        texts = [] if label is None else [("label", ax, ay, _label(label, "elevation_mark.label"))]
+        for name in names:
+            theta = math.radians(ELEVATION_DIRECTIONS[name])
+            d = ELEVATION_LETTER_OFFSET * r
+            texts.append(
+                (
+                    f"directions.{name}",
+                    ax + d * math.cos(theta),
+                    ay + d * math.sin(theta),
+                    letters[name],
+                )
+            )
+        boxes = []
+        for where, cx, cy, text in texts:
+            half = 0.3 * h * len(text)  # centred_text's 0.6 x h advance per character
+            box = (cx - half, cy - 0.5 * h, cx + half, cy + 0.5 * h)
+            if max(math.hypot(x - ax, y - ay) for x in box[::2] for y in box[1::2]) > r + 1e-9:
+                raise ValueError(
+                    f"elevation_mark.{where}: {text!r} does not fit inside the "
+                    f"{2 * BUBBLE_RADIUS:g} mm bubble at {ELEVATION_LETTER_HEIGHT:g} mm; "
+                    "use one or two characters."
+                )
+            for other, o in boxes:
+                if box[0] < o[2] and o[0] < box[2] and box[1] < o[3] and o[1] < box[3]:
+                    raise ValueError(
+                        f"elevation_mark.{other} and elevation_mark.{where} overlap inside "
+                        "the bubble; shorten them."
+                    )
+            boxes.append((where, box))
+            prims.append(_centred(cx, cy, text, h))
     for name in names:
         theta = ELEVATION_DIRECTIONS[name]
         apex_r = r * math.sqrt(2.0)
@@ -349,7 +401,8 @@ def symbol_prims(
 
     ``kind`` and its ``params``: ``north_arrow`` (``rotation``),
     ``section_mark`` (``p1``, ``p2``, ``label``, ``side``), ``level``
-    (``value`` in metres), ``elevation_mark`` (``label``, ``directions``).
+    (``value`` in metres), ``elevation_mark`` (``label``, ``directions`` - a
+    list, or a mapping from direction to its letter).
     Refused before anything is built: an unknown kind (with the list), a
     parameter the kind does not take (with the ones it does), an unknown
     ``lang``, a non-finite or non-positive ``scale``.

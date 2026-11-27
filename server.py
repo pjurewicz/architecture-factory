@@ -13436,7 +13436,8 @@ async def arch_symbol(
                 "section_mark: {p1, p2, label, side} - p1/p2 are [x, y] relative to (x, y), "
                 "side left|right is where the section looks, seen from p1 towards p2. "
                 "level: {value} in metres (0 -> '±0.00'). "
-                "elevation_mark: {label, directions} - directions from up|right|down|left"
+                "elevation_mark: {label, directions} - directions from up|right|down|left, "
+                'or {"up": "A", "right": "B"}: one bubble, a letter by each pointer'
             ),
         ),
     ] = None,

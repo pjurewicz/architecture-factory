@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `arch_symbol(kind="elevation_mark")` takes `directions` as a mapping from
+  direction to its letter (`{"up": "A", "right": "B", "down": "C"}`): one
+  bubble with a pointer per direction and a 2.5 mm letter inside the circle by
+  each pointer; `label` is then optional and drawn in the centre. A letter that
+  leaves the bubble or touches another text is refused. The list form is
+  unchanged.
 - Session tracking in the durable journal: a `sessions` table in
   `journal.sqlite3` keeps one row per MCP session - the client's `initialize`
   (`clientInfo` name / version / full JSON, `protocolVersion`, capabilities),

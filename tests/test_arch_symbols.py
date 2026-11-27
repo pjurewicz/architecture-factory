@@ -296,6 +296,29 @@ def test_elevation_mark_one_pointer_per_direction():
         symbol_prims("elevation_mark", (0.0, 0.0), directions=["up", "up"])
 
 
+def test_elevation_mark_one_bubble_with_a_letter_per_direction():
+    prims = symbol_prims(
+        "elevation_mark", (1000.0, 0.0), scale=50, directions={"up": "A", "right": "B", "down": "C"}
+    )
+    assert len(of(prims, Circle)) == 1 and len(of(prims, Poly)) == 3
+    letters = {t.text: t for t in of(prims, Text)}
+    assert set(letters) == {"A", "B", "C"}  # no centre label unless one is given
+    # each letter 2.5 mm x 50 = 125 high, centred 0.65 x 250 = 162.5 from the centre
+    assert all(t.height == 125.0 for t in letters.values())
+    assert centred_at(letters["A"], 1000.0, 162.5)
+    assert centred_at(letters["B"], 1162.5, 0.0)
+    assert centred_at(letters["C"], 1000.0, -162.5)
+    apex = 250.0 * math.sqrt(2.0)
+    assert close(of(prims, Poly)[1].points[1], (1000.0 + apex, 0.0))
+    # a 4-character letter above the centre reaches 5.2 mm from it: outside the 5 mm bubble
+    with pytest.raises(ValueError, match=r"directions\.up: 'ABCD' does not fit"):
+        symbol_prims("elevation_mark", (0.0, 0.0), directions={"up": "ABCD"})
+    with pytest.raises(ValueError, match=r"directions\.north: must be one of"):
+        symbol_prims("elevation_mark", (0.0, 0.0), directions={"north": "A"})
+    with pytest.raises(ValueError, match=r"directions\.up: a label must be"):
+        symbol_prims("elevation_mark", (0.0, 0.0), directions={"up": " "})
+
+
 # -- refusals common to every kind ---------------------------------------------
 
 
