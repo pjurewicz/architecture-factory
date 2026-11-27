@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `arch_plan_patch` (T-11, pack `arch`): change a drawn plan by element id
+  without redrawing it - `{"openings.D1.offset": 1200, "openings.D2.hinge":
+  "end", "rooms.R2.name": "KITCHEN", "walls.INT.thickness": 120,
+  "walls.INT.axis[1]": [5600, 6000], "openings.W2": null, "openings+": {...}}`.
+  `arch_plan_from_spec` now stores its spec, each element's handles and their
+  geometry digests in the `ACADMCP_ARCH_PLAN` XRECORD. The patch redraws, in
+  one transaction, only the walls whose record or junction-engine outline
+  changed (a thicker partition also moves the faces of the wall it tees into),
+  their openings or one door's symbol alone (a hinge flip), the rooms whose
+  area changed (outline too for `fit` / `mask` labels), and the chains and
+  schedules whose intents or rows changed; furniture, notes, user dimensions
+  and layouts keep their handles and bytes. A patched plan equals the patched
+  spec drawn from scratch, apart from handles (`tests/test_arch_patch.py`).
+  A missing or hand-edited plan entity refuses `hand_edited_tagged_entity`
+  unless `overwrite=True`; `dry_run` / `expected_revision` / `preconditions`
+  as on `mech_part_revise`; each patch appends to the record's history. The
+  reply is compact (T-09) unless `verbose=True`. The new tool adds 380 idle
+  tokens (core,arch 49,621 -> 50,001, +5.73 % over the published report), so
+  `published/token-cost.json` is re-measured with it; every ci ceiling holds.
+
 - IMAGE entities (`image_attach`) are drawn by `view_screenshot` and
   `drawing_export_pdf` / `batch_plot`, through paper viewports too: pixels
   under every vector, with fade, contrast, brightness and transparency; the

@@ -2499,6 +2499,22 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "mimari plan",
         ),
     ),
+    "arch_plan_patch": ToolAliases(
+        acad=(),
+        synonyms=(
+            "change one door in the plan",
+            "move a door in a drawn plan",
+            "flip the door hinge",
+            "rename a room",
+            "renumber a room",
+            "change a wall thickness",
+            "move a wall end",
+            "edit the plan by id",
+            "update the floor plan without redrawing it",
+            "planı güncelle",
+            "plani guncelle",
+        ),
+    ),
     # ── Understanding & QA (SECTION 26, track H group U) ────────────────────
     # No AutoCAD command reads a foreign drawing back as a report, so `acad`
     # is empty. UNITS stays with drawing_settings (it sets units; this reads

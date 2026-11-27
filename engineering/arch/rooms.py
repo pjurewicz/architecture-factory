@@ -715,8 +715,13 @@ async def read_records(backend: AutoCADBackend, *, space=None) -> dict:
     return {**found, "room_handles": room_handles, "unreadable": unreadable}
 
 
-async def read_segments(backend: AutoCADBackend, layers, *, space=None) -> tuple[list, list[dict]]:
+async def read_segments(
+    backend: AutoCADBackend, layers, *, space=None, exclude=frozenset()
+) -> tuple[list, list[dict]]:
     """Straight segments on ``layers`` as ``(p1, p2, layer)``, and what was skipped.
+
+    ``exclude`` names handles not to read (``arch_plan_patch`` reads what is
+    on the wall layers besides its own plan's walls).
 
     Read: LINE, and the lightweight polyline (LWPOLYLINE) by its ``points``. Everything else that can
     bound a room is listed in the second return value with its handle, type and
@@ -743,6 +748,8 @@ async def read_segments(backend: AutoCADBackend, layers, *, space=None) -> tuple
 
     for layer in layers:
         for entity in await all_entities(backend, layer=layer, space=space):
+            if entity.handle in exclude:
+                continue
             props = entity.properties or {}
             kind = str(entity.type).upper()
             if kind in NON_BOUNDARY_TYPES or "DIMENSION" in kind:

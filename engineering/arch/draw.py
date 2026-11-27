@@ -205,24 +205,32 @@ async def _draw_wall(backend, wall, geometry: WallGeometry, openings, scale=50) 
         plot_scale=scale,
     )
     owned = list(drawn["handles"])
-    done: list[dict] = []
-    for op, prims in symbols:
-        placed = await draw_prims(backend, prims, role_layer=ARCH_ROLE_LAYER)
-        await _write_record(backend, placed["handles"][0], op, placed["handles"])
-        done.append(
-            {
-                "id": op.id,
-                "tag": op.tag,
-                "record": placed["handles"][0],
-                "handles": placed["handles"],
-            }
-        )
+    done = [await _draw_symbol(backend, op, prims) for op, prims in symbols]
     await _write_record(backend, owned[0], wall, owned)
     return {
         "wall": {"id": wall.id, "record": owned[0], "handles": owned},
         "openings": done,
         "omitted": list(geometry.omitted),
     }
+
+
+async def _draw_symbol(backend, op: Opening, prims) -> dict:
+    """One opening's symbol with its record on the first entity."""
+    placed = await draw_prims(backend, prims, role_layer=ARCH_ROLE_LAYER)
+    await _write_record(backend, placed["handles"][0], op, placed["handles"])
+    return {
+        "id": op.id,
+        "tag": op.tag,
+        "record": placed["handles"][0],
+        "handles": placed["handles"],
+    }
+
+
+async def draw_opening(backend, wall, geometry: WallGeometry, op: Opening) -> dict:
+    """Redraw one opening's symbol in a wall whose cut did not move (a hinge flip)."""
+    cut = next((c for c in geometry.cuts if c["element"] == op.id), None)
+    op = resolve_door(wall, op)
+    return await _draw_symbol(backend, op, opening_prims(wall, op, cut))
 
 
 def _collect(results: list[dict]) -> dict:

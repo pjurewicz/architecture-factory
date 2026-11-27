@@ -3,14 +3,14 @@
   "schema_version": 2,
   "package_version": "1.8.0",
   "totals": {
-    "tools": 242,
+    "tools": 243,
     "resources": 13,
     "prompts": 5,
     "groups": 27
   },
   "groups": {
     "analysis": 12,
-    "architecture": 15,
+    "architecture": 16,
     "batch": 3,
     "blocks": 9,
     "corner_ops": 4,
@@ -456,6 +456,34 @@
       "annotations": {
         "title": "Architecture: Plan From Spec",
         "destructiveHint": false
+      }
+    },
+    {
+      "name": "arch_plan_patch",
+      "group": "architecture",
+      "cost": "destructive",
+      "summary": "Patch a drawn plan by id - walls, openings, rooms - redrawing only what the change moves.",
+      "acad": [],
+      "synonyms": [
+        "change one door in the plan",
+        "move a door in a drawn plan",
+        "flip the door hinge",
+        "rename a room",
+        "renumber a room",
+        "change a wall thickness",
+        "move a wall end",
+        "edit the plan by id",
+        "update the floor plan without redrawing it",
+        "planı güncelle",
+        "plani guncelle"
+      ],
+      "tags": [
+        "arch",
+        "modify"
+      ],
+      "annotations": {
+        "title": "Architecture: Patch Plan",
+        "destructiveHint": true
       }
     },
     {

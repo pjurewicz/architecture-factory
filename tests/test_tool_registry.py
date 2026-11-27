@@ -660,35 +660,39 @@ async def test_tool_group_sizes_are_unchanged():
     `drawing_template_save` (`page_setup` 6 -> 5); `document_close` replaced
     `drawing_close` and moved from `environment` (16 -> 15) to `drawing`
     (11 -> 9); `view_zoom_and_screenshot` went (`view` 2 -> 1): 242 tools.
+    `arch_plan_patch` (T-11) joins `architecture`: 243 tools.
     """
     sizes = {label: len(names) for label, names in (await server._tool_groups()).items()}
-    assert sizes == {
-        "analysis": 12,
-        "architecture": 15,  # + interior_tile_layout, arch_room_separator, interior_wall_elevation
-        "batch": 3,
-        "blocks": 9,
-        "corner_ops": 4,
-        "dimensions": 6,  # + dimension_chain
-        "drawing": 9,
-        "engineering": 10,
-        "entity_creation": 19,  # + callout
-        "entity_modification": 18,  # + entity_modify_where (1.8-12), draw_order
-        "entity_query": 9,
-        "environment": 15,
-        "layers": 16,  # + layer_rename, layer_merge (1.8-12)
-        "layouts": 12,
-        "mechanical": 15,  # + mech_part_revise (1.8-19)
-        "page_setup": 5,
-        "pid": 10,  # + pid_project (1.8-21)
-        "plant": 2,
-        "premium": 12,
-        "sheet": 10,
-        "styles": 10,
-        "system": 5,
-        "templates": 2,
-        "transactions": 7,
-        "understanding": 5,
-        "validation": 1,
-        "view": 1,
-    }
-    assert sum(sizes.values()) == 242
+    assert (
+        sizes
+        == {
+            "analysis": 12,
+            "architecture": 16,  # + interior_tile_layout, arch_room_separator, interior_wall_elevation, arch_plan_patch
+            "batch": 3,
+            "blocks": 9,
+            "corner_ops": 4,
+            "dimensions": 6,  # + dimension_chain
+            "drawing": 9,
+            "engineering": 10,
+            "entity_creation": 19,  # + callout
+            "entity_modification": 18,  # + entity_modify_where (1.8-12), draw_order
+            "entity_query": 9,
+            "environment": 15,
+            "layers": 16,  # + layer_rename, layer_merge (1.8-12)
+            "layouts": 12,
+            "mechanical": 15,  # + mech_part_revise (1.8-19)
+            "page_setup": 5,
+            "pid": 10,  # + pid_project (1.8-21)
+            "plant": 2,
+            "premium": 12,
+            "sheet": 10,
+            "styles": 10,
+            "system": 5,
+            "templates": 2,
+            "transactions": 7,
+            "understanding": 5,
+            "validation": 1,
+            "view": 1,
+        }
+    )
+    assert sum(sizes.values()) == 243

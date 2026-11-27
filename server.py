@@ -2156,6 +2156,7 @@ PACK_TOOL_NAMES: dict[str, frozenset[str]] = {
             "arch_catalogue_insert",
             "arch_dimension_chains",
             "arch_plan_from_spec",
+            "arch_plan_patch",
             "interior_tile_layout",
             "interior_wall_elevation",
         }
@@ -6185,7 +6186,7 @@ def _compact_plan(result: dict) -> dict:
 
 
 _COMPOSITE_KEYS = ("parts", "handles", "group", "bounds")
-_VERBOSE_STEP_TOOLS = frozenset({"entity_batch_create", "arch_plan_from_spec"})
+_VERBOSE_STEP_TOOLS = frozenset({"entity_batch_create", "arch_plan_from_spec", "arch_plan_patch"})
 
 
 def _compact_batch_result(result: Any, verbose: bool, tool: str | None = None) -> Any:
@@ -6205,6 +6206,10 @@ def _compact_batch_result(result: Any, verbose: bool, tool: str | None = None) -
         return _compact_batch_create(result)
     if tool == "arch_plan_from_spec" and "drawn" in result:
         return _compact_plan(result)
+    if tool == "arch_plan_patch" and "handle_map" in result:
+        from engineering.arch.patch import compact
+
+        return compact(result)
     handle = result.get("handle", _MISSING)
     if handle is _MISSING:
         return result
@@ -12765,7 +12770,7 @@ async def data_extract(
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 25: Architecture (15 tools) ─────────────────────────────────────
+# ── SECTION 25: Architecture (16 tools) ─────────────────────────────────────
 # ---------------------------------------------------------------------------
 
 
@@ -13864,6 +13869,62 @@ async def arch_plan_from_spec(
     except ValueError as exc:
         raise ToolError(str(exc)) from exc
     return result if verbose else _compact_plan(result)
+
+
+@cad_tool(
+    summary="Patch a drawn plan by id - walls, openings, rooms - redrawing only what the change moves.",
+    cost="destructive",
+)
+@mcp.tool(
+    annotations={"title": "Architecture: Patch Plan", "destructiveHint": True},
+    tags={"arch", "modify"},
+)
+async def arch_plan_patch(
+    changes: Annotated[
+        dict,
+        Field(
+            description="Path edits by id: {'openings.D1.offset': 1200, 'walls.INT.thickness': "
+            "120, 'rooms.R2.name': 'KITCHEN', 'openings.D2': null, 'openings+': {...}}"
+        ),
+    ],
+    overwrite: Annotated[bool, Field(default=False, description="Replace hand edits")] = False,
+    dry_run: Annotated[
+        bool, Field(default=False, description="Affected set and a `preview`; change nothing")
+    ] = False,
+    expected_revision: Annotated[
+        int | None, Field(default=None, description="A dry run's preview revision")
+    ] = None,
+    preconditions: Annotated[
+        list[dict] | None, Field(default=None, description="A dry run's `preview.preconditions`")
+    ] = None,
+    verbose: Annotated[bool, "True: handle_map and full room results."] = False,
+    ctx: Context = None,
+) -> dict:
+    """Edit the plan arch_plan_from_spec stored in the drawing, by element id, and
+    redraw in one transaction only what the change moves: walls whose outline the
+    junction engine changes, their openings (or one door's symbol), rooms whose area
+    changes, the chains and schedules when their rows do. Everything else keeps its
+    handle. `null` on a key removes it; `<list>.<id>: null` removes the element.
+
+    Refused, nothing written: a bad path or a patched plan the spec refuses
+    (invalid_args); a plan entity edited by hand (hand_edited_tagged_entity) unless
+    overwrite=True; a moved preview (stale_revision); a drawing with no stored plan.
+    """
+    from engineering.arch.patch import compact, patch_plan
+
+    await ctx.info(f"arch_plan_patch: {len(changes or {})} change(s)")
+    try:
+        result = await patch_plan(
+            _backend(ctx),
+            changes,
+            overwrite=overwrite,
+            dry_run=dry_run,
+            expected_revision=expected_revision,
+            preconditions=preconditions,
+        )
+    except ValueError as exc:
+        raise ToolError(str(exc)) from exc
+    return result if verbose else compact(result)
 
 
 # ---------------------------------------------------------------------------

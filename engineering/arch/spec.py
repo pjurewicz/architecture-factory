@@ -517,6 +517,10 @@ async def draw_plan_from_spec(backend: AutoCADBackend, spec: dict) -> dict:
                 )
             except ValueError as exc:
                 raise ValueError(f"schedules[{i}]: {exc}") from exc
+        # the spec, each element's handles and their digests: what arch_plan_patch edits
+        from engineering.arch.patch import owned_from, write_record
+
+        await write_record(backend, spec, owned_from(result))
     except BaseException as exc:
         cancelled = isinstance(exc, anyio.get_cancelled_exc_class())
         with anyio.CancelScope(shield=True):

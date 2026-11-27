@@ -1,5 +1,178 @@
 {
   "backend": "ezdxf",
+  "budget": {
+    "checked": [
+      {
+        "basis": "prompt_payload",
+        "ceiling": 65594,
+        "cell": "idle.default",
+        "gate": "ci",
+        "measured": 62891,
+        "owner": "1.8-14"
+      },
+      {
+        "basis": "prompt_payload",
+        "ceiling": 18842,
+        "cell": "idle.lean",
+        "gate": "ci",
+        "measured": 17493,
+        "owner": "W3 (plan section 4 lever: a Details: split of docstrings over 800 characters, only for the excess)"
+      },
+      {
+        "basis": "prompt_payload",
+        "ceiling": 43997,
+        "cell": "idle.packs_core",
+        "gate": "ci",
+        "measured": 42795,
+        "owner": "W3 (plan section 4 lever: a Details: split of docstrings over 800 characters, only for the excess)"
+      },
+      {
+        "basis": "prompt_payload",
+        "ceiling": 250,
+        "cell": "idle.search",
+        "gate": "ci",
+        "measured": 220,
+        "owner": "1.8-11"
+      },
+      {
+        "basis": "wire",
+        "ceiling": 250,
+        "cell": "idle.search",
+        "gate": "ci",
+        "measured": 230,
+        "owner": "1.8-11"
+      },
+      {
+        "basis": "prompt_payload",
+        "ceiling": 1500,
+        "cell": "idle.search_pinned",
+        "gate": "ci",
+        "measured": 1060,
+        "owner": "1.8-11"
+      },
+      {
+        "basis": "wire",
+        "ceiling": 1500,
+        "cell": "idle.search_pinned",
+        "gate": "ci",
+        "measured": 1335,
+        "owner": "1.8-11"
+      },
+      {
+        "basis": "text",
+        "ceiling": 250,
+        "cell": "idle.instructions",
+        "gate": "ci",
+        "measured": 202,
+        "owner": "1.8-11"
+      },
+      {
+        "basis": "bytes",
+        "ceiling": 300,
+        "cell": "result.system_status_1000_rows",
+        "gate": "release",
+        "measured": 17,
+        "owner": "1.8-10"
+      },
+      {
+        "basis": "chars",
+        "ceiling": 2500,
+        "cell": "result.critique_500_summary",
+        "gate": "release",
+        "measured": 735,
+        "owner": "1.8-16"
+      },
+      {
+        "basis": "tokens",
+        "ceiling": 300,
+        "cell": "result.finalize_qa_coverage",
+        "gate": "release",
+        "measured": 226,
+        "owner": "1.8-16"
+      },
+      {
+        "basis": "tokens_per_error",
+        "ceiling": 60,
+        "cell": "result.error_envelope",
+        "gate": "release",
+        "measured": 58,
+        "owner": "1.8-02 (shipped in W1; the result-lane row that measures it is written by the W2 integration)"
+      },
+      {
+        "basis": "tokens",
+        "ceiling": 400,
+        "cell": "result.history_row",
+        "gate": "release",
+        "measured": 344,
+        "owner": "1.8-10"
+      }
+    ],
+    "file": "benchmarks/token_budget.json",
+    "growth": [
+      {
+        "cell": "growth.default",
+        "measured": 62891,
+        "pct": 3.91,
+        "published": 60523
+      },
+      {
+        "cell": "growth.lean",
+        "measured": 17493,
+        "pct": 2.41,
+        "published": 17081
+      },
+      {
+        "cell": "growth.packs_core",
+        "measured": 42795,
+        "pct": 1.0,
+        "published": 42373
+      },
+      {
+        "cell": "growth.packs_core_mech",
+        "measured": 48788,
+        "pct": 0.76,
+        "published": 48418
+      },
+      {
+        "cell": "growth.packs_core_arch",
+        "measured": 50001,
+        "pct": 5.73,
+        "published": 47289
+      },
+      {
+        "cell": "growth.search",
+        "measured": 220,
+        "pct": 0.0,
+        "published": 220
+      },
+      {
+        "cell": "growth.search_pinned",
+        "measured": 1060,
+        "pct": 3.31,
+        "published": 1026
+      },
+      {
+        "cell": "growth.instructions",
+        "measured": 202,
+        "pct": 1.51,
+        "published": 199
+      }
+    ],
+    "growth_limit_pct": 5.0,
+    "ok": false,
+    "over_ceiling": [],
+    "pending": [],
+    "release": false,
+    "violations": [
+      {
+        "cell": "growth.packs_core_arch",
+        "measured": 50001,
+        "pct": 5.73,
+        "published": 47289,
+        "reason": "grew more than 5 %"
+      }
+    ]
+  },
   "counting": {
     "method_note": "tokens = characters / a per-format divisor (see counting.ratios); estimates, not counts. Characters are the measured unit.",
     "primary_unit": "characters",
@@ -40,15 +213,15 @@
         "note": "Ours: alias-aware BM25 plus the risk filter, compact cards.",
         "queries": [
           {
-            "bytes_utf8": 587,
-            "chars": 587,
+            "bytes_utf8": 613,
+            "chars": 613,
             "cost": {
-              "cached_input_tokens_per_request": 17.8,
-              "session_cached": 738.7,
+              "cached_input_tokens_per_request": 18.6,
+              "session_cached": 771.9,
               "session_saving_ratio": 0.862,
-              "session_uncached": 5340,
+              "session_uncached": 5580,
               "turns": 30,
-              "uncached_input_tokens_per_request": 178,
+              "uncached_input_tokens_per_request": 186,
               "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
             },
             "hits": 5,
@@ -59,7 +232,7 @@
               "estimated": true,
               "format": "compact_text",
               "method": "ratio/v1",
-              "value": 178
+              "value": 186
             },
             "top": [
               "entity_fillet",
@@ -176,15 +349,15 @@
             ]
           },
           {
-            "bytes_utf8": 673,
-            "chars": 673,
+            "bytes_utf8": 692,
+            "chars": 692,
             "cost": {
-              "cached_input_tokens_per_request": 20.5,
-              "session_cached": 850.8,
+              "cached_input_tokens_per_request": 21.0,
+              "session_cached": 871.5,
               "session_saving_ratio": 0.862,
-              "session_uncached": 6150,
+              "session_uncached": 6300,
               "turns": 30,
-              "uncached_input_tokens_per_request": 205,
+              "uncached_input_tokens_per_request": 210,
               "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
             },
             "hits": 5,
@@ -195,24 +368,24 @@
               "estimated": true,
               "format": "compact_text",
               "method": "ratio/v1",
-              "value": 205
+              "value": 210
             },
             "top": [
               "dimension_auto",
               "dimension_linear",
-              "mech_dimension_part"
+              "dimension_chain"
             ]
           },
           {
-            "bytes_utf8": 647,
-            "chars": 647,
+            "bytes_utf8": 651,
+            "chars": 651,
             "cost": {
-              "cached_input_tokens_per_request": 19.7,
-              "session_cached": 817.6,
+              "cached_input_tokens_per_request": 19.8,
+              "session_cached": 821.7,
               "session_saving_ratio": 0.862,
-              "session_uncached": 5910,
+              "session_uncached": 5940,
               "turns": 30,
-              "uncached_input_tokens_per_request": 197,
+              "uncached_input_tokens_per_request": 198,
               "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
             },
             "hits": 5,
@@ -223,24 +396,24 @@
               "estimated": true,
               "format": "compact_text",
               "method": "ratio/v1",
-              "value": 197
+              "value": 198
             },
             "top": [
-              "drawing_export_pdf",
               "drawing_save",
+              "drawing_export_pdf",
               "batch_plot"
             ]
           },
           {
-            "bytes_utf8": 646,
-            "chars": 646,
+            "bytes_utf8": 640,
+            "chars": 640,
             "cost": {
-              "cached_input_tokens_per_request": 19.6,
-              "session_cached": 813.4,
+              "cached_input_tokens_per_request": 19.5,
+              "session_cached": 809.2,
               "session_saving_ratio": 0.862,
-              "session_uncached": 5880,
+              "session_uncached": 5850,
               "turns": 30,
-              "uncached_input_tokens_per_request": 196,
+              "uncached_input_tokens_per_request": 195,
               "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
             },
             "hits": 5,
@@ -251,24 +424,24 @@
               "estimated": true,
               "format": "compact_text",
               "method": "ratio/v1",
-              "value": 196
+              "value": 195
             },
             "top": [
               "leader_create_mleader",
               "entity_chamfer",
-              "mleaderstyle_list"
+              "callout"
             ]
           },
           {
-            "bytes_utf8": 709,
-            "chars": 709,
+            "bytes_utf8": 671,
+            "chars": 671,
             "cost": {
-              "cached_input_tokens_per_request": 21.6,
-              "session_cached": 896.4,
+              "cached_input_tokens_per_request": 20.4,
+              "session_cached": 846.6,
               "session_saving_ratio": 0.862,
-              "session_uncached": 6480,
+              "session_uncached": 6120,
               "turns": 30,
-              "uncached_input_tokens_per_request": 216,
+              "uncached_input_tokens_per_request": 204,
               "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
             },
             "hits": 5,
@@ -279,7 +452,7 @@
               "estimated": true,
               "format": "compact_text",
               "method": "ratio/v1",
-              "value": 216
+              "value": 204
             },
             "top": [
               "dimension_auto",
@@ -298,15 +471,15 @@
         "note": "Stock BM25 wired to the same compact serializer - the fair A/B. Any size difference against ours is ranking, not rendering.",
         "queries": [
           {
-            "bytes_utf8": 603,
-            "chars": 603,
+            "bytes_utf8": 592,
+            "chars": 592,
             "cost": {
-              "cached_input_tokens_per_request": 18.3,
-              "session_cached": 759.5,
+              "cached_input_tokens_per_request": 18.0,
+              "session_cached": 747.0,
               "session_saving_ratio": 0.862,
-              "session_uncached": 5490,
+              "session_uncached": 5400,
               "turns": 30,
-              "uncached_input_tokens_per_request": 183,
+              "uncached_input_tokens_per_request": 180,
               "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
             },
             "hits": 5,
@@ -317,12 +490,12 @@
               "estimated": true,
               "format": "compact_text",
               "method": "ratio/v1",
-              "value": 183
+              "value": 180
             },
             "top": [
               "entity_fillet",
-              "view_zoom_window",
-              "entity_create_rectangle"
+              "entity_create_rectangle",
+              "selection_window"
             ]
           },
           {
@@ -428,19 +601,19 @@
             "top": [
               "mech_hole_pattern",
               "mech_part_draw",
-              "gear_draw_helical_front_view"
+              "mech_dimension_part"
             ]
           },
           {
-            "bytes_utf8": 603,
-            "chars": 603,
+            "bytes_utf8": 616,
+            "chars": 616,
             "cost": {
-              "cached_input_tokens_per_request": 18.3,
-              "session_cached": 759.5,
+              "cached_input_tokens_per_request": 18.7,
+              "session_cached": 776.0,
               "session_saving_ratio": 0.862,
-              "session_uncached": 5490,
+              "session_uncached": 5610,
               "turns": 30,
-              "uncached_input_tokens_per_request": 183,
+              "uncached_input_tokens_per_request": 187,
               "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
             },
             "hits": 5,
@@ -451,24 +624,24 @@
               "estimated": true,
               "format": "compact_text",
               "method": "ratio/v1",
-              "value": 183
+              "value": 187
             },
             "top": [
+              "dimension_chain",
               "dimension_auto",
-              "mech_dimension_part",
-              "mech_part_draw"
+              "mech_dimension_part"
             ]
           },
           {
-            "bytes_utf8": 634,
-            "chars": 634,
+            "bytes_utf8": 607,
+            "chars": 607,
             "cost": {
-              "cached_input_tokens_per_request": 19.3,
-              "session_cached": 801.0,
+              "cached_input_tokens_per_request": 18.4,
+              "session_cached": 763.6,
               "session_saving_ratio": 0.862,
-              "session_uncached": 5790,
+              "session_uncached": 5520,
               "turns": 30,
-              "uncached_input_tokens_per_request": 193,
+              "uncached_input_tokens_per_request": 184,
               "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
             },
             "hits": 5,
@@ -479,24 +652,24 @@
               "estimated": true,
               "format": "compact_text",
               "method": "ratio/v1",
-              "value": 193
+              "value": 184
             },
             "top": [
-              "drawing_export_pdf",
               "batch_plot",
-              "drawing_deliver"
+              "drawing_export_pdf",
+              "drawing_save"
             ]
           },
           {
-            "bytes_utf8": 651,
-            "chars": 651,
+            "bytes_utf8": 626,
+            "chars": 626,
             "cost": {
-              "cached_input_tokens_per_request": 19.8,
-              "session_cached": 821.7,
+              "cached_input_tokens_per_request": 19.0,
+              "session_cached": 788.5,
               "session_saving_ratio": 0.862,
-              "session_uncached": 5940,
+              "session_uncached": 5700,
               "turns": 30,
-              "uncached_input_tokens_per_request": 198,
+              "uncached_input_tokens_per_request": 190,
               "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
             },
             "hits": 5,
@@ -507,12 +680,12 @@
               "estimated": true,
               "format": "compact_text",
               "method": "ratio/v1",
-              "value": 198
+              "value": 190
             },
             "top": [
               "entity_chamfer",
-              "balloon_add",
-              "leader_create_mleader"
+              "callout",
+              "balloon_add"
             ]
           },
           {
@@ -554,15 +727,15 @@
         "note": "Stock BM25 on its default serializer, which re-emits each hit's full list_tools entry. Recorded to size the renderer's contribution, NOT as a baseline any claim should be made against.",
         "queries": [
           {
-            "bytes_utf8": 5710,
-            "chars": 5708,
+            "bytes_utf8": 6366,
+            "chars": 6366,
             "cost": {
-              "cached_input_tokens_per_request": 136.2,
-              "session_cached": 5652.3,
+              "cached_input_tokens_per_request": 151.9,
+              "session_cached": 6303.9,
               "session_saving_ratio": 0.862,
-              "session_uncached": 40860,
+              "session_uncached": 45570,
               "turns": 30,
-              "uncached_input_tokens_per_request": 1362,
+              "uncached_input_tokens_per_request": 1519,
               "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
             },
             "hits": 5,
@@ -573,12 +746,12 @@
               "estimated": true,
               "format": "json_schema",
               "method": "ratio/v1",
-              "value": 1362
+              "value": 1519
             },
             "top": [
               "entity_fillet",
-              "view_zoom_window",
-              "entity_create_rectangle"
+              "entity_create_rectangle",
+              "selection_window"
             ]
           },
           {
@@ -632,15 +805,15 @@
             ]
           },
           {
-            "bytes_utf8": 7534,
-            "chars": 7528,
+            "bytes_utf8": 7350,
+            "chars": 7344,
             "cost": {
-              "cached_input_tokens_per_request": 179.7,
-              "session_cached": 7457.6,
+              "cached_input_tokens_per_request": 175.3,
+              "session_cached": 7275.0,
               "session_saving_ratio": 0.862,
-              "session_uncached": 53910,
+              "session_uncached": 52590,
               "turns": 30,
-              "uncached_input_tokens_per_request": 1797,
+              "uncached_input_tokens_per_request": 1753,
               "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
             },
             "hits": 5,
@@ -651,7 +824,7 @@
               "estimated": true,
               "format": "json_schema",
               "method": "ratio/v1",
-              "value": 1797
+              "value": 1753
             },
             "top": [
               "point_intersection",
@@ -684,19 +857,19 @@
             "top": [
               "mech_hole_pattern",
               "mech_part_draw",
-              "gear_draw_helical_front_view"
+              "mech_dimension_part"
             ]
           },
           {
-            "bytes_utf8": 7622,
-            "chars": 7614,
+            "bytes_utf8": 9912,
+            "chars": 9908,
             "cost": {
-              "cached_input_tokens_per_request": 181.7,
-              "session_cached": 7540.6,
+              "cached_input_tokens_per_request": 236.5,
+              "session_cached": 9814.8,
               "session_saving_ratio": 0.862,
-              "session_uncached": 54510,
+              "session_uncached": 70950,
               "turns": 30,
-              "uncached_input_tokens_per_request": 1817,
+              "uncached_input_tokens_per_request": 2365,
               "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
             },
             "hits": 5,
@@ -707,24 +880,24 @@
               "estimated": true,
               "format": "json_schema",
               "method": "ratio/v1",
-              "value": 1817
+              "value": 2365
             },
             "top": [
+              "dimension_chain",
               "dimension_auto",
-              "mech_dimension_part",
-              "mech_part_draw"
+              "mech_dimension_part"
             ]
           },
           {
-            "bytes_utf8": 6403,
-            "chars": 6395,
+            "bytes_utf8": 7590,
+            "chars": 7584,
             "cost": {
-              "cached_input_tokens_per_request": 152.6,
-              "session_cached": 6332.9,
+              "cached_input_tokens_per_request": 181.0,
+              "session_cached": 7511.5,
               "session_saving_ratio": 0.862,
-              "session_uncached": 45780,
+              "session_uncached": 54300,
               "turns": 30,
-              "uncached_input_tokens_per_request": 1526,
+              "uncached_input_tokens_per_request": 1810,
               "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
             },
             "hits": 5,
@@ -735,24 +908,24 @@
               "estimated": true,
               "format": "json_schema",
               "method": "ratio/v1",
-              "value": 1526
+              "value": 1810
             },
             "top": [
-              "drawing_export_pdf",
               "batch_plot",
-              "drawing_deliver"
+              "drawing_export_pdf",
+              "drawing_save"
             ]
           },
           {
-            "bytes_utf8": 6451,
-            "chars": 6447,
+            "bytes_utf8": 7476,
+            "chars": 7472,
             "cost": {
-              "cached_input_tokens_per_request": 153.9,
-              "session_cached": 6386.9,
+              "cached_input_tokens_per_request": 178.3,
+              "session_cached": 7399.5,
               "session_saving_ratio": 0.862,
-              "session_uncached": 46170,
+              "session_uncached": 53490,
               "turns": 30,
-              "uncached_input_tokens_per_request": 1539,
+              "uncached_input_tokens_per_request": 1783,
               "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
             },
             "hits": 5,
@@ -763,24 +936,24 @@
               "estimated": true,
               "format": "json_schema",
               "method": "ratio/v1",
-              "value": 1539
+              "value": 1783
             },
             "top": [
               "entity_chamfer",
-              "balloon_add",
-              "leader_create_mleader"
+              "callout",
+              "balloon_add"
             ]
           },
           {
-            "bytes_utf8": 8629,
-            "chars": 8623,
+            "bytes_utf8": 8599,
+            "chars": 8593,
             "cost": {
-              "cached_input_tokens_per_request": 205.8,
-              "session_cached": 8540.7,
+              "cached_input_tokens_per_request": 205.1,
+              "session_cached": 8511.7,
               "session_saving_ratio": 0.862,
-              "session_uncached": 61740,
+              "session_uncached": 61530,
               "turns": 30,
-              "uncached_input_tokens_per_request": 2058,
+              "uncached_input_tokens_per_request": 2051,
               "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
             },
             "hits": 5,
@@ -791,7 +964,7 @@
               "estimated": true,
               "format": "json_schema",
               "method": "ratio/v1",
-              "value": 2058
+              "value": 2051
             },
             "top": [
               "dimension_auto",
@@ -805,7 +978,7 @@
         "transform": "fastmcp.server.transforms.search.BM25SearchTransform"
       }
     ],
-    "catalog_tools": 244,
+    "catalog_tools": 243,
     "limit": 5,
     "summary": {
       "comparable_queries": 8,
@@ -818,14 +991,14 @@
         "stock_bm25_default": 0.889
       },
       "mean_chars": {
-        "cad_search": 581.6,
-        "stock_bm25_compact": 563.9,
-        "stock_bm25_default": 6709.0
+        "cad_search": 582.2,
+        "stock_bm25_compact": 557.6,
+        "stock_bm25_default": 7328.0
       },
       "mean_tokens": {
-        "cad_search": 176.9,
-        "stock_bm25_compact": 171.5,
-        "stock_bm25_default": 1601.1
+        "cad_search": 177.0,
+        "stock_bm25_compact": 169.5,
+        "stock_bm25_default": 1748.9
       },
       "note": "Means cover only queries every arm answered; zero-hit answers are excluded from size means and reported in hit_rate instead. The compact serializer, not the ranker, is what makes a search answer small - stock BM25 with the same serializer lands within a few percent. Ours differs in finding the tool at all.",
       "queries": 9
@@ -842,17 +1015,17 @@
   },
   "idle": [
     {
-      "advertised_tools": 245,
+      "advertised_tools": 244,
       "basis": "prompt_payload",
-      "bytes_utf8": 253864,
-      "chars": 253590,
+      "bytes_utf8": 263748,
+      "chars": 263512,
       "cost": {
-        "cached_input_tokens_per_request": 6052.3,
-        "session_cached": 251170.5,
+        "cached_input_tokens_per_request": 6289.1,
+        "session_cached": 260997.7,
         "session_saving_ratio": 0.862,
-        "session_uncached": 1815690,
+        "session_uncached": 1886730,
         "turns": 30,
-        "uncached_input_tokens_per_request": 60523,
+        "uncached_input_tokens_per_request": 62891,
         "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
       },
       "kind": "tools_list",
@@ -888,26 +1061,26 @@
         },
         "note": "Minimum cacheable prefix by model tier. A prefix below the minimum does not cache and reports no error, so its cached column is unreachable in practice."
       },
-      "prompt_chars": 253590,
+      "prompt_chars": 263512,
       "tokens": {
         "chars_per_token": 4.19,
         "confidence": "carried-over-measurement",
         "estimated": true,
         "format": "json_schema",
         "method": "ratio/v1",
-        "value": 60523
+        "value": 62891
       },
       "variant": "default",
       "wire": {
-        "bytes_utf8": 331969,
-        "chars": 331694,
+        "bytes_utf8": 341920,
+        "chars": 341683,
         "cost": {
-          "cached_input_tokens_per_request": 7916.3,
-          "session_cached": 328526.5,
+          "cached_input_tokens_per_request": 8154.7,
+          "session_cached": 338420.1,
           "session_saving_ratio": 0.862,
-          "session_uncached": 2374890,
+          "session_uncached": 2446410,
           "turns": 30,
-          "uncached_input_tokens_per_request": 79163,
+          "uncached_input_tokens_per_request": 81547,
           "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
         },
         "tokens": {
@@ -916,23 +1089,23 @@
           "estimated": true,
           "format": "json_schema",
           "method": "ratio/v1",
-          "value": 79163
+          "value": 81547
         }
       },
-      "wire_chars": 331694
+      "wire_chars": 341683
     },
     {
-      "advertised_tools": 68,
+      "advertised_tools": 65,
       "basis": "prompt_payload",
-      "bytes_utf8": 71615,
-      "chars": 71568,
+      "bytes_utf8": 73344,
+      "chars": 73296,
       "cost": {
-        "cached_input_tokens_per_request": 1708.1,
-        "session_cached": 70886.1,
+        "cached_input_tokens_per_request": 1749.3,
+        "session_cached": 72596.0,
         "session_saving_ratio": 0.862,
-        "session_uncached": 512430,
+        "session_uncached": 524790,
         "turns": 30,
-        "uncached_input_tokens_per_request": 17081,
+        "uncached_input_tokens_per_request": 17493,
         "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
       },
       "kind": "tools_list",
@@ -968,26 +1141,26 @@
         },
         "note": "Minimum cacheable prefix by model tier. A prefix below the minimum does not cache and reports no error, so its cached column is unreachable in practice."
       },
-      "prompt_chars": 71568,
+      "prompt_chars": 73296,
       "tokens": {
         "chars_per_token": 4.19,
         "confidence": "carried-over-measurement",
         "estimated": true,
         "format": "json_schema",
         "method": "ratio/v1",
-        "value": 17081
+        "value": 17493
       },
       "variant": "lean",
       "wire": {
-        "bytes_utf8": 92593,
-        "chars": 92545,
+        "bytes_utf8": 93566,
+        "chars": 93517,
         "cost": {
-          "cached_input_tokens_per_request": 2208.7,
-          "session_cached": 91661.1,
+          "cached_input_tokens_per_request": 2231.9,
+          "session_cached": 92623.9,
           "session_saving_ratio": 0.862,
-          "session_uncached": 662610,
+          "session_uncached": 669570,
           "turns": 30,
-          "uncached_input_tokens_per_request": 22087,
+          "uncached_input_tokens_per_request": 22319,
           "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
         },
         "tokens": {
@@ -996,23 +1169,23 @@
           "estimated": true,
           "format": "json_schema",
           "method": "ratio/v1",
-          "value": 22087
+          "value": 22319
         }
       },
-      "wire_chars": 92545
+      "wire_chars": 93517
     },
     {
-      "advertised_tools": 190,
+      "advertised_tools": 186,
       "basis": "prompt_payload",
-      "bytes_utf8": 177728,
-      "chars": 177544,
+      "bytes_utf8": 179465,
+      "chars": 179312,
       "cost": {
-        "cached_input_tokens_per_request": 4237.3,
-        "session_cached": 175848.0,
+        "cached_input_tokens_per_request": 4279.5,
+        "session_cached": 177599.2,
         "session_saving_ratio": 0.862,
-        "session_uncached": 1271190,
+        "session_uncached": 1283850,
         "turns": 30,
-        "uncached_input_tokens_per_request": 42373,
+        "uncached_input_tokens_per_request": 42795,
         "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
       },
       "kind": "tools_list",
@@ -1048,26 +1221,26 @@
         },
         "note": "Minimum cacheable prefix by model tier. A prefix below the minimum does not cache and reports no error, so its cached column is unreachable in practice."
       },
-      "prompt_chars": 177544,
+      "prompt_chars": 179312,
       "tokens": {
         "chars_per_token": 4.19,
         "confidence": "carried-over-measurement",
         "estimated": true,
         "format": "json_schema",
         "method": "ratio/v1",
-        "value": 42373
+        "value": 42795
       },
       "variant": "packs_core",
       "wire": {
-        "bytes_utf8": 237677,
-        "chars": 237493,
+        "bytes_utf8": 238404,
+        "chars": 238251,
         "cost": {
-          "cached_input_tokens_per_request": 5668.1,
-          "session_cached": 235226.2,
+          "cached_input_tokens_per_request": 5686.2,
+          "session_cached": 235977.3,
           "session_saving_ratio": 0.862,
-          "session_uncached": 1700430,
+          "session_uncached": 1705860,
           "turns": 30,
-          "uncached_input_tokens_per_request": 56681,
+          "uncached_input_tokens_per_request": 56862,
           "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
         },
         "tokens": {
@@ -1076,27 +1249,27 @@
           "estimated": true,
           "format": "json_schema",
           "method": "ratio/v1",
-          "value": 56681
+          "value": 56862
         }
       },
-      "wire_chars": 237493
+      "wire_chars": 238251
     },
     {
-      "advertised_tools": 205,
+      "advertised_tools": 201,
       "basis": "prompt_payload",
-      "bytes_utf8": 203079,
-      "chars": 202872,
+      "bytes_utf8": 204599,
+      "chars": 204423,
       "cost": {
-        "cached_input_tokens_per_request": 4841.8,
-        "session_cached": 200934.7,
+        "cached_input_tokens_per_request": 4878.8,
+        "session_cached": 202470.2,
         "session_saving_ratio": 0.862,
-        "session_uncached": 1452540,
+        "session_uncached": 1463640,
         "turns": 30,
-        "uncached_input_tokens_per_request": 48418,
+        "uncached_input_tokens_per_request": 48788,
         "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
       },
       "kind": "tools_list",
-      "note": "TOOL_PACKS=core,mech - a mechanical client that never opens a P&ID or a live seat.",
+      "note": "TOOL_PACKS=core,mech - a mechanical client that never opens a P&ID.",
       "prompt_cache": {
         "cacheable": {
           "1024": true,
@@ -1128,26 +1301,26 @@
         },
         "note": "Minimum cacheable prefix by model tier. A prefix below the minimum does not cache and reports no error, so its cached column is unreachable in practice."
       },
-      "prompt_chars": 202872,
+      "prompt_chars": 204423,
       "tokens": {
         "chars_per_token": 4.19,
         "confidence": "carried-over-measurement",
         "estimated": true,
         "format": "json_schema",
         "method": "ratio/v1",
-        "value": 48418
+        "value": 48788
       },
       "variant": "packs_core_mech",
       "wire": {
-        "bytes_utf8": 268101,
-        "chars": 267894,
+        "bytes_utf8": 268611,
+        "chars": 268435,
         "cost": {
-          "cached_input_tokens_per_request": 6393.7,
-          "session_cached": 265338.6,
+          "cached_input_tokens_per_request": 6406.6,
+          "session_cached": 265873.9,
           "session_saving_ratio": 0.862,
-          "session_uncached": 1918110,
+          "session_uncached": 1921980,
           "turns": 30,
-          "uncached_input_tokens_per_request": 63937,
+          "uncached_input_tokens_per_request": 64066,
           "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
         },
         "tokens": {
@@ -1156,27 +1329,27 @@
           "estimated": true,
           "format": "json_schema",
           "method": "ratio/v1",
-          "value": 63937
+          "value": 64066
         }
       },
-      "wire_chars": 267894
+      "wire_chars": 268435
     },
     {
       "advertised_tools": 202,
       "basis": "prompt_payload",
-      "bytes_utf8": 198337,
-      "chars": 198143,
+      "bytes_utf8": 209668,
+      "chars": 209505,
       "cost": {
-        "cached_input_tokens_per_request": 4728.9,
-        "session_cached": 196249.4,
+        "cached_input_tokens_per_request": 5000.1,
+        "session_cached": 207504.2,
         "session_saving_ratio": 0.862,
-        "session_uncached": 1418670,
+        "session_uncached": 1500030,
         "turns": 30,
-        "uncached_input_tokens_per_request": 47289,
+        "uncached_input_tokens_per_request": 50001,
         "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
       },
       "kind": "tools_list",
-      "note": "TOOL_PACKS=core,arch - an architectural client that never opens a P&ID, a machine part or a live seat.",
+      "note": "TOOL_PACKS=core,arch - an architectural client that never opens a P&ID or a machine part.",
       "prompt_cache": {
         "cacheable": {
           "1024": true,
@@ -1208,26 +1381,26 @@
         },
         "note": "Minimum cacheable prefix by model tier. A prefix below the minimum does not cache and reports no error, so its cached column is unreachable in practice."
       },
-      "prompt_chars": 198143,
+      "prompt_chars": 209505,
       "tokens": {
         "chars_per_token": 4.19,
         "confidence": "carried-over-measurement",
         "estimated": true,
         "format": "json_schema",
         "method": "ratio/v1",
-        "value": 47289
+        "value": 50001
       },
       "variant": "packs_core_arch",
       "wire": {
-        "bytes_utf8": 262228,
-        "chars": 262033,
+        "bytes_utf8": 273943,
+        "chars": 273779,
         "cost": {
-          "cached_input_tokens_per_request": 6253.8,
-          "session_cached": 259532.7,
+          "cached_input_tokens_per_request": 6534.1,
+          "session_cached": 271165.2,
           "session_saving_ratio": 0.862,
-          "session_uncached": 1876140,
+          "session_uncached": 1960230,
           "turns": 30,
-          "uncached_input_tokens_per_request": 62538,
+          "uncached_input_tokens_per_request": 65341,
           "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
         },
         "tokens": {
@@ -1236,10 +1409,10 @@
           "estimated": true,
           "format": "json_schema",
           "method": "ratio/v1",
-          "value": 62538
+          "value": 65341
         }
       },
-      "wire_chars": 262033
+      "wire_chars": 273779
     },
     {
       "advertised_tools": 3,
@@ -1324,15 +1497,15 @@
     {
       "advertised_tools": 6,
       "basis": "prompt_payload",
-      "bytes_utf8": 4299,
-      "chars": 4299,
+      "bytes_utf8": 4442,
+      "chars": 4442,
       "cost": {
-        "cached_input_tokens_per_request": 102.6,
-        "session_cached": 4257.9,
+        "cached_input_tokens_per_request": 106.0,
+        "session_cached": 4399.0,
         "session_saving_ratio": 0.862,
-        "session_uncached": 30780,
+        "session_uncached": 31800,
         "turns": 30,
-        "uncached_input_tokens_per_request": 1026,
+        "uncached_input_tokens_per_request": 1060,
         "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
       },
       "kind": "tools_list",
@@ -1368,26 +1541,26 @@
         },
         "note": "Minimum cacheable prefix by model tier. A prefix below the minimum does not cache and reports no error, so its cached column is unreachable in practice."
       },
-      "prompt_chars": 4299,
+      "prompt_chars": 4442,
       "tokens": {
         "chars_per_token": 4.19,
         "confidence": "carried-over-measurement",
         "estimated": true,
         "format": "json_schema",
         "method": "ratio/v1",
-        "value": 1026
+        "value": 1060
       },
       "variant": "search_pinned",
       "wire": {
-        "bytes_utf8": 5449,
-        "chars": 5449,
+        "bytes_utf8": 5592,
+        "chars": 5592,
         "cost": {
-          "cached_input_tokens_per_request": 130.0,
-          "session_cached": 5395.0,
+          "cached_input_tokens_per_request": 133.5,
+          "session_cached": 5540.2,
           "session_saving_ratio": 0.862,
-          "session_uncached": 39000,
+          "session_uncached": 40050,
           "turns": 30,
-          "uncached_input_tokens_per_request": 1300,
+          "uncached_input_tokens_per_request": 1335,
           "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
         },
         "tokens": {
@@ -1396,23 +1569,23 @@
           "estimated": true,
           "format": "json_schema",
           "method": "ratio/v1",
-          "value": 1300
+          "value": 1335
         }
       },
-      "wire_chars": 5449
+      "wire_chars": 5592
     },
     {
       "advertised_tools": 0,
       "basis": "text",
-      "bytes_utf8": 832,
-      "chars": 832,
+      "bytes_utf8": 847,
+      "chars": 847,
       "cost": {
-        "cached_input_tokens_per_request": 19.9,
-        "session_cached": 825.9,
+        "cached_input_tokens_per_request": 20.2,
+        "session_cached": 838.3,
         "session_saving_ratio": 0.862,
-        "session_uncached": 5970,
+        "session_uncached": 6060,
         "turns": 30,
-        "uncached_input_tokens_per_request": 199,
+        "uncached_input_tokens_per_request": 202,
         "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
       },
       "kind": "instructions",
@@ -1448,26 +1621,26 @@
         },
         "note": "Minimum cacheable prefix by model tier. A prefix below the minimum does not cache and reports no error, so its cached column is unreachable in practice."
       },
-      "prompt_chars": 832,
+      "prompt_chars": 847,
       "tokens": {
         "chars_per_token": 4.19,
         "confidence": "borrowed",
         "estimated": true,
         "format": "text",
         "method": "ratio/v1",
-        "value": 199
+        "value": 202
       },
       "variant": "instructions",
       "wire": {
-        "bytes_utf8": 832,
-        "chars": 832,
+        "bytes_utf8": 847,
+        "chars": 847,
         "cost": {
-          "cached_input_tokens_per_request": 19.9,
-          "session_cached": 825.9,
+          "cached_input_tokens_per_request": 20.2,
+          "session_cached": 838.3,
           "session_saving_ratio": 0.862,
-          "session_uncached": 5970,
+          "session_uncached": 6060,
           "turns": 30,
-          "uncached_input_tokens_per_request": 199,
+          "uncached_input_tokens_per_request": 202,
           "unit": "input tokens (cached figures are price-equivalent: read at 0.1x, write at 1.25x)"
         },
         "tokens": {
@@ -1476,10 +1649,10 @@
           "estimated": true,
           "format": "text",
           "method": "ratio/v1",
-          "value": 199
+          "value": 202
         }
       },
-      "wire_chars": 832
+      "wire_chars": 847
     }
   ],
   "idle_basis": "prompt_payload",
@@ -1545,10 +1718,10 @@
         "rows": 10
       },
       "system_status_1000_rows": {
-        "bytes_at_0_rows": 1436,
-        "bytes_at_1000_rows": 1454,
+        "bytes_at_0_rows": 1224,
+        "bytes_at_1000_rows": 1241,
         "journal_count": 1002,
-        "measured": 18,
+        "measured": 17,
         "metric": "bytes"
       }
     },
@@ -1831,10 +2004,10 @@
   "task": {
     "naive_label": "naive: one tool per entity - the shape the rival observed an agent take with this server; not the least this server needs",
     "prefix": {
-      "instructions_tokens": 199,
+      "instructions_tokens": 202,
       "surface": "default (TOOL_PROFILE=full, DISCOVERY_MODE=off) + instructions",
-      "tokens": 60722,
-      "tools_tokens": 60523
+      "tokens": 63093,
+      "tools_tokens": 62891
     },
     "scenarios": [
       {
@@ -1885,9 +2058,9 @@
                 },
                 "note": "Minimum cacheable prefix by model tier. A prefix below the minimum does not cache and reports no error, so its cached column is unreachable in practice."
               },
-              "prefix_tokens": 60722,
-              "session_input_cached": 83404.7,
-              "session_input_uncached": 122588,
+              "prefix_tokens": 63093,
+              "session_input_cached": 86605.6,
+              "session_input_uncached": 127330,
               "turns": 2
             },
             "sizes": [
@@ -1948,9 +2121,9 @@
                 },
                 "note": "Minimum cacheable prefix by model tier. A prefix below the minimum does not cache and reports no error, so its cached column is unreachable in practice."
               },
-              "prefix_tokens": 60722,
-              "session_input_cached": 201057.1,
-              "session_input_uncached": 1292399,
+              "prefix_tokens": 63093,
+              "session_input_cached": 208762.8,
+              "session_input_uncached": 1342190,
               "turns": 21
             },
             "sizes": [
@@ -2092,9 +2265,9 @@
                 },
                 "note": "Minimum cacheable prefix by model tier. A prefix below the minimum does not cache and reports no error, so its cached column is unreachable in practice."
               },
-              "prefix_tokens": 60722,
-              "session_input_cached": 89463.6,
-              "session_input_uncached": 184246,
+              "prefix_tokens": 63093,
+              "session_input_cached": 92901.6,
+              "session_input_uncached": 191359,
               "turns": 3
             },
             "sizes": [
@@ -2159,9 +2332,9 @@
                 },
                 "note": "Minimum cacheable prefix by model tier. A prefix below the minimum does not cache and reports no error, so its cached column is unreachable in practice."
               },
-              "prefix_tokens": 60722,
-              "session_input_cached": 2679486.8,
-              "session_input_uncached": 25787593,
+              "prefix_tokens": 63093,
+              "session_input_cached": 2756188.7,
+              "session_input_uncached": 26527345,
               "turns": 312
             },
             "sizes": [
@@ -3467,9 +3640,9 @@
                 },
                 "note": "Minimum cacheable prefix by model tier. A prefix below the minimum does not cache and reports no error, so its cached column is unreachable in practice."
               },
-              "prefix_tokens": 60722,
-              "session_input_cached": 88207.3,
-              "session_input_uncached": 182390,
+              "prefix_tokens": 63093,
+              "session_input_cached": 91645.3,
+              "session_input_uncached": 189503,
               "turns": 3
             },
             "sizes": [
@@ -3536,9 +3709,9 @@
                 },
                 "note": "Minimum cacheable prefix by model tier. A prefix below the minimum does not cache and reports no error, so its cached column is unreachable in practice."
               },
-              "prefix_tokens": 60722,
-              "session_input_cached": 221669.1,
-              "session_input_uncached": 1490719,
+              "prefix_tokens": 63093,
+              "session_input_cached": 230086.1,
+              "session_input_uncached": 1547623,
               "turns": 24
             },
             "sizes": [
@@ -3691,9 +3864,9 @@
                 },
                 "note": "Minimum cacheable prefix by model tier. A prefix below the minimum does not cache and reports no error, so its cached column is unreachable in practice."
               },
-              "prefix_tokens": 60722,
-              "session_input_cached": 86498.5,
-              "session_input_uncached": 125063,
+              "prefix_tokens": 63093,
+              "session_input_cached": 89699.4,
+              "session_input_uncached": 129805,
               "turns": 2
             },
             "sizes": [
@@ -3752,9 +3925,9 @@
                 },
                 "note": "Minimum cacheable prefix by model tier. A prefix below the minimum does not cache and reports no error, so its cached column is unreachable in practice."
               },
-              "prefix_tokens": 60722,
-              "session_input_cached": 136268.7,
-              "session_input_uncached": 426702,
+              "prefix_tokens": 63093,
+              "session_input_cached": 140418.0,
+              "session_input_uncached": 440928,
               "turns": 6
             },
             "sizes": [
@@ -3800,10 +3973,10 @@
             "label": "drawing_open (what a restarted server needs first) + drawing_history(handle=..., detail='args') (1.8-10)",
             "request_chars": 201,
             "request_tokens": 48,
-            "result_chars": 1200,
-            "result_tokens": 286,
+            "result_chars": 1197,
+            "result_tokens": 285,
             "session": {
-              "history_tokens": 334,
+              "history_tokens": 333,
               "note": "per turn: the prefix plus every previous request and result. Cached: each span written once at 1.25x, read at 0.1x after.",
               "prefix_cache": {
                 "cacheable": {
@@ -3836,9 +4009,9 @@
                 },
                 "note": "Minimum cacheable prefix by model tier. A prefix below the minimum does not cache and reports no error, so its cached column is unreachable in practice."
               },
-              "prefix_tokens": 60722,
-              "session_input_cached": 88479.9,
-              "session_input_uncached": 182655,
+              "prefix_tokens": 63093,
+              "session_input_cached": 91916.6,
+              "session_input_uncached": 189767,
               "turns": 3
             },
             "sizes": [
@@ -3848,7 +4021,7 @@
               ],
               [
                 81,
-                671
+                668
               ]
             ],
             "status": "measured",
@@ -3901,9 +4074,9 @@
                 },
                 "note": "Minimum cacheable prefix by model tier. A prefix below the minimum does not cache and reports no error, so its cached column is unreachable in practice."
               },
-              "prefix_tokens": 60722,
-              "session_input_cached": 94619.6,
-              "session_input_uncached": 243626,
+              "prefix_tokens": 63093,
+              "session_input_cached": 98294.6,
+              "session_input_uncached": 253110,
               "turns": 4
             },
             "sizes": [

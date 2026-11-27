@@ -33,6 +33,22 @@ wrapping the name onto two lines first, then shrinking the name - never below
 the 2.5 mm ISO 3098 floor `drawing_critique` checks; number and area keep
 2.5 mm (defaults `left` / `false`, as on `arch_room`).
 
+To change one door, one label or one wall of a drawn plan, patch it by id -
+never delete and redraw the plan:
+
+```text
+arch_plan_patch(changes={"openings.D1.offset": 1200, "openings.D2.hinge": "end",
+                         "rooms.R2.name": "KITCHEN", "walls.INT.thickness": 120})
+```
+
+It redraws only the walls the junction engine says moved, their openings,
+the rooms whose area moved and the chains and schedules whose rows moved;
+furniture, notes, your dimensions and layouts keep their handles. `null` on a
+key removes it (`"openings.D2.hand": null` before giving `hinge`),
+`"openings.D2": null` removes the door, `"openings+": {...}` adds one. A plan
+entity edited by hand refuses (`hand_edited_tagged_entity`) unless
+`overwrite=True`; `dry_run=True` shows the affected set first.
+
 ## Areas are measured, never typed
 
 A room's area is the planar face its label point lies in, measured off the
