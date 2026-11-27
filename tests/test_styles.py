@@ -675,11 +675,12 @@ async def test_a_render_without_the_style_font_says_what_it_drew_with(backend, m
 
     from backends.region_render import render_layout
 
-    monkeypatch.setattr(fonts.font_manager, "has_font", lambda name: name == "DejaVuSans.ttf")
+    fallback = fonts.font_manager.fallback_font_name()  # this machine's, e.g. DejaVuSans.ttf
+    monkeypatch.setattr(fonts.font_manager, "has_font", lambda name: name == fallback)
     made = await backend.textstyle_create("ISOCP", "isocp", set_current=True)
-    assert made["font_resolved"] is True and made["render_font"] == "DejaVuSans.ttf"
+    assert made["font_resolved"] is True and made["render_font"] == fallback
     plain = render_layout(backend._doc, backend._doc.modelspace())
     assert "fonts_substituted" not in plain  # nothing lettered yet
     await backend.entity_create_text("note", 0, 0)
     report = render_layout(backend._doc, backend._doc.modelspace())
-    assert report["fonts_substituted"] == {"isocp.shx": "DejaVuSans.ttf"}
+    assert report["fonts_substituted"] == {"isocp.shx": fallback}
