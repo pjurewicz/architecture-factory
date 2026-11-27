@@ -49,6 +49,7 @@ from .model import (
     validate_openings,
     wall_from_dict,
 )
+from .openings import resolve_door
 
 if TYPE_CHECKING:
     from backends.base import AutoCADBackend
@@ -306,6 +307,8 @@ def validate_spec(spec: dict) -> dict:
         geometry = wall_geometry(walls, openings, poche=poche)
     except ValueError as exc:
         raise ValueError(f"walls/openings: {exc}") from exc
+    hosts = {wall.id: wall for wall in walls}
+    openings = [resolve_door(hosts[op.wall], op, f"openings[{i}]") for i, op in enumerate(openings)]
 
     stairs = []
     for i, item in enumerate(_list(spec, "stairs")):

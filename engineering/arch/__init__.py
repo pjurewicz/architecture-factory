@@ -48,7 +48,7 @@ from .model import (
     wall_from_dict,
     wall_length,
 )
-from .openings import opening_prims
+from .openings import opening_prims, resolve_door
 from .rooms import (
     detect_rooms,
     label_room,
@@ -144,6 +144,7 @@ __all__ = [
     "opening_closures",
     "opening_from_dict",
     "opening_prims",
+    "resolve_door",
     "planar_faces",
     "read_records",
     "room_from_dict",

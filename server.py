@@ -12839,12 +12839,7 @@ async def arch_wall(
 )
 async def arch_opening(
     wall: Annotated[str, Field(description="Id of the drawn wall that hosts the opening")],
-    offset: Annotated[
-        float,
-        Field(
-            description="Distance along the wall's axis from its first point to the near jamb (mm)"
-        ),
-    ],
+    offset: Annotated[float, Field(description="Axis distance from first point to near jamb (mm)")],
     width: Annotated[float, Field(description="Clear width of the opening (mm)")],
     kind: Annotated[
         str,
@@ -12855,28 +12850,27 @@ async def arch_opening(
         ),
     ] = "door",
     swing: Annotated[
-        str,
-        Field(
-            default="in",
-            description="Doors: in = to the left of the axis (inside a CCW perimeter) | out",
-        ),
-    ] = "in",
+        str | None, Field(default=None, description="in (default): left of axis | out")
+    ] = None,
     hand: Annotated[
-        str,
-        Field(
-            default="left",
-            description="Doors: the hinge jamb, seen from the swing side facing the wall: left | right",
-        ),
-    ] = "left",
+        str | None, Field(default=None, description="Hinge seen from swing side: left|right")
+    ] = None,
+    hinge: Annotated[
+        str | None, Field(default=None, description="Door: start (at offset) | end; not with hand")
+    ] = None,
+    swing_towards: Annotated[
+        list[float] | None,
+        Field(default=None, description="WCS [x, y] on the opening side; not with swing"),
+    ] = None,
     sill: Annotated[
-        float | None, Field(default=None, description="Windows: sill height (schedule only, mm)")
+        float | None, Field(default=None, description="Window sill (schedule only, mm)")
     ] = None,
     height: Annotated[
-        float | None, Field(default=None, description="Opening height (schedule only, mm)")
+        float | None, Field(default=None, description="Height (schedule only, mm)")
     ] = None,
     tag: Annotated[
         str | None,
-        Field(default=None, description="Schedule tag; default the next D1/W1 (en) or K1/P1 (tr)"),
+        Field(default=None, description="Schedule tag; default the next free D1/W1"),
     ] = None,
     opening_id: Annotated[
         str | None, Field(default=None, description="Opening id; default its tag")
@@ -12890,26 +12884,24 @@ async def arch_opening(
         Field(
             default=50.0,
             gt=0,
-            description="Plot-scale denominator: 50 is 1:50; the poche's pattern scale follows it.",
+            description="Plot scale denominator (50 = 1:50), for the poche",
         ),
     ] = 50.0,
     ctx: Context = None,
 ) -> dict:
     """A door or a window in a wall already drawn, found by its id; the wall is redrawn cut.
 
-    The opening removes its width from both wall faces and each edge is closed
-    by a jamb. A door is drawn open at 90° - its leaf as long as the opening is
-    wide, hinged on `hand`, with a quarter-arc swing on the `swing` side; a
-    window is a frame line on each face and two glazing lines between them.
-    Glazed/cased kinds at an L's end run to the corner. The record sits on
-    the first line, so a schedule reads it back.
+    Both faces are cut and closed by jambs. A door is drawn open at 90°: leaf
+    as long as the width, hinged on `hinge`/`hand`, a quarter arc on the swing
+    side (`swing_towards` or `swing`; left = left walking the axis from its
+    first point). A window is two frame and two glazing lines. Glazed/cased
+    kinds at an L's end run to the corner. The record sits on the first line.
 
-    Refused before anything is drawn or erased: a wall id not on the drawing
-    (the drawn ids are named), an opening id already drawn, an opening that
-    runs past its wall segment or straddles an axis vertex, one overlapping
-    another opening on the same wall (both ids named), one that runs into a
-    junction (the solid stretch it must fit in is named), an unknown kind,
-    swing, hand or language.
+    Details: refused before anything is drawn - an unknown wall (drawn ids named) or
+    opening id already drawn; an opening past its segment, over an axis vertex,
+    overlapping another (both ids) or into a junction; an unknown kind, swing,
+    hand, hinge or language; `hinge` off a single door, `swing_towards` on a
+    sliding/cased/glazed kind or on/inside the wall.
     """
     from engineering.arch.draw import add_opening
 
@@ -12921,6 +12913,8 @@ async def arch_opening(
         "width": width,
         "swing": swing,
         "hand": hand,
+        "hinge": hinge,
+        "swing_towards": swing_towards,
         "sill": sill,
         "height": height,
         "tag": tag,

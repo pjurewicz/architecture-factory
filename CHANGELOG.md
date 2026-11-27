@@ -18,6 +18,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fade=, layer=)`: by default the image goes on `UNDERLAY` (plot off, fade 50);
   `plot=True` puts it on `IMAGE` (plot on, fade 0). Breaking: a PDF now leaves
   out every layer whose plot flag is off, as AutoCAD plots.
+
+- Doors open unambiguously (T-08). An opening (`arch_opening`,
+  `arch_plan_from_spec`'s `openings[]`) takes `hinge: "start" | "end"` - the
+  jamb at `offset` or at `offset + width`, by the axis - and
+  `swing_towards: [x, y]`, a WCS point on the side the leaf opens to, judged
+  against the hosting segment and independent of the axis order. The wall's
+  normal rule is now documented: a segment's left is on your left walking from
+  its first axis point; `swing: "in"` is that left. `hinge` is for `door` only
+  (a double door hinges on both jambs, sliding and garage doors on neither);
+  `swing_towards` for `door`, `double_door` and `garage_door`. Refused by name
+  (kind `invalid_args`): `hinge` beside `hand`, `swing_towards` beside `swing`
+  (each pair names one thing - give one), either on a kind it means nothing
+  for, and a `swing_towards` point on the axis or between the wall's faces.
+  `swing` / `hand` stay as the axis-relative and viewer-relative forms. The
+  door's `ACADMCP_ARCH` record stores the resolved `swing`, `hand` and `hinge`
+  (never the point); the door schedule's swing and hand columns read them, so
+  a door placed by `swing_towards` schedules its real side.
 - Every room label (`arch_room`, `arch_plan_from_spec`'s `rooms[]`) reports
   `fits`: whether each line's box - measured as the `viewport_clip` focus
   measures a TEXT (`ezdxf.disassemble`) - lies inside the room's measured face

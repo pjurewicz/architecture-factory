@@ -351,3 +351,47 @@ async def test_the_reply_is_compact_unless_verbose_and_a_batch_binding_sees_it_a
     plan_step, get_step = batched["results"]
     assert plan_step["result"] == compact
     assert get_step["status"] == "ok" and get_step["result"]["handle"] == full["rooms"][1]["handle"]
+
+
+@pytest.mark.asyncio
+async def test_a_door_by_hinge_and_swing_towards_is_recorded_resolved_and_scheduled(backend):
+    from engineering.arch.draw import read_plan
+    from engineering.arch.lang import vocab
+    from engineering.arch.schedule import schedule_rows
+
+    # T-08: axis -X, door at offset 3100 (jambs x = 1900 start, 1000 end), opening
+    # to +Y - the axis's right ("out"). Facing the wall from +Y the viewer's left
+    # is +X, so a hinge at x = 1000 is their right hand.
+    spec = {
+        "walls": [{"id": "a", "axis": [[5000, 0], [0, 0]], "thickness": 200}],
+        "openings": [
+            {
+                "id": "D1",
+                "wall": "a",
+                "kind": "door",
+                "offset": 3100,
+                "width": 900,
+                "height": 2100,
+                "hinge": "end",
+                "swing_towards": [1450, 2000],
+            }
+        ],
+    }
+    await draw_plan_from_spec(backend, spec)
+    plan = await read_plan(backend)
+    (door,) = plan["openings"]
+    assert (door.swing, door.hand, door.hinge, door.swing_towards) == ("out", "right", "end", None)
+    arcs = [e for e in await backend.entity_list(type_filter="ARC", limit=50)]
+    (arc,) = arcs
+    center = arc.properties.get("center")
+    assert (round(center[0], 6), round(center[1], 6)) == (1000.0, 100.0)
+    (row,) = schedule_rows("doors", plan)
+    en = vocab("en")
+    assert (row["swing"], row["hand"]) == (en["out"], en["right"])
+
+
+def test_swing_towards_beside_swing_is_refused_by_path():
+    spec = _spec()
+    spec["openings"][0] = {**spec["openings"][0], "swing": "in", "swing_towards": [1500, 500]}
+    with pytest.raises(ValueError, match=r"openings\[0\]: swing and swing_towards"):
+        validate_spec(spec)

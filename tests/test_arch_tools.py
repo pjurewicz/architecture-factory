@@ -127,3 +127,26 @@ async def test_refusals_come_back_as_tool_errors_that_name_the_cause(client):
                 "kind": "u",
             },
         )
+
+
+async def test_arch_opening_takes_hinge_and_swing_towards_and_types_their_refusal(client):
+    # T-08: the axis runs -X, so offset 3100 + 900 puts the start jamb at x = 1900
+    # and the end jamb at x = 1000; +Y is the axis's right.
+    await call(
+        client, "arch_wall", {"walls": [{"id": "a", "axis": [[5000, 0], [0, 0]], "thickness": 200}]}
+    )
+    door = await call(
+        client,
+        "arch_opening",
+        {"wall": "a", "offset": 3100, "width": 900, "hinge": "end", "swing_towards": [1450, 2000]},
+    )
+    assert door["tag"] == "D1"
+    refused = await client.call_tool(
+        "arch_opening",
+        {"wall": "a", "offset": 500, "width": 300, "swing_towards": [600, 0]},
+        raise_on_error=False,
+    )
+    assert refused.is_error
+    payload = refused.structured_content
+    assert payload["kind"] == "invalid_args"
+    assert "opening.swing_towards" in payload["message"]

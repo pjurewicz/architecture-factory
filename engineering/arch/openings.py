@@ -10,12 +10,25 @@ computed from the wall's axis, its face offsets and ``model.segment_of``.
 
 Conventions (this repository's, stated because plan symbols vary by office):
 
-* ``swing="in"`` opens to the **left** of the wall's axis, looking along it
-  from its first point; ``"out"`` to the right. A perimeter drawn
+* The wall's normal rule: the **left** of a segment is the side on your left
+  as you walk along it from the axis point before it to the one after.
+  ``swing="in"`` opens to the left, ``"out"`` to the right; a perimeter drawn
   counter-clockwise has its inside on the left, so "in" means into the building.
-* ``hand`` names the jamb that carries the hinges, seen by a person standing on
-  the side the door swings towards and facing the wall: ``"left"`` hinges on
-  their left-hand jamb.
+  ``swing_towards=[x, y]`` names the side by a WCS point instead and does not
+  depend on the axis order: the side of the hosting segment's line the point
+  is on. A point on or between the wall's faces says no side and is refused,
+  and so is ``swing`` beside it.
+* ``hinge`` names the jamb that carries the hinges by the axis: ``"start"`` is
+  the jamb at ``offset`` (nearer the axis's first point), ``"end"`` the jamb at
+  ``offset + width``. Reversing an axis re-measures ``offset`` from the other
+  end, so the same physical door then has the other ``hinge`` value.
+* ``hand`` names the same jamb as seen by a person standing on the side the
+  door swings towards and facing the wall: ``"left"`` hinges on their left-hand
+  jamb. ``hinge`` and ``hand`` are one choice (give one); ``resolve_door``
+  derives each from the other, and the record stores both.
+* ``hinge`` is for ``door`` only (a double door hinges on both jambs, a sliding
+  or garage door on neither); ``swing_towards`` for ``door``, ``double_door``
+  and ``garage_door`` (where its panels are stored). Other kinds refuse them.
 * ``door`` is drawn **open at 90°**: the leaf is a line as long as the opening
   is wide, square to the wall from the hinge, on the swing-side face; the swing
   is a quarter arc about the hinge from the closed position to the open one.
@@ -46,8 +59,17 @@ opening record on.
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
-from engineering.arch.model import OPENING_KINDS, Opening, Wall, segment_of
+from engineering.arch.model import (
+    EPS,
+    OPENING_KINDS,
+    SIDED_KINDS,
+    Opening,
+    OpeningArgsError,
+    Wall,
+    segment_of,
+)
 from engineering.arch.walls import face_offsets, wall_segments
 from engineering.mech.primitives import Arc, Line, Prim, Pt
 
@@ -82,6 +104,52 @@ def _leaf(hinge: Pt, free: Pt, n: Pt, side: float, length: float) -> tuple[Prim,
     return (Line(hinge, opened, "door"), swing)
 
 
+def resolve_door(wall: Wall, opening: Opening, path: str | None = None) -> Opening:
+    """``opening`` as its record stores it: ``swing`` resolved from
+    ``swing_towards`` (then cleared), and ``hinge`` and ``hand`` from each other.
+
+    The side is the sign of the point's offset from the hosting segment's axis
+    line; a point on or between the faces is refused by name.
+    """
+    where = path or f"opening {opening.id}"
+    if opening.kind not in SIDED_KINDS:
+        if opening.swing_towards is not None or opening.hinge is not None:
+            raise OpeningArgsError(f"{where}: a {opening.kind} takes no hinge or swing_towards")
+        return opening
+    swing = opening.swing
+    if opening.swing_towards is not None:
+        index, _along = segment_of(wall, float(opening.offset))
+        (ax, ay), (bx, by) = wall_segments(wall)[index]
+        ux, uy = _unit((ax, ay), (bx, by))
+        px, py = (float(v) for v in opening.swing_towards)
+        s = ux * (py - ay) - uy * (px - ax)
+        left, right = face_offsets(wall)
+        if s > left + EPS:
+            swing = "in"
+        elif s < right - EPS:
+            swing = "out"
+        else:
+            raise OpeningArgsError(
+                f"{where}.swing_towards: ({px:g}, {py:g}) is {s:g} mm off wall {wall.id}'s "
+                f"axis, not clear of its faces ({right:g} to {left:g}); name a point beyond "
+                "the face the door opens to"
+            )
+    if opening.kind != "door":
+        return replace(opening, swing=swing, swing_towards=None)
+    side = 1 if swing == "in" else -1
+    # Facing the wall from the swing side, the viewer's left hand points along
+    # +u when they stand on the axis's left, and along -u when on its right.
+    if opening.hinge is not None:
+        hinge = opening.hinge
+        toward = 1 if hinge == "end" else -1
+        hand = "left" if toward == side else "right"
+    else:
+        hand = opening.hand
+        toward = side if hand == "left" else -side
+        hinge = "end" if toward > 0 else "start"
+    return replace(opening, swing=swing, hand=hand, hinge=hinge, swing_towards=None)
+
+
 def opening_prims(wall: Wall, opening: Opening, cut: dict | None = None) -> tuple[Prim, ...]:
     """The symbol of ``opening`` in WCS - see the module docstring for each kind.
 
@@ -101,6 +169,7 @@ def opening_prims(wall: Wall, opening: Opening, cut: dict | None = None) -> tupl
         raise ValueError(f"opening {opening.id!r}: swing {opening.swing!r}; swings are in, out")
     if opening.hand not in ("left", "right"):
         raise ValueError(f"opening {opening.id!r}: hand {opening.hand!r}; hands are left, right")
+    opening = resolve_door(wall, opening)
     width = float(opening.width)
     if cut is not None:
         (la, lb), (ra, rb) = cut["left"], cut["right"]
@@ -175,8 +244,5 @@ def opening_prims(wall: Wall, opening: Opening, cut: dict | None = None) -> tupl
             *_leaf(far, middle, n, side, width / 2.0),
         )
 
-    # Facing the wall from the swing side, the viewer's left hand points along
-    # +u when they stand on the axis's left, and along -u when on its right.
-    toward = side if opening.hand == "left" else -side
-    hinge, free = (far, near) if toward > 0 else (near, far)
+    hinge, free = (far, near) if opening.hinge == "end" else (near, far)
     return _leaf(hinge, free, n, side, width)

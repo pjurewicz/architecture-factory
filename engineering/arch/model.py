@@ -24,6 +24,7 @@ from collections.abc import Sequence
 from dataclasses import MISSING, asdict, dataclass, replace
 from dataclasses import fields as dataclass_fields
 
+from engineering.errors import InvalidArgsError
 from engineering.measure import is_self_intersecting, polygon_area_perimeter
 from engineering.mech import xdata as _codec
 
@@ -52,6 +53,10 @@ OPENING_KINDS: tuple[str, ...] = (*DOOR_KINDS, *WINDOW_KINDS)
 CORNER_KINDS: tuple[str, ...] = ("window", "curtain_wall", "cased_opening")
 SWINGS: tuple[str, ...] = ("in", "out")
 HANDS: tuple[str, ...] = ("left", "right")
+#: ``Opening.hinge``: the jamb at ``offset`` (nearer the axis's first point) or the other.
+HINGES: tuple[str, ...] = ("start", "end")
+#: The kinds ``swing_towards`` places: a hinged leaf, or a garage door's stored panels.
+SIDED_KINDS: tuple[str, ...] = ("door", "double_door", "garage_door")
 STAIR_KINDS: tuple[str, ...] = ("straight", "l", "u")
 TURNS: tuple[str, ...] = ("left", "right")
 
@@ -78,9 +83,19 @@ class Opening:
     width: float
     swing: str = "in"
     hand: str = "left"
+    hinge: str | None = None  # None: from hand; see openings.resolve_door
+    swing_towards: Pt | None = None  # WCS; resolved into swing, never stored
     sill: float | None = None
     height: float | None = None
     tag: str | None = None
+
+
+class OpeningArgsError(InvalidArgsError, ValueError):
+    """A door's ``hinge`` / ``swing_towards`` refused (kind ``invalid_args``).
+
+    Still a ``ValueError``, so the builders' path wrappers and the tools'
+    ``except ValueError`` keep their sentence; the envelope reads the type.
+    """
 
 
 @dataclass(frozen=True)
@@ -222,6 +237,8 @@ _OPENING_FIELDS = (
     "width",
     "swing",
     "hand",
+    "hinge",
+    "swing_towards",
     "sill",
     "height",
     "tag",
@@ -245,11 +262,19 @@ _SEPARATOR_FIELDS = ("id", "points")
 #: The closed values each builder's ``_choice`` checks, by field.
 _CHOICES: dict[type, dict[str, Sequence[str]]] = {
     Wall: {"justification": JUSTIFICATIONS, "material": WALL_MATERIALS},
-    Opening: {"kind": OPENING_KINDS, "swing": SWINGS, "hand": HANDS},
+    Opening: {"kind": OPENING_KINDS, "swing": SWINGS, "hand": HANDS, "hinge": HINGES},
     Stair: {"kind": STAIR_KINDS, "turn": TURNS},
     Room: {},
     WallPolygon: {},
     RoomSeparator: {},
+}
+#: The few words a field's rule needs on the wire, by model and field.
+_DESCRIPTIONS: dict[type, dict[str, str]] = {
+    Opening: {
+        "swing": "in: left of axis from its first point",
+        "hinge": "door: start (at offset) | end",
+        "swing_towards": "WCS point on the opening side",
+    },
 }
 _POINT_SCHEMA = {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}
 
@@ -293,6 +318,8 @@ def item_schema(model: type) -> dict:
             prop["enum"] = list(_CHOICES[model][name])
         if defaults[name] not in (MISSING, None):
             prop["default"] = defaults[name]
+        if name in _DESCRIPTIONS.get(model, {}):
+            prop["description"] = _DESCRIPTIONS[model][name]
         props[name] = prop
         if defaults[name] is MISSING and not optional:
             required.append(name)
@@ -414,18 +441,46 @@ def room_separator_from_dict(d: dict, path: str = "room_separator") -> RoomSepar
 
 
 def opening_from_dict(d: dict, path: str = "opening") -> Opening:
+    """A validated Opening; ``hinge`` and ``swing_towards`` are refused by name
+    on a kind they mean nothing for, and beside ``hand`` / ``swing``, which
+    name the same thing (give one). The side is resolved against the wall by
+    ``openings.resolve_door``."""
     _known(d, path, _OPENING_FIELDS)
     sill = d.get("sill")
     height = d.get("height")
     tag = d.get("tag")
+    kind = _choice(_required(d, "kind", path), f"{path}.kind", OPENING_KINDS)
+    hinge = d.get("hinge")
+    if hinge is not None:
+        if kind != "door":
+            raise OpeningArgsError(
+                f"{path}.hinge: a {kind} has no single hinge jamb; hinge is for kind door"
+            )
+        if d.get("hand") is not None:
+            raise OpeningArgsError(f"{path}: hinge and hand both name the hinge jamb; give one")
+        hinge = _choice(hinge, f"{path}.hinge", HINGES)
+    towards = d.get("swing_towards")
+    if towards is not None:
+        if kind not in SIDED_KINDS:
+            raise OpeningArgsError(
+                f"{path}.swing_towards: a {kind} opens to no side; swing_towards is for "
+                f"{', '.join(SIDED_KINDS)}"
+            )
+        if d.get("swing") is not None:
+            raise OpeningArgsError(
+                f"{path}: swing and swing_towards both name the side the door opens to; give one"
+            )
+        towards = _point(towards, f"{path}.swing_towards")
     return Opening(
         id=_text(_required(d, "id", path), f"{path}.id"),
         wall=_text(_required(d, "wall", path), f"{path}.wall"),
-        kind=_choice(_required(d, "kind", path), f"{path}.kind", OPENING_KINDS),
+        kind=kind,
         offset=_number(_required(d, "offset", path), f"{path}.offset", allow_zero=True),
         width=_number(_required(d, "width", path), f"{path}.width"),
-        swing=_choice(d.get("swing", "in"), f"{path}.swing", SWINGS),
-        hand=_choice(d.get("hand", "left"), f"{path}.hand", HANDS),
+        swing=_choice(d.get("swing") or "in", f"{path}.swing", SWINGS),
+        hand=_choice(d.get("hand") or "left", f"{path}.hand", HANDS),
+        hinge=hinge,
+        swing_towards=towards,
         sill=None if sill is None else _number(sill, f"{path}.sill", allow_zero=True),
         height=None if height is None else _number(height, f"{path}.height"),
         tag=_text(tag, f"{path}.tag", optional=True),
@@ -631,7 +686,14 @@ def from_payload(payload: dict):
     if kind == "wall":
         return wall_from_dict(fields, where)
     if kind == "opening":
-        return opening_from_dict(fields, where)
+        # A record is resolved (``openings.resolve_door``): ``hinge`` agrees with
+        # ``hand`` and ``swing_towards`` was turned into ``swing``.
+        hinge = fields.pop("hinge", None)
+        fields.pop("swing_towards", None)
+        opening = opening_from_dict(fields, where)
+        if hinge is None:
+            return opening
+        return replace(opening, hinge=_choice(hinge, f"{where}.hinge", HINGES))
     if kind == "stair":
         return stair_from_dict(fields, where)
     if kind == "wall_polygon":

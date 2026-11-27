@@ -114,3 +114,254 @@ def test_a_door_on_a_t_stem_typed_in_whole_mm_hinges_exactly_on_its_jamb(kind, s
     for leaf, arc in zip(prims[::2], prims[1::2], strict=True):
         assert leaf.p1 in jamb_ends
         assert arc.center == leaf.p1
+
+
+# -- T-08: hinge start | end and swing_towards [x, y] ---------------------------
+#
+# One physical door per case: 900 wide, its jambs J1 and J2 at 1000 and 1900 mm
+# from the wall's first typed point P0 along the wall, 200 mm thick, centred.
+# The axis is typed both ways round; reversed, the offset is re-measured from
+# the other end (5000 - 1900 = 3100), so J2 becomes the start jamb. The side
+# is named by a WCS point 1000 mm off the door's middle. Every coordinate below
+# is worked out by hand: hinge = jamb + 100 * n on the opening side, leaf end =
+# jamb + 1000 * n, n the forward axis's left normal.
+
+S3 = 3.0**0.5
+
+# wall: (forward axis, toward-left point, toward-right point,
+#        {(jamb, side): (hinge, leaf end)})
+T08_WALLS = {
+    "horizontal": (
+        ((0.0, 0.0), (5000.0, 0.0)),
+        (1450.0, 2000.0),
+        (1450.0, -2000.0),
+        {
+            ("J1", "L"): ((1000.0, 100.0), (1000.0, 1000.0)),
+            ("J2", "L"): ((1900.0, 100.0), (1900.0, 1000.0)),
+            ("J1", "R"): ((1000.0, -100.0), (1000.0, -1000.0)),
+            ("J2", "R"): ((1900.0, -100.0), (1900.0, -1000.0)),
+        },
+    ),
+    "vertical": (
+        ((0.0, 0.0), (0.0, 5000.0)),
+        (-2000.0, 1450.0),
+        (2000.0, 1450.0),
+        {
+            ("J1", "L"): ((-100.0, 1000.0), (-1000.0, 1000.0)),
+            ("J2", "L"): ((-100.0, 1900.0), (-1000.0, 1900.0)),
+            ("J1", "R"): ((100.0, 1000.0), (1000.0, 1000.0)),
+            ("J2", "R"): ((100.0, 1900.0), (1000.0, 1900.0)),
+        },
+    ),
+    # u = (sqrt3/2, -1/2), n = (1/2, sqrt3/2); J1 = (500 sqrt3, -500), J2 = (950 sqrt3, -950)
+    "minus_30": (
+        ((0.0, 0.0), (2500.0 * S3, -2500.0)),
+        (725.0 * S3 + 500.0, -725.0 + 500.0 * S3),
+        (725.0 * S3 - 500.0, -725.0 - 500.0 * S3),
+        {
+            ("J1", "L"): ((500 * S3 + 50, -500 + 50 * S3), (500 * S3 + 500, -500 + 500 * S3)),
+            ("J2", "L"): ((950 * S3 + 50, -950 + 50 * S3), (950 * S3 + 500, -950 + 500 * S3)),
+            ("J1", "R"): ((500 * S3 - 50, -500 - 50 * S3), (500 * S3 - 500, -500 - 500 * S3)),
+            ("J2", "R"): ((950 * S3 - 50, -950 - 50 * S3), (950 * S3 - 500, -950 - 500 * S3)),
+        },
+    ),
+}
+#: Forward, J1 is at offset 1000 (start); reversed, J2 is at offset 3100 (start).
+T08_HINGE = {
+    (False, "J1"): "start",
+    (False, "J2"): "end",
+    (True, "J1"): "end",
+    (True, "J2"): "start",
+}
+
+
+def t08_door(wall_name: str, reverse: bool, jamb: str, side: str):
+    import math
+
+    from engineering.arch.model import opening_from_dict, wall_from_dict
+
+    axis, left_pt, right_pt, _table = T08_WALLS[wall_name]
+    axis = axis[::-1] if reverse else axis
+    wall = wall_from_dict({"id": "w", "axis": [list(p) for p in axis], "thickness": 200})
+    offset = 5000.0 - 1900.0 if reverse else 1000.0
+    assert math.isclose(math.dist(*axis), 5000.0)
+    op = opening_from_dict(
+        {
+            "id": "d",
+            "wall": "w",
+            "kind": "door",
+            "offset": offset,
+            "width": 900,
+            "hinge": T08_HINGE[(reverse, jamb)],
+            "swing_towards": list(left_pt if side == "L" else right_pt),
+        }
+    )
+    return wall, op
+
+
+def close(p, q) -> bool:
+    return abs(p[0] - q[0]) < 1e-9 and abs(p[1] - q[1]) < 1e-9
+
+
+def arc_point(arc, deg):
+    import math
+
+    a = math.radians(deg)
+    return (arc.center[0] + arc.radius * math.cos(a), arc.center[1] + arc.radius * math.sin(a))
+
+
+@pytest.mark.parametrize("wall_name", list(T08_WALLS))
+@pytest.mark.parametrize("reverse", [False, True], ids=["forward", "reversed"])
+@pytest.mark.parametrize("jamb", ["J1", "J2"])
+@pytest.mark.parametrize("side", ["L", "R"])
+def test_hinge_and_swing_towards_place_one_physical_door_whatever_the_axis_order(
+    wall_name, reverse, jamb, side
+):
+    wall, op = t08_door(wall_name, reverse, jamb, side)
+    table = T08_WALLS[wall_name][3]
+    hinge, leaf_end = table[(jamb, side)]
+    closed_end = table[("J2" if jamb == "J1" else "J1", side)][0]  # the other jamb, same face
+    leaf, arc = opening_prims(wall, op)
+    assert close(leaf.p1, hinge) and close(leaf.p2, leaf_end)
+    assert close(arc.center, hinge) and arc.radius == 900.0
+    # a counter-clockwise quarter from one leaf position to the other
+    assert abs(((arc.end_deg - arc.start_deg) % 360.0) - 90.0) < 1e-9
+    ends = (arc_point(arc, arc.start_deg), arc_point(arc, arc.end_deg))
+    assert (close(ends[0], closed_end) and close(ends[1], leaf_end)) or (
+        close(ends[0], leaf_end) and close(ends[1], closed_end)
+    )
+
+
+@pytest.mark.parametrize("wall_name", list(T08_WALLS))
+def test_the_same_hinge_on_a_reversed_axis_is_the_other_jamb_but_the_same_side(wall_name):
+    # hinge names a jamb by the axis; swing_towards names a side in WCS.
+    table = T08_WALLS[wall_name][3]
+    for side in ("L", "R"):
+        _wall, op = t08_door(wall_name, False, "J1", side)  # forward: hinge "start"
+        wall_r, op_r = t08_door(wall_name, True, "J2", side)  # reversed: also "start"
+        assert op.hinge == op_r.hinge == "start"
+        leaf, _arc = opening_prims(wall_r, op_r)
+        assert close(leaf.p1, table[("J2", side)][0])
+
+
+def test_a_resolved_door_carries_swing_hand_and_hinge_that_agree():
+    from engineering.arch.openings import resolve_door
+
+    # Forward horizontal, hinge on J2 (end), opening to +Y (the axis's left): the
+    # old pair is swing "in", hand "left" - the first row of the table at the top.
+    wall, op = t08_door("horizontal", False, "J2", "L")
+    resolved = resolve_door(wall, op)
+    assert (resolved.swing, resolved.hand, resolved.hinge, resolved.swing_towards) == (
+        "in",
+        "left",
+        "end",
+        None,
+    )
+    # Reversed, the same door is "out" (now the axis's right), hinge "start"; the
+    # person facing it from +Y still has the hinge on their left.
+    wall, op = t08_door("horizontal", True, "J2", "L")
+    resolved = resolve_door(wall, op)
+    assert (resolved.swing, resolved.hand, resolved.hinge) == ("out", "left", "start")
+    # hand alone still derives the hinge, and the record's pair is stable
+    old = resolve_door(WALL, door("out", "right"))
+    assert old.hinge == "end" and resolve_door(WALL, old) == old
+
+
+@pytest.mark.parametrize("point", [(1450.0, 0.0), (1450.0, 60.0), (1450.0, -100.0)])
+def test_a_swing_towards_point_on_or_inside_the_wall_is_refused_by_name(point):
+    from engineering.arch.model import OpeningArgsError
+    from engineering.errors import classify
+
+    op = Opening(id="d1", wall="a", kind="door", offset=1000.0, width=900.0, swing_towards=point)
+    with pytest.raises(OpeningArgsError, match=r"opening d1\.swing_towards: .*not clear") as info:
+        opening_prims(WALL, op)
+    assert classify(info.value)["kind"] == "invalid_args"
+
+
+def test_swing_towards_on_a_left_justified_wall_is_judged_beyond_its_faces():
+    from engineering.arch.model import OpeningArgsError
+    from engineering.arch.openings import resolve_door
+
+    # faces at y = 0 (the axis) and y = +200
+    wall = Wall(id="a", axis=((0.0, 0.0), (5000.0, 0.0)), thickness=200.0, justification="left")
+    at = {"id": "d1", "wall": "a", "kind": "door", "offset": 1000.0, "width": 900.0}
+    assert resolve_door(wall, Opening(**at, swing_towards=(1450.0, -5.0))).swing == "out"
+    assert resolve_door(wall, Opening(**at, swing_towards=(1450.0, 205.0))).swing == "in"
+    for y in (0.0, 100.0, 200.0):
+        with pytest.raises(OpeningArgsError, match="not clear of its faces"):
+            resolve_door(wall, Opening(**at, swing_towards=(1450.0, y)))
+
+
+@pytest.mark.parametrize(
+    ("fields", "message"),
+    [
+        ({"swing": "in", "swing_towards": [0, 500]}, "swing and swing_towards"),
+        ({"hand": "left", "hinge": "start"}, "hinge and hand"),
+        ({"kind": "double_door", "hinge": "start"}, r"double_door has no single hinge"),
+        ({"kind": "garage_door", "hinge": "end"}, r"garage_door has no single hinge"),
+        ({"kind": "sliding_door", "hinge": "end"}, r"sliding_door has no single hinge"),
+        ({"kind": "sliding_door", "swing_towards": [0, 500]}, "sliding_door opens to no side"),
+        ({"kind": "cased_opening", "swing_towards": [0, 500]}, "cased_opening opens to no"),
+        ({"kind": "window", "swing_towards": [0, 500]}, "window opens to no side"),
+        ({"hinge": "middle"}, r"hinge: 'middle' is not one of start, end"),
+    ],
+)
+def test_hinge_and_swing_towards_are_refused_where_they_mean_nothing(fields, message):
+    from engineering.arch.model import OpeningArgsError, opening_from_dict
+
+    raw = {"id": "d", "wall": "a", "kind": "door", "offset": 1000, "width": 900, **fields}
+    with pytest.raises(ValueError, match=message) as info:
+        opening_from_dict(raw, "openings[0]")
+    if "is not one of" not in message:
+        assert isinstance(info.value, OpeningArgsError)
+
+
+def test_a_double_and_a_garage_door_open_to_the_swing_towards_side():
+    # -Y side: the right face, y = -100
+    towards = (1450.0, -3000.0)
+    double = Opening(
+        id="d", wall="a", kind="double_door", offset=1000.0, width=900.0, swing_towards=towards
+    )
+    leaf_a, _, leaf_b, _ = opening_prims(WALL, double)
+    assert (pt(leaf_a.p1), pt(leaf_a.p2)) == ((1000.0, -100.0), (1000.0, -550.0))
+    assert (pt(leaf_b.p1), pt(leaf_b.p2)) == ((1900.0, -100.0), (1900.0, -550.0))
+    garage = Opening(
+        id="g",
+        wall="a",
+        kind="garage_door",
+        offset=1000.0,
+        width=900.0,
+        height=2000.0,
+        swing_towards=towards,
+    )
+    panel, side_a, back, _side_b = opening_prims(WALL, garage)
+    assert (pt(panel.p1), pt(panel.p2)) == ((1000.0, -100.0), (1900.0, -100.0))
+    assert (pt(back.p1), pt(back.p2)) == ((1000.0, -2100.0), (1900.0, -2100.0))
+
+
+@pytest.mark.parametrize("hinge", ["start", "end"])
+@pytest.mark.parametrize("towards", [(437.0, 556.0), (2169.0, -444.0)], ids=["left", "right"])
+def test_a_hinge_by_name_on_a_t_stem_lies_exactly_on_its_jamb(hinge, towards):
+    # The T-01b stem (axis direction ~ (0.5, 0.866)); the points lie 1000 mm
+    # either side of the door's middle (1303, 56).
+    from engineering.arch.walls import wall_geometry
+
+    host = Wall(id="h", axis=((0.0, 0.0), (6062.0, -3500.0)), thickness=250.0)
+    stem = Wall(id="s", axis=((953.0, -550.0), (2453.0, 2048.0)), thickness=100.0)
+    op = Opening(
+        id="d",
+        wall="s",
+        kind="door",
+        offset=300.0,
+        width=800.0,
+        hinge=hinge,
+        swing_towards=towards,
+    )
+    geometry = wall_geometry([host, stem], [op])
+    (cut,) = geometry.cuts
+    jamb_ends = {p for line in geometry.jambs for p in (line.p1, line.p2)}
+    leaf, arc = opening_prims(stem, op, cut)
+    assert leaf.p1 in jamb_ends and arc.center == leaf.p1
+    # start is the jamb at offset 300 along the stem, end the one at 1100
+    along = ((leaf.p1[0] - 953.0) * 1500.0 + (leaf.p1[1] + 550.0) * 2598.0) / 3000.0
+    assert abs(along - (300.0 if hinge == "start" else 1100.0)) < 1.0

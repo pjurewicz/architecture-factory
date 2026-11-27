@@ -41,7 +41,7 @@ from engineering.arch.model import (
     wall_from_dict,
     wall_polygon_from_dict,
 )
-from engineering.arch.openings import opening_prims
+from engineering.arch.openings import opening_prims, resolve_door
 from engineering.arch.stairs import blondel, stair_prims
 from engineering.arch.walls import WallGeometry, wall_geometry_by_wall
 from engineering.mech.draw import draw_prims
@@ -193,9 +193,9 @@ async def _draw_wall(backend, wall, geometry: WallGeometry, openings, scale=50) 
     """
     skipped = {entry["element"] for entry in geometry.omitted}
     cuts = {cut["element"]: cut for cut in geometry.cuts}
-    symbols = [
-        (op, opening_prims(wall, op, cuts.get(op.id))) for op in openings if op.id not in skipped
-    ]
+    # Records are stored resolved: swing_towards turned into swing, hinge beside hand.
+    resolved = [resolve_door(wall, op) for op in openings if op.id not in skipped]
+    symbols = [(op, opening_prims(wall, op, cuts.get(op.id))) for op in resolved]
     # Faces first, so owned[0] - the record carrier - is the wall's first face line;
     # the poche follows on the wall-hatch layer, in each material's pattern.
     drawn = await draw_prims(
@@ -511,6 +511,7 @@ async def add_opening(
     if op.wall not in walls:
         names = ", ".join(sorted(walls)) or "none - draw one with arch_wall"
         raise ValueError(f"opening.wall: {op.wall!r} is not a wall on this drawing; walls: {names}")
+    op = resolve_door(walls[op.wall], op, "opening")
     (op,) = assign_tags([op], plan["openings"], lang=lang)
     if auto_id:
         op = replace(op, id=op.tag)
