@@ -312,6 +312,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- An unknown linetype name was accepted everywhere (`layer_create`,
+  `layer_modify`, `entity_set_properties`, a create's `linetype`) and drew
+  Continuous, said only in the server log. A name that is neither in the
+  drawing, ezdxf's standard set nor the AutoCAD fallback table is now
+  `invalid_args` naming the drawing's linetypes, and nothing is written (as
+  AutoCAD refuses it); restoring a stored layer state still only warns. A
+  standard name (`DASHDOT` included) was and is loaded on demand: the
+  reported continuous DASHDOT arc did not reproduce - the pattern is 35.56
+  units long, so a short arc at a small scale shows no gap (`LTSCALE` /
+  `PSLTSCALE`).
+
 - A typed error read as `Internal error: ...` to a client that shows only the
   text content (`drawing_save(path="x.dxf")` outside `ALLOWED_PATHS`), although
   the instructions tell the model to read `kind` and `hint`. The text is now

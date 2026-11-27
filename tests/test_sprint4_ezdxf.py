@@ -54,6 +54,23 @@ async def test_create_line_continuous_does_not_error(backend):
     assert info.linetype == "Continuous"
 
 
+async def test_layer_create_loads_dashdot_and_refuses_an_unknown_linetype(backend):
+    assert "DASHDOT" not in backend._doc.linetypes
+    await backend.layer_create("AXIS", linetype="DASHDOT")
+    assert backend._doc.linetypes.get("DASHDOT").pattern_tags.tags  # a real pattern
+
+    # a name found nowhere would draw Continuous: refused, nothing written
+    for create in (
+        lambda: backend.layer_create("X", linetype="DASHDOTX"),
+        lambda: backend.entity_create_line(0, 0, 10, 0, linetype="DASHDOTX"),
+    ):
+        with pytest.raises(Exception, match="DASHDOTX") as refused:
+            await create()
+        assert getattr(refused.value, "kind", None) == "invalid_args"
+    assert "X" not in backend._doc.layers
+    assert not backend._doc.modelspace().query("LINE")
+
+
 # ── S3 — block description surfaced from the definition ─────────────────────
 
 

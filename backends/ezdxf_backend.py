@@ -512,12 +512,14 @@ def _add_linetype_from_fallback(doc, name: str) -> bool:
     return True
 
 
-def _ensure_linetype_loaded(doc, name: str) -> None:
+def _ensure_linetype_loaded(doc, name: str, *, strict: bool = True) -> None:
     """Add `name` to doc.linetypes if not already present.
 
-    Lookup order: ezdxf.tools.standards → AutoCAD fallback table → warn.
+    Lookup order: ezdxf.tools.standards → AutoCAD fallback table → refuse.
     Lets callers write `linetype="CENTER"` (or HIDDEN, BORDER) without
-    separately loading it.
+    separately loading it. A name found nowhere is ``invalid_args`` (AutoCAD
+    refuses it too: it would draw Continuous); ``strict=False`` (restoring a
+    stored layer state) only warns.
     """
     if not name or name.lower() in _BUILTIN_LINETYPES:
         return
@@ -529,6 +531,13 @@ def _ensure_linetype_loaded(doc, name: str) -> None:
             return
     if _add_linetype_from_fallback(doc, name):
         return
+    if strict:
+        known = sorted(lt.dxf.name for lt in doc.linetypes)
+        raise InvalidArgsError(
+            f"invalid_args: linetype {name!r} is not in the drawing nor in the standard set "
+            f"(it would draw Continuous); the drawing has {', '.join(known)} - linetype_list "
+            "shows them, linetype_load loads a standard one"
+        )
     log.warning(
         "ezdxf backend: linetype %r is not in ezdxf's standard set or AutoCAD "
         "fallback table; name will be assigned but renders as Continuous until "
@@ -4682,7 +4691,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 if "color" in props:
                     lyr.color = int(snap["color"])
                 if "linetype" in props:
-                    _ensure_linetype_loaded(doc, snap["linetype"])
+                    _ensure_linetype_loaded(doc, snap["linetype"], strict=False)
                     lyr.dxf.linetype = snap["linetype"]
                 if "lineweight" in props:
                     lyr.dxf.lineweight = int(snap["lineweight"])
@@ -6110,7 +6119,13 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             # R24: load HIDDEN/CENTER/etc. on demand before assignment so the
             # linetype actually renders instead of silently falling back to
             # Continuous. Same loader used in entity_set_properties/layer_*.
-            _ensure_linetype_loaded(self._require_doc(), linetype)
+            try:
+                _ensure_linetype_loaded(self._require_doc(), linetype)
+            except InvalidArgsError:
+                layout = entity.get_layout()
+                if layout is not None:
+                    layout.delete_entity(entity)  # a refused create draws nothing
+                raise
             entity.dxf.linetype = linetype
 
     def _attach_xdata(self, entity, prepared) -> None:
