@@ -6229,11 +6229,23 @@ def _compact_batch_result(result: Any, verbose: bool, tool: str | None = None) -
         from engineering.arch.patch import compact
 
         return compact(result)
+    if tool == "dimension_chain" and "dimensions" in result:
+        # the rows are the drawing's (entity_get); counts, handles and warnings stay
+        keep = ("ok", "count", "staggered", "moved", "handles", "dry_run")
+        kept = {k: result[k] for k in keep if k in result}
+        kept.update({k: result[k] for k in ("warnings", "merged", "repeats") if result.get(k)})
+        return kept
+    if {"name", "is_on", "is_frozen"} <= result.keys():  # a LayerInfo: layer_get has the rest
+        return {"name": result["name"]}
     handle = result.get("handle", _MISSING)
     if handle is _MISSING:
         return result
     # A composite (callout) names handles one entity_get cannot give back.
     kept = {"handle": handle, **{k: result[k] for k in _COMPOSITE_KEYS if k in result}}
+    # what a dimension shows (DIMDEC rounding) is not in its geometry
+    props = result.get("properties")
+    if result.get("type") == "DIMENSION" and isinstance(props, dict) and "text" in props:
+        kept["text"] = props["text"]
     # viewport_create(fit_region=)'s intrusions are a measurement, not the entity.
     fit = result.get("fit")
     if isinstance(fit, dict) and fit.get("intrusion_count", 0) > 0:
@@ -6369,8 +6381,10 @@ async def cad_batch(
         ]
 
     Successful steps report only their handle (plus a composite's parts,
-    handles, group and bounds); pass verbose=True for the full result.
-    Anything without a handle is returned whole.
+    handles, group and bounds, a dimension's shown text); a layer its name, a
+    dimension_chain its counts and handles; pass verbose=True for the full
+    result (a bind always sees it). Anything else without a handle is returned
+    whole. `atomicity` carries its note and evidence only after a rollback.
 
     VALIDATION runs first, always: an unknown tool, a schema-invalid argument or
     a reference no earlier step binds refuses the whole batch before anything
@@ -7083,7 +7097,23 @@ async def cad_batch(
             f"A step opened {unwound} checkpoint(s) of its own with transaction_begin; "
             f"they were {closed} with the batch's, so none is left open. {note}"
         )
+    if not verbose and not rolled_back:
+        _trim_atomicity(payload["atomicity"])
     return payload
+
+
+def _trim_atomicity(block: dict) -> None:
+    """A batch that was not rolled back drops the rollback's evidence and the
+    boilerplate note (what a rollback would have done): kept are the keys a
+    caller branches on and any note about what happened instead."""
+    for key in ("check", "before", "after", "verified"):
+        block.pop(key, None)
+    boilerplate = {
+        _BATCH_GUARANTEE_NOTES["snapshot"],
+        _BATCH_NO_CLAIM_NOTE.format(mode=block.get("mode")),
+    }
+    if block.get("note", "") in boilerplate or not block.get("note"):
+        block.pop("note", None)
 
 
 @cad_tool(summary="Draw many entities in one call instead of one round trip each.", cost="mutate")

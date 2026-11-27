@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `cad_batch` answers less by default (`verbose=False`): a `layer_create` /
+  `layer_modify` step its layer `name` (21 layers: 5.0 -> 1.8 kB), a
+  `dimension_chain` step its counts, handles and any warnings instead of every
+  row (8 chains: 10.0 -> 1.8 kB), a dimension step its handle and shown `text`.
+  `atomicity` keeps `mode`, `guarantee`, `transaction`, `rolled_back`,
+  `committed`, `default_applied` and any note about what happened instead; the
+  rollback's evidence (`before`, `after`, `verified`, `check`) and the note on
+  what a rollback would do come only after a rollback or with `verbose`
+  (one-step batch: 1.24 -> 0.45 kB). A `bind` still sees the full result.
+
 ### Added
 
 - `entity_batch_create` items take the fields their own create lacks: a

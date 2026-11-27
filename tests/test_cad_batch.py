@@ -1402,7 +1402,10 @@ async def test_rollback_reports_the_guarantee_it_actually_got(client):
     atomicity = result["atomicity"]
     assert atomicity["mode"] == "rollback"
     assert atomicity["guarantee"] in server.BATCH_ROLLBACK_GUARANTEES
-    assert atomicity["note"]
+    assert "note" not in atomicity and "before" not in atomicity, "not rolled back: no essay"
+    assert atomicity["committed"] is True
+    verbose = (await _batch(client, [_line()], on_error="rollback", verbose=True))["atomicity"]
+    assert verbose["note"] and verbose["check"]
 
 
 async def test_rollback_refuses_when_the_backend_declines_the_checkpoint(client, monkeypatch):
@@ -1452,8 +1455,7 @@ async def test_non_rollback_modes_make_no_atomicity_claim(client):
         assert atomicity["transaction"] is False
         assert atomicity["rolled_back"] is False
         assert atomicity["guarantee"] == "none"
-        assert set(atomicity) == {"mode", "guarantee", "transaction", "rolled_back", "note"}
-        assert "atomic" not in atomicity["note"].lower()
+        assert set(atomicity) == {"mode", "guarantee", "transaction", "rolled_back"}
         assert len(dumps(atomicity)) < 200
 
 
@@ -1561,3 +1563,25 @@ async def test_a_composite_keeps_its_parts_when_compacted(client):
     step = result["results"][0]["result"]
     assert set(step) == {"handle", "parts", "handles", "group", "bounds"}, step
     assert len(step["handles"]) == 4 and step["parts"]["leader"] == step["handle"]
+
+
+async def test_layer_and_chain_steps_answer_names_counts_and_handles(client):
+    """21 layer_create steps answered 5 kB of full layer records, 8 chains 10 kB."""
+    steps = [{"tool": "layer_create", "args": {"name": f"L{i}", "color": 3}} for i in range(3)]
+    steps.append(
+        {
+            "tool": "dimension_chain",
+            "args": {"points": [[0, 0], [120, 0], [250, 0]], "offset": 10},
+            "bind": "chain",
+        }
+    )
+    steps.append({"tool": "entity_get", "args": {"handle": "$chain.dimensions.0.handle"}})
+    result = await _batch(client, steps)
+    rows = [row["result"] for row in result["results"]]
+    assert rows[:3] == [{"name": "L0"}, {"name": "L1"}, {"name": "L2"}]
+    chain = rows[3]
+    assert chain["count"] == 3 and len(chain["handles"]) == 3 and "dimensions" not in chain
+    assert rows[4] == {"handle": chain["handles"][0]}  # the bind saw the rows
+    linear = {"x1": 0, "y1": 0, "x2": 132.5, "y2": 0, "dim_x": 50, "dim_y": -20}
+    (row,) = (await _batch(client, [{"tool": "dimension_linear", "args": linear}]))["results"]
+    assert set(row["result"]) == {"handle", "text"} and row["result"]["text"] == "132.5"
