@@ -452,6 +452,19 @@ async def test_cad_batch_cannot_nest_inside_itself(client):
         await _batch(client, [{"tool": "cad_batch", "args": {"steps": [_line()]}}])
 
 
+async def test_a_screenshot_step_is_refused_rather_than_losing_its_image(client):
+    """A step's result is its structured content; the PNG would be dropped while
+    the step reported ok. Refused before anything runs, pointing at the direct call."""
+    steps = [_line(), {"tool": "view_screenshot", "args": {"max_px": 128}}]
+    result = await _batch(client, steps, dry_run=True)
+    error = result["results"][1]["error"]
+    assert error["kind"] == "denied"
+    assert "Call it directly" in error["message"]
+    with pytest.raises(ToolError, match="view_screenshot"):
+        await _batch(client, steps)
+    assert await _entity_count(client) == 0, "step 0 must not draw"
+
+
 async def test_a_tool_with_no_discovery_card_is_not_run_blind(client):
     """Fail closed on unknown provenance: the deny set is computed from the local
     registry, but a mounted or transformed provider can supply a tool it never saw.

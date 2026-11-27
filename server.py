@@ -5430,6 +5430,11 @@ BATCH_ROLLBACK_GUARANTEES = ("snapshot", "unverified", "none")
 #: rather than a feature.
 MAX_BATCH_STEPS = 250
 
+# Tools whose answer is an image content block. A step's result is read from
+# its structured content, so the image would be dropped while the step
+# reported ok; they are refused at plan time instead.
+_BATCH_IMAGE_TOOLS = frozenset({"view_screenshot"})
+
 #: Reference sigil. ``$name`` / ``$name.path.0``; ``$$`` escapes a literal ``$``.
 _BATCH_REF_SIGIL = "$"
 
@@ -6164,7 +6169,8 @@ async def cad_batch(
     CHANGES: `changes` {added, deleted, counts, complete} sums the steps; a
     failed batch reports `partial_changes`.
 
-    NOT CALLABLE from a batch: cad_batch itself. A step the server's tool policy
+    NOT CALLABLE from a batch: cad_batch itself, and view_screenshot (its image
+    would be lost; call it directly after the batch). A step the server's tool policy
     refuses (READ_ONLY, TOOL_ALLOWLIST / TOOL_DENYLIST, MAX_TOOL_COST) refuses
     the whole batch before any step runs, kind policy_refused.
 
@@ -6233,6 +6239,12 @@ async def cad_batch(
                 f"{name!r} is denied inside cad_batch: one batch grant must not reach "
                 "the raw escape hatches (or another batch executor). Call it directly, "
                 "where its own gate applies.",
+            )
+        elif name in _BATCH_IMAGE_TOOLS:
+            _invalid(
+                "denied",
+                f"{name!r} answers with an image, and cad_batch answers JSON only, so the "
+                "picture would be dropped. Call it directly after the batch.",
             )
         elif (policy_refused := _policy_refusal(name)) is not None:
             # 1.8-17: steps skip the middleware (run_middleware=False), so the
