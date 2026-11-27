@@ -25,7 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A missing or hand-edited plan entity refuses `hand_edited_tagged_entity`
   unless `overwrite=True`; `dry_run` / `expected_revision` / `preconditions`
   as on `mech_part_revise`; each patch appends to the record's history. The
-  reply is compact (T-09) unless `verbose=True`. The new tool adds 380 idle
+  reply is compact (T-09) unless `verbose=True`. A room that changes shape but
+  not area is measured again: a `fit` / `mask` label is redrawn, a plain one
+  keeps its texts and its fit / `room_label_overflow` is re-checked against the
+  new face (`affected.rooms_rechecked`). The new tool adds 380 idle
   tokens (core,arch 49,621 -> 50,001, +5.73 % over the published report), so
   `published/token-cost.json` is re-measured with it; every ci ceiling holds.
 

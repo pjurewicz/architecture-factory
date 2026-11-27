@@ -24,10 +24,13 @@ the plan model:
      wall that meets it, a moved door moves its host's jambs;
    * an opening is redrawn with its host wall, or alone (its symbol only)
      when only its own record changed and its cut did not - a hinge flip;
-   * a room label is redrawn when its request changed or what it reads of its
-     face changed - the area, and for a ``fit`` or ``mask`` label the outline
-     too; the face is found as ``label_room`` finds it, on the wall layers'
-     other entities plus each plan's wall lines, before and after;
+   * a room label is redrawn when its request or its area changed, or - for a
+     ``fit`` or ``mask`` label, which the outline shapes - its outline; a plain
+     label whose room changed shape but not area keeps its texts and has its
+     fit (``room_label_overflow``) measured again against the new face
+     (``rooms_rechecked``); the face is found as ``label_room`` finds it, on
+     the wall layers' other entities plus each plan's wall lines, before and
+     after;
    * the exterior chains are redrawn when ``exterior_chains`` gives other
      intents, a schedule when ``schedule_rows`` gives other rows.
 
@@ -323,7 +326,8 @@ def _face_key(face) -> tuple | None:
 
 
 def _room_faces(norm: dict, geometry: dict, foreign: list) -> dict[str, tuple]:
-    """``room id -> (face key, area or None)``, found the way ``label_room`` finds them."""
+    """``room id -> (area key, outline key, area or None, face)``, found the way
+    ``label_room`` finds them."""
     from engineering.arch.faces import DEFAULT_TOL, face_containing, planar_faces
     from engineering.arch.layers import ARCH_ROLE_LAYER
     from engineering.arch.rooms import opening_closures
@@ -343,14 +347,12 @@ def _room_faces(norm: dict, geometry: dict, foreign: list) -> dict[str, tuple]:
         if room.get("boundary") is not None:
             pts = [(float(x), float(y), 0.0) for x, y in room["boundary"]]
             area, _ = polygon_area_perimeter(pts, True)
-            out[str(room["id"])] = (("boundary",), area)
+            out[str(room["id"])] = (("boundary",), ("boundary",), area, None)
             continue
         face = face_containing(faces, (float(room["at"][0]), float(room["at"][1])))
-        # A plain label is its texts, which read the area only; a fitted or masked
-        # one is also shaped by the face's outline.
-        shaped = request["fit"] or request["mask"]
-        key = _face_key(face) if shaped or face is None else round(face.area, 3)
-        out[str(room["id"])] = (key, None if face is None else face.area)
+        area = None if face is None else face.area
+        key = None if face is None else round(face.area, 3)
+        out[str(room["id"])] = (key, _face_key(face), area, face)
     return out
 
 
@@ -362,7 +364,7 @@ def _schedule_plan(norm: dict, geometry: dict, faces: dict) -> dict:
     rooms = []
     for request in norm["rooms"]:
         room = request["room"]
-        area = faces[str(room["id"])][1]
+        area = faces[str(room["id"])][2]
         if area is not None:
             rooms.append(replace(room_from_dict(dict(room), "room"), area=area))
     return {
@@ -400,12 +402,18 @@ def affected(old: dict, new: dict, foreign: list, outlines) -> dict:
     old_faces = _room_faces(old, og, foreign)
     new_faces = _room_faces(new, ng, foreign)
     orooms = {str(r["room"]["id"]): r for r in old["rooms"]}
-    rooms = [
-        str(r["room"]["id"])
-        for r in new["rooms"]
-        if orooms.get(str(r["room"]["id"])) != r
-        or old_faces[str(r["room"]["id"])][0] != new_faces[str(r["room"]["id"])][0]
-    ]
+    rooms: list[str] = []
+    rechecked: list[str] = []
+    for request in new["rooms"]:
+        rid = str(request["room"]["id"])
+        was, now = old_faces.get(rid), new_faces[rid]
+        if orooms.get(rid) != request or was[0] != now[0]:
+            rooms.append(rid)  # the request or the area moved: the texts change
+        elif was[1] != now[1]:
+            # same area, another outline: a fitted or masked label is shaped by
+            # the outline and is drawn again; a plain one keeps its texts and
+            # only its fit is measured again against the new face
+            (rooms if request["fit"] or request["mask"] else rechecked).append(rid)
 
     def chains(norm, geometry):
         if norm["chains"] is None:
@@ -434,6 +442,8 @@ def affected(old: dict, new: dict, foreign: list, outlines) -> dict:
         "openings": [*with_walls, *symbols],
         "symbols_only": symbols,
         "rooms": rooms,
+        "rechecked": rechecked,
+        "new_faces": new_faces,
         "chains": chains(old, og) != chains(new, ng),
         "schedules": schedules,
         "removed": [
@@ -488,6 +498,7 @@ async def patch_plan(
     from engineering.arch import draw as _draw
     from engineering.arch import rooms as _rooms
     from engineering.arch import schedule as _schedule
+    from engineering.arch.model import room_from_dict
     from engineering.arch.spec import _extents, validate_spec
     from engineering.changes.preview import (
         check_preconditions,
@@ -547,6 +558,7 @@ async def patch_plan(
         "walls": plan["walls"],
         "openings": plan["openings"],
         "rooms": plan["rooms"],
+        "rooms_rechecked": plan["rechecked"],
         "chains": plan["chains"],
         "schedules": [new["schedules"][i]["kind"] for i in plan["schedules"]],
         "removed": plan["removed"],
@@ -620,7 +632,7 @@ async def patch_plan(
             owned[f"room:{room_id}"] = _room_handles(done)
             outcome["rooms"].append(done)
             if done.get("warning"):
-                outcome["warnings"].append({"element": f"rooms[{i}]", **done["warning"]})
+                outcome["warnings"].append((i, {"element": f"rooms[{i}]", **done["warning"]}))
         if plan["chains"]:
             done = await _draw.draw_chains(
                 backend,
@@ -655,6 +667,35 @@ async def patch_plan(
 
     await guarded_transaction(backend, job, what="arch_plan_patch", done="changed")
 
+    # a plain label in a room that changed shape, not area: its texts stay, its fit
+    # is measured again against the new face, as label_room measures it
+    for i, request in enumerate(new["rooms"]):
+        room_id = str(request["room"]["id"])
+        if room_id not in plan["rechecked"]:
+            continue
+        _key, _outline, area, face = plan["new_faces"][room_id]
+        measured = replace(room_from_dict(dict(request["room"]), "room"), area=area)
+        outside = await _rooms.plain_label_outside(
+            backend, measured, face, lang=new["lang"], scale=new["scale"], align=request["align"]
+        )
+        row = {
+            "room": {
+                "id": measured.id,
+                "name": measured.name,
+                "number": measured.number,
+                "area": area,
+                "area_m2": area / 1.0e6,
+            },
+            "fits": not outside,
+            "rechecked": True,
+        }
+        if outside:
+            row["warning"] = _rooms.overflow_warning(measured, outside, fit=False)
+            outcome["warnings"].append((i, {"element": f"rooms[{i}]", **row["warning"]}))
+        outcome["rooms"].append(row)
+    order = {str(r["room"]["id"]): i for i, r in enumerate(new["rooms"])}
+    outcome["rooms"].sort(key=lambda row: order[row["room"]["id"]])
+
     from engineering.arch.critique import ARCH_FOCUSES, build_index, issues_for
 
     index = await build_index(backend)
@@ -679,7 +720,7 @@ async def patch_plan(
         "kept": kept,
         "handle_map": handle_map,
         "rooms": outcome["rooms"],
-        "warnings": outcome["warnings"],
+        "warnings": [w for _i, w in sorted(outcome["warnings"], key=lambda item: item[0])],
         "omitted": [entry for g in geometry.values() for entry in g.omitted],
         "plan_bbox": await _extents(backend, plan_handles),
         "outer_bbox": await _extents(backend, plan_handles + owned.get("chains", [])),

@@ -977,6 +977,34 @@ def _refuse_labelled(room: Room, records: dict, already: list) -> None:
     )
 
 
+def overflow_warning(measured: Room, outside: list[str], *, fit: bool) -> dict:
+    """The ``room_label_overflow`` warning of a label whose ``outside`` lines leave its room."""
+    lines = ", ".join(repr(text) for text in outside)
+    return {
+        "code": "room_label_overflow",
+        "id": measured.id,
+        "outside": list(outside),
+        "message": f"{measured.id} {measured.name!r}: the label line(s) {lines} reach past "
+        "the room's outline onto its walls; "
+        + (
+            "even the smallest fitted name does not fit - move the label point"
+            if fit
+            else "set fit: true, or move the label point"
+        ),
+    }
+
+
+async def plain_label_outside(
+    backend: AutoCADBackend, measured: Room, face: Face, *, lang, scale, align
+) -> list[str]:
+    """The lines of a label drawn without ``fit`` that leave ``face`` - what
+    ``label_room`` reports for it, measured without drawing (``arch_plan_patch``
+    re-checks a label whose room changed shape but not area)."""
+    prims = room_label_prims(measured, lang=lang, scale=scale, align=align)
+    boxes = await _text_boxes(backend, prims)
+    return [p.text for p, box in zip(prims, boxes, strict=True) if not _box_in_face(box, face)]
+
+
 async def _draw_label(
     backend: AutoCADBackend, measured: Room, face: Face, *, lang, scale, align, fit, mask
 ) -> dict:
@@ -1001,21 +1029,7 @@ async def _draw_label(
     )
     handle = drawn["handles"][0]
     await backend.entity_set_xdata(handle, APP_ID, to_values(to_payload(measured)))
-    warning = None
-    if not drawn["fits"]:
-        lines = ", ".join(repr(text) for text in drawn["outside"])
-        warning = {
-            "code": "room_label_overflow",
-            "id": measured.id,
-            "outside": drawn["outside"],
-            "message": f"{measured.id} {measured.name!r}: the label line(s) {lines} reach past "
-            "the room's outline onto its walls; "
-            + (
-                "even the smallest fitted name does not fit - move the label point"
-                if fit
-                else "set fit: true, or move the label point"
-            ),
-        }
+    warning = None if drawn["fits"] else overflow_warning(measured, drawn["outside"], fit=fit)
     return {
         "ok": True,
         "room": {

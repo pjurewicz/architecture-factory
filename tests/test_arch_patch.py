@@ -125,6 +125,7 @@ async def test_only_the_affected_set_is_redrawn(backend):
         "walls": [],
         "openings": ["D2"],
         "rooms": [],
+        "rooms_rechecked": [],
         "chains": False,
         "schedules": ["doors"],
         "removed": [],
@@ -145,6 +146,63 @@ async def test_only_the_affected_set_is_redrawn(backend):
     assert thick["affected"]["chains"] is True
     rooms = {r["room"]["id"]: r["room"]["area"] for r in thick["rooms"]}
     assert rooms == {"R1": 4800.0 * 5750.0, "R2": 3800.0 * 5750.0}
+
+
+#: A partition with one step, mirrored by the patch: the living room keeps its
+#: area (24.82 m²) but its upper half narrows from x = 4950 to 3950. The label at
+#: x = 3300 puts "LIVING" (250 drawing units high at 1:50, 800-1,400 wide in any
+#: font CI or a desk has) clear of the old face and across the new one.
+STEP_BEFORE = [[4000, 0], [4000, 3000], [5000, 3000], [5000, 6000]]
+STEP_AFTER = [[5000, 0], [5000, 3000], [4000, 3000], [4000, 6000]]
+
+
+def _step_spec(axis, *, fit: bool) -> dict:
+    return {
+        "sheet": {"scale": 50},
+        "walls": [
+            {
+                "id": "EXT",
+                "axis": [[0, 0], [9000, 0], [9000, 6000], [0, 6000]],
+                "thickness": 250,
+                "closed": True,
+            },
+            {"id": "INT", "axis": axis, "thickness": 100},
+        ],
+        "rooms": [
+            {"id": "R1", "name": "LIVING", "number": "01", "at": [3300, 4500], "fit": fit},
+            {"id": "R2", "name": "HALL", "number": "02", "at": [7000, 3000]},
+        ],
+        "chains": {"sides": ["bottom", "left"]},
+        "schedules": [{"kind": "rooms", "at": [10500, 6000]}],
+    }
+
+
+@pytest.mark.parametrize("fit", [False, True])
+@pytest.mark.asyncio
+async def test_a_room_that_changes_shape_but_not_area_is_measured_again(backend, fit):
+    drawn = await draw_plan_from_spec(backend, _step_spec(STEP_BEFORE, fit=fit))
+    living = drawn["rooms"][0]
+    assert living["fits"] is True and drawn["warnings"] == []
+    result = await patch_plan(backend, {"walls.INT.axis": STEP_AFTER})
+    # a plain label keeps its texts and is re-checked; a fitted one is drawn again
+    assert result["affected"]["rooms" if fit else "rooms_rechecked"][0] == "R1"
+    (patched,) = [row for row in result["rooms"] if row["room"]["id"] == "R1"]
+    assert patched["room"]["area"] == living["room"]["area"]
+    assert patched["fits"] is False
+    (warning,) = result["warnings"]
+    assert warning["code"] == "room_label_overflow" and warning["id"] == "R1"
+    if not fit:
+        kept = {e.handle for e in await backend.entity_list(limit=100000)}
+        assert set(living["handles"]) <= kept
+    fresh = EzdxfBackend()
+    await fresh.connect()
+    await fresh.drawing_new()
+    try:
+        again = await draw_plan_from_spec(fresh, _step_spec(STEP_AFTER, fit=fit))
+        assert result["warnings"] == again["warnings"]
+        assert await _drawing(backend) == await _drawing(fresh)
+    finally:
+        await fresh.disconnect()
 
 
 @pytest.mark.asyncio
