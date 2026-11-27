@@ -2456,7 +2456,7 @@ async def drawing_new(
 async def drawing_open(
     path: Annotated[
         str,
-        "Server path to the .dxf or .dwg (a local file: POST /files). A .dwg is converted "
+        "Server path to the .dxf or .dwg (a local file: file_upload_url first). A .dwg is converted "
         "through the ODA File Converter, or refused `dwg_read` without it.",
     ],
     recover: Annotated[
@@ -7536,7 +7536,7 @@ async def view_screenshot(
     overlay_image: Annotated[
         str | None,
         "Scan or photo (PNG/JPG/TIFF...) on the server, drawn under the CAD lines, to "
-        "compare a redraw with its source (a local file: POST /files first). Needs overlay_align.",
+        "compare a redraw with its source (a local file: file_upload_url first). Needs overlay_align.",
     ] = None,
     overlay_align: Annotated[
         list[list[float]] | None,
@@ -12239,7 +12239,7 @@ async def hatch_material(
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 24: Sheet & Delivery (10 tools) ─────────────────────────────────
+# ── SECTION 24: Sheet & Delivery (11 tools) ─────────────────────────────────
 # ---------------------------------------------------------------------------
 
 
@@ -12778,6 +12778,52 @@ async def xref_manage(
     return await _backend(ctx).xref_manage(name, action, validated)
 
 
+@cad_tool(
+    summary="Get a one-time URL to upload a local file (scan, DXF, DWG) to this server.",
+    cost="mutate",
+)
+@mcp.tool(
+    annotations={"title": "Upload a File: One-Time URL", "destructiveHint": False},
+    tags={"sheet", "drawing"},
+)
+async def file_upload_url(
+    name: Annotated[
+        str,
+        "The local file's name, e.g. scan.png; its extension (.png .jpg .jpeg .tif .tiff "
+        ".dxf .dwg) fixes what may be uploaded",
+    ],
+    ctx: Context = None,
+) -> dict:
+    """A one-time upload link: POST the file's bytes to `upload_url` (no other
+    header needed), e.g. `curl --data-binary @scan.png '<upload_url>'`; the answer's
+    `path` goes to drawing_open, image_attach or view_screenshot(overlay_image=).
+
+    The link expires after `expires_in_s` and is spent by its first request,
+    a refused one too. The server names the stored file and checks its content
+    against the extension. HTTP servers with MCP_AUTH_TOKEN only: a stdio
+    server opens local paths directly.
+    """
+    base = artifact_links._base_url()
+    if base is None:
+        raise ToolError(
+            "file_upload_url: this server runs over stdio and reads local files directly - "
+            "pass the file's path to the tool that reads it."
+        )
+    if not uploads.enabled() or _auth is None:
+        raise ToolError(
+            "file_upload_url: uploads are off on this server (UPLOAD_MAX_BYTES=0 or no "
+            "MCP_AUTH_TOKEN); put the file inside ALLOWED_PATHS another way."
+        )
+    token = uploads.issue_ticket(name)
+    return {
+        "ok": True,
+        "upload_url": f"{base}{uploads.UPLOAD_PATH}/{token}",
+        "method": "POST",
+        "expires_in_s": uploads.UPLOAD_LINK_TTL_S,
+        "max_bytes": int(config.settings.upload_max_bytes),
+    }
+
+
 @cad_tool(summary="Attach a raster image (PNG/JPG) as an underlay.", cost="mutate")
 @mcp.tool(
     annotations={"title": "Sheet: Attach Image", "destructiveHint": False},
@@ -12785,7 +12831,7 @@ async def xref_manage(
 )
 async def image_attach(
     path: Annotated[
-        str, Field(description="Server path of the raster image (a local file: POST /files).")
+        str, Field(description="Server path of the raster image (a local file: file_upload_url).")
     ],
     x: Annotated[float, Field(default=0.0, description="Insertion X (WCS).")] = 0.0,
     y: Annotated[float, Field(default=0.0, description="Insertion Y (WCS).")] = 0.0,

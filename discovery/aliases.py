@@ -561,6 +561,15 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "start from a bundled template",
         ),
     ),
+    "file_upload_url": ToolAliases(
+        synonyms=(
+            "upload a file",
+            "upload a scan",
+            "send a local file to the server",
+            "upload pdf scan image dxf dwg",
+            "get an upload link",
+        ),
+    ),
     "drawing_open": ToolAliases(
         acad=("OPEN",),
         synonyms=("open a drawing", "load a dwg", "read a dxf file", "open a file"),

@@ -27,11 +27,11 @@ Headless through ezdxf on any OS: DXF natively, DWG through the ODA File Convert
 
 </div>
 
-> **v1.8 release snapshot:** 243 tools · 13 resources · 5 prompt templates.
-> 243 is the **registered** count. Since 1.8.0 a default install lists six over `tools/list`
+> **v1.8 release snapshot:** 244 tools · 13 resources · 5 prompt templates.
+> 244 is the **registered** count. Since 1.8.0 a default install lists six over `tools/list`
 > (`DISCOVERY_MODE=search`: `search_tools`, `describe_tool`, `call_tool` and the three
 > `DISCOVERY_PINNED` tools), and every tool the profile and packs allow stays callable by name;
-> `DISCOVERY_MODE=off` lists 244: the 243 a default profile enables plus `describe_tool`. `system_about` is the runtime authority.
+> `DISCOVERY_MODE=off` lists 245: the 244 a default profile enables plus `describe_tool`. `system_about` is the runtime authority.
 
 ## What's new in 1.8
 
@@ -216,7 +216,7 @@ It works with Claude Desktop, Cursor, or any stdio MCP host. For HTTP, run `auto
 | Security | `READ_ONLY`, `TOOL_ALLOWLIST` / `TOOL_DENYLIST` and `MAX_TOOL_COST` narrow what a client may reach: a refused tool is not advertised, and a call to it - direct, through `call_tool`, or as a `cad_batch` step - is refused `policy_refused` before anything runs (`system_status.policy` says what is in force). Every writer accepts only its own extensions and none writes a file AutoCAD or Windows loads (`acad*.lsp`, `.fas`, `.scr`, `.dll`, `acad.pgp`, ...), even inside `ALLOWED_PATHS`. Over HTTP, an unknown Origin is 403, a foreign Host 421, a body over 8 MiB 413, tokens are compared in constant time, and `MCP_AUTH_TOKEN_READONLY` issues a read-only token. |
 | Session metrics | `system_status(metrics=True)` reports this connection's calls, `by_tool`, `result_bytes`, `errors_by_kind` and p50 / p95 ms; off by default. `system_status.operations` is a short summary (`{count, last, unknown_commit}`); `drawing_history` lists the calls |
 
-<sub>243 tools in 27 groups. <code>TOOL_PACKS=core</code> hides these from a client that needs none of them: the ten <code>pid_*</code> tools, the 16 environment tools, the 15 mechanical tools, the 16 architectural tools and the two plant takeoffs. <code>TOOL_PACKS=core,mech</code> keeps the mechanical ones, <code>TOOL_PACKS=core,arch</code> the architectural ones, and <code>TOOL_PACKS=core,plant</code> the takeoffs. There are also 13 resources that cost nothing in the tool budget (<code>autocad://drawing/info</code>, <code>layers</code>, <code>blocks</code>, <code>entities/stats</code>, <code>entities/{layer_name}</code>, <code>system/status</code>, <code>pid/symbols</code>, <code>pid/project/last</code>, <code>standards/isa51</code>, <code>standards/coverage</code>, <code>critique/focuses</code>, and the task recipes <code>recipes/index</code> and <code>recipes/{recipe_id}</code> - seven recipes, among them <code>layer_cleanup</code> and <code>dimension_part</code>, each one <code>cad_batch</code>) and 5 prompt templates.</sub>
+<sub>244 tools in 27 groups. <code>TOOL_PACKS=core</code> hides these from a client that needs none of them: the ten <code>pid_*</code> tools, the 16 environment tools, the 15 mechanical tools, the 16 architectural tools and the two plant takeoffs. <code>TOOL_PACKS=core,mech</code> keeps the mechanical ones, <code>TOOL_PACKS=core,arch</code> the architectural ones, and <code>TOOL_PACKS=core,plant</code> the takeoffs. There are also 13 resources that cost nothing in the tool budget (<code>autocad://drawing/info</code>, <code>layers</code>, <code>blocks</code>, <code>entities/stats</code>, <code>entities/{layer_name}</code>, <code>system/status</code>, <code>pid/symbols</code>, <code>pid/project/last</code>, <code>standards/isa51</code>, <code>standards/coverage</code>, <code>critique/focuses</code>, and the task recipes <code>recipes/index</code> and <code>recipes/{recipe_id}</code> - seven recipes, among them <code>layer_cleanup</code> and <code>dimension_part</code>, each one <code>cad_batch</code>) and 5 prompt templates.</sub>
 
 **Three rules worth knowing.**
 

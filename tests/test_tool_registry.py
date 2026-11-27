@@ -660,7 +660,7 @@ async def test_tool_group_sizes_are_unchanged():
     `drawing_template_save` (`page_setup` 6 -> 5); `document_close` replaced
     `drawing_close` and moved from `environment` (16 -> 15) to `drawing`
     (11 -> 9); `view_zoom_and_screenshot` went (`view` 2 -> 1): 242 tools.
-    `arch_plan_patch` (T-11) joins `architecture`: 243 tools.
+    `arch_plan_patch` (T-11) joins `architecture`; `file_upload_url` `sheet`: 244 tools.
     """
     sizes = {label: len(names) for label, names in (await server._tool_groups()).items()}
     assert (
@@ -685,7 +685,7 @@ async def test_tool_group_sizes_are_unchanged():
             "pid": 10,  # + pid_project (1.8-21)
             "plant": 2,
             "premium": 12,
-            "sheet": 10,
+            "sheet": 11,
             "styles": 10,
             "system": 5,
             "templates": 2,
@@ -695,4 +695,4 @@ async def test_tool_group_sizes_are_unchanged():
             "view": 1,
         }
     )
-    assert sum(sizes.values()) == 243
+    assert sum(sizes.values()) == 244

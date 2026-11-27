@@ -126,6 +126,7 @@ SHEET_TOOLS = {
     "xref_attach",
     "xref_manage",
     "image_attach",
+    "file_upload_url",
 }
 
 ARCH_TOOLS = {

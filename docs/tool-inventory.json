@@ -3,7 +3,7 @@
   "schema_version": 2,
   "package_version": "1.8.0",
   "totals": {
-    "tools": 243,
+    "tools": 244,
     "resources": 13,
     "prompts": 5,
     "groups": 27
@@ -28,7 +28,7 @@
     "pid": 10,
     "plant": 2,
     "premium": 12,
-    "sheet": 10,
+    "sheet": 11,
     "styles": 10,
     "system": 5,
     "templates": 2,
@@ -3440,6 +3440,28 @@
       "annotations": {
         "title": "Trim Entity",
         "readOnlyHint": false,
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "file_upload_url",
+      "group": "sheet",
+      "cost": "mutate",
+      "summary": "Get a one-time URL to upload a local file (scan, DXF, DWG) to this server.",
+      "acad": [],
+      "synonyms": [
+        "upload a file",
+        "upload a scan",
+        "send a local file to the server",
+        "upload pdf scan image dxf dwg",
+        "get an upload link"
+      ],
+      "tags": [
+        "drawing",
+        "sheet"
+      ],
+      "annotations": {
+        "title": "Upload a File: One-Time URL",
         "destructiveHint": false
       }
     },

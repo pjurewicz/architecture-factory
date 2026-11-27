@@ -19,7 +19,9 @@ Per request, before any MCP handler runs:
   **413**: on its ``Content-Length`` before a byte is read, and - for a chunked
   body with no length - counted as it arrives (buffered up to the limit, then
   replayed to the app). A ``POST /files`` upload (uploads.py) is held to
-  ``UPLOAD_MAX_BYTES`` instead and must declare its ``Content-Length`` (411).
+  ``UPLOAD_MAX_BYTES`` instead and must declare its ``Content-Length`` (411),
+  and so is a ``POST /files/<token>`` (a one-time link), which any refusal
+  spends.
 
 fastmcp appends user middleware after its authentication middleware (S3), so a
 403/421/413 never reveals whether a token was valid.
@@ -136,6 +138,11 @@ class HttpGuard:
         if scope.get("type") != "http":
             await self.app(scope, receive, send)
             return
+        token = _upload_token(scope)
+        if token is not None:
+            # A one-time upload link is spent by any refusal (here or in the
+            # route), so a link is never tried twice.
+            send = _burning(send, token)
         headers: dict[str, str] = {}
         for raw_name, raw_value in scope.get("headers") or ():
             name = raw_name.decode("latin-1").lower()
@@ -211,15 +218,49 @@ class HttpGuard:
         await self.app(scope, _replay(b"".join(chunks), receive, disconnect), send)
 
 
-def _is_upload(scope) -> bool:
-    """A ``POST`` to uploads.py's route (``UPLOAD_MAX_BYTES`` instead of ``MAX_HTTP_BODY_BYTES``)."""
-    from uploads import UPLOAD_PATH
-
+def _route_path(scope) -> str:
     path = scope.get("path") or ""
     root = scope.get("root_path") or ""
     if root and path.startswith(root):
         path = path[len(root) :]
-    return scope.get("method") == "POST" and path.rstrip("/") == UPLOAD_PATH
+    return path
+
+
+def _is_upload(scope) -> bool:
+    """A ``POST`` to uploads.py's routes (``UPLOAD_MAX_BYTES`` instead of
+    ``MAX_HTTP_BODY_BYTES``): ``/files`` or a one-time ``/files/<token>``."""
+    from uploads import UPLOAD_PATH
+
+    path = _route_path(scope).rstrip("/")
+    return scope.get("method") == "POST" and (
+        path == UPLOAD_PATH or _upload_token(scope) is not None
+    )
+
+
+def _upload_token(scope) -> str | None:
+    """The token of a ``POST /files/<token>`` (file_upload_url's link), else None."""
+    from uploads import UPLOAD_PATH
+
+    if scope.get("method") != "POST":
+        return None
+    path = _route_path(scope)
+    prefix = UPLOAD_PATH + "/"
+    if not path.startswith(prefix):
+        return None
+    token = path[len(prefix) :]
+    return token if token and "/" not in token else None
+
+
+def _burning(send, token: str):
+    """``send`` that spends the upload link when the answer is a refusal."""
+    import uploads
+
+    async def wrapped(message):
+        if message.get("type") == "http.response.start" and message.get("status", 200) >= 400:
+            uploads.spend_ticket(token)
+        await send(message)
+
+    return wrapped
 
 
 def _counting(receive, limit: int):

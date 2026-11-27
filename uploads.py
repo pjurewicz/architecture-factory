@@ -49,6 +49,16 @@ Rules (each refusal names its reason):
   ``xref_attach`` reference a copy in ``kept/`` (:func:`keep`), never the
   upload itself.
 
+**One-time links** (``file_upload_url``): an agent whose MCP client does not
+hand it the bearer token asks the tool, under its own authenticated MCP call,
+for ``POST /files/<token>``. The token (32 random bytes) stands in for the
+``Authorization`` header for exactly one request: it is bound to the name the
+tool was given (the client cannot change it), lives ``UPLOAD_LINK_TTL_S``
+(600 s), and is spent by the first request that names it, a refused one
+included. Every other rule above still applies to it - the write policy is
+read again at upload time - and it opens no other route. The access log
+shows ``/files/***`` instead of the token.
+
 Refusals the HTTP layer makes (404, 401, 411, 413) answer the guard's
 ``{ok: false, error, message}``; the others are the tool error envelope's
 fields (``engineering/errors.py``: ``kind``, ``category``, ``retryable``,
@@ -58,6 +68,7 @@ fields (``engineering/errors.py``: ``kind``, ``category``, ``retryable``,
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import re
@@ -102,6 +113,11 @@ _SNIFF_BYTES = 4096
 KEPT_DIR = "kept"
 #: A ``.part`` file older than this is a dead upload's leftover.
 _PART_TTL_S = 3600.0
+#: How long a one-time upload link lives, and how many may be open at once.
+UPLOAD_LINK_TTL_S = 600
+MAX_TICKETS = 256
+#: token -> {"name", "expires"}; in memory, so a restart spends every link.
+_tickets: dict[str, dict] = {}
 
 
 def enabled() -> bool:
@@ -281,6 +297,58 @@ def _name_refusal(name: str) -> Response | None:
     return None
 
 
+def issue_ticket(name: str) -> str:
+    """A one-time token for uploading ``name`` (refused here by the same name rules)."""
+    refused = _name_refusal(name)
+    if refused is not None:
+        body = json.loads(refused.body)
+        details = {k: body[k] for k in ("reason", "extension", "allowed") if k in body}
+        if body["kind"] == "path_refused":
+            raise security.PathRefusedError(body["message"], **details)
+        from engineering.errors import InvalidArgsError
+
+        raise InvalidArgsError(f"invalid_args: {body['message']}")
+    now = time.monotonic()
+    for token in [t for t, ticket in _tickets.items() if ticket["expires"] <= now]:
+        del _tickets[token]
+    while len(_tickets) >= MAX_TICKETS:
+        del _tickets[next(iter(_tickets))]
+    token = secrets.token_urlsafe(32)
+    _tickets[token] = {"name": name, "expires": now + UPLOAD_LINK_TTL_S}
+    return token
+
+
+def spend_ticket(token: str) -> dict | None:
+    """Remove ``token`` and return its ticket while it is still valid, else None.
+
+    A dict lookup on the token (no comparison loop to time); the ticket is
+    gone after this call whatever happens next.
+    """
+    ticket = _tickets.pop(token, None)
+    if ticket is None or ticket["expires"] <= time.monotonic():
+        return None
+    return ticket
+
+
+def mask_token(text: str) -> str:
+    """``text`` with any one-time upload token replaced by ``***``."""
+    return _TOKEN_IN_PATH.sub(UPLOAD_PATH + "/***", text)
+
+
+_TOKEN_IN_PATH = re.compile(re.escape(UPLOAD_PATH) + r"/[^\s?\"' ]+")
+
+
+class _MaskTokens(logging.Filter):
+    """Keeps one-time upload tokens out of uvicorn's access log."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.args:
+            record.args = tuple(mask_token(a) if isinstance(a, str) else a for a in record.args)
+        if isinstance(record.msg, str):
+            record.msg = mask_token(record.msg)
+        return True
+
+
 async def _authorize(server, request: Request) -> Response | None:
     verifier = getattr(server.mcp, "auth", None)
     if verifier is None:
@@ -311,13 +379,27 @@ async def _authorize(server, request: Request) -> Response | None:
     return None
 
 
-async def upload(server, request: Request) -> Response:
-    if not enabled():
-        return _transport_refusal(404, "not_found", "Uploads are off (UPLOAD_MAX_BYTES=0).")
-    refused = await _authorize(server, request)
-    if refused is not None:
-        return refused
-    name = request.query_params.get("name", "")
+async def upload(server, request: Request, ticket: str | None = None) -> Response:
+    if ticket is not None:
+        # spent first: a refusal below must not leave the link usable
+        granted = spend_ticket(ticket)
+        if not enabled():
+            return _transport_refusal(404, "not_found", "Uploads are off (UPLOAD_MAX_BYTES=0).")
+        if granted is None or getattr(server.mcp, "auth", None) is None:
+            return _transport_refusal(
+                404,
+                "not_found",
+                "This upload link is unknown, expired or already used; ask file_upload_url "
+                "for a new one.",
+            )
+        name = granted["name"]
+    else:
+        if not enabled():
+            return _transport_refusal(404, "not_found", "Uploads are off (UPLOAD_MAX_BYTES=0).")
+        refused = await _authorize(server, request)
+        if refused is not None:
+            return refused
+        name = request.query_params.get("name", "")
     refused = _name_refusal(name)
     if refused is not None:
         return refused
@@ -412,3 +494,11 @@ def register(server) -> None:
     @server.mcp.custom_route(UPLOAD_PATH, methods=["POST"])
     async def file_upload(request: Request) -> Response:
         return await upload(server, request)
+
+    @server.mcp.custom_route(UPLOAD_PATH + "/{token}", methods=["POST"])
+    async def file_upload_ticket(request: Request) -> Response:
+        return await upload(server, request, ticket=request.path_params["token"])
+
+    access = logging.getLogger("uvicorn.access")
+    if not any(isinstance(f, _MaskTokens) for f in access.filters):
+        access.addFilter(_MaskTokens())

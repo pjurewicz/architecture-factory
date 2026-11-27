@@ -21,6 +21,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `file_upload_url(name)` (pack `core`, cost `mutate`): a one-time link for
+  uploading a local scan or drawing, for an agent whose MCP client does not
+  give it the bearer token - it could not use `POST /files`, so a redraw went
+  without its scan underlay. The answer is `{upload_url, method, expires_in_s,
+  max_bytes}` and no secret: `POST <base>/files/<token>` with the file's bytes
+  and no header answers the same `{path, sha256, bytes}` as `POST /files`. The
+  token (32 random bytes, a dict lookup) stands in for the Authorization
+  header for one request: bound to the name it was issued for, 600 s, spent by
+  its first request - a refused one (411, 413, 422, a policy refusal) too -
+  and it opens no other route. Every `POST /files` rule still applies (the
+  name rules when the link is issued, the server-chosen name, the content
+  sniff, `UPLOAD_MAX_BYTES`, `validate_path(kinds=KINDS_UPLOAD)` and the write
+  policy read again at upload time); a read-only token is refused the link,
+  and the access log shows `/files/***`. `drawing_open`, `image_attach` and
+  `view_screenshot(overlay_image=)` point to it; `search_tools("upload file")`
+  finds it.
+
 - `dimension_chain(ext_length=)` gives every extension line a fixed length
   from the dimension line toward its point (DIMFXLON / DIMFXL, in drawing
   units): at `offset` 0, where a zero-length extension line is suppressed, each

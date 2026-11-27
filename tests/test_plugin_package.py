@@ -110,7 +110,10 @@ def _non_tool_vocabulary() -> set[str]:
         report.MISSING_REQUIREMENT,
         report.UNSUPPORTED_MEASUREMENT,
     }
-    return set(ALL_CRITIQUE_FOCUSES) | kinds
+    from engineering.errors import ERROR_KINDS
+
+    # an error kind (`file_not_found`) shares a prefix with a tool (`file_upload_url`)
+    return set(ALL_CRITIQUE_FOCUSES) | kinds | set(ERROR_KINDS)
 
 
 #: A markdown heading: its level and its text.

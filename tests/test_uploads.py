@@ -38,7 +38,7 @@ def _png() -> bytes:
 
 
 @contextlib.asynccontextmanager
-async def _served(monkeypatch, tmp_path):
+async def _served(monkeypatch, tmp_path, token=RW):
     auth = http_guard.build_auth(RW, RO)
     monkeypatch.setattr(server.mcp, "auth", auth)
     monkeypatch.setattr(server, "_auth", auth)
@@ -54,7 +54,9 @@ async def _served(monkeypatch, tmp_path):
             return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), **kwargs)
 
         transport = StreamableHttpTransport(
-            f"{BASE}/mcp", headers={"authorization": f"Bearer {RW}"}, httpx_client_factory=factory
+            f"{BASE}/mcp",
+            headers={"authorization": f"Bearer {token}"},
+            httpx_client_factory=factory,
         )
         async with Client(transport) as mcp, factory(base_url=BASE) as http:
             yield mcp, http
@@ -261,3 +263,103 @@ async def test_an_attached_upload_survives_the_sweep(monkeypatch, tmp_path):
     kept = defs[0].dxf.filename
     assert kept == str(folder / "kept" / upload.name)
     assert open(kept, "rb").read() == _png()
+
+
+async def _link(mcp, name: str) -> str:
+    result = await mcp.call_tool("file_upload_url", {"name": name})
+    payload = result.structured_content
+    assert set(payload) == {"ok", "upload_url", "method", "expires_in_s", "max_bytes"}
+    assert RW not in json.dumps(payload) and RO not in json.dumps(payload), "no bearer token"
+    return payload["upload_url"].removeprefix(BASE)
+
+
+@pytest.mark.asyncio
+async def test_a_one_time_link_uploads_once_and_its_path_opens(monkeypatch, tmp_path):
+    pytest.importorskip("matplotlib", reason="rendering needs the [pdf] extra")
+    data = _png()
+    async with _served(monkeypatch, tmp_path) as (mcp, http):
+        url = await _link(mcp, "my scan.png")
+        assert url.startswith("/files/") and "name=" not in url
+        stored = await http.post(url, content=data)  # no Authorization header
+        assert stored.status_code == 201, stored.text
+        path = stored.json()["path"]
+        assert path.startswith(str(tmp_path / "uploads")) and path.endswith(".png")
+        again = await http.post(url, content=data)
+        assert again.status_code == 404, "a link uploads once"
+        await mcp.call_tool("drawing_new", {})
+        shot = await mcp.call_tool(
+            "view_screenshot", {"overlay_image": path, "overlay_align": ALIGN}
+        )
+        assert shot.structured_content["overlay"]["pixels"] == [100, 60]
+        # the link opens nothing else: no GET, no other path under it
+        url2 = await _link(mcp, "b.png")
+        assert (await http.get(url2)).status_code in (404, 405)
+        assert (await http.post(url2 + "/x", content=data)).status_code == 404
+        assert (await http.post(url2, content=data)).status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_a_link_skips_none_of_the_upload_checks_and_a_refusal_spends_it(
+    monkeypatch, tmp_path
+):
+    data = _png()
+    folder = tmp_path / "uploads"
+    async with _served(monkeypatch, tmp_path) as (mcp, http):
+        # the name rules apply when the link is asked for
+        for name in ("notes.txt", "acaddoc.lsp", "acad.pgp", "../evil.png", "x.png:acad.lsp"):
+            refused = await mcp.call_tool("file_upload_url", {"name": name}, raise_on_error=False)
+            assert refused.is_error and refused.structured_content["kind"] == "path_refused", name
+        # size: refused before a byte is read, and the link is spent
+        url = await _link(mcp, "a.png")
+        big = await http.post(url, content=data + b"\0" * (64 * 1024))
+        assert big.status_code == 413
+        assert (await http.post(url, content=data)).status_code == 404, "spent by the 413"
+
+        # no length (chunked)
+        async def chunks():
+            yield data
+
+        url = await _link(mcp, "a.png")
+        assert (await http.post(url, content=chunks())).status_code == 411
+        assert (await http.post(url, content=data)).status_code == 404, "spent by the 411"
+        # content: the extension the link was issued for decides
+        url = await _link(mcp, "scan.png")
+        fake = await http.post(url, content=b"\xff\xd8\xff\xe0 a jpeg really")
+        assert fake.status_code == 422 and fake.json()["reason"] == "content_mismatch"
+        assert (await http.post(url, content=data)).status_code == 404, "spent by the 422"
+        # the client cannot rename what the link stores
+        url = await _link(mcp, "part.dxf")
+        renamed = await http.post(url, params={"name": "evil.png"}, content=data)
+        assert renamed.status_code == 422 and renamed.json()["expected"] == "dxf"
+        # an unknown token
+        assert (await http.post("/files/" + "A" * 43, content=data)).status_code == 404
+        # the write policy is read again at upload time
+        url = await _link(mcp, "a.png")
+        monkeypatch.setattr(config.settings, "read_only", True, raising=False)
+        ro = await http.post(url, content=data)
+        assert ro.status_code == 403 and ro.json()["kind"] == "policy_refused"
+    assert not folder.exists() or [p.name for p in folder.iterdir()] == []
+
+
+@pytest.mark.asyncio
+async def test_a_read_only_token_gets_no_link(monkeypatch, tmp_path):
+    async with _served(monkeypatch, tmp_path, token=RO) as (mcp, _http):
+        refused = await mcp.call_tool("file_upload_url", {"name": "a.png"}, raise_on_error=False)
+    assert refused.is_error and refused.structured_content["kind"] == "policy_refused"
+    assert uploads._tickets == {} or all(t["name"] != "a.png" for t in uploads._tickets.values())
+
+
+def test_the_access_log_masks_the_token():
+    import logging
+
+    record = logging.LogRecord(
+        "uvicorn.access",
+        logging.INFO,
+        "",
+        0,
+        '%s - "%s %s HTTP/%s" %d',
+        ("1.2.3.4", "POST", "/files/s3cr3t-T0ken_x", "1.1", 201),
+        None,
+    )
+    uploads._MaskTokens().filter(record)
+    assert "s3cr3t" not in record.getMessage() and "/files/***" in record.getMessage()
