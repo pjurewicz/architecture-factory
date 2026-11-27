@@ -317,9 +317,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cut through the shared end, and a short face closes the step. Ends further
   apart (along the wall beyond the 1 mm join tolerance, or across beyond half
   the thicker wall, or whose faces only touch) stay two separate walls, as
-  before, `arch_wall_gap` included. An end two walls would both continue, and
-  a wall reaching into the step's cut, are refused by name; a too-short
-  stretch next to a step names the step.
+  before, `arch_wall_gap` included. An end two walls would both continue is
+  refused by name; a too-short stretch next to a step names the step.
+- A cross wall at the place a wall changes thickness - its usual place, e.g. a
+  240 stair-core wall turning into a 120 partition - was refused ("reaches into
+  the step ... end it clear of the step, or align the two walls' axes"). The
+  cross wall now holds the step: both walls are carried along their axes onto
+  its axis (from the node, from its faces, or with its axis beside the node as
+  long as its body covers the change), each stops on one of its faces, and its
+  body owns the middle. Through (+), no step face is drawn; from one side (T),
+  a step face on the open side, on the cross wall's axis, joins the two faces.
+  Oblique cross walls work the same way. Two cross walls reaching one step at
+  different points are refused by name. A T stem carried onto its own other
+  end now reads "lies inside the wall it joins" instead of a ZeroDivisionError.
 - `untrimmed_corner` reported a door on a skewed wall (-30°) as an untrimmed
   corner "0.000 mm apart": when the wall engine snaps a wall end onto another
   axis, the door leaf's hinge and its jamb differ by float noise (~1e-8 mm).

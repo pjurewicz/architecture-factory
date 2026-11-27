@@ -324,6 +324,63 @@ async def test_a_thickness_step_closes_the_room_and_leaves_no_gap_or_corner(back
     assert room["area"] == pytest.approx(2880 * 3760 + 2920 * 3840, abs=1.0)
 
 
+@pytest.mark.parametrize("through", [True, False])
+@pytest.mark.asyncio
+async def test_a_stair_core_wall_turning_into_a_partition_at_a_cross_wall(backend, through):
+    # M4-like: an 8000 x 6000 shell (240). The 240 stair-core wall on y = 3000
+    # turns into a 120 partition at the cross wall x = 4000 (120), bottom faces
+    # flush at 2880 (partition axis 2940). The cross wall runs through (four
+    # rooms) or stops at the change (two rooms below, one above, with the
+    # step face on the cross wall's axis). Doors sit next to the junction.
+    from engineering.arch.rooms import rooms_detect
+    from engineering.arch.spec import draw_plan_from_spec
+    from engineering.critique import run_critique
+
+    c_top = 6000 if through else 3000
+    labels = [("SW", 2000, 1500), ("SE", 6000, 1500), ("NW", 2000, 4500)]
+    if through:
+        labels.append(("NE", 6000, 4500))
+    spec = {
+        "walls": [
+            {
+                "id": "EXT",
+                "axis": [[0, 0], [8000, 0], [8000, 6000], [0, 6000]],
+                "thickness": 240,
+                "closed": True,
+            },
+            {"id": "CORE", "axis": [[0, 3000], [4000, 3000]], "thickness": 240},
+            {"id": "PART", "axis": [[4000, 2940], [8000, 2940]], "thickness": 120},
+            {"id": "CROSS", "axis": [[4000, 0], [4000, c_top]], "thickness": 120},
+        ],
+        "openings": [
+            {"id": "D1", "wall": "PART", "kind": "door", "offset": 200, "width": 800},
+            {"id": "D2", "wall": "CROSS", "kind": "door", "offset": 1900, "width": 800},
+        ],
+        "rooms": [
+            {"id": name, "name": name, "number": str(i), "at": [x, y]}
+            for i, (name, x, y) in enumerate(labels, 1)
+        ],
+    }
+    result = await draw_plan_from_spec(backend, spec)
+    assert result["omitted"] == []
+
+    focuses = [
+        "arch_wall_gap",
+        "arch_opening_clash",
+        "arch_room_unlabelled",
+        "untrimmed_corner",
+    ]
+    assert await run_critique(backend, focuses) == []
+    rooms = (await rooms_detect(backend))["rooms"]
+    areas = {room["label"]["name"]: room["area"] for room in rooms}
+    expected = {"SW": 3820 * 2760, "SE": 3820 * 2760}
+    if through:
+        expected |= {"NW": 3820 * 2760, "NE": 3820 * 2880}
+    else:  # one room above: 3880 wide on each side of the step at x = 4000
+        expected |= {"NW": 3880 * 2760 + 3880 * 2880}
+    assert areas == pytest.approx(expected, abs=1.0)
+
+
 @pytest.mark.asyncio
 async def test_a_plan_in_model_space_is_read_while_a_paper_sheet_is_current(backend):
     # arch_plan_from_spec draws into model space; a sheet made current

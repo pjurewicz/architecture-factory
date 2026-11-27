@@ -197,15 +197,215 @@ def test_an_axis_offset_beyond_half_the_thicker_wall_stays_two_walls(t2, off, ga
     assert [row["gap_mm"] for row in wall_gaps(walls)] == [gap]
 
 
-def test_a_wall_ending_inside_a_step_is_refused_by_name_not_as_a_short_segment():
-    with pytest.raises(
-        ValueError, match=r"\('c'\) reaches into the step where .*\('b'\) continues"
-    ):
+# -- a step a cross wall holds ----------------------------------------------------
+#
+# a: 240 on y = 0, ends at x = 3000; b: 160 on y = -40 (bottom faces flush at
+# -120, top faces at 120 and 40); c: a 120 cross wall on x = 3000 (faces 2940 /
+# 3060). a stops on c's left face, b starts on its right one, and c owns the
+# middle. At a T the open side gets the step face, on c's axis.
+
+
+def _ab(reverse_b=False):
+    b_axis = ((6000, -40), (3000, -40)) if reverse_b else ((3000, -40), (6000, -40))
+    return [wall("a", (0, 0), (3000, 0), thickness=240.0), wall("b", *b_axis, thickness=160.0)]
+
+
+def _regions(geo):
+    return {ring(r) for r in geo.regions}
+
+
+@pytest.mark.parametrize("reverse_b", [False, True])
+@pytest.mark.parametrize("reverse_c", [False, True])
+def test_a_cross_wall_through_a_step_swallows_it(reverse_b, reverse_c):
+    c_axis = ((3000, 2000), (3000, -2000)) if reverse_c else ((3000, -2000), (3000, 2000))
+    geo = wall_geometry([*_ab(reverse_b), wall("c", *c_axis, thickness=120.0)])
+    assert segs(geo.faces) == {
+        S(0, 120, 2940, 120),
+        S(0, -120, 2940, -120),
+        S(3060, 40, 6000, 40),
+        S(3060, -120, 6000, -120),
+        S(2940, 120, 2940, 2000),
+        S(2940, -2000, 2940, -120),
+        S(3060, 40, 3060, 2000),
+        S(3060, -2000, 3060, -120),
+    }  # no step face: c's body holds the change
+    assert _regions(geo) == {
+        ring([(0, -120), (2940, -120), (2940, 120), (0, 120)]),
+        ring([(3060, -120), (6000, -120), (6000, 40), (3060, 40)]),
+        ring([(3060, 40), (2940, 120), (2940, -120), (3060, -120)]),  # the hub, c's
+        ring([(2940, -2000), (3060, -2000), (3060, -120), (2940, -120)]),
+        ring([(3060, 40), (3060, 2000), (2940, 2000), (2940, 120)]),
+    }
+    assert all(signed_area(r) > 0 for r in geo.regions)
+
+
+@pytest.mark.parametrize("reverse_b", [False, True])
+@pytest.mark.parametrize("reverse_c", [False, True])
+def test_a_cross_wall_ending_at_a_step_closes_its_side_and_steps_on_the_other(reverse_b, reverse_c):
+    c_axis = ((3000, 0), (3000, -2000)) if reverse_c else ((3000, -2000), (3000, 0))
+    geo = wall_geometry([*_ab(reverse_b), wall("c", *c_axis, thickness=120.0)])
+    assert segs(geo.faces) == {
+        S(0, 120, 3000, 120),
+        S(3000, 40, 3000, 120),  # the step, on the open side, on c's axis
+        S(3000, 40, 6000, 40),
+        S(0, -120, 2940, -120),  # c's side: a and b run to c's faces
+        S(3060, -120, 6000, -120),
+        S(2940, -2000, 2940, -120),
+        S(3060, -2000, 3060, -120),
+    }
+    assert _regions(geo) == {
+        ring([(0, -120), (2940, -120), (3000, 120), (0, 120)]),
+        ring([(3060, -120), (6000, -120), (6000, 40), (3000, 40)]),
+        ring([(3000, 40), (3000, 120), (2940, -120), (3060, -120)]),
+        ring([(2940, -2000), (3060, -2000), (3060, -120), (2940, -120)]),
+    }
+    assert all(signed_area(r) > 0 for r in geo.regions)
+
+
+def test_a_cross_wall_from_the_flush_side_leaves_no_step_face():
+    geo = wall_geometry([*_ab(), wall("c", (3000, 2000), (3000, 0), thickness=120.0)])
+    assert segs(geo.faces) == {
+        S(0, 120, 2940, 120),
+        S(3060, 40, 6000, 40),
+        S(2940, 120, 2940, 2000),
+        S(3060, 40, 3060, 2000),
+        S(0, -120, 3000, -120),  # flush: the step face has no length
+        S(3000, -120, 6000, -120),
+    }
+    assert ring([(3060, 40), (2940, 120), (3000, -120)]) in _regions(geo)
+
+
+# c at 60 degrees through (3000, 0): a point of its face at offset o (along its
+# left normal) at height y lies at x = 3000 + (y - 2 o) / sqrt(3).
+R3 = math.sqrt(3.0)
+
+
+def _c60(y, o):
+    return 3000.0 + (y - 2.0 * o) / R3
+
+
+def _has(lines, p, q, tol=1e-6) -> bool:
+    return any(
+        min(
+            math.dist(line.p1, p) + math.dist(line.p2, q),
+            math.dist(line.p1, q) + math.dist(line.p2, p),
+        )
+        <= tol
+        for line in lines
+    )
+
+
+def _has_ring(regions, points, tol=1e-6) -> bool:
+    return any(
+        len(r) == len(points)
+        and any(
+            all(math.dist(r[(k + i) % len(r)], pt) <= tol for i, pt in enumerate(points))
+            for k in range(len(r))
+        )
+        for r in regions
+    )
+
+
+def test_an_oblique_cross_wall_through_a_step():
+    c = wall("c", (3000 - 2000 / R3, -2000), (3000 + 2000 / R3, 2000), thickness=120.0)
+    geo = wall_geometry([*_ab(), c])
+    a_end, b_start = _c60(-120, 60), _c60(40, -60)  # 2861.44, 3092.38
+    assert _has_ring(geo.regions, [(0, -120), (a_end, -120), (3000, 120), (0, 120)])
+    assert _has_ring(geo.regions, [(3000, -120), (6000, -120), (6000, 40), (b_start, 40)])
+    assert _has_ring(geo.regions, [(b_start, 40), (3000, 120), (a_end, -120), (3000, -120)])
+    assert _has(geo.faces, (0, 120), (3000, 120)) and _has(geo.faces, (b_start, 40), (6000, 40))
+    assert _has(geo.faces, (0, -120), (a_end, -120))
+    assert _has(geo.faces, (3000, -120), (6000, -120))
+    assert not any(abs(line.p1[0] - line.p2[0]) < 1e-6 for line in geo.faces)  # no step face
+    assert len(geo.regions) == 5 and all(signed_area(r) > 0 for r in geo.regions)
+
+
+def test_an_oblique_cross_wall_ending_at_a_step():
+    # the node lies midway between the two carried ends on c's axis, at y = -20
+    c = wall("c", (3000 - 2000 / R3, -2000), (3000, 0), thickness=120.0)
+    geo = wall_geometry([*_ab(), c])
+    xs, a_end = 3000 - 20 / R3, _c60(-120, 60)
+    assert _has(geo.faces, (xs, 40), (xs, 120))
+    assert _has(geo.faces, (0, 120), (xs, 120)) and _has(geo.faces, (xs, 40), (6000, 40))
+    assert _has_ring(geo.regions, [(0, -120), (a_end, -120), (xs, 120), (0, 120)])
+    assert _has_ring(geo.regions, [(3000, -120), (6000, -120), (6000, 40), (xs, 40)])
+    assert _has_ring(geo.regions, [(xs, 40), (xs, 120), (a_end, -120), (3000, -120)])
+    assert len(geo.regions) == 4 and all(signed_area(r) > 0 for r in geo.regions)
+
+
+@pytest.mark.parametrize(
+    "c_axis",
+    [
+        ((3000, -2000), (3000, 2000)),  # on the node
+        ((3000.6, -2000), (3000.6, 2000)),  # within join_tol of it
+    ],
+)
+def test_ends_typed_to_the_cross_walls_faces_draw_the_same_step(c_axis):
+    walls = [
+        wall("a", (0, 0), (2940, 0), thickness=240.0),
+        wall("b", (3060, -40), (6000, -40), thickness=160.0),
+        wall("c", *c_axis, thickness=120.0),
+    ]
+    typed = wall_geometry(walls)
+    on_node = wall_geometry([*_ab(), wall("c", *c_axis, thickness=120.0)])
+    assert segs(typed.faces) == segs(on_node.faces)
+    assert _regions(typed) == _regions(on_node)
+
+
+def test_a_cross_wall_beside_the_node_carries_the_step_onto_its_axis():
+    # c's axis 50 mm past the typed step, its 200 mm body over it: a and b run
+    # along their own axes onto c's, nothing of c moves.
+    geo = wall_geometry([*_ab(), wall("c", (3050, -2000), (3050, 2000), thickness=200.0)])
+    assert {S(0, 120, 2950, 120), S(3150, 40, 6000, 40), S(3150, -120, 6000, -120)} <= segs(
+        geo.faces
+    )
+
+
+def test_a_cross_wall_thinner_than_the_offset():
+    geo = wall_geometry(
+        [
+            wall("a", (0, 0), (3000, 0)),
+            wall("b", (3000, 100), (6000, 100)),
+            wall("c", (3000, -2000), (3000, 0), thickness=20.0),
+        ]
+    )
+    assert segs(geo.faces) == {
+        S(0, 100, 3000, 100),
+        S(3000, 100, 3000, 200),
+        S(3000, 200, 6000, 200),
+        S(0, -100, 2990, -100),
+        S(3010, 0, 6000, 0),
+        S(2990, -2000, 2990, -100),
+        S(3010, -2000, 3010, 0),
+    }
+    assert all(signed_area(r) > 0 for r in geo.regions)
+
+
+@pytest.mark.parametrize("through", [False, True])
+def test_a_thickness_change_on_one_axis_at_a_cross_wall(through):
+    c_end = (3000, 2000) if through else (3000, 0)
+    geo = wall_geometry(
+        [
+            wall("a", (0, 0), (3000, 0), thickness=240.0),
+            wall("b", (3000, 0), (6000, 0), thickness=120.0),
+            wall("c", (3000, -2000), c_end, thickness=120.0),
+        ]
+    )
+    faces = segs(geo.faces)
+    assert {S(0, -120, 2940, -120), S(3060, -60, 6000, -60)} <= faces
+    if through:
+        assert {S(0, 120, 2940, 120), S(3060, 60, 6000, 60)} <= faces
+    else:
+        assert {S(0, 120, 3000, 120), S(3000, 60, 3000, 120), S(3000, 60, 6000, 60)} <= faces
+
+
+def test_two_cross_walls_meeting_a_step_at_different_points_are_refused_by_name():
+    with pytest.raises(ValueError, match=r"\('d'\) and .*\('c'\) both reach into the step"):
         wall_geometry(
             [
-                wall("a", (0, 0), (6000, 0)),
-                wall("b", (6000, 75), (12000, 75)),
-                wall("c", (6075, -3000), (6075, 0)),
+                *_ab(),
+                wall("c", (3000, -2000), (3000, 0), thickness=120.0),
+                wall("d", (3040, 2000), (3040, 40), thickness=120.0),
             ]
         )
 

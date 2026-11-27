@@ -14,7 +14,10 @@ segments meet:
   bisecting the join and a short face closes the step. Two free ends that
   meet end to end, parallel, with their axes up to half the thicker wall apart
   (a thickness change with one face flush) are joined at one node and step
-  the same way (`_resolve_steps`).
+  the same way (`_resolve_steps`). Where a cross wall reaches the step - where
+  a thickness usually changes - it holds it: both ends are carried onto its
+  axis, each wall stops on one of its faces, and the node is an X (no step
+  face) or a T (a step face on the open side, on the cross wall's axis).
 * **T** - a segment ends *inside* another wall. Its axis is carried to the
   crossing axis, the crossing segment is split there, and the same rule stops
   the stem's faces on the crossing wall's near face. That face is cut where
@@ -47,7 +50,8 @@ region and, with ``poche=True``, one ``HatchArea`` in the wall's material.
 Refused by name before anything is computed: two walls with one id, an unknown
 material or justification, a zero-length segment, two segments that meet at
 less than ``MIN_JOIN_ANGLE_DEG`` (the mitre would run away), an end two walls
-would both continue as a step, a wall reaching into a step's cut, a wall corner that
+would both continue as a step, two cross walls reaching a step at different
+points, a wall corner that
 lies inside another wall off its axis, an end inside a wall whose axis would
 have to run past that wall's end to meet it, a segment that lies wholly
 inside the wall it joins, and one too short for its junctions (its outline
@@ -312,17 +316,30 @@ def _ends_faces(pos, seg: _Seg, vertex) -> tuple[Pt, Pt]:
     return _add(pos[vertex], _mul(n, seg.left)), _add(pos[vertex], _mul(n, seg.right))
 
 
+def _in_body(pos, seg: _Seg, point: Pt, tol: float) -> bool:
+    """Whether ``point`` lies in ``seg``'s wall body, its edges widened by ``tol``."""
+    a, b = pos[seg.va], pos[seg.vb]
+    u = _unit(a, b)
+    s = _dot(_sub(point, a), u)
+    d = _dot(_sub(point, a), _left(u))
+    return -tol <= s <= math.dist(a, b) + tol and seg.right - tol <= d <= seg.left + tol
+
+
 def _crosses_body(pos, seg: _Seg, p: Pt, q: Pt, tol: float) -> bool:
-    """Whether the segment ``pq`` runs more than ``tol`` inside ``seg``'s wall body."""
+    """Whether the segment ``pq`` runs into ``seg``'s wall body.
+
+    More than ``tol`` across the body, which runs ``tol`` past its axis ends: a
+    wall whose end stops on the outer face of a step still reaches it.
+    """
     a, b = pos[seg.va], pos[seg.vb]
     u = _unit(a, b)
     n = _left(u)
-    lo = [tol, seg.right + tol]
-    hi = [math.dist(a, b) - tol, seg.left - tol]
+    lo = [-tol, seg.right + tol]
+    hi = [math.dist(a, b) + tol, seg.left - tol]
     start = (_dot(_sub(p, a), u), _dot(_sub(p, a), n))
     delta = (_dot(_sub(q, p), u), _dot(_sub(q, p), n))
     t0, t1 = 0.0, 1.0
-    for k in (0, 1):  # Liang-Barsky against the body shrunk by tol
+    for k in (0, 1):  # Liang-Barsky
         if abs(delta[k]) <= _EPS:
             if not lo[k] < start[k] < hi[k]:
                 return False
@@ -334,17 +351,31 @@ def _crosses_body(pos, seg: _Seg, p: Pt, q: Pt, tol: float) -> bool:
     return True
 
 
-def _resolve_steps(walls, pos, segs, tol: float) -> dict[tuple[int, int], tuple[int, int]]:
+def _far(pos, seg: _Seg, vertex) -> Pt:
+    return pos[seg.vb] if seg.va == vertex else pos[seg.va]
+
+
+def _resolve_steps(walls, pos, segs, tol: float):
     """Pair the free ends where one wall continues another with its axis offset sideways.
 
-    Two free axis ends that meet end to end (within ``tol`` along the wall),
-    their segments parallel (below ``MIN_JOIN_ANGLE_DEG``) and running apart,
-    with their axes up to half the thicker wall apart: a thickness change
-    (24 cm to 16 cm, one face flush) or a shifted axis. They join at one node
-    and step there like a straight join whose faces do not line up. Ends
-    further apart, along or across, stay two walls. Refused by name: an end
-    two walls would both continue (a fork), and a third wall reaching into
-    the step's cut. ``{vertex: partner vertex}``, both ways.
+    Two free axis ends, their segments parallel (below ``MIN_JOIN_ANGLE_DEG``)
+    and running apart, with their axes up to half the thicker wall apart and
+    sharing some of their width: a thickness change (24 cm to 16 cm, one face
+    flush) or a shifted axis. They join at one node and step there like a
+    straight join whose faces do not line up - when they meet end to end
+    (within ``tol`` along the wall), or when a crossing wall holds both ends
+    (each typed to its own face of it, say). Ends further apart stay two walls.
+
+    A wall that reaches into the step - a cross wall where the thickness
+    changes, its usual place - *holds* it (`_carry_onto_host`): the two ends
+    are carried along their axes onto its axis and the node becomes a T or an
+    X, so each wall stops on a face of the cross wall and, at a T, a step face
+    on the open side joins the two. An end two walls would both continue (a
+    fork) is refused by name.
+
+    Returns ``(steps, resolved, centres)``: ``{vertex: partner}`` both ways;
+    every vertex placed here, which the T pass leaves alone; and the node
+    point of each held step, keyed by its lower vertex.
     """
     touching = _touching(segs)
     free = {vertex: mine[0] for vertex, mine in touching.items() if len(mine) == 1}
@@ -355,12 +386,10 @@ def _resolve_steps(walls, pos, segs, tol: float) -> dict[tuple[int, int], tuple[
         p, q = pos[v1], pos[v2]
         if math.dist(p, q) <= tol:
             continue  # one node already
-        u1 = _unit(pos[s1.vb] if s1.va == v1 else pos[s1.va], p)  # arriving at p
-        u2 = _unit(q, pos[s2.vb] if s2.va == v2 else pos[s2.va])  # leaving q
+        u1 = _unit(_far(pos, s1, v1), p)  # arriving at p
+        u2 = _unit(q, _far(pos, s2, v2))  # leaving q
         if _dot(u1, u2) <= 0.0 or _line_angle(u1, u2) >= MIN_JOIN_ANGLE_DEG:
             continue
-        if abs(_dot(_sub(q, p), u1)) > tol:
-            continue  # not end to end
         offset = abs(_cross(u1, _sub(q, p)))
         if offset > max(s1.left - s1.right, s2.left - s2.right) / 2.0 + tol:
             continue
@@ -371,10 +400,39 @@ def _resolve_steps(walls, pos, segs, tol: float) -> dict[tuple[int, int], tuple[
             sorted(_dot(_sub(face, p), n) for face in _ends_faces(pos, seg, vertex))
             for seg, vertex in ((s1, v1), (s2, v2))
         )
-        if min(b1, b2) - max(a1, a2) > tol:
-            found.append((v1, s1, v2, s2))
+        if min(b1, b2) - max(a1, a2) <= tol:
+            continue
+        along = _dot(_sub(q, p), u1)
+        lo, hi = min(a1, a2), max(b1, b2)  # the cut across the step
+        own = {s1.va, s1.vb, s2.va, s2.vb}
+        hosts = []
+        for other in segs:
+            if other is s1 or other is s2 or {other.va, other.vb} & own:
+                continue
+            if _line_angle(u1, _unit(pos[other.va], pos[other.vb])) < MIN_JOIN_ANGLE_DEG:
+                continue  # a wall alongside is no cross wall; the T pass judges it
+            reaches = _in_body(pos, other, p, tol) or _in_body(pos, other, q, tol)
+            for c in (p, _add(p, _mul(u1, along))):
+                reaches = reaches or _crosses_body(
+                    pos, other, _add(c, _mul(n, lo)), _add(c, _mul(n, hi)), tol
+                )
+            if reaches:
+                hosts.append(other)
+
+        def holds(other, p=p, q=q) -> bool:
+            return _in_body(pos, other, p, tol) and _in_body(pos, other, q, tol)
+
+        if abs(along) > tol and not any(holds(other) for other in hosts):
+            continue  # apart along the wall, and no wall holds the two ends
+        hosts.sort(key=lambda other: not holds(other))
+        found.append((v1, s1, v2, s2, hosts, abs(along) <= tol))
+    # an end met end to end is not also continued by a wall a cross wall bridges to
+    direct = {v for row in found if row[5] for v in (row[0], row[2])}
+    found = [row for row in found if row[5] or not {row[0], row[2]} & direct]
     steps: dict[tuple[int, int], tuple[int, int]] = {}
-    for v1, s1, v2, s2 in found:
+    resolved: set[tuple[int, int]] = set()
+    centres: dict[tuple[int, int], Pt] = {}
+    for v1, s1, v2, s2, hosts, _direct in found:
         for vertex in (v1, v2):
             rivals = [row for row in found if vertex in (row[0], row[2])]
             if len(rivals) > 1:
@@ -387,41 +445,92 @@ def _resolve_steps(walls, pos, segs, tol: float) -> dict[tuple[int, int], tuple[
                     "both continue it with their axes to the side; a step joins one wall to "
                     "one - end the others clear of it or join them at a corner."
                 )
-        # the cut across the step, face to outermost face: no third wall may reach into it
-        p = pos[v1]
-        n = _left(_unit(pos[s1.vb] if s1.va == v1 else pos[s1.va], p))
-        across = [
-            _dot(_sub(face, p), n)
-            for seg, vertex in ((s1, v1), (s2, v2))
-            for face in _ends_faces(pos, seg, vertex)
-        ]
-        lo, hi = _add(p, _mul(n, min(across))), _add(p, _mul(n, max(across)))
-        for other in segs:
-            if other is not s1 and other is not s2 and _crosses_body(pos, other, lo, hi, tol):
-                raise ValueError(
-                    f"{_name(walls, other.wall)} reaches into the step where "
-                    f"{_name(walls, s2.wall)} continues {_name(walls, s1.wall)} at "
-                    f"({p[0]:g}, {p[1]:g}); a wall cannot meet a step - end it clear of the "
-                    "step, or align the two walls' axes."
-                )
+        if hosts:
+            centres[min(v1, v2)] = _carry_onto_host(
+                walls, pos, (v1, s1), (v2, s2), hosts, tol, resolved
+            )
         steps[v1], steps[v2] = v2, v1
-    return steps
+        resolved |= {v1, v2}
+    return steps, resolved, centres
 
 
-def _resolve_tees(walls, pos, segs, tol: float, steps: dict) -> None:
+def _carry_onto_host(walls, pos, end1, end2, hosts, tol: float, resolved: set) -> Pt:
+    """A step a cross wall holds: both ends carried onto its axis, the host split there.
+
+    The two ends are carried along their own axes onto the axis of the first
+    host, as the T pass carries a stem's end onto the wall it stops in; every
+    host is split there, or its own end at the step moved there along its axis.
+    Their faces then stop on the host's faces at one T or X node, whose middle
+    the host owns. Returns that node: midway between the two carried ends, on
+    the host's axis - where the step face lies on a T's open side.
+    """
+    (v1, s1), (v2, s2) = end1, end2
+    p, q = pos[v1], pos[v2]
+    u1 = _unit(_far(pos, s1, v1), p)
+    u2 = _unit(q, _far(pos, s2, v2))
+    a0, b0 = pos[hosts[0].va], pos[hosts[0].vb]
+    h0 = _unit(a0, b0)
+    for host in hosts:
+        _refuse_shallow(walls, s1, host, u1, _unit(pos[host.va], pos[host.vb]))
+    x = _meet(p, u1, a0, h0)
+    y = _meet(q, u2, a0, h0)
+    where = (
+        f"the step where {_name(walls, s2.wall)} continues {_name(walls, s1.wall)} "
+        f"at ({x[0]:g}, {x[1]:g})"
+    )
+    carried = {**pos, v1: x, v2: y}  # the two walls as they will run
+    plan: list[tuple] = []
+    for host in hosts:
+        a, b = pos[host.va], pos[host.vb]
+        hu = _unit(a, b)
+        if abs(_cross(hu, _sub(x, a))) > tol:
+            raise ValueError(
+                f"{_name(walls, host.wall)} and {_name(walls, hosts[0].wall)} both reach into "
+                f"{where}, but their axes cross the wall at different points; run them to "
+                "one point."
+            )
+        at_step = [
+            v
+            for v in (host.va, host.vb)
+            if _in_body(carried, s1, pos[v], tol) or _in_body(carried, s2, pos[v], tol)
+        ]
+        along = _dot(_sub(x, a), hu)
+        if at_step:
+            plan.append((at_step[0], None))
+        elif tol < along < math.dist(a, b) - tol:
+            plan.append((None, host))
+        else:
+            raise ValueError(
+                f"{_name(walls, host.wall)} reaches into {where}, but its axis stops short "
+                f"of the step; run its axis to ({x[0]:g}, {x[1]:g})."
+            )
+    for vertex, host in plan:
+        if vertex is not None:
+            pos[vertex] = x
+            resolved.add(vertex)
+        else:
+            host.cuts.append(x)
+    pos[v1], pos[v2] = x, y
+    return ((x[0] + y[0]) / 2.0, (x[1] + y[1]) / 2.0)
+
+
+def _resolve_tees(walls, pos, segs, tol: float, resolved: set) -> None:
     """Carry every axis end that stops inside another wall onto that wall's axis, and split it."""
     touching = _touching(segs)
     for vertex, mine in touching.items():
+        if vertex in resolved:
+            continue  # a step's end, placed by _resolve_steps
         for other in segs:
             if any(other is seg for seg in mine):
                 continue
-            if steps.get(vertex) in (other.va, other.vb):
-                continue  # a step: joined end to end, not a T
             p = pos[vertex]
             a, b = pos[other.va], pos[other.vb]
             if math.dist(p, a) <= tol or math.dist(p, b) <= tol:
                 continue
             length = math.dist(a, b)
+            if length <= tol or any(math.dist(pos[s.va], pos[s.vb]) <= tol for s in mine):
+                # carried onto its own other end: _pieces refuses it by name
+                continue
             u = _unit(a, b)
             s = _dot(_sub(p, a), u)
             d = _dot(_sub(p, a), _left(u))
@@ -530,8 +639,8 @@ def _build(walls: Sequence[Wall], openings: Sequence[Opening], join_tol: float) 
     openings = list(openings)
     _validate(walls, openings, join_tol)
     pos, segs = _segments(walls)
-    steps = _resolve_steps(walls, pos, segs, join_tol)
-    _resolve_tees(walls, pos, segs, join_tol, steps)
+    steps, resolved, centres = _resolve_steps(walls, pos, segs, join_tol)
+    _resolve_tees(walls, pos, segs, join_tol, resolved)
     _resolve_crossings(walls, pos, segs, join_tol)
     pieces = _pieces(walls, pos, segs, join_tol)
 
@@ -557,18 +666,27 @@ def _build(walls: Sequence[Wall], openings: Sequence[Opening], join_tol: float) 
                 piece.nodes[end] = len(nodes)
                 nodes.append(point)
                 ends.append([(piece, end)])
-    # the two free ends of a step are one node; the step below draws it. The node
-    # stays at the first end: both lie on the square cut through it.
-    node_of = {_key(node): k for k, node in enumerate(nodes)}
+    # the two ends of a step are one node, with whatever wall holds it there
+    node_at: dict[tuple[int, int], int] = {}
+    for piece in pieces:
+        seg = piece.seg
+        if seg.va in steps and piece.s0 == 0.0:
+            node_at[seg.va] = piece.nodes[0]
+        if seg.vb in steps and math.dist(piece.b, pos[seg.vb]) <= _EPS:
+            node_at[seg.vb] = piece.nodes[1]
     step_nodes: set[int] = set()
     for vertex, partner in steps.items():
-        k1, k2 = node_of.get(_key(pos[vertex])), node_of.get(_key(pos[partner]))
-        if vertex < partner and k1 is not None and k2 is not None:
-            if len(ends[k1]) == len(ends[k2]) == 1:
-                piece, end = ends[k2].pop()
+        if vertex > partner:
+            continue
+        k1, k2 = node_at[vertex], node_at[partner]
+        if k2 != k1:
+            for piece, end in ends[k2]:
                 piece.nodes[end] = k1
-                ends[k1].append((piece, end))
-                step_nodes.add(k1)
+            ends[k1].extend(ends[k2])
+            ends[k2] = []
+        if vertex in centres:
+            nodes[k1] = centres[vertex]
+        step_nodes.add(k1)
 
     for node, members in zip(nodes, ends, strict=True):
         if not members:
@@ -782,10 +900,10 @@ def _build(walls: Sequence[Wall], openings: Sequence[Opening], join_tol: float) 
                 if stepped:
                     x, y = stepped[0]
                     raise ValueError(
-                        f"{_name(walls, seg.wall)}: segment {seg.index} steps to the next wall "
-                        f"at ({x:g}, {y:g}), and a wall ending on it there leaves the stretch "
-                        "between them with no room - end that wall clear of the step, or "
-                        "align the two walls' axes."
+                        f"{_name(walls, seg.wall)}: segment {seg.index} is too short next to "
+                        f"the step at ({x:g}, {y:g}) - its outline would cross itself; lengthen "
+                        "it so it clears the walls that meet there, or run a cross wall's axis "
+                        "through the step itself."
                     )
                 raise ValueError(
                     f"{_name(walls, seg.wall)}: segment {seg.index} is too short for the "
