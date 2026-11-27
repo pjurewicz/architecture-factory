@@ -713,12 +713,17 @@ _TEXT_TYPES = ("TEXT", "MTEXT", "ATTRIB", "ATTDEF")
 
 def render_font(font: str) -> str:
     """The font file the headless renderer draws ``font`` with (ezdxf's font
-    manager: the file itself, its TrueType twin, else the fallback face)."""
+    manager: the file itself, its TrueType twin, the fallback face narrowed to
+    the font's width by ``shx_substitute``, else the fallback face)."""
     from ezdxf.fonts import fonts
+
+    from .shx_substitute import substitute_for
 
     manager = fonts.font_manager
     if font and manager.has_font(font):
         return font
+    if (narrowed := substitute_for(font)) and manager.has_font(narrowed):
+        return narrowed
     twin = fonts.SHX_FONTS.get((font or "").upper())
     if twin and manager.has_font(twin):
         return twin

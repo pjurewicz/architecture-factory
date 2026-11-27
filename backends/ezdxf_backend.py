@@ -2029,6 +2029,11 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
     def __init__(self):
         if not _EZDXF_OK:
             raise RuntimeError("ezdxf is not installed. Run: pip install ezdxf")
+        # ISOCP lettering measured and drawn at its ISO 3098 width, not the
+        # fallback face's (shx_substitute; once per process)
+        from .shx_substitute import install as _install_shx_widths
+
+        _install_shx_widths()
         # v1.6: one entry per open document; the old attributes above are
         # views over the active one. `_void` is what they read and write when
         # nothing is open, so `_reset_document_state()` on disconnect and

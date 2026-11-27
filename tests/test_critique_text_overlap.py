@@ -302,3 +302,35 @@ async def test_lettering_of_one_group_or_one_record_is_one_object(backend):
     assert sorted(sorted(i.handles) for i in issues) == sorted(
         [sorted([a.handle, other.handle]), sorted([b.handle, other.handle])]
     )
+
+
+@pytest.mark.asyncio
+async def test_isocp_lettering_is_measured_at_its_iso_3098_width(backend):
+    # isocp.shx is not on this machine: ezdxf letters it with the fallback face,
+    # 23 % wider than ISO 3098, and two ISOCP labels set side by side, as they
+    # would stand in AutoCAD, were reported as an overlap.
+    from ezdxf.fonts import fonts
+
+    from backends.shx_substitute import SAMPLE, SHX_METRICS, mean_advance
+    from engineering.viewport_clip import text_box
+
+    manager = fonts.font_manager
+    if manager.has_font("isocp.shx") or manager.has_font("isocp.ttf"):
+        pytest.skip("this machine has the real isocp face")
+    fallback = manager._font_cache.get(manager.fallback_font_name(), "").file_path
+    await backend.textstyle_create("ISOCP", "isocp")
+
+    def width(handle):
+        xs = [x for x, _ in text_box(backend._doc.entitydb[handle])]
+        return max(xs) - min(xs)
+
+    plain = await backend.entity_create_text(SAMPLE, 0, -100, 5)
+    iso = await backend.entity_create_text(SAMPLE, 0, 0, 5)
+    backend._doc.entitydb[iso.handle].dxf.style = "ISOCP"
+    expected = width(plain.handle) * SHX_METRICS["isocp.shx"] / mean_advance(fallback)
+    assert width(iso.handle) == pytest.approx(expected, rel=0.01)
+    # its neighbour starts where the ISO 3098 lettering ends: no overlap
+    nxt = await backend.entity_create_text(SAMPLE, width(iso.handle), 0, 5)
+    backend._doc.entitydb[nxt.handle].dxf.style = "ISOCP"
+    issues = await run_critique(backend, FOCUS)
+    assert [i for i in issues if iso.handle in i.handles] == []

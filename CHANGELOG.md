@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- ISOCP lettering is measured and drawn at its ISO 3098 width. `isocp.shx`
+  (and its TrueType twin `isocpeur.ttf`) is Autodesk's and not on the server,
+  so ezdxf lettered it with the fallback face, 23 % wider on plan text
+  (DejaVuSans: a mean advance of 0.82 cap heights against 0.67):
+  `text_overlap` reported collisions AutoCAD would not show (34 on round 3's
+  sheet), and agents shrank their lettering to fit the preview. The engine now
+  writes a copy of the fallback face narrowed to that mean advance into the
+  temp folder once per machine and routes the two names to it, so the
+  renderer, the TEXT / ATTRIB / MTEXT boxes of `text_overlap` and
+  `viewport_clip` measure one width (`backends/shx_substitute.py`). The
+  metric is declared, not a font: measured on osifont, an ISO 3098 typeface
+  that is not shipped. `fonts_substituted` / `render_font` name the narrowed
+  face (`acadmcp-dejavusans-x0.815.ttf`); a machine with the real face uses it.
+
 ### Changed
 
 - `cad_batch` prints a created handle once: `changes.added` leaves out the
