@@ -468,6 +468,122 @@ def _washing_machine(w, d):
     return (_rect(0, 0, w, d), _circle(w / 2, d / 2, min(w, d) / 3))
 
 
+def _mirror(specs, w):
+    """The specs mirrored about x = w / 2 (a left-hand twin of a right-hand item)."""
+    out = []
+    for spec in specs:
+        spec = dict(spec)
+        if spec["type"] == "line":
+            spec["x1"], spec["x2"] = w - spec["x1"], w - spec["x2"]
+        elif spec["type"] in ("polyline", "wipeout"):
+            spec["points"] = [[w - x, y] for x, y in spec["points"]]
+        elif spec["type"] in ("circle", "arc"):
+            spec["cx"] = w - spec["cx"]
+            if spec["type"] == "arc":
+                spec["start_angle"], spec["end_angle"] = (
+                    (180.0 - spec["end_angle"]) % 360.0,
+                    (180.0 - spec["start_angle"]) % 360.0,
+                )
+        out.append(spec)
+    return tuple(out)
+
+
+def _corner_sofa_left(w, d):
+    return _mirror(_corner_sofa(w, d), w)
+
+
+def _corner_sofa_left_mask(w, d):
+    return [[(w - x, y) for x, y in poly] for poly in _corner_sofa_mask(w, d)]
+
+
+def _modular_sofa(w, d):
+    """Armless seat modules of about 900 mm on one back cushion."""
+    modules = max(2, round(w / 900.0))
+    step = w / modules
+    return (
+        _rect(0, 0, w, d),
+        _line(0, 200, w, 200),
+        *(_line(k * step, 200, k * step, d) for k in range(1, modules)),
+    )
+
+
+def _oval_pts(w, d):
+    """A circle (w = d) or a stadium along the longer side, as mask points."""
+    if abs(w - d) < 1e-9:
+        return _arc_pts(w / 2, d / 2, w / 2, 0, 360)[:-1]
+    if w > d:
+        r = d / 2.0
+        return [*_arc_pts(w - r, r, r, 270, 90), *_arc_pts(r, r, r, 90, 270)]
+    r = w / 2.0
+    return [*_arc_pts(r, r, r, 180, 360), *_arc_pts(r, d - r, r, 0, 180)]
+
+
+def _oval(x0, y0, x1, y1) -> tuple[dict, ...]:
+    """A circle, or a stadium along the longer side of the box."""
+    w, d = x1 - x0, y1 - y0
+    if abs(w - d) < 1e-9:
+        return (_circle(x0 + w / 2, y0 + d / 2, w / 2),)
+    if w > d:
+        return _stadium(x0, y0, x1, y1)
+    r = w / 2.0
+    cx = x0 + r
+    return (
+        _line(x1, y0 + r, x1, y1 - r),
+        _arc(cx, y1 - r, r, 0, 180),
+        _line(x0, y1 - r, x0, y0 + r),
+        _arc(cx, y0 + r, r, 180, 360),
+    )
+
+
+def _round_table(w, d):
+    return _oval(0, 0, w, d)
+
+
+def _stool(w, d):
+    return (*_oval(0, 0, w, d), *_oval(60, 60, w - 60, d - 60))
+
+
+def _plant(w, d):
+    """Foliage (the outline), a pot in the middle, six leaves between them."""
+    r = 0.2 * min(w, d)
+    cx, cy = w / 2.0, d / 2.0
+    leaves = []
+    for k in range(6):
+        a = math.radians(30 + 60 * k)
+        c, s_ = math.cos(a), math.sin(a)
+        leaves.append(_line(cx + r * c, cy + r * s_, cx + 0.45 * w * c, cy + 0.45 * d * s_))
+    return (*_oval(0, 0, w, d), _circle(cx, cy, r), *leaves)
+
+
+def _curtain(w, d):
+    """A rod along the back and the folded curtain as a zigzag in front of it."""
+    folds = max(2, round(w / 150.0))
+    step = w / folds
+    pts = [(k * step, d if k % 2 else 40.0) for k in range(folds + 1)]
+    return (_line(0, 20, w, 20), _poly(pts, False))
+
+
+def _rug(w, d):
+    """The rug and a fringe along both short ends."""
+    fringe = min(60.0, w / 10.0)
+    count = max(2, int(d // 60.0))
+    ys = [d * (k + 0.5) / count for k in range(count)]
+    return (
+        _rect(fringe, 0, w - fringe, d),
+        *(_line(0, y, fringe, y) for y in ys),
+        *(_line(w - fringe, y, w, y) for y in ys),
+    )
+
+
+def _built_in(w, d):
+    """Built-in joinery as plans letter it: the outline crossed corner to corner."""
+    return (_rect(0, 0, w, d), _line(0, 0, w, d), _line(w, 0, 0, d))
+
+
+def _sink_bowl(w, d):
+    return (_rect(0, 0, w, d), _rect(40, 40, w - 40, d - 40), _circle(w / 2, d / 2, 30))
+
+
 def _item(name, family, en, tr, w, d, h, w_range, d_range, draw, mask=None) -> CatalogueItem:
     return CatalogueItem(
         name, family, en, tr, float(w), float(d), float(h), w_range, d_range, draw, mask
@@ -617,8 +733,8 @@ ITEMS: tuple[CatalogueItem, ...] = (
         500,
         400,
         550,
-        (300, 700),
-        (300, 600),
+        (300, 900),
+        (250, 800),
         _box,
     ),
     _item(
@@ -780,8 +896,8 @@ ITEMS: tuple[CatalogueItem, ...] = (
         1000,
         500,
         900,
-        (800, 1200),
-        (450, 600),
+        (600, 1600),
+        (400, 650),
         _sink,
     ),
     _item(
@@ -804,8 +920,8 @@ ITEMS: tuple[CatalogueItem, ...] = (
         1200,
         900,
         2000,
-        (1000, 2400),
-        (800, 1400),
+        (700, 2400),
+        (700, 1400),
         _walk_in,
     ),
     _item(
@@ -822,6 +938,119 @@ ITEMS: tuple[CatalogueItem, ...] = (
         _freestanding_bathtub_mask,
     ),
     _item(
+        "sink_bowl",
+        "sanitary",
+        "kitchen sink, single bowl",
+        "tek gözlü eviye",
+        450,
+        450,
+        900,
+        (300, 1000),
+        (350, 650),
+        _sink_bowl,
+    ),
+    # -- furniture added for interiors (2026-11) -----------------------------
+    _item(
+        "modular_sofa",
+        "furniture",
+        "modular sofa",
+        "modüler kanepe",
+        2700,
+        1000,
+        800,
+        (1200, 6000),
+        (700, 1300),
+        _modular_sofa,
+    ),
+    _item(
+        "corner_sofa_left",
+        "furniture",
+        "corner sofa, L-shaped, return on the left",
+        "köşe koltuk, sol",
+        2600,
+        1600,
+        850,
+        (2000, 3600),
+        (1400, 2400),
+        _corner_sofa_left,
+        _corner_sofa_left_mask,
+    ),
+    _item(
+        "round_table",
+        "furniture",
+        "round or oval table",
+        "yuvarlak masa",
+        1000,
+        1000,
+        750,
+        (500, 2400),
+        (500, 1400),
+        _round_table,
+        lambda w, d: [_oval_pts(w, d)],
+    ),
+    _item(
+        "bar_stool",
+        "furniture",
+        "stool or bar stool",
+        "tabure",
+        380,
+        380,
+        750,
+        (280, 600),
+        (280, 600),
+        _stool,
+        lambda w, d: [_oval_pts(w, d)],
+    ),
+    _item(
+        "plant",
+        "furniture",
+        "plant in a pot",
+        "saksı bitkisi",
+        600,
+        600,
+        1200,
+        (200, 2000),
+        (200, 2000),
+        _plant,
+        lambda w, d: [_oval_pts(w, d)],
+    ),
+    _item(
+        "curtain",
+        "furniture",
+        "curtain on a rod",
+        "perde",
+        2000,
+        150,
+        2600,
+        (300, 10000),
+        (80, 400),
+        _curtain,
+    ),
+    _item(
+        "rug",
+        "furniture",
+        "rug",
+        "halı",
+        2000,
+        1400,
+        10,
+        (600, 6000),
+        (400, 5000),
+        _rug,
+    ),
+    _item(
+        "built_in_wardrobe",
+        "furniture",
+        "built-in wardrobe or joinery (crossed)",
+        "gömme dolap",
+        1800,
+        600,
+        2600,
+        (300, 8000),
+        (250, 1000),
+        _built_in,
+    ),
+    _item(
         "countertop_basin",
         "sanitary",
         "countertop basin on a vanity top",
@@ -829,8 +1058,8 @@ ITEMS: tuple[CatalogueItem, ...] = (
         600,
         500,
         850,
-        (400, 1600),
-        (400, 600),
+        (400, 2400),
+        (300, 700),
         _countertop_basin,
     ),
 )
@@ -874,6 +1103,15 @@ LABEL_PL: dict[str, str] = {
     "walk_in_shower": "kabina walk-in ze ścianką szklaną",
     "freestanding_bathtub": "wanna wolnostojąca",
     "countertop_basin": "umywalka nablatowa z blatem",
+    "sink_bowl": "zlewozmywak jednokomorowy",
+    "modular_sofa": "sofa modułowa",
+    "corner_sofa_left": "sofa narożna L, lewa",
+    "round_table": "stół okrągły lub owalny",
+    "bar_stool": "stołek / hoker",
+    "plant": "roślina w donicy",
+    "curtain": "zasłona na karniszu",
+    "rug": "dywan",
+    "built_in_wardrobe": "zabudowa meblowa / szafa wnękowa (z krzyżem)",
 }
 
 _FOLD = str.maketrans(
@@ -989,6 +1227,26 @@ def _size(value, default: float, bounds: tuple[float, float], what: str, item: s
     return number
 
 
+def _holds(item: CatalogueItem, width, depth) -> str:
+    """`` Items of the family that take this size: ...``: those that share a word of
+    the item's English label (empty when none does)."""
+    w = item.w if width is None else width
+    d = item.d if depth is None else depth
+    if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (w, d)):
+        return ""
+    words = {w for w in _fold(item.label_en).replace(",", " ").split() if len(w) > 3} - {"with"}
+    fits = [
+        other.name
+        for other in ITEMS
+        if other.family == item.family
+        and other.name != item.name
+        and words & set(_fold(other.label_en).replace(",", " ").split())
+        and other.w_range[0] <= w <= other.w_range[1]
+        and other.d_range[0] <= d <= other.d_range[1]
+    ]
+    return f" Items of the family that take {_mm(w)} x {_mm(d)}: {', '.join(fits)}." if fits else ""
+
+
 def _mm(value: float) -> str:
     return f"{value:.1f}".rstrip("0").rstrip(".")
 
@@ -1015,8 +1273,11 @@ def block_spec(
     anything is built.
     """
     item = _resolve(name)
-    w = _size(width, item.w, item.w_range, "width", item.name)
-    d = _size(depth, item.d, item.d_range, "depth", item.name)
+    try:
+        w = _size(width, item.w, item.w_range, "width", item.name)
+        d = _size(depth, item.d, item.d_range, "depth", item.name)
+    except ValueError as exc:
+        raise ValueError(f"{exc}{_holds(item, width, depth)}") from None
     h = _size(height, item.h, HEIGHT_RANGE, "height", item.name)
     try:
         entities = item.draw(w, d)
@@ -1046,7 +1307,7 @@ def block_spec(
                 "tag": SIZE_TAG,
                 "prompt": "Size W x D x H (mm)",
                 "default": f"{_mm(w)}x{_mm(d)}x{_mm(h)}",
-                "y": d / 2.0 - 1.5 * ITEM_TAG_HEIGHT,
+                "y": max(0.0, d / 2.0 - 1.5 * ITEM_TAG_HEIGHT),
                 **common,
             },
         ],

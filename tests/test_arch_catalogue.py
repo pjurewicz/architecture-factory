@@ -39,12 +39,12 @@ def _spec_points(spec: dict) -> list[tuple[float, float]]:
     raise AssertionError(f"unexpected spec type {kind!r}")
 
 
-def test_the_catalogue_holds_twenty_nine_items_in_two_families():
-    assert len(ITEMS) == 29
-    assert len(set(CATALOGUE_NAMES)) == 29
+def test_the_catalogue_holds_thirty_eight_items_in_two_families():
+    assert len(ITEMS) == 38
+    assert len(set(CATALOGUE_NAMES)) == 38
     assert FAMILIES == ("furniture", "sanitary")
-    assert sum(item.family == "furniture" for item in ITEMS) == 19
-    assert sum(item.family == "sanitary" for item in ITEMS) == 10
+    assert sum(item.family == "furniture" for item in ITEMS) == 27
+    assert sum(item.family == "sanitary" for item in ITEMS) == 11
     assert {
         "single_bed",
         "double_bed",
@@ -194,6 +194,7 @@ def test_search_every_word_must_match():
         "desk",
         "dining_table_6",
         "dining_table_8",
+        "round_table",  # yuvarlak masa
     ]
     assert [row["name"] for row in catalogue("dört yemek masa")] == ["dining_table_4"]
     assert catalogue("bed sink") == ()
@@ -211,6 +212,7 @@ def test_family_filter_and_the_label_language():
         "washing_machine",
         "walk_in_shower",
         "freestanding_bathtub",
+        "sink_bowl",
         "countertop_basin",
     ]
     assert all(row["layer"] == ARCH_ROLE_LAYER["sanitary"] for row in sanitary)
@@ -219,7 +221,7 @@ def test_family_filter_and_the_label_language():
     assert row["size"] == [600.0, 650.0]
     assert row["size_basis"] == SIZE_BASIS
     assert row["block"] == "ARCH_FRIDGE"
-    assert len(catalogue()) == 29
+    assert len(catalogue()) == 38
 
 
 def test_polish_labels_cover_every_item_and_are_searchable_without_diacritics():
@@ -388,3 +390,14 @@ async def test_each_footprint_is_its_own_block_and_the_nominal_one_keeps_its_nam
     assert wide["size"] == [2400.0, 600.0] and wide["height"] == 2600.0
     assert (await backend.block_get_attributes(wide["handle"]))["SIZE"] == "2400x600x2600"
     assert (await backend.block_get_attributes(again["handle"]))["SIZE"] == "2400x600x2200"
+
+
+def test_round_3s_refused_sizes_now_fit_or_name_the_item_that_does():
+    # round 3: a 420 mm sink, an 890 mm walk-in shower, a nightstand deeper than
+    # 600 and a 365 mm vanity top were refused as out of range
+    assert block_spec("walk_in_shower", 890, 900)["size"] == [890.0, 900.0]
+    assert block_spec("nightstand", 500, 650)["size"] == [500.0, 650.0]
+    assert block_spec("countertop_basin", 600, 365)["size"] == [600.0, 365.0]
+    assert block_spec("sink_bowl", 420)["size"] == [420.0, 450.0]
+    with pytest.raises(ValueError, match="take 420 x 500: sink_bowl\\.$"):
+        block_spec("kitchen_sink", 420)  # a drainer needs the width; the single bowl does not

@@ -25,6 +25,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The furniture and sanitary catalogue (`arch_catalogue_*`) holds 38 items:
+  new nominal rows `modular_sofa`, `corner_sofa_left` (the L's return on the
+  left), `round_table` (a circle, or a stadium when width and depth differ),
+  `bar_stool`, `plant`, `curtain`, `rug`, `built_in_wardrobe` (joinery
+  crossed corner to corner, as plans letter it) and the single-bowl
+  `sink_bowl`. Ranges that were only caution are wider - round 3 was refused a
+  real 890 mm walk-in shower (now 700-2400 mm), a nightstand deeper than
+  600 mm (250-800), a 365 mm vanity top (300-700) and a kitchen sink under
+  800 mm (600-1600; a drainer needs the width) - and a size an item refuses
+  names the items of its family that take it (`kitchen_sink` 420 mm ->
+  `sink_bowl`).
+
 - `arch_title_block(rows?, notes?, layout?, corner, x?, y?, width=180, scale,
   lang)` (pack `arch`): an architect's title block and a numbered notes box.
   `titleblock_apply` is ISO 7200's fixed field set, and `entity_create_table`
