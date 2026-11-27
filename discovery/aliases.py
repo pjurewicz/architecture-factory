@@ -2467,6 +2467,19 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "priz anahtar",
         ),
     ),
+    "arch_legend": ToolAliases(
+        synonyms=(
+            "legend",
+            "drawing legend from symbols and hatches",
+            "key of symbols",
+            "explain hatch patterns materials",
+            "symbol legend on the sheet",
+            "legenda",
+            "legenda oznaczen",
+            "objasnienia",
+            "lejant",
+        ),
+    ),
     "interior_tile_layout": ToolAliases(
         acad=(),
         synonyms=(

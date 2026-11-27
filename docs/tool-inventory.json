@@ -3,14 +3,14 @@
   "schema_version": 2,
   "package_version": "1.8.0",
   "totals": {
-    "tools": 245,
+    "tools": 246,
     "resources": 13,
     "prompts": 5,
     "groups": 27
   },
   "groups": {
     "analysis": 12,
-    "architecture": 17,
+    "architecture": 18,
     "batch": 3,
     "blocks": 9,
     "corner_ops": 4,
@@ -423,6 +423,32 @@
       ],
       "annotations": {
         "title": "Architecture: Structural Grid",
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "arch_legend",
+      "group": "architecture",
+      "cost": "mutate",
+      "summary": "Draw a legend of the blocks and hatches the drawing uses: sample + description.",
+      "acad": [],
+      "synonyms": [
+        "legend",
+        "drawing legend from symbols and hatches",
+        "key of symbols",
+        "explain hatch patterns materials",
+        "symbol legend on the sheet",
+        "legenda",
+        "legenda oznaczen",
+        "objasnienia",
+        "lejant"
+      ],
+      "tags": [
+        "arch",
+        "create"
+      ],
+      "annotations": {
+        "title": "Architecture: Legend",
         "destructiveHint": false
       }
     },

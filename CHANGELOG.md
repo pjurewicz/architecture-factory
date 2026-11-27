@@ -25,6 +25,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `arch_legend(x, y, layout?, scale=50, lang, labels?)` (pack `arch`): a
+  legend of what the drawing uses, drawn on a paper layout (paper mm) or in
+  model space. In all three rounds agents drew legends by hand (six hatch
+  samples in rounds 1-2, about 25 symbols in round 3). It reads model space
+  once - every block an INSERT uses and every hatch pattern by pattern, angle
+  and scale - and draws a framed, titled list: per row a 15 x 6 mm cell with
+  the real block (fitted, never above its plotted size) or the same pattern at
+  its printed density, then the description. Wall hatches are named by
+  material (`WALL_HATCH_TABLE`: brick and AAC told apart by density),
+  `arch_electrical` blocks by kind and catalogue blocks by item, in `lang`;
+  anything else by its block or pattern name, and `labels` renames or
+  (`null`) drops a row. Every entity carries an `ACADMCP_ANNOT` record, so a
+  second legend never lists the first one's samples.
+
 - `arch_electrical(items, kind?, scale=50, snap=300)` (pack `arch`): an
   interior plan's electrical symbols in one call - socket (`count` 2 -> `2x`),
   floor box, ceiling and wall lighting outlet, switch, RJ45 / TV / SAT / USB

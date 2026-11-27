@@ -2170,6 +2170,7 @@ PACK_TOOL_NAMES: dict[str, frozenset[str]] = {
             "arch_catalogue_list",
             "arch_catalogue_insert",
             "arch_electrical",
+            "arch_legend",
             "arch_dimension_chains",
             "arch_plan_from_spec",
             "arch_plan_patch",
@@ -13054,7 +13055,7 @@ async def data_extract(
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 25: Architecture (17 tools) ─────────────────────────────────────
+# ── SECTION 25: Architecture (18 tools) ─────────────────────────────────────
 # ---------------------------------------------------------------------------
 
 
@@ -13898,6 +13899,44 @@ async def arch_electrical(
     try:
         return await insert_devices(_backend(ctx), items, kind=kind, scale=scale, snap=snap)
     except ValueError as exc:
+        raise ToolError(str(exc)) from exc
+
+
+@cad_tool(
+    summary="Draw a legend of the blocks and hatches the drawing uses: sample + description.",
+    cost="mutate",
+)
+@mcp.tool(
+    annotations={"title": "Architecture: Legend", "destructiveHint": False},
+    tags={"arch", "create"},
+)
+async def arch_legend(
+    x: Annotated[float, Field(description="Top-left corner X: paper mm on a layout, else WCS")],
+    y: Annotated[float, Field(description="Top-left corner Y")],
+    layout: Annotated[
+        str | None, Field(default=None, description="Paper layout; omit for model space")
+    ] = None,
+    scale: Annotated[float, Field(default=50.0, gt=0, description="Plot-scale denominator")] = 50.0,
+    lang: Annotated[str, Field(default="en", description="en | tr | pl")] = "en",
+    labels: Annotated[
+        dict | None,
+        Field(default=None, description="{block or pattern name: text, or null to drop the row}"),
+    ] = None,
+    ctx: Context = None,
+) -> dict:
+    """One row per block and hatch pattern model space uses: the real block or
+    pattern at its plotted size in a cell, then its description - wall
+    materials, arch_electrical kinds and catalogue items named in `lang`,
+    anything else by its name.
+    """
+    from engineering.arch.legend import draw_legend
+
+    await ctx.info(f"arch legend at ({x}, {y}) on {layout or 'Model'}")
+    try:
+        return await draw_legend(
+            _backend(ctx), at=(x, y), layout=layout, scale=scale, lang=lang, labels=labels
+        )
+    except (ValueError, RuntimeError) as exc:
         raise ToolError(str(exc)) from exc
 
 
