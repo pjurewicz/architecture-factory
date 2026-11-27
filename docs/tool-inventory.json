@@ -2698,7 +2698,7 @@
       "name": "entity_create_hatch",
       "group": "entity_creation",
       "cost": "mutate",
-      "summary": "Fill a closed boundary with a section pattern such as ANSI31 or SOLID.",
+      "summary": "Fill a closed polygon with a pattern (SOLID, ANSI31, AR-SAND...); holes: hatch_add_boundary.",
       "acad": [
         "HATCH",
         "BHATCH"
@@ -2709,7 +2709,10 @@
         "section hatching",
         "crosshatch",
         "shade an area",
-        "ansi31"
+        "ansi31",
+        "hatch pattern list",
+        "available patterns",
+        "ar-sand ar-conc"
       ],
       "tags": [
         "create",
@@ -3566,12 +3569,17 @@
       "name": "hatch_add_boundary",
       "group": "entity_creation",
       "cost": "mutate",
-      "summary": "Add a boundary path to a hatch, arcs and ellipses included.",
+      "summary": "Add an island (hole) or an arc / ellipse outline to a hatch.",
       "acad": [],
       "synonyms": [
         "add a boundary to a hatch",
         "hatch boundary with arcs",
-        "another island in the hatch"
+        "another island in the hatch",
+        "island",
+        "hole in a hatch",
+        "hatch with a cut-out",
+        "boundary from polyline",
+        "curved hatch outline"
       ],
       "tags": [
         "create",

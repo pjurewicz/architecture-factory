@@ -504,6 +504,29 @@ def _linetype_scale_warnings(doc, layout) -> list[str]:
     return warnings
 
 
+def _hatch_pattern(name) -> str:
+    """``name`` as the predefined pattern it names (any case), or ``invalid_args``.
+
+    ezdxf fills a name it does not know with ANSI31 and keeps the name, so a
+    typo plotted as diagonal lines under the right label (measured: ``ar-sand``
+    in lower case too). The refusal names the nearest patterns.
+    """
+    import difflib
+
+    from ezdxf.tools.pattern import ISO_PATTERN
+
+    key = str(name).strip().upper()
+    if key in ISO_PATTERN:
+        return key
+    near = difflib.get_close_matches(key, sorted(ISO_PATTERN), n=3, cutoff=0.6)
+    hint = f" nearest: {', '.join(near)};" if near else ""
+    raise InvalidArgsError(
+        f"invalid_args: hatch pattern {name!r} is not one of the {len(ISO_PATTERN)} "
+        f"predefined ones (it would fill ANSI31);{hint} the families are in "
+        "entity_create_hatch's pattern description"
+    )
+
+
 def _add_linetype_from_fallback(doc, name: str) -> bool:
     """Add `name` from _AUTOCAD_FALLBACK_LINETYPES if known. Returns True on success."""
     fallback = _AUTOCAD_FALLBACK_LINETYPES.get(name.upper())
@@ -6854,7 +6877,9 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             # set_pattern_fill both default to an explicit ACI 7, which the
             # property_override focus would rightly report on every hatch.
             hatch = msp.add_hatch(color=256)
-            hatch.set_pattern_fill(pattern, color=256, scale=float(scale), angle=float(angle))
+            hatch.set_pattern_fill(
+                _hatch_pattern(pattern), color=256, scale=float(scale), angle=float(angle)
+            )
             pts = [(float(p[0]), float(p[1])) for p in boundary_points]
             hatch.paths.add_polyline_path(pts, is_closed=True)
             self._apply_attrs(hatch, layer, color)
@@ -7053,7 +7078,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             before = _snapshot()
             if pattern:
                 hatch.set_pattern_fill(
-                    str(pattern),
+                    _hatch_pattern(pattern),
                     scale=float(scale) if scale is not None else before["scale"],
                     angle=float(angle) if angle is not None else before["angle"],
                     color=int(color) if color is not None else before["color"],

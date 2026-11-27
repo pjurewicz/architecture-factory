@@ -3065,7 +3065,7 @@ async def callout(
 
 
 @cad_tool(
-    summary="Fill a closed boundary with a section pattern such as ANSI31 or SOLID.",
+    summary="Fill a closed polygon with a pattern (SOLID, ANSI31, AR-SAND...); holes: hatch_add_boundary.",
     cost="mutate",
 )
 @mcp.tool(
@@ -3073,8 +3073,17 @@ async def callout(
     tags={"entity", "create"},
 )
 async def entity_create_hatch(
-    pattern: Annotated[str, "Hatch pattern name: SOLID, ANSI31, ANSI32, STEEL, GRAVEL, etc."],
-    boundary_points: Annotated[list[list[float]], "Closed boundary as list of [x, y] points"],
+    pattern: Annotated[
+        str,
+        "Predefined pattern, any case: SOLID, ANSI31-38, AR-SAND AR-CONC AR-B816 AR-B88 "
+        "AR-BRSTD AR-HBONE AR-PARQ1 AR-RROOF, ACAD_ISO02W100-15W100, BRICK*, CONCRETE1-3, "
+        "EARTH, GRAVEL, GRASS, INSUL, JIS_*, STEEL, WOOD1-4, V_MASONRY*; another name is refused",
+    ],
+    boundary_points: Annotated[
+        list[list[float]],
+        "Closed outer boundary, [x, y] points (straight edges); arcs and holes "
+        "(islands): hatch_add_boundary on the returned handle",
+    ],
     scale: Annotated[float, Field(description="Pattern scale factor", gt=0)] = 1.0,
     angle: Annotated[float, "Pattern rotation angle in degrees"] = 0.0,
     layer: Annotated[str | None, "Layer name"] = None,
@@ -3234,7 +3243,7 @@ async def hatch_edit(
     return await _backend(ctx).hatch_edit(handle, pattern, scale, angle, color, style)
 
 
-@cad_tool(summary="Add a boundary path to a hatch, arcs and ellipses included.", cost="mutate")
+@cad_tool(summary="Add an island (hole) or an arc / ellipse outline to a hatch.", cost="mutate")
 @mcp.tool(
     annotations={"title": "Add Hatch Boundary", "destructiveHint": False},
     tags={"entity", "create"},
@@ -3249,7 +3258,9 @@ async def hatch_add_boundary(
     ],
     ctx: Context = None,
 ) -> dict:
-    """Add one boundary path built from typed edges - an island inside the hatch.
+    """Add one boundary path built from typed edges - an island (a hole) inside
+    the hatch, or an outline with arcs: entity_create_hatch draws the outer
+    polygon, this adds each curved or inner loop to its handle.
 
     Typed edges exist because a boundary that only accepts vertex lists
     silently straightens every curve it is given. Every edge is validated

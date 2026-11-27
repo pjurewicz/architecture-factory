@@ -739,6 +739,9 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "crosshatch",
             "shade an area",
             "ansi31",
+            "hatch pattern list",
+            "available patterns",
+            "ar-sand ar-conc",
         ),
     ),
     "entity_create_line": ToolAliases(
@@ -1404,6 +1407,11 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "add a boundary to a hatch",
             "hatch boundary with arcs",
             "another island in the hatch",
+            "island",
+            "hole in a hatch",
+            "hatch with a cut-out",
+            "boundary from polyline",
+            "curved hatch outline",
         ),
     ),
     "entity_create_wipeout": ToolAliases(

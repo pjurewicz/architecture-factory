@@ -360,6 +360,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A hatch pattern name is read in any case and an unknown one is refused as
+  `invalid_args` with the nearest names: ezdxf filled it with ANSI31 under
+  the typed label (`ar-sand` in lower case too). `entity_create_hatch`'s
+  `pattern` lists the families (SOLID, ANSI31-38, AR-SAND / AR-CONC / ...,
+  ACAD_ISO*, BRICK*, CONCRETE1-3, ...), and `search_tools("hatch pattern
+  list")` finds it.
+
+- Holes and arcs in a hatch are findable: `entity_create_hatch`, its
+  `entity_batch_create` item and their cards point to `hatch_add_boundary`,
+  which answers island / hole / cut-out / curved outline.
+
 - `viewport_create` warns when LTSCALE / PSLTSCALE will plot the new
   viewport's linetype patterns far from their size (the warning
   `drawing_export_pdf` gives), before the first PDF comes out with every

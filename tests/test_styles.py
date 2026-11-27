@@ -710,3 +710,17 @@ async def test_dimdle_extends_a_tick_dimension_line_and_create_reports_every_wri
         for x in (line.dxf.start.x, line.dxf.end.x)
     )
     assert (xs[0], xs[-1]) == (-2.0, 102.0), "the dimension line runs DIMDLE past each tick"
+
+
+async def test_a_hatch_pattern_is_read_in_any_case_and_an_unknown_one_refused(backend):
+    """ezdxf filled an unknown name (or 'ar-sand' in lower case) with ANSI31."""
+    from engineering.errors import InvalidArgsError
+
+    square = [[0, 0], [10, 0], [10, 10], [0, 10]]
+    made = await backend.entity_create_hatch("ar-sand", square)
+    hatch = backend._doc.entitydb.get(made.handle)
+    assert hatch.dxf.pattern_name == "AR-SAND" and len(hatch.pattern.lines) > 2
+    with pytest.raises(InvalidArgsError, match="nearest: AR-SAND"):
+        await backend.entity_create_hatch("AR-SNAD", square)
+    with pytest.raises(InvalidArgsError, match="ANSI31"):
+        await backend.hatch_edit(made.handle, pattern="ANSI99X")

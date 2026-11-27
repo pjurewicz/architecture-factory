@@ -46,7 +46,13 @@ def batch_create_adapter():
         ("text", "height"): (float, Field(gt=0)),
         ("text", "align"): (Literal[tuple(TEXT_ALIGN)] | None, None),
         ("mtext", "align"): (Literal[tuple(MTEXT_ALIGN)] | None, None),
-        ("hatch", "boundary_points"): (list[list[float]], Field(min_length=3)),
+        ("hatch", "boundary_points"): (
+            list[list[float]],
+            Field(
+                min_length=3,
+                description="outer polygon; islands / arcs: hatch_add_boundary on the handle",
+            ),
+        ),
         ("hatch", "scale"): (float, Field(gt=0)),
     }
 
