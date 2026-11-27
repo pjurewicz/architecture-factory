@@ -7,8 +7,11 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# A pull request's newer push cancels its older run. Every push to main gets a
+# run of its own: a shared group would cancel main's runs (and drop its pending
+# ones), leaving commits on main without a CI result.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: true
 
 # Two deliberately different installation paths run in this file:
