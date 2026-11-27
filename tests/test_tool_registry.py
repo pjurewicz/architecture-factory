@@ -183,6 +183,14 @@ class _Ctx:
         pass
 
 
+@pytest.fixture
+def no_odafc(monkeypatch):
+    """No DWG converter, even on a machine where the ODA File Converter is installed."""
+    import backends.ezdxf_backend as eb
+
+    monkeypatch.setattr(eb, "_odafc_available", lambda: False)
+
+
 async def _saved_dxf(backend, tmp_path):
     dxf = tmp_path / "part.dxf"
     await backend.drawing_save_as(str(dxf), "dxf")
@@ -197,7 +205,7 @@ async def test_drawing_open_opens_a_dxf(backend, tmp_path):
     assert result["name"] == "part.dxf"
 
 
-async def test_drawing_open_refuses_a_dwg_the_backend_cannot_read(backend, tmp_path):
+async def test_drawing_open_refuses_a_dwg_the_backend_cannot_read(backend, tmp_path, no_odafc):
     """DXF bytes wearing a .dwg name must not be reported as an opened DWG.
 
     ezdxf sniffs content, not extensions, so it happily parses a mislabelled
@@ -224,7 +232,9 @@ async def test_drawing_open_refuses_a_dwg_the_backend_cannot_read(backend, tmp_p
     assert "oda" in message
 
 
-async def test_drawing_open_refuses_a_real_dwg_without_leaking_a_parser_error(backend, tmp_path):
+async def test_drawing_open_refuses_a_real_dwg_without_leaking_a_parser_error(
+    backend, tmp_path, no_odafc
+):
     real_dwg = tmp_path / "real.dwg"
     real_dwg.write_bytes(b"AC1032" + b"\x00" * 256)
 
@@ -234,7 +244,9 @@ async def test_drawing_open_refuses_a_real_dwg_without_leaking_a_parser_error(ba
     assert "is not a DXF file" not in str(excinfo.value)
 
 
-async def test_drawing_open_refusal_leaves_the_current_document_untouched(backend, tmp_path):
+async def test_drawing_open_refusal_leaves_the_current_document_untouched(
+    backend, tmp_path, no_odafc
+):
     dxf = await _saved_dxf(backend, tmp_path)
     ctx = _Ctx(backend)
     await server.drawing_open(str(dxf), ctx=ctx)
