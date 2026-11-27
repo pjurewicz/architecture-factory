@@ -40,11 +40,13 @@ import hashlib
 import json
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from typing import Any
 
 __all__ = [
     "CURRENT_OPERATION",
+    "CURRENT_SESSION",
     "FINAL_STATES",
     "REPLAYABLE_STATES",
     "STATES",
@@ -82,6 +84,13 @@ MAX_LABEL_CHARS = 200
 #: request) and by cad_batch (one per step).
 CURRENT_OPERATION: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "acadmcp_operation_id", default=None
+)
+
+#: The MCP session the running call belongs to (fastmcp's session id), set by
+#: AuditMiddleware; the durable journal writes it on every operation row so a
+#: row joins its ``sessions`` row (client, protocol, server build).
+CURRENT_SESSION: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "acadmcp_session_id", default=None
 )
 
 
@@ -327,6 +336,9 @@ class OperationJournal:
 
     def __len__(self) -> int:
         return len(self._records)
+
+    def record_session(self, session_id: str, info: Callable[[], dict]) -> None:
+        """Keep an MCP session's client and server build; only the durable journal stores it."""
 
     def begin(
         self,

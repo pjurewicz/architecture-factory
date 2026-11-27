@@ -222,3 +222,42 @@ async def test_journal_durable_off_reports_the_in_memory_journal(monkeypatch):
         status = (await client.call_tool("system_status", {})).structured_content
     assert status["state_store"]["mode"] == "off"
     assert status["state_store"]["degraded"] is False
+
+
+@pytest.mark.asyncio
+async def test_each_operation_row_names_its_session_and_the_session_its_client(
+    monkeypatch, tmp_path
+):
+    from mcp.types import Implementation
+
+    from engineering.delivery import server_build
+
+    monkeypatch.setenv("ACADMCP_STATE_DIR", str(tmp_path))
+    async with Client(server.mcp, client_info=Implementation(name="probe-a", version="1.2.3")) as a:
+        await a.call_tool("drawing_new", {})
+        await a.call_tool("entity_create_line", _LINE)
+        async with Client(server.mcp, client_info=Implementation(name="probe-b", version="7")) as b:
+            await b.call_tool("system_status", {})
+        async with Client(server.mcp, client_info=Implementation(name="probe-c", version="0")) as c:
+            await c.list_tools()  # a session that never calls a tool is still recorded
+    with sqlite3.connect(tmp_path / JOURNAL_FILE) as db:
+        sessions = {
+            row[0]: row[1:]
+            for row in db.execute(
+                "SELECT session_id, client_name, client_version, protocol_version, "
+                "server_version, git_sha FROM sessions"
+            )
+        }
+        ops = db.execute("SELECT tool, session_id FROM operations ORDER BY seq").fetchall()
+    build = server_build()
+    by_client = {row[0]: (sid, row) for sid, row in sessions.items()}
+    assert set(by_client) == {"probe-a", "probe-b", "probe-c"}, (
+        "one row per session, never per call"
+    )
+    for name, version in (("probe-a", "1.2.3"), ("probe-b", "7")):
+        _, row = by_client[name]
+        assert row[1] == version and row[2], "client version and the protocol it negotiated"
+        assert row[3:5] == (build["server_version"], build["git_sha"])
+    owner = {tool: sid for tool, sid in ops}
+    assert owner["entity_create_line"] == owner["drawing_new"] == by_client["probe-a"][0]
+    assert owner["system_status"] == by_client["probe-b"][0]

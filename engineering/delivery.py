@@ -164,6 +164,18 @@ def _git_sha() -> str | None:
     return sha or None
 
 
+def server_build() -> dict[str, Any]:
+    """This process's build: the package version and the checkout's commit (None from a wheel)."""
+    global _GIT_SHA
+    if _GIT_SHA is _UNSET:
+        _GIT_SHA = _git_sha()
+    return {"server_version": __version__, "git_sha": _GIT_SHA}
+
+
+_UNSET = object()
+_GIT_SHA: Any = _UNSET
+
+
 async def drawing_snapshot(backend: AutoCADBackend) -> dict[str, Any]:
     """Return the stable structural fields used for save/reopen comparison."""
     await backend._ensure_document_state()

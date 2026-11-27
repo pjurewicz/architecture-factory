@@ -50,6 +50,7 @@ from backends.contracts.entity_creation import inline_json_schema as _inline_jso
 from backends.journal_store import open_journal, state_store_status
 from backends.operations import (
     CURRENT_OPERATION,
+    CURRENT_SESSION,
     OperationConflictError,
     OperationJournal,
     RequiresReconcileError,
@@ -385,6 +386,21 @@ class AuditMiddleware(Middleware):
     async def on_call_tool(self, context: MiddlewareContext, call_next):
         if CURRENT_OPERATION.get() is not None:
             return await self._journalled(context, call_next)
+        session_token = _bind_session(context)
+        try:
+            return await self._top_level(context, call_next)
+        finally:
+            if session_token is not None:
+                CURRENT_SESSION.reset(session_token)
+
+    async def on_request(self, context: MiddlewareContext, call_next):
+        # initialize runs before the transport has named the session; the
+        # client's next request (tools/list as a rule) already carries it.
+        if context.method != "initialize":
+            _record_session(context)
+        return await call_next(context)
+
+    async def _top_level(self, context: MiddlewareContext, call_next):
         # by_tool counts what really ran: the search proxy's call_tool names it
         tool_name = _effective_tool(
             context.message.name, dict(getattr(context.message, "arguments", None) or {})
@@ -595,6 +611,46 @@ def _session_key(fastmcp_context) -> str:
         return str(fastmcp_context.session_id)
     except Exception:  # no request context: a direct call
         return _NO_SESSION
+
+
+def _session_info(fastmcp_context) -> dict:
+    """What a ``sessions`` row keeps: the client's ``initialize`` and this server's build."""
+    from engineering.delivery import server_build
+
+    info: dict = {"transport": getattr(fastmcp_context, "transport", None), **server_build()}
+    params = getattr(getattr(fastmcp_context, "session", None), "client_params", None)
+    if params is not None:
+        client = getattr(params, "clientInfo", None)
+        capabilities = getattr(params, "capabilities", None)
+        info["protocol_version"] = getattr(params, "protocolVersion", None)
+        if client is not None:
+            info["client_info"] = client.model_dump(mode="json", exclude_none=True)
+        if capabilities is not None:
+            info["capabilities"] = capabilities.model_dump(mode="json", exclude_none=True)
+    return info
+
+
+def _record_session(context) -> str | None:
+    """Write the request's MCP session row once (the journal dedups); its id, or None.
+
+    Never fails the request: the session row is evidence, like the metrics.
+    """
+    fastmcp_context = getattr(context, "fastmcp_context", None)
+    session = _session_key(fastmcp_context)
+    if session == _NO_SESSION:
+        return None
+    try:
+        journal = _operations_journal(_lifespan_context_or_none(context))
+        journal.record_session(session, lambda: _session_info(fastmcp_context))
+    except Exception as error:
+        log.debug("session record: %s", error)
+    return session
+
+
+def _bind_session(context):
+    """Set ``CURRENT_SESSION`` for a top-level call; the token, or None without a session."""
+    session = _record_session(context)
+    return None if session is None else CURRENT_SESSION.set(session)
 
 
 def _count_call(context, tool: str, start: float, result, exc: BaseException | None) -> None:

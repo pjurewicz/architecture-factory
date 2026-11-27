@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Session tracking in the durable journal: a `sessions` table in
+  `journal.sqlite3` keeps one row per MCP session - the client's `initialize`
+  (`clientInfo` name / version / full JSON, `protocolVersion`, capabilities),
+  the transport and this server's build (`server_version`, `git_sha`) - written
+  at the session's first request after `initialize` - and every `operations` row carries its `session_id`. Session
+  rows are never retired (`JOURNAL_RETAIN_DAYS` drops operations only).
 - Real plot-style pens in the PDF / PNG renderer: `Screening 75% / 50% / 25%.ctb`
   screen every colour to that ink intensity (`255 - (255 - c) * s / 100`; they
   now report `exact: true`), and a ctb file found on disk applies its pens'

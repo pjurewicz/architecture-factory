@@ -85,6 +85,7 @@ from typing import Any
 
 from backends import fault_barrier
 from backends.operations import (
+    CURRENT_SESSION,
     OperationJournal,
     OperationRecord,
     history_row_matches,
@@ -124,6 +125,9 @@ SCHEMA_VERSION = "1"
 DRAWING_SUFFIXES = frozenset({".dxf", ".dwg", ".dwt", ".dxb", ".dws"})
 #: The fault barrier a kill-mid-call test arms (backends/fault_barrier.py).
 AFTER_BEGIN_BARRIER = "journal.after_begin"
+#: Sessions ``record_session`` remembers before it forgets them all; a
+#: forgotten one is only written again (``INSERT OR IGNORE``), never twice.
+MAX_SESSIONS_SEEN = 10_000
 _DAY_S = 86400.0
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -157,11 +161,26 @@ CREATE TABLE IF NOT EXISTS operations (
     checkpoint_after TEXT,
     label TEXT,
     changes_json TEXT,
-    effective_tool TEXT
+    effective_tool TEXT,
+    session_id TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS operations_client_id
     ON operations(operation_id) WHERE client_supplied = 1;
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS sessions (
+    session_id TEXT NOT NULL,
+    server_instance TEXT NOT NULL,
+    first_seen REAL NOT NULL,
+    transport TEXT,
+    client_name TEXT,
+    client_version TEXT,
+    protocol_version TEXT,
+    client_info_json TEXT,
+    capabilities_json TEXT,
+    server_version TEXT,
+    git_sha TEXT,
+    PRIMARY KEY (session_id, server_instance)
+);
 """
 
 _COLUMNS = (
@@ -186,6 +205,7 @@ _COLUMNS = (
     "label",
     "lineage_id",
     "effective_tool",
+    "session_id",
 )
 #: A server id's row.
 _INSERT = (
@@ -633,6 +653,8 @@ class DurableJournal(OperationJournal):
         self._queue: list[tuple[str, tuple]] = []
         #: A running server id's ``seq``, so its final UPDATE needs no index.
         self._seq: dict[str, int] = {}
+        #: Sessions already written by this process (``record_session``).
+        self._sessions: set[str] = set()
         self._wake = threading.Event()
         self._flusher: threading.Thread | None = None
         self._stopped = threading.Event()
@@ -704,8 +726,9 @@ class DurableJournal(OperationJournal):
             # Added after schema 1 shipped: nullable, so a server without it
             # still reads and writes the same file.
             columns = {row[1] for row in connection.execute("PRAGMA table_info(operations)")}
-            if "effective_tool" not in columns:
-                connection.execute("ALTER TABLE operations ADD COLUMN effective_tool TEXT")
+            for added in ("effective_tool", "session_id"):
+                if added not in columns:
+                    connection.execute(f"ALTER TABLE operations ADD COLUMN {added} TEXT")
             connection.execute(
                 "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
                 (SCHEMA_VERSION,),
@@ -898,6 +921,7 @@ class DurableJournal(OperationJournal):
                 record.label,
                 record.lineage_id,
                 record.effective_tool,
+                CURRENT_SESSION.get(),
             ),
         )
 
@@ -995,6 +1019,43 @@ class DurableJournal(OperationJournal):
             return None
 
     # ── the OperationJournal API ──
+
+    def record_session(self, session_id: str, info: Callable[[], dict]) -> None:
+        """One ``sessions`` row per MCP session of this process, queued for the next flush.
+
+        ``info()`` - called once per session - carries the client's ``initialize`` (``clientInfo``,
+        ``protocolVersion``, capabilities), the transport and this server's
+        build. Kept for analysis across releases and clients: the row is never
+        retired with the operations (``JOURNAL_RETAIN_DAYS``).
+        """
+        if self._connection is None or session_id in self._sessions:
+            return
+        if len(self._sessions) >= MAX_SESSIONS_SEEN:  # stateless HTTP: one per request
+            self._sessions.clear()
+        self._sessions.add(session_id)
+        info = info()
+        client = info.get("client_info") or {}
+        row = (
+            str(session_id),
+            self.server_instance,
+            time.time(),
+            info.get("transport"),
+            client.get("name"),
+            client.get("version"),
+            info.get("protocol_version"),
+            _canonical(client) if client else None,
+            _canonical(info["capabilities"]) if info.get("capabilities") is not None else None,
+            info.get("server_version"),
+            info.get("git_sha"),
+        )
+        statement = (
+            "INSERT OR IGNORE INTO sessions (session_id, server_instance, first_seen, "
+            "transport, client_name, client_version, protocol_version, client_info_json, "
+            "capabilities_json, server_version, git_sha) "
+            f"VALUES ({', '.join('?' for _ in row)})"
+        )
+        with self._lock:
+            self._enqueue((statement, row))
 
     def begin(
         self,
