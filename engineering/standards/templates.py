@@ -180,13 +180,14 @@ def resolve_template(name_or_path: str) -> tuple[str, str]:
     """``(path, source)`` for a catalogue name or a template file path.
 
     A catalogue name resolves to ``templates/<name>.dxf``. Anything
-    with a path separator or a ``.dwt``/``.dxf`` suffix is a path
+    with a path separator or a ``.dwt``/``.dxf`` suffix is a path (a ``.dwt``
+    is refused by ``drawing_new``, capability ``dwt_read``)
     (``source="path"``, not checked here). A bare word that is not in the
     catalogue is refused with the catalogue names.
     """
     raw = str(name_or_path or "").strip()
     if not raw:
-        raise ValueError("template: pass a bundled template name or a path to a .dwt/.dxf file")
+        raise ValueError("template: pass a bundled template name or a path to a .dxf file")
     key = raw.lower()
     if key in TEMPLATE_CATALOG:
         dxf = TEMPLATES_DIR / f"{key}.dxf"
@@ -201,5 +202,5 @@ def resolve_template(name_or_path: str) -> tuple[str, str]:
         return raw, "path"
     raise ValueError(
         f"unknown template {raw!r}. Bundled templates: {', '.join(TEMPLATE_CATALOG)}; "
-        "or pass a path to a .dwt/.dxf file"
+        "or pass a path to a .dxf file"
     )

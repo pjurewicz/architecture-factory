@@ -2118,6 +2118,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 "delivery": FeatureCapability(True, "shared"),
                 "paper_space": FeatureCapability(True, "native"),
                 "dwt_write": FeatureCapability(False, reason="dwt_is_a_dwg_container"),
+                "dwt_read": FeatureCapability(False, reason="dwt_is_a_dwg_container"),
                 # Measured, not assumed: a sheet holding nothing but a viewport
                 # renders the model geometry that viewport looks at, at its
                 # scale and position, clipped to its window. v1.4 declared this

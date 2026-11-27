@@ -301,6 +301,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The v9 task `dwg_headless_roundtrip` now writes its DWG from
   `iso_a3_mech.dxf` through the ODA File Converter. `drawing_save` still
   refuses a `.dwt` path (`dwt_write`).
+- `drawing_new(template=)` no longer accepts a `.dwt` path, which ezdxf
+  cannot read (a DWT is a DWG container): it is refused `unsupported` with
+  capability `dwt_read` (new, false), the message naming the `.dxf` route,
+  before the file is touched. `security.KINDS_TEMPLATE` is `.dxf` only.
 - The tools `drawing_save_as`, `drawing_export_dxf`, `drawing_export_dwg` and
   `drawing_template_save` (all `drawing_save` now), `drawing_close` (whose
   `save=True` default discarded an untitled document's changes with only a

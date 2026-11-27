@@ -306,6 +306,17 @@ async def test_template_save_refuses_other_suffixes(backend, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_drawing_new_refuses_a_dwt_template_by_name(backend, tmp_path):
+    dwt = tmp_path / "sheet.dwt"
+    dwt.write_bytes(b"AC1032")
+    before = await backend.drawing_info()
+    with pytest.raises(UnsupportedCapabilityError) as excinfo:
+        await server.drawing_new(template=str(dwt), ctx=_Ctx(backend))
+    assert excinfo.value.capability == "dwt_read" and "sheet.dxf" in str(excinfo.value)
+    assert (await backend.drawing_info()).name == before.name
+
+
+@pytest.mark.asyncio
 async def test_a_template_is_saved_by_drawing_save(backend, tmp_path):
     with pytest.raises(ToolError):
         await server.drawing_save("../../outside.dxf", ctx=_Ctx(backend))

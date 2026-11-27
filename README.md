@@ -242,7 +242,7 @@ One engine, `EzdxfBackend`, behind one contract of 23 modules in `backends/contr
 | REGION / 3DSOLID area | — *ACIS is opaque to ezdxf* |
 | DWG read | `drawing_open` converts it through the ODA File Converter, if installed; otherwise refused `dwg_read`. The opened drawing is saved as `.dxf` |
 | DWG write | `drawing_save(path='<name>.dwg', version=)` through the ODA File Converter, if installed; otherwise refused `dwg_write` |
-| `.dwt` templates | DXF only — `dwt_write` refuses |
+| `.dwt` templates | DXF only — `dwt_write` refuses a save, `dwt_read` a `drawing_new(template=)` |
 | XLSX workbooks | ✅ ᵒ |
 | WIPEOUT · MTEXT background colour · REVCLOUD · BPOLY · typed hatch edges | ✅ |
 | CHSPACE | ✅ ᶜ |

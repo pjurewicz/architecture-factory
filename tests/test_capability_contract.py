@@ -133,7 +133,7 @@ async def test_an_implementing_backend_is_unaffected(backend):
 #: absent: the spec retracted it (the ActiveX route through the
 #: ``ACAD_MLEADERSTYLE`` dictionary exists, §4.2), and both engines implement
 #: ``mleaderstyle_create`` natively — `capability_keys()` never registers it.
-TRACK_E_KEYS = {"dwgprops": False, "dwt_write": False}
+TRACK_E_KEYS = {"dwgprops": False, "dwt_write": False, "dwt_read": False}
 
 
 def _feature_keys_full(backend) -> dict:

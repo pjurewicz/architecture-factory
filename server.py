@@ -2342,7 +2342,8 @@ async def drawing_new(
     template: Annotated[
         str | None,
         "Bundled template name (drawing_template_list: iso_a3_mech, iso_a1_arch, iso_a2_arch, "
-        "iso_a3_pid, ansi_b_mech, ansi_d_arch) or a path to a .dwt/.dxf template file.",
+        "iso_a3_pid, ansi_b_mech, ansi_d_arch) or a path to a .dxf template file "
+        "(a .dwt is refused: dwt_read).",
     ] = None,
     bootstrap: Annotated[
         bool,
@@ -2376,6 +2377,7 @@ async def drawing_new(
     """
     from pathlib import Path as _P
 
+    from backends.base import UnsupportedCapabilityError
     from engineering.standards.templates import resolve_template
 
     backend = _backend(ctx)
@@ -2385,6 +2387,13 @@ async def drawing_new(
             resolved, source = resolve_template(template)
         except ValueError as exc:
             raise ToolError(f"drawing_new: {exc}") from exc
+        if source == "path" and _P(resolved).suffix.lower() == ".dwt":
+            raise UnsupportedCapabilityError(
+                "dwt_read",
+                "drawing_new: a .dwt is a DWG container and the headless engine reads DXF "
+                f"templates only. Save the template as .dxf in AutoCAD and pass "
+                f"template='{_P(resolved).stem}.dxf'.",
+            )
         if source == "path":
             resolved = str(validate_path(resolved, allow_write=False))
             if not _P(resolved).is_file():
