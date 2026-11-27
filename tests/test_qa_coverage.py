@@ -450,7 +450,7 @@ async def test_deliver_carries_qa_coverage_in_result_and_manifest(backend, tmp_p
 
 
 @pytest.mark.asyncio
-async def test_the_focus_resource_lists_the_closed_enum(monkeypatch):
+async def test_the_focus_resource_lists_the_closed_enum(monkeypatch, full_catalog):
     from engineering.critique_catalog import FOCUS_CATALOG
 
     assert set(FOCUS_CATALOG) == set(ALL_CRITIQUE_FOCUSES)
