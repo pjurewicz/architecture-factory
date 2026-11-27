@@ -302,7 +302,9 @@ def draw_layout(
     )
     ctx = _PlotContext(doc, ctb=acadctb.new_ctb())  # every ezdxf pen "use object"
     psltscale = bool(doc.header.get("$PSLTSCALE", 1))
-    _Frontend(ctx, _glyph_pipeline(out, psltscale), config=config).draw_layout(layout, finalize=True)
+    _Frontend(ctx, _glyph_pipeline(out, psltscale), config=config).draw_layout(
+        layout, finalize=True
+    )
     result = {"name": name or None, "ink": ink, "exact": exact}
     report = _pen_report(pens)
     if report:
