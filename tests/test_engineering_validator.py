@@ -116,6 +116,52 @@ async def test_a_standard_part_designation_is_not_a_fake_dimension():
     assert looks_like_dimension("Ø78")
 
 
+async def test_our_annotation_lettering_is_not_a_fake_dimension(monkeypatch, tmp_path):
+    """A level mark's ±0,00, a feature control frame's ⌀0.05 and a callout's
+    "4x Ø13.5" are lettering our generators wrote, told apart by their
+    ACADMCP_* record. The control is the same ±0,00 typed by hand on the same
+    layer beside a line: no record, so finalize still reports it - and only it."""
+    from fastmcp import Client
+
+    import server
+
+    monkeypatch.setenv("AUTOCAD_MCP_BACKEND", "ezdxf")
+    async with Client(server.mcp) as client:
+
+        async def call(tool: str, args: dict) -> dict:
+            return (await client.call_tool(tool, args)).structured_content
+
+        await call("drawing_new", {})
+        level = await call(
+            "arch_symbol", {"kind": "level", "x": 0, "y": 0, "params": {"value": 0}, "lang": "pl"}
+        )
+        await call("datum_feature", {"letter": "A", "x": 300, "y": 0})
+        await call(
+            "gd_frame",
+            {
+                "symbol": "position",
+                "tolerance": 0.05,
+                "x": 300,
+                "y": 50,
+                "datums": ["A"],
+                "diameter": True,
+            },
+        )
+        await call("callout", {"target": [600, 0], "landing": [620, 10], "text": "4x Ø13.5"})
+        result = await call("drawing_finalize", {"save_path": str(tmp_path / "ours.dxf")})
+        assert "fake_dimension_text" not in {f["code"] for f in result["findings"]}
+        assert result["score"]["score"] == 100.0, result["findings"]
+
+        await call("entity_create_line", {"x1": 0, "y1": -400, "x2": 2500, "y2": -400})
+        typed = await call(
+            "entity_create_text",
+            {"text": "±0,00", "x": 100, "y": -350, "height": 125, "layer": level["layer"]},
+        )
+        result = await call("drawing_finalize", {"save_path": str(tmp_path / "typed.dxf")})
+        (fake,) = [f for f in result["findings"] if f["code"] == "fake_dimension_text"]
+        assert fake["detail"]["sample_handles"] == [typed["handle"]]
+
+
 async def test_validator_catches_hidden_orphans(backend, tmp_path):
     await ensure_standard_linetypes(backend)
     await ensure_engineering_layers(backend)

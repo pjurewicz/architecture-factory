@@ -437,7 +437,7 @@ async def draw_grid(
 
     axes = grid_axes(x_axes, y_axes, labels=labels)
     prims = grid_prims(x_axes, y_axes, labels=labels, extension=extension, scale=scale)
-    drawn = await draw_prims(backend, prims, role_layer=ARCH_ROLE_LAYER)
+    drawn = await draw_prims(backend, prims, role_layer=ARCH_ROLE_LAYER, annotation="arch_grid")
     return {
         "ok": True,
         "axes": axes,
@@ -462,7 +462,7 @@ async def draw_symbol(
     from engineering.mech.draw import draw_prims
 
     prims = symbol_prims(kind, at, lang=lang, scale=scale, **params)
-    drawn = await draw_prims(backend, prims, role_layer=ARCH_ROLE_LAYER)
+    drawn = await draw_prims(backend, prims, role_layer=ARCH_ROLE_LAYER, annotation="arch_symbol")
     return {
         "ok": True,
         "kind": kind,

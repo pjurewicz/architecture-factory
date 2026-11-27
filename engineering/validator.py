@@ -173,9 +173,16 @@ class DrawingValidator:
                 )
             )
 
-        # 1 — fake dimensions
+        # 1 — fake dimensions. Text one of our generators wrote as part of a
+        # symbol or annotation (a level mark's ±0.00, a title-block field, a
+        # callout note) carries its ACADMCP_* feature record and is not a fake;
+        # text without one is judged by its content on any layer.
         text_likes = [
-            r for r in records if r.type in ("TEXT", "MTEXT") and looks_like_dimension(r.text or "")
+            r
+            for r in records
+            if r.type in ("TEXT", "MTEXT")
+            and not any(app.startswith("ACADMCP_") for app, _ in r.xdata)
+            and looks_like_dimension(r.text or "")
         ]
         real_dims = [r for r in records if r.type in REAL_DIMENSION_TYPES]
         if text_likes:

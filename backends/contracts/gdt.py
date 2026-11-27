@@ -21,10 +21,15 @@ class GdtContract:
         cy: float,
         text_h: float,
         layer: str,
+        tool: str,
     ) -> str:
         """Create a TEXT entity roughly centred on (cx, cy). Returns its handle.
         entity_create_text has no alignment arg, so approximate the centring with
-        the same width heuristic the title block uses."""
+        the same width heuristic the title block uses. The text carries the
+        ``tool``'s ``ACADMCP_ANNOT`` record: a frame's ``⌀0.05`` is a tolerance
+        compartment, not a typed dimension."""
+        from engineering.annotation_record import tag_annotation
+
         approx_w = len(text) * text_h * 0.7
         t = await self.entity_create_text(
             text,
@@ -33,6 +38,7 @@ class GdtContract:
             height=text_h,
             layer=layer,
         )
+        await tag_annotation(self, t.handle, tool)
         return t.handle
 
     async def draw_feature_control_frame(
@@ -86,7 +92,7 @@ class GdtContract:
             handles.append(ln.handle)
         th = lay["text_height"]
         for text, tcx, tcy in lay["labels"]:
-            handles.append(await self._place_boxed_text(text, tcx, tcy, th, layer))
+            handles.append(await self._place_boxed_text(text, tcx, tcy, th, layer, "gd_frame"))
 
         refs = getattr(self, "_gdt_datums_referenced", None)
         if refs is None:
@@ -145,7 +151,11 @@ class GdtContract:
         )
         handles.append(box_poly.handle)
         for text, tcx, tcy in lay["labels"]:
-            handles.append(await self._place_boxed_text(text, tcx, tcy, lay["text_height"], layer))
+            handles.append(
+                await self._place_boxed_text(
+                    text, tcx, tcy, lay["text_height"], layer, "datum_feature"
+                )
+            )
 
         defined = getattr(self, "_gdt_datums_defined", None)
         if defined is None:

@@ -37,6 +37,7 @@ from __future__ import annotations
 import string
 from typing import TYPE_CHECKING
 
+from engineering.annotation_record import tag_annotation
 from engineering.mech.primitives import Circle, Line, Poly, Prim, Pt, Text
 
 if TYPE_CHECKING:
@@ -267,8 +268,13 @@ async def draw_sheet_prims(
     *,
     origin: Pt = (0.0, 0.0),
     layer_map: dict | None = None,
+    annotation: str | None = None,
 ) -> list[str]:
-    """Draw sheet primitives at `origin` and return their handles, in order."""
+    """Draw sheet primitives at `origin` and return their handles, in order.
+
+    ``annotation`` names the generator: every TEXT then carries its
+    ``ACADMCP_ANNOT`` record (``engineering/annotation_record.py``).
+    """
     ox, oy = float(origin[0]), float(origin[1])
     layers = dict(SHEET_ROLE_LAYER if layer_map is None else layer_map)
     handles: list[str] = []
@@ -297,6 +303,8 @@ async def draw_sheet_prims(
                 rotation=prim.rotation,
                 layer=layer,
             )
+            if annotation:
+                await tag_annotation(backend, entity.handle, annotation)
         else:
             raise ValueError(
                 f"sheet primitives are Line, Circle, Poly and Text; got {type(prim).__name__}"
@@ -397,7 +405,7 @@ async def draw_sheet_frame(
     prims = frame_prims(size, orientation=orientation, zones=zones, marks=marks)
     previous = await enter_layout(backend, layout, caller="sheet_frame")
     try:
-        handles = await draw_sheet_prims(backend, prims, origin=origin)
+        handles = await draw_sheet_prims(backend, prims, origin=origin, annotation="sheet_frame")
     finally:
         if layout is not None:
             await backend.layout_set_current(previous)

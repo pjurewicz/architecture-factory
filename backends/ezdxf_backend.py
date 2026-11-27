@@ -6577,6 +6577,8 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
     ) -> dict:
         from ezdxf.enums import TextEntityAlignment
 
+        from engineering.annotation_record import APP_ID as ANNOT_APP_ID
+        from engineering.annotation_record import annotation_values
         from engineering.callout import GROUP_DESCRIPTION, plan_callout
 
         try:
@@ -6654,6 +6656,14 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     plan.content, height=plan.height, dxfattribs=attribs
                 ).set_placement(plan.content_at, align=TextEntityAlignment.MIDDLE_CENTER)
                 parts["text"] = numeral.dxf.handle
+            # The note is our lettering, not a typed dimension: it carries the
+            # ACADMCP_ANNOT record the validator reads.
+            if ANNOT_APP_ID not in doc.appids:
+                doc.appids.add(ANNOT_APP_ID)
+            doc.entitydb[parts["text"]].set_xdata(
+                ANNOT_APP_ID,
+                [(1000, v) for v in annotation_values("callout", parts["text"])],
+            )
             # One anonymous, selectable GROUP: AutoCAD selects (and erases) the
             # callout as one object, and entity_delete of any part erases all.
             group = doc.groups.new(description=GROUP_DESCRIPTION, selectable=True)

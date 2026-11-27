@@ -594,7 +594,10 @@ async def add_balloon(
             )
 
         handles = await draw_sheet_prims(
-            backend, prims, layer_map={"visible": layer, "text": layer, "center": layer}
+            backend,
+            prims,
+            layer_map={"visible": layer, "text": layer, "center": layer},
+            annotation="balloon_add",
         )
         payload = {
             "v": PAYLOAD_VERSION,

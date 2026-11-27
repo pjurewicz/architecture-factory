@@ -300,6 +300,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `drawing_finalize` reported the `±0.00` that `arch_symbol(kind="level")`
+  and `interior_wall_elevation`'s level marks write as `fake_dimension_text`
+  (-8 points), as it did a feature control frame's `⌀0.05` (`gd_frame`), a
+  callout note such as `4x Ø13.5`, and a title-block field or revision row
+  whose text holds a `Ø` or `±`. The validator now skips TEXT / MTEXT that
+  carries an `ACADMCP_*` feature record, and that lettering now carries one:
+  the new `ACADMCP_ANNOT` record `{kind: "annotation", tool, id}`
+  (`engineering/annotation_record.py`), written by `arch_symbol`, `arch_grid`,
+  `interior_wall_elevation`, `sheet_frame`, `titleblock_apply`,
+  `revision_add`, `balloon_add`, `gd_frame`, `datum_feature` and `callout`.
+  Text without a record is judged by its content on every layer as before, so
+  a hand-typed `±0,00` beside our level mark is still reported. The ISO A3
+  templates were rebuilt (their frame lettering carries the record).
+
 - A room label's `fits` (`arch_room`, `arch_plan_from_spec`, `arch_plan_patch`)
   let a line's box touch the room's outline, and its area-based tolerance let
   a corner poke a fraction of a millimetre past an oblique wall - on a plot

@@ -334,7 +334,9 @@ async def add_revision(
         head_prims = list(revision_heading_prims(at=anchor)) if index == 0 else []
         row_prims = list(revision_row_prims(new_row, at=anchor, index=index))
 
-        block_handles = await draw_sheet_prims(backend, head_prims + row_prims)
+        block_handles = await draw_sheet_prims(
+            backend, head_prims + row_prims, annotation="revision_add"
+        )
         cloud_handles = []
         for region in regions:
             x0, y0, x1r, y1r = region
@@ -350,7 +352,9 @@ async def add_revision(
         # report twice as many tags as the caller requested.
         tag_handles = []
         for point in points:
-            drawn = await draw_sheet_prims(backend, revision_tag_prims(code, (point[0], point[1])))
+            drawn = await draw_sheet_prims(
+                backend, revision_tag_prims(code, (point[0], point[1])), annotation="revision_add"
+            )
             tag_handles.append({"at": [point[0], point[1]], "handles": drawn})
 
         # The payload rides on the row band's first Text primitive, which is its

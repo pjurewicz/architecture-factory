@@ -404,8 +404,12 @@ async def apply_titleblock(
     )
     previous = await enter_layout(backend, layout, caller="titleblock_apply")
     try:
-        frame_handles = await draw_sheet_prims(backend, sheet_prims, origin=origin)
-        tb_handles = await draw_sheet_prims(backend, tb_prims, origin=origin)
+        frame_handles = await draw_sheet_prims(
+            backend, sheet_prims, origin=origin, annotation="sheet_frame"
+        )
+        tb_handles = await draw_sheet_prims(
+            backend, tb_prims, origin=origin, annotation="titleblock_apply"
+        )
     finally:
         if layout is not None:
             await backend.layout_set_current(previous)

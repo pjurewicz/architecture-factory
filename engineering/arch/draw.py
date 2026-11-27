@@ -757,7 +757,9 @@ async def draw_interior_elevation(
     tile_layer = ARCH_ROLE_LAYER["elev_tile"]
 
     async def job():
-        drawn = await draw_prims(backend, prims, role_layer=ARCH_ROLE_LAYER)
+        drawn = await draw_prims(
+            backend, prims, role_layer=ARCH_ROLE_LAYER, annotation="interior_wall_elevation"
+        )
         tile_handles: list[str] = []
         if tiles is not None:
             tile_handles = await draw_tile_pieces(

@@ -22,6 +22,7 @@ from typing import Any
 
 import anyio
 
+from engineering.annotation_record import tag_annotation
 from engineering.mech.dimension import (
     dimension_intents,
     hole_table_rows,
@@ -212,6 +213,7 @@ async def draw_prims(
     feature_tag: Mapping[str, str] | None = None,
     indices: tuple[int, ...] | list[int] | None = None,
     plot_scale: float = 50.0,
+    annotation: str | None = None,
 ) -> dict:
     """Draw primitive descriptions, turned by ``rotation`` about their origin, then placed at ``at``.
 
@@ -232,6 +234,11 @@ async def draw_prims(
 
     ``plot_scale`` (a denominator) scales the architectural wall poche only;
     the mechanical section map ignores it.
+
+    ``annotation`` names the generator of a symbol or annotation: every TEXT
+    it draws then carries the ``ACADMCP_ANNOT`` record
+    (``engineering/annotation_record.py``), which is how the validator tells
+    its lettering from a hand-typed fake dimension.
     """
     placed = tuple(prims)
     if indices is not None and len(indices) != len(placed):
@@ -291,6 +298,8 @@ async def draw_prims(
                 layer=layer,
                 **extra,
             )
+            if annotation:
+                await tag_annotation(backend, info.handle, annotation)
         elif isinstance(prim, HatchArea):
             style = _hatch_style(prim.material, role_layer, plot_scale)
             info = await backend.entity_create_hatch(
