@@ -2985,11 +2985,32 @@ async def leader_create_mleader(
     landing_gap: Annotated[float, Field(default=1.0, ge=0)] = 1.0,
     arrow_size: Annotated[float, Field(default=2.5, gt=0)] = 2.5,
     layer: Annotated[str, "Target layer"] = "DIM",
+    arrow: Annotated[
+        Literal["closed", "dot", "none"], "Head at the first point; none: a plain line"
+    ] = "closed",
+    text_side: Annotated[
+        Literal["auto", "left", "right"],
+        "Text beside the last point; auto: the way the last segment points (left: right-aligned)",
+    ] = "auto",
+    color: Annotated[int | None, "ACI colour of the whole leader; default ByLayer"] = None,
+    text_width: Annotated[float | None, Field(default=None, gt=0, description="Wrap width")] = None,
     ctx: Context = None,
 ) -> dict:
-    """Create a multileader as an explicitly-labelled composite."""
+    """A leader with its note as one call: polyline from the first point (the
+    head: closed arrow, dot or none) through the others, MTEXT beside the last
+    point, its mid-height on the landing. Returned as a composite: the
+    handles of every part in `child_handles`."""
     result = await _backend(ctx).leader_create_mleader(
-        points, text, text_height, landing_gap, arrow_size, layer
+        points,
+        text,
+        text_height,
+        landing_gap,
+        arrow_size,
+        layer,
+        arrow=arrow,
+        text_side=text_side,
+        color=color,
+        text_width=text_width,
     )
     return _dc(result)
 

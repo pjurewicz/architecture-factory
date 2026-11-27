@@ -1548,6 +1548,9 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "arrow with a note",
             "pointer note",
             "balloon",
+            "leader without arrow",
+            "note with a line",
+            "label with leader line",
         ),
     ),
     "callout": ToolAliases(

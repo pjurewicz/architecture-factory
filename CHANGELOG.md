@@ -367,6 +367,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `leader_create_mleader` draws a leader with its note in one call for the
+  cases a redraw drew 17 polyline + MTEXT pairs for: `arrow` closed | dot |
+  none, `text_side` auto (the way the last segment points; left is
+  right-aligned) | left | right with the text's mid-height on the landing,
+  `color` on every part, `text_width`.
+
 - `dimension_chain(style=, texts=)`: a chain in another dimension style
   without switching the current one (it stays current, its DIM* header
   untouched), and a text per row (`{"1": "BATERIA= OŚ WANNY <>"}`, `"overall"`

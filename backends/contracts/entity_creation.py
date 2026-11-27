@@ -259,6 +259,11 @@ class EntityCreationContract(ABC):
         landing_gap: float = 1.0,
         arrow_size: float = 2.5,
         layer: str = "DIM",
+        *,
+        arrow: str = "closed",
+        text_side: str = "auto",
+        color: int | None = None,
+        text_width: float | None = None,
     ) -> EntityInfo: ...
 
     @abstractmethod

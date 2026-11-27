@@ -6650,6 +6650,11 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         landing_gap=1.0,
         arrow_size=2.5,
         layer="DIM",
+        *,
+        arrow="closed",
+        text_side="auto",
+        color=None,
+        text_width=None,
     ) -> EntityInfo:
         from engineering.annotation import validate_mleader
 
@@ -6658,11 +6663,21 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             raise RuntimeError(
                 "leader_create_mleader: text_height/arrow_size must be positive and landing_gap non-negative"
             )
+        if arrow not in ("closed", "dot", "none"):
+            raise InvalidArgsError(
+                f"invalid_args: arrow must be closed | dot | none, got {arrow!r}"
+            )
+        if text_side not in ("auto", "left", "right"):
+            raise InvalidArgsError(
+                f"invalid_args: text_side must be auto | left | right, got {text_side!r}"
+            )
+        if text_width is not None and text_width <= 0:
+            raise InvalidArgsError("invalid_args: text_width must be positive")
 
         def _sync():
             msp = self._msp()
             path = msp.add_lwpolyline(normalized)
-            self._apply_attrs(path, layer, None)
+            self._apply_attrs(path, layer, color)
 
             (x0, y0), (x1, y1) = normalized[0], normalized[1]
             dx, dy = x1 - x0, y1 - y0
@@ -6672,26 +6687,50 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             ux, uy = dx / length, dy / length
             px, py = -uy, ux
             size = float(arrow_size)
-            arrow = msp.add_lwpolyline(
-                [
-                    (x0, y0),
-                    (x0 + ux * size + px * size * 0.35, y0 + uy * size + py * size * 0.35),
-                    (x0 + ux * size - px * size * 0.35, y0 + uy * size - py * size * 0.35),
-                ],
-                close=True,
-            )
-            self._apply_attrs(arrow, layer, None)
+            children = [path]
+            if arrow == "closed":
+                head = msp.add_lwpolyline(
+                    [
+                        (x0, y0),
+                        (x0 + ux * size + px * size * 0.35, y0 + uy * size + py * size * 0.35),
+                        (x0 + ux * size - px * size * 0.35, y0 + uy * size - py * size * 0.35),
+                    ],
+                    close=True,
+                )
+                head.dxf.const_width = 0.0
+                children.append(head)
+            elif arrow == "dot":
+                # a filled dot: a closed two-bulge polyline of width r
+                r = size / 4.0
+                head = msp.add_lwpolyline(
+                    [(x0 - r / 2, y0, r, r, 1.0), (x0 + r / 2, y0, r, r, 1.0)],
+                    format="xyseb",
+                    close=True,
+                )
+                children.append(head)
+            for head in children[1:]:
+                self._apply_attrs(head, layer, color)
 
             tx, ty = normalized[-1]
+            sx = normalized[-2][0]
+            side = text_side
+            if side == "auto":
+                side = "left" if tx < sx - 1e-9 else "right"
+            gap = float(landing_gap)
             label = msp.add_mtext(
                 str(text),
-                dxfattribs={"char_height": float(text_height), "width": 100.0},
+                dxfattribs={
+                    "char_height": float(text_height),
+                    "width": float(text_width) if text_width else 100.0,
+                    # middle-left / middle-right: the text's mid-height on the landing
+                    "attachment_point": 6 if side == "left" else 4,
+                },
             )
-            label.dxf.insert = (tx + float(landing_gap), ty, 0.0)
-            self._apply_attrs(label, layer, None)
+            label.dxf.insert = (tx - gap if side == "left" else tx + gap, ty, 0.0)
+            self._apply_attrs(label, layer, color)
             self._mark_dirty()
 
-            children = [path, arrow, label]
+            children.append(label)
             child_handles = [str(entity.dxf.handle) for entity in children]
             return EntityInfo(
                 handle=child_handles[0],
@@ -6706,6 +6745,8 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     "child_handles": child_handles,
                     "points": [list(point) for point in normalized],
                     "text": str(text),
+                    "arrow": arrow,
+                    "text_side": side,
                     "bounds": {
                         "min": [
                             min(point[0] for point in normalized),

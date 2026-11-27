@@ -4329,7 +4329,10 @@
         "callout",
         "arrow with a note",
         "pointer note",
-        "balloon"
+        "balloon",
+        "leader without arrow",
+        "note with a line",
+        "label with leader line"
       ],
       "tags": [
         "annotation",
