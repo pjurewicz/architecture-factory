@@ -302,8 +302,27 @@ async def test_a_500_issue_summary_fits_2500_characters_with_the_full_total(monk
     assert limited["issues"][0] == full[0], "without summary the rows are whole"
 
 
+def test_summarize_puts_the_worst_first_and_groups_one_code():
+    rows = [
+        {
+            "focus": "f",
+            "severity": "warning",
+            "message": f"w{i}",
+            "handles": [str(i)],
+            "detail": {"code": "c"},
+        }
+        for i in range(68)
+    ] + [{"focus": "g", "severity": "error", "message": "e", "handles": ["E"]}]
+    out = summarize(rows, summary=True, limit=8)
+    assert [row["severity"] for row in out["issues"]] == ["error", "warning"]
+    assert out["issues"][1]["count"] == 68 and out["issues"][1]["handle_count"] == 68
+    assert out["total"] == 69 and out["by_severity"] == {"warning": 68, "error": 1}
+    only = summarize(rows, summary=False, limit=None, min_severity="error")
+    assert [row["message"] for row in only["issues"]] == ["e"] and only["total"] == 69
+
+
 def test_summarize_never_cuts_the_counts():
-    rows = [{"focus": "a", "severity": "warning", "message": "x" * 400}] * 7
+    rows = [{"focus": "a", "severity": "warning", "message": str(i) + "x" * 400} for i in range(7)]
     out = summarize(rows, summary=True, limit=None, key="focus")
     assert out["total"] == 7 and len(out["issues"]) == 5
     assert len(out["issues"][0]["message"]) == 160

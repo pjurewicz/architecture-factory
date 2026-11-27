@@ -328,6 +328,34 @@ async def test_one_lying_dimension_per_code_yields_exactly_those_codes(backend):
 
 
 @pytest.mark.asyncio
+async def test_a_style_dimlfac_is_one_info_row_and_the_lone_error_leads_the_summary(backend):
+    """A drawing in mm dimensioned in cm (DIMLFAC 0.1 in the style) gave one
+    warning per dimension, and summary=True, limit=8 paged out its only error."""
+    from engineering.qa_coverage import summarize
+    from engineering.standards.dimstyles import resolve_dimstyle
+    from tests.fixtures.lying_dims import _posts
+
+    await backend.dimstyle_create("CM", resolve_dimstyle("iso", {"DIMLFAC": 0.1}), True)
+    msp = backend._doc.modelspace()
+    scaled = []
+    for i in range(12):
+        x = 100.0 * i
+        _posts(msp, x, x + 40.0)
+        scaled.append((await backend.dimension_linear(x, 0, x + 40, 0, x + 20, -10)).handle)
+    _posts(msp, 2000.0, 2040.0)
+    lie = await backend.dimension_linear(2000, 0, 2040, 0, 2020, -10, text_override="99")
+    rows = [i.to_dict() for i in await run_critique(backend, FOCUS)]
+    by_code = [r for r in rows if r["detail"]["code"] == "dim_dimlfac_scaled"]
+    assert len(by_code) == 1 and by_code[0]["severity"] == "info"
+    assert set(by_code[0]["handles"]) == set(scaled) and by_code[0]["detail"]["from_style"]
+    page = summarize(rows, summary=True, limit=1)
+    assert page["issues"][0]["severity"] == "error" and lie.handle in page["issues"][0]["handles"]
+    assert summarize(rows, summary=False, limit=None, min_severity="error")["issues"] == [
+        r for r in rows if r["severity"] == "error"
+    ]
+
+
+@pytest.mark.asyncio
 async def test_refine_redraws_the_stale_codes_and_leaves_the_rest_to_a_person(backend):
     made = await build_lying_dims(backend)
     refined = await refine_drawing(backend, focus=FOCUS, min_score=100.0)

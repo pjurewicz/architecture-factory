@@ -185,16 +185,25 @@ def reflex_render(dimtype: int, rendered: str | None, shown) -> bool:
 
 
 def dimension_issues(
-    records, observed, layers: dict, epsilon: float, engine: str | None = None
+    records,
+    observed,
+    layers: dict,
+    epsilon: float,
+    engine: str | None = None,
+    style_dimlfac: dict[str, float] | None = None,
 ) -> list[Issue]:
     """Every code of every DIMENSION record, in record order then ``CODES`` order.
 
     ``engine`` is the backend's name; headless a reflex angle is not
-    repairable (:func:`reflex_render`)."""
+    repairable (:func:`reflex_render`). ``style_dimlfac`` (style name, lower
+    case -> its own DIMLFAC): a dimension scaled by its style's factor is a
+    deliberate convention (a drawing in mm dimensioned in cm), reported once
+    per style as ``info`` with every handle, not once per dimension."""
     from .verification.binding import DimensionIndex, bind_dimension
 
     index = DimensionIndex(observed, epsilon)
     issues: list[Issue] = []
+    by_style: dict[str, list] = {}
     for record in records:
         if record.type != "DIMENSION" or record.dimension is None:
             continue
@@ -238,7 +247,15 @@ def dimension_issues(
                     "nts": False,
                 },
             )
-        if "dimlfac_scales_the_displayed_value" in findings:
+        style_factor = (style_dimlfac or {}).get(str(_style).lower())
+        if (
+            "dimlfac_scales_the_displayed_value" in findings
+            and style_factor is not None
+            and dimlfac is not None
+            and math.isclose(float(dimlfac), style_factor)
+        ):
+            by_style.setdefault(str(_style), []).append(record)
+        elif "dimlfac_scales_the_displayed_value" in findings:
             found[DIM_DIMLFAC_SCALED] = _issue(
                 DIM_DIMLFAC_SCALED,
                 record,
@@ -299,6 +316,28 @@ def dimension_issues(
                 {**evidence, "status": bound["status"], "reason": bound["reason"]},
             )
         issues.extend(found[code] for code in CODES if code in found)
+    for style, scaled in by_style.items():
+        factor = (style_dimlfac or {})[style.lower()]
+        issues.append(
+            Issue(
+                severity="info",
+                focus=FOCUS,  # type: ignore[arg-type]
+                message=(
+                    f"Dimension style {style!r} sets DIMLFAC {factor:g}: its {len(scaled)} "
+                    "dimension(s) show the geometry times that factor (a style setting, "
+                    "taken as deliberate)"
+                ),
+                handles=[r.handle for r in scaled],
+                detail={
+                    "code": DIM_DIMLFAC_SCALED,
+                    "dimstyle": style,
+                    "dimlfac": factor,
+                    "from_style": True,
+                    "count": len(scaled),
+                    "repairable": False,
+                },
+            )
+        )
     return issues
 
 
@@ -334,8 +373,33 @@ async def check_dimension_truth(backend: AutoCADBackend, shared: dict) -> list[I
 
     observed = await shared_index(shared, OBSERVED_KEY, build, backend)
     return dimension_issues(
-        records, observed, snap.layers, default_epsilon(observed), engine=backend.name
+        records,
+        observed,
+        snap.layers,
+        default_epsilon(observed),
+        engine=backend.name,
+        style_dimlfac=await _style_dimlfac(backend),
     )
+
+
+async def _style_dimlfac(backend) -> dict[str, float]:
+    """Every dimension style's own DIMLFAC, by lower-case name (1.0 unset)."""
+    from backends.quarantine import DOCUMENT_REFUSALS
+
+    from .qa_scan import _async_readonly
+
+    def read():
+        return {
+            style.dxf.name.lower(): float(style.dxf.get("dimlfac", 1.0) or 1.0)
+            for style in backend._require_doc().dimstyles
+        }
+
+    try:
+        return await _async_readonly(backend, read)
+    except DOCUMENT_REFUSALS:
+        raise
+    except Exception:  # noqa: BLE001 - unknown styles: every dimension reported on its own
+        return {}
 
 
 check_dimension_truth.needs_shared = True  # type: ignore[attr-defined]

@@ -309,31 +309,81 @@ def _compact_issue(row: dict, key: str) -> dict:
     return out
 
 
+#: Severity order of a summary's rows: the worst first.
+SEVERITY_RANK = {"error": 0, "warning": 1, "info": 2}
+
+
+def _code(row: dict):
+    detail = row.get("detail")
+    return detail.get("code") if isinstance(detail, dict) else None
+
+
 def summarize(
     rows: Iterable[dict],
     *,
     summary: bool,
     limit: int | None,
     key: str = "focus",
+    min_severity: str | None = None,
 ) -> dict:
     """``{total, by_focus, by_severity, issues}`` over every row of ``rows``.
 
     ``total``, ``by_focus`` (counted on ``key``: a critique's focus, a
     validation check's name, a topology finding kind) and ``by_severity``
-    always count the full set; ``issues`` is the first ``limit`` rows. With
+    always count the full set; ``issues`` is the first ``limit`` rows, the
+    worst severity first (a lone error is never paged out behind 68
+    warnings), only those at least ``min_severity`` when it is given. With
     ``summary`` each row is compacted (no ``detail``, the message cut to
     :data:`SUMMARY_MESSAGE_CHARS`, at most :data:`SUMMARY_HANDLES` handles)
-    and ``limit`` defaults to :data:`SUMMARY_ROWS`; without it the rows are
-    kept whole and ``limit`` None keeps all of them.
+    and the rows of one ``key``, severity and ``detail.code`` (without a
+    code: one message) are one row with their ``count`` and handles; ``limit``
+    then defaults to :data:`SUMMARY_ROWS`. Without it the rows are kept whole
+    and ``limit`` None keeps all of them.
     """
     rows = list(rows)
     if limit is not None and int(limit) < 0:
         raise ValueError(f"limit must be >= 0, got {limit!r}")
+    if min_severity is not None and min_severity not in SEVERITY_RANK:
+        raise ValueError(f"severity must be one of {list(SEVERITY_RANK)}, got {min_severity!r}")
+    worst = len(SEVERITY_RANK)
+    shown = sorted(rows, key=lambda row: SEVERITY_RANK.get(str(row.get("severity")), worst))
+    if min_severity is not None:
+        ceiling = SEVERITY_RANK[min_severity]
+        shown = [r for r in shown if SEVERITY_RANK.get(str(r.get("severity")), worst) <= ceiling]
+    if summary:
+        shown = _grouped(shown, key)
     cap = SUMMARY_ROWS if (summary and limit is None) else limit
-    kept = rows if cap is None else rows[: int(cap)]
     return {
         "total": len(rows),
         "by_focus": dict(Counter(str(row.get(key)) for row in rows)),
         "by_severity": dict(Counter(str(row.get("severity")) for row in rows)),
-        "issues": [_compact_issue(row, key) for row in kept] if summary else kept,
+        "issues": shown if cap is None else shown[: int(cap)],
     }
+
+
+def _grouped(rows: list[dict], key: str) -> list[dict]:
+    """Compact rows, one per ``key`` + severity + code (or message), in order."""
+    groups: dict[tuple, tuple[dict, list[str]]] = {}
+    for row in rows:
+        code = _code(row)
+        ident = (row.get(key), row.get("severity"), code or str(row.get("message")))
+        handles = row.get("handles")
+        if handles is None and row.get("handle") is not None:
+            handles = [row["handle"]]
+        handles = [str(h) for h in handles or ()]
+        if ident in groups:
+            group, seen = groups[ident]
+            group["count"] = group.get("count", 1) + 1
+            seen.extend(handles)
+            continue
+        groups[ident] = (_compact_issue(row, key), handles)
+    out = []
+    for group, seen in groups.values():
+        group.pop("handles", None)
+        group.pop("handle_count", None)
+        if seen:
+            group["handles"] = seen[:SUMMARY_HANDLES]
+            if len(seen) > SUMMARY_HANDLES:
+                group["handle_count"] = len(seen)
+        out.append(group)
+    return out

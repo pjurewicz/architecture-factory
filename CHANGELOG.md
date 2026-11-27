@@ -360,6 +360,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `drawing_critique` no longer hides its only error under noise: summary rows
+  come worst severity first, `summary=True` folds rows of one focus, severity
+  and code into one row with `count` and the first handles, and
+  `severity="error"` keeps only errors (counts stay complete; also in
+  `validation_check` / `drawing_topology_check`'s summaries). A DIMLFAC set in
+  the dimension style (a mm drawing dimensioned in cm) is one
+  `dim_dimlfac_scaled` info row per style with every handle, not a warning
+  per dimension; an override on the dimension itself still warns.
+
 - `search_tools("download")` found nothing: `drawing_save` and
   `drawing_export_pdf` now answer download / get the file / file url, the
   `drawing_save` description says its HTTP answer carries `download_url`, and

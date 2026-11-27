@@ -9053,13 +9053,20 @@ async def drawing_critique(
             "form; the counts stay complete. None with summary=False = the bare list.",
         ),
     ] = None,
+    severity: Annotated[
+        Literal["error", "warning", "info"] | None,
+        "Rows at least this severe (error: errors only); counts stay complete. Implies the "
+        "{total, ...} form.",
+    ] = None,
     ctx: Context = None,
 ) -> list[dict] | dict:
     """Run premium-quality checks. Returns zero issues for a clean drawing.
 
     Standard production gate: must return [] before `drawing_finalize`. The default
-    result is the bare list of issues; `report`, `summary` or `limit` return a dict
-    instead (a summary is a page, never the clean answer: read `total`).
+    result is the bare list of issues; `report`, `summary`, `limit` or `severity` return
+    a dict instead (a summary is a page, never the clean answer: read `total`). Its
+    rows come worst first; with `summary` one row per focus, severity and code carries
+    `count` and the first handles.
 
     The entity checks (construction_left, untrimmed_corner, duplicate_entities,
     dim_overlap, property_override) read every entity of every space - model and every
@@ -9069,7 +9076,7 @@ async def drawing_critique(
     the applied layer set, title block and block members exempt, other layers at info;
     lineweight -3 is Default, not ByLayer. dimension_truth binds every DIMENSION to its
     geometry and reports, per dimension, dim_override_disagrees (NTS: info),
-    dim_dimlfac_scaled, dim_render_stale (*D block text is not what the style formats;
+    dim_dimlfac_scaled (one info row per style when the style sets DIMLFAC), dim_render_stale (*D block text is not what the style formats;
     drawing_refine redraws it), dim_group42_stale, dim_double_prefix, dim_value_hidden
     and dim_unbound (info: not checked, never a pass). Refusals and failures are issues, never
     silence: a check that raises returns an `error` issue of its focus with
@@ -9087,11 +9094,12 @@ async def drawing_critique(
     shared: dict = {}
     issues = await _backend(ctx).drawing_critique(focus, shared=shared)
     rows = [_dc(i) for i in issues]
-    if not (report or summary or limit is not None):
+    paged = summary or limit is not None or severity is not None
+    if not (report or paged):
         return rows
     out = (
-        summarize(rows, summary=summary, limit=limit)
-        if summary or limit is not None
+        summarize(rows, summary=summary, limit=limit, min_severity=severity)
+        if paged
         else {"issues": rows}
     )
     if report:
