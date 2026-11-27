@@ -168,6 +168,34 @@ async def test_verbose_restores_the_full_step_result(client):
     assert "properties" in payload
 
 
+async def test_entity_batch_create_reports_only_handles_unless_verbose(client):
+    """Its rows are EntityInfo, so verbose=False (its own or the batch's) keeps only the handles."""
+    entities = [
+        {"type": "line", "x1": 0, "y1": 0, "x2": 10, "y2": 0},
+        {"type": "circle", "cx": 5, "cy": 5, "radius": 2},
+    ]
+    direct = (
+        await client.call_tool("entity_batch_create", {"entities": entities, "verbose": False})
+    ).structured_content
+    batched = await _batch(
+        client,
+        [
+            {"tool": "entity_batch_create", "args": {"entities": entities}, "bind": "made"},
+            {"tool": "entity_get", "args": {"handle": "$made.entities.1.handle"}},
+        ],
+    )
+    step = batched["results"][0]["result"]
+    for payload in (direct, step):
+        assert set(payload) == {"ok", "created", "errors", "handles"}, payload
+        assert payload["created"] == 2 and len(payload["handles"]) == 2
+    # the binding still sees the full result
+    assert batched["results"][1]["result"]["handle"] == step["handles"][1]
+    full = await _batch(
+        client, [{"tool": "entity_batch_create", "args": {"entities": entities}}], verbose=True
+    )
+    assert full["results"][0]["result"]["entities"][1]["type"] == "CIRCLE"
+
+
 async def test_a_result_without_a_handle_is_never_trimmed(client):
     """Compaction only drops what ``entity_get(handle)`` can give back."""
     result = await _batch(client, [{"tool": "drawing_info", "args": {}}])

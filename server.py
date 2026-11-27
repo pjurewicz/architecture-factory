@@ -5975,17 +5975,29 @@ async def _batch_rollback_evidence(
 # ── result compaction ───────────────────────────────────────────────────────
 
 
-def _compact_batch_result(result: Any, verbose: bool) -> Any:
+def _compact_batch_create(result: dict) -> dict:
+    """``entity_batch_create``'s result with its EntityInfo rows as ``handles``."""
+    return {
+        **{key: value for key, value in result.items() if key != "entities"},
+        "handles": [row["handle"] for row in result.get("entities", [])],
+    }
+
+
+def _compact_batch_result(result: Any, verbose: bool, tool: str | None = None) -> Any:
     """Trim a step result to what is not recoverable from the drawing.
 
     A dict carrying a ``handle`` is an EntityInfo (or an insert/copy that
     returns one): every other field of it is one ``entity_get`` away, and
     re-emitting all of them per step gives back exactly the tokens batching
-    just saved. Anything without a handle — a score, a report, a measured
-    value, a point — is kept whole, because nothing else can produce it.
+    just saved. ``entity_batch_create``'s rows are EntityInfo too, so they
+    shrink to ``handles``. Anything else without a handle — a score, a report,
+    a measured value, a point — is kept whole, because nothing else can
+    produce it.
     """
     if verbose or not isinstance(result, dict):
         return result
+    if tool == "entity_batch_create" and "entities" in result:
+        return _compact_batch_create(result)
     handle = result.get("handle", _MISSING)
     if handle is _MISSING:
         return result
@@ -6663,7 +6675,7 @@ async def cad_batch(
                 bindings[plan["_bind"]] = structured
                 row["bind"] = plan["_bind"]
             row["status"] = "ok"
-            row["result"] = _compact_batch_result(structured, verbose)
+            row["result"] = _compact_batch_result(structured, verbose, name)
             log.info("BATCH %d/%d %-38s ok", position + 1, total, name)
             results.append(row)
     except BaseException as exc:
@@ -6849,6 +6861,10 @@ async def entity_batch_create(
             }
         ),
     ],
+    verbose: Annotated[
+        bool,
+        "False: return {ok, created, handles, errors} instead of each entity's full record.",
+    ] = True,
     ctx: Context = None,
 ) -> dict:
     """Create multiple entities in a single call for better performance.
@@ -6896,7 +6912,8 @@ async def entity_batch_create(
     result = await b.entity_batch_create(entities, progress=ctx.report_progress)
     await ctx.report_progress(total, total)
     if not result["errors"]:
-        return {"ok": True, **result}
+        payload = {"ok": True, **result}
+        return payload if verbose else _compact_batch_create(payload)
     # A failed entity fails the call: the ones it created are deleted again,
     # so ok: false never leaves part of the request drawn (and cad_batch,
     # which reads ok: false as a failed step, rolls back the rest).
@@ -6906,7 +6923,7 @@ async def entity_batch_create(
     left = {row["handle"] for row in removed["errors"]}
     first = result["errors"][0]
     outcome = f"{len(left)} created entities could not be removed" if left else "nothing was drawn"
-    return {
+    payload = {
         "ok": False,
         "error": f"{len(result['errors'])} of {total} entities failed (index "
         f"{first['index']}: {first['error']}); {outcome}",
@@ -6915,6 +6932,7 @@ async def entity_batch_create(
         "entities": [row for row in result["entities"] if row["handle"] in left],
         "rolled_back": not left,
     }
+    return payload if verbose else _compact_batch_create(payload)
 
 
 @cad_tool(
