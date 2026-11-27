@@ -84,3 +84,15 @@ item's `size_range` (from `arch_catalogue_list`): the symbol is redrawn for the
 footprint, not scaled, and each footprint is its own block
 (`ARCH_<NAME>_<W>x<D>`) with a `SIZE` attribute `WxDxH`.
 
+## Interior sheets: electrical symbols, legend, title block
+
+Outlets, switches, data / TV / USB, detectors, thermostat, intercom and the
+distribution board are one `arch_electrical` call with every item
+(`[{kind, at, count, height}]`), never hand-made blocks: a wall device snaps
+to the nearest wall face and faces the room, `count` 2 prints `2x` and
+`height` 300 prints `H=30CM`, both kept horizontal. The graphics are a
+declared nominal convention. `arch_legend` then builds the legend from what
+model space uses (blocks and hatch patterns, each with a real sample), and
+`arch_title_block` draws the label / value title block and the numbered
+notes box in a corner of the sheet's frame - `titleblock_apply` stays the
+ISO 7200 block.
