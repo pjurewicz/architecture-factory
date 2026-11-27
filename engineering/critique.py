@@ -709,6 +709,10 @@ from .dimension_truth import check_dimension_truth  # noqa: E402  (imports _reco
 
 _FOCUS_DISPATCH["dimension_truth"] = check_dimension_truth
 
+from .viewport_clip import check_viewport_clip  # noqa: E402  (imports _read_viewports lazily)
+
+_FOCUS_DISPATCH["viewport_clip"] = check_viewport_clip
+
 from .pid.critique import PID_DISPATCH  # noqa: E402  (registered after the mechanical focuses)
 
 _FOCUS_DISPATCH.update(PID_DISPATCH)

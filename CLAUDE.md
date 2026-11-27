@@ -258,7 +258,10 @@ These rules are non-negotiable for production engineering output.
    whose override, DIMLFAC, `*D` block, group 42, prefix or visibility
    disagrees with its geometry or style; only `dim_render_stale` /
    `dim_group42_stale` are repaired automatically, every other code is
-   `manual_required`). Pass `focus=None` for all (it also runs `gdt` and the
+   `manual_required`), `viewport_clip` (a model TEXT / MTEXT / ATTRIB /
+   DIMENSION / MULTILEADER a paper viewport's frame cuts; code
+   `viewport_clips_text`, never repaired automatically). Pass `focus=None` for
+   all (it also runs `gdt` and the
    `pid_*` / `mech_*` / `arch_*` / `topo_*` focuses); every focus and what it
    reports is in `autocad://critique/focuses`. Zero issues is not the whole
    answer: read `qa_coverage` for the lanes that were not checked.

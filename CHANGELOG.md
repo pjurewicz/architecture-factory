@@ -32,6 +32,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `fit_region` with `width` / `height` / `view_center_*`, a zero-area region or
   `margin_mm` without `fit_region` is `invalid_args`; the explicit form is
   unchanged.
+- The `viewport_clip` critique focus (core): for every model viewport of every
+  paper layout, a model-space TEXT, MTEXT, ATTRIB, DIMENSION or MULTILEADER
+  that its frame cuts - partly inside the window, partly outside - is a
+  `viewport_clips_text` warning per viewport, so a view title cut short or a
+  neighbouring view's callout let in no longer critiques clean. Texts are
+  oriented boxes (an MTEXT measured on its lines, not `ezdxf.bbox`, which wraps
+  a widthless MTEXT at every word), the window follows the view twist, and
+  layers frozen in the viewport are skipped. A viewport with a
+  non-rectangular clip is `not_checked` with the new reason
+  `viewport_clip_boundary`.
 - Session tracking in the durable journal: a `sessions` table in
   `journal.sqlite3` keeps one row per MCP session - the client's `initialize`
   (`clientInfo` name / version / full JSON, `protocolVersion`, capabilities),

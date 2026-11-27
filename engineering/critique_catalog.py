@@ -55,6 +55,14 @@ FOCUS_CATALOG: dict[str, tuple[str, str, str | None]] = {
         "(dim_value_hidden); dim_unbound (info) is a dimension not checked",
         None,
     ),
+    "viewport_clip": (
+        "core",
+        "model TEXT / MTEXT / ATTRIB / DIMENSION / MULTILEADER a paper viewport's frame "
+        "cuts - partly inside its window, partly outside (viewport_clips_text)",
+        "silent (domain_absent) on a drawing with no paper layout; a viewport with no view "
+        "height is viewport_scale_deferred, one with a non-rectangular clip "
+        "viewport_clip_boundary",
+    ),
     "gdt": (
         "core",
         "a datum a feature control frame cites with no datum feature",

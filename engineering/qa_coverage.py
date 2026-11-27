@@ -86,6 +86,10 @@ NOT_CHECKED_REASONS: dict[str, str] = {
         "a viewport onto lettered model space has no view height, so its plot scale - and "
         "the plotted text heights on that sheet - cannot be read"
     ),
+    "viewport_clip_boundary": (
+        "a viewport clipped to a non-rectangular boundary: its window is not a rectangle, "
+        "and the viewport_clip lane tests rectangular windows only"
+    ),
     "font_unresolved": (
         "the text style's font file could not be found, so its glyphs cannot be checked "
         "(reserved: the missing-glyph lane ships in 1.8.1)"
