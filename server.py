@@ -2888,12 +2888,13 @@ async def entity_create_mtext(
         str | None,
         "Attachment point at (x, y): top|middle|bottom _ left|center|right (default top_left)",
     ] = None,
+    layout: Annotated[str, Field(default="", description="Layout name; '' = current space.")] = "",
     ctx: Context = None,
 ) -> dict:
     """Create a multi-line text entity (MTEXT) with word-wrap at the specified width."""
     await ctx.debug(f"Creating mtext at ({x},{y}) w={width}")
     result = await _backend(ctx).entity_create_mtext(
-        text, x, y, width, height, rotation, layer, color, align=align
+        text, x, y, width, height, rotation, layer, color, align=align, layout=layout or None
     )
     return _dc(result)
 
@@ -2916,11 +2917,21 @@ async def entity_create_table(
     text_height: Annotated[float, Field(default=2.5, gt=0)] = 2.5,
     title: Annotated[str | None, "Optional title row"] = None,
     layer: Annotated[str, "Target layer"] = "TEXT",
+    layout: Annotated[str, Field(default="", description="Layout name; '' = current space.")] = "",
     ctx: Context = None,
 ) -> dict:
     """Create a table as an explicitly-labelled composite (lines and text)."""
     result = await _backend(ctx).entity_create_table(
-        x, y, rows, headers, column_widths, row_height, text_height, title, layer
+        x,
+        y,
+        rows,
+        headers,
+        column_widths,
+        row_height,
+        text_height,
+        title,
+        layer,
+        layout=layout or None,
     )
     return _dc(result)
 
@@ -4380,6 +4391,7 @@ async def entity_list(
     offset: Annotated[int, Field(description="Number of entities to skip", ge=0)] = 0,
     fields: ResultFields = None,
     compact: ResultCompact = False,
+    handles: Annotated[list[str] | None, "Only these handles (any space)"] = None,
     ctx: Context = None,
 ) -> list[dict] | dict:
     """List entities in the drawing with optional type and layer filters.
@@ -4404,12 +4416,12 @@ async def entity_list(
         )
     await ctx.info(f"Listing entities type={type_filter} layer={layer_filter} limit={capped}")
     b = _backend(ctx)
-    result = await b.entity_list(type_filter, layer_filter, capped, offset)
+    result = await b.entity_list(type_filter, layer_filter, capped, offset, handles=handles)
     total = None
     if compact:
         # Only counted when there is a field to report it in; the default path
         # must not grow a second full pass over the drawing.
-        total = await b.entity_count(type_filter, layer_filter)
+        total = await b.entity_count(type_filter, layer_filter, handles=handles)
     elif len(result) >= capped:
         # A full page is the one case where the plain list is indistinguishable
         # from a complete answer. The value cannot say so without breaking the

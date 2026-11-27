@@ -177,13 +177,18 @@ class EntityQueryContract(ABC):
         layer_filter: str | None = None,
         limit: int = 200,
         offset: int = 0,
-    ) -> list[EntityInfo]: ...
+        handles: list[str] | None = None,
+    ) -> list[EntityInfo]:
+        """``handles``: only those entities, in that order, in any space; an
+        unknown one refuses the call (``unknown_handle``)."""
+        ...
 
     @abstractmethod
     async def entity_count(
         self,
         type_filter: str | None = None,
         layer_filter: str | None = None,
+        handles: list[str] | None = None,
     ) -> int:
         """How many entities ``entity_list`` would match, ignoring limit/offset.
 

@@ -142,3 +142,21 @@ async def test_server_registers_table_and_mleader_tools():
     names = {tool.name for tool in await server._registered_tools()}
     assert "entity_create_table" in names
     assert "leader_create_mleader" in names
+
+
+async def test_table_and_mtext_draw_on_a_named_layout_without_switching(backend):
+    await backend.layout_create("S")
+    sheet = backend._doc.layouts.get("S")
+    table = await backend.entity_create_table(0, 50, rows=[["A", "1"]], layout="s")
+    note = await backend.entity_create_mtext("NOTE", 5, 5, layout="S")
+    on_sheet = {e.dxf.handle for e in sheet}
+    assert set(table.properties["child_handles"]) <= on_sheet
+    assert note.handle in on_sheet
+    assert backend._current_space == "Model", "the current layout is not switched"
+    assert not list(backend._doc.modelspace())
+    model_note = await backend.entity_create_mtext("M", 0, 0)
+    assert model_note.handle in {e.dxf.handle for e in backend._doc.modelspace()}
+    from engineering.errors import InvalidArgsError
+
+    with pytest.raises(InvalidArgsError, match="layout 'NOPE' does not exist"):
+        await backend.entity_create_table(0, 0, rows=[["x"]], layout="NOPE")

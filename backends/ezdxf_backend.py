@@ -30,7 +30,12 @@ from typing import Any
 
 import config
 from engineering import measure
-from engineering.errors import DimensionRenderError, EntityNotFoundError, InvalidArgsError
+from engineering.errors import (
+    DimensionRenderError,
+    EntityNotFoundError,
+    InvalidArgsError,
+    UnknownHandleError,
+)
 from engineering.viewport_clip import mtext_box
 
 from . import dwg_read, lineage, ocs
@@ -2541,6 +2546,20 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             )
             self._current_space = "Model"
             return doc.modelspace()
+
+    def _space(self, layout, tool: str):
+        """The space ``layout`` names (falsy: the current one, ``_msp``), so a
+        create call can draw on a sheet without ``layout_set_current``."""
+        if not layout:
+            return self._msp()
+        doc = self._require_doc()
+        name = self._find_layout(layout)
+        if name is None:
+            raise InvalidArgsError(
+                f"invalid_args: {tool}: layout {layout!r} does not exist "
+                f"(have: {', '.join(doc.layouts.names())})"
+            )
+        return doc.modelspace() if name == "Model" else doc.layouts.get(name)
 
     @staticmethod
     def _busy_error(timeout: float) -> RuntimeError:
@@ -6119,12 +6138,12 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         layer=None,
         color=None,
         align=None,
+        layout=None,
     ) -> EntityInfo:
         align = parse_text_align(align, "mtext")
 
         def _sync():
-            msp = self._msp()
-            ent = msp.add_mtext(
+            ent = self._space(layout, "entity_create_mtext").add_mtext(
                 text,
                 dxfattribs={
                     "style": _current_textstyle_name(self._require_doc()),
@@ -6155,23 +6174,24 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         title=None,
         layer="TEXT",
         xdata=None,
+        layout=None,
     ) -> EntityInfo:
         from engineering.annotation import prepare_table_layout
 
         prepared = prepare_xdata(xdata)
-        layout = prepare_table_layout(rows, headers, column_widths, row_height, text_height, title)
+        grid = prepare_table_layout(rows, headers, column_widths, row_height, text_height, title)
 
         def _sync():
-            msp = self._msp()
+            msp = self._space(layout, "entity_create_table")
             children = []
             x0, y0 = float(x), float(y)
             x_positions = [x0]
-            for width in layout.column_widths:
+            for width in grid.column_widths:
                 x_positions.append(x_positions[-1] + width)
 
-            for row_index in range(layout.row_count + 1):
-                yy = y0 - layout.row_top(row_index)
-                line = msp.add_line((x0, yy), (x0 + layout.width, yy))
+            for row_index in range(grid.row_count + 1):
+                yy = y0 - grid.row_top(row_index)
+                line = msp.add_line((x0, yy), (x0 + grid.width, yy))
                 self._apply_attrs(line, layer, None)
                 children.append(line)
             last = len(x_positions) - 1
@@ -6179,8 +6199,8 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 # a title row is merged, as AutoCAD's TABLE draws it: only the
                 # outer edges cross it
                 inner = 0 < index < last
-                top = y0 - layout.row_heights[0] if layout.title_row and inner else y0
-                line = msp.add_line((xx, top), (xx, y0 - layout.height))
+                top = y0 - grid.row_heights[0] if grid.title_row and inner else y0
+                line = msp.add_line((xx, top), (xx, y0 - grid.height))
                 self._apply_attrs(line, layer, None)
                 children.append(line)
 
@@ -6188,21 +6208,21 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             # text, 50 on a 1:50 schedule (a flat 1.0 there is 0.02 mm on the
             # sheet and the text sat on the cell line); a cell too long for its
             # column wraps and `prepare_table_layout` grows its row
-            padding = layout.padding
-            for row_index, row in enumerate(layout.cells):
+            padding = grid.padding
+            for row_index, row in enumerate(grid.cells):
                 for column_index, value in enumerate(row):
                     if not value:
                         continue
                     text_entity = msp.add_mtext(
                         value,
                         dxfattribs={
-                            "char_height": layout.text_height,
-                            "width": max(1.0, layout.span(row_index, column_index) - 2 * padding),
+                            "char_height": grid.text_height,
+                            "width": max(1.0, grid.span(row_index, column_index) - 2 * padding),
                         },
                     )
                     text_entity.dxf.insert = (
                         x_positions[column_index] + padding,
-                        y0 - layout.row_top(row_index) - padding,
+                        y0 - grid.row_top(row_index) - padding,
                         0.0,
                     )
                     self._apply_attrs(text_entity, layer, None)
@@ -6225,13 +6245,13 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     "representation": "composite",
                     "logical_group_id": group_id,
                     "child_handles": child_handles,
-                    "rows": layout.row_count,
-                    "columns": layout.column_count,
-                    "column_widths": list(layout.column_widths),
-                    "text_fit": layout.fitted,
+                    "rows": grid.row_count,
+                    "columns": grid.column_count,
+                    "column_widths": list(grid.column_widths),
+                    "text_fit": grid.fitted,
                     "bounds": {
-                        "min": [x0, y0 - layout.height],
-                        "max": [x0 + layout.width, y0],
+                        "min": [x0, y0 - grid.height],
+                        "max": [x0 + grid.width, y0],
                     },
                 },
             )
@@ -6353,16 +6373,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
 
         def _sync():
             doc = self._require_doc()
-            if layout:
-                name = self._find_layout(layout)
-                if name is None:
-                    raise InvalidArgsError(
-                        f"invalid_args: callout: layout {layout!r} does not exist "
-                        f"(have: {', '.join(doc.layouts.names())})"
-                    )
-                space = doc.modelspace() if name == "Model" else doc.layouts.get(name)
-            else:
-                space = self._msp()
+            space = self._space(layout, "callout")
             if layer not in doc.layers:
                 doc.layers.add(layer)
             attribs = {"layer": layer}
@@ -8135,18 +8146,42 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
 
         return await self._async(_sync, readonly=True)
 
+    def _listed(self, handles):
+        """What ``entity_list`` walks: the current space, or with ``handles``
+        exactly those entities in the caller's order, in any space. A handle
+        the document does not hold refuses the call (``unknown_handle``)."""
+        if handles is None:
+            return self._msp()
+        db = self._require_doc().entitydb
+        wanted: dict[str, int] = {}  # handle -> index of its first mention
+        for index, handle in enumerate(handles):
+            wanted.setdefault(str(handle).upper(), index)
+        found = [db.get(h) for h in wanted]
+        missing = [
+            {"handle": h, "index": i}
+            for (h, i), ent in zip(wanted.items(), found, strict=True)
+            if ent is None or not ent.is_alive
+        ]
+        if missing:
+            raise UnknownHandleError(
+                f"unknown_handle: entity_list: {', '.join(m['handle'] for m in missing)} "
+                "not in the drawing",
+                missing=missing,
+            )
+        return found
+
     async def entity_list(
         self,
         type_filter=None,
         layer_filter=None,
         limit=200,
         offset=0,
+        handles=None,
     ) -> list[EntityInfo]:
         def _sync():
-            msp = self._msp()
             results = []
             skipped = 0
-            for ent in msp:
+            for ent in self._listed(handles):
                 ent_type = ent.dxftype()
                 ent_layer = ent.dxf.get("layer", "0")
                 if type_filter and type_filter.upper() != ent_type.upper():
@@ -8163,7 +8198,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
 
         return await self._async(_sync, readonly=True)
 
-    async def entity_count(self, type_filter=None, layer_filter=None) -> int:
+    async def entity_count(self, type_filter=None, layer_filter=None, handles=None) -> int:
         # Deliberately a mirror of entity_list's filter arms rather than a call
         # into it: the whole value of the count is that it never constructs an
         # EntityInfo (bounding-box extents alone are the expensive part). The
@@ -8171,9 +8206,8 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         # above so `total` can never be measured against a different set than
         # the page it describes.
         def _sync():
-            msp = self._msp()
             count = 0
-            for ent in msp:
+            for ent in self._listed(handles):
                 if type_filter and type_filter.upper() != ent.dxftype().upper():
                     continue
                 if layer_filter and layer_filter.lower() != ent.dxf.get("layer", "0").lower():

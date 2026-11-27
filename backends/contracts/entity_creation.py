@@ -208,9 +208,11 @@ class EntityCreationContract(ABC):
         layer: str | None = None,
         color: int | None = None,
         align: str | None = None,
+        layout: str | None = None,
     ) -> EntityInfo:
         """``align``: a ``backends.base.MTEXT_ALIGN`` attachment (``top_left``
-        default); (x, y) is that corner of the text box."""
+        default); (x, y) is that corner of the text box. ``layout`` (None: the
+        current space) draws on that layout without switching to it."""
         ...
 
     @abstractmethod
@@ -226,10 +228,11 @@ class EntityCreationContract(ABC):
         title: str | None = None,
         layer: str = "TEXT",
         xdata: dict[str, list] | None = None,
+        layout: str | None = None,
     ) -> EntityInfo:
         """``xdata`` (v1.8.0) is written in the create call, on every child of
         the composite (its lines and cell texts), so a reader finds all of the table by its tag rather than
-        only the handle the result names."""
+        only the handle the result names. ``layout`` as ``entity_create_mtext``."""
         ...
 
     @abstractmethod

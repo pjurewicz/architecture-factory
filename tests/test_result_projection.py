@@ -485,3 +485,31 @@ async def test_entity_count_never_materialises_the_rows(backend, monkeypatch):
     monkeypatch.setattr(backend, "entity_list", _forbidden)
     await backend.entity_create_circle(0.0, 0.0, 1.0)
     assert await backend.entity_count() == 1
+
+
+async def test_entity_list_handles_returns_only_those_in_any_space(client):
+    await _draw(client, circles=3, lines=3)
+    await client.call_tool("layout_create", {"name": "S"})
+    sheet = (
+        await client.call_tool(
+            "entity_create_mtext", {"text": "ON SHEET", "x": 5, "y": 5, "layout": "S"}
+        )
+    ).structured_content
+    every = _rows(await client.call_tool("entity_list", {"fields": ["handle", "type"]}))
+    line = next(r["handle"] for r in every if r["type"] == "LINE")
+    wanted = [sheet["handle"], line.lower(), line]  # order kept, case and repeats folded
+    rows = _rows(await client.call_tool("entity_list", {"handles": wanted, "fields": ["handle"]}))
+    assert [r["handle"] for r in rows] == [sheet["handle"], line]
+    envelope = _rows(
+        await client.call_tool(
+            "entity_list",
+            {"handles": wanted, "type_filter": "LINE", "compact": True, "fields": ["handle"]},
+        )
+    )
+    assert (envelope["count"], envelope["total"]) == (1, 1), "filters still apply"
+    refused = await client.call_tool(
+        "entity_list", {"handles": [line, "FFFFF"]}, raise_on_error=False
+    )
+    assert refused.is_error
+    assert refused.structured_content["kind"] == "unknown_handle"
+    assert refused.structured_content["handles"] == ["FFFFF"]
