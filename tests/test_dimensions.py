@@ -120,3 +120,25 @@ async def test_an_off_axis_diameter_is_measured_from_its_own_chord(backend):
 
     dim = backend._doc.entitydb.get(info.handle)
     assert dim.get_measurement() == pytest.approx(50.0)
+
+
+@pytest.mark.parametrize("side", [1, -1])
+async def test_dimension_aligned_line_passes_through_the_given_point(backend, side):
+    # P1 -> P2 is 100 long along (0.6, 0.8); its left normal is (-0.8, 0.6). The
+    # point 15 to one side of the midpoint puts the dimension line 15 off the
+    # segment, not at the point's distance from P1 (hypot(18, 49) = 52.2).
+    dim_x, dim_y = 40 - side * 12, 60 + side * 9
+    info = await backend.dimension_aligned(10, 20, 70, 100, dim_x, dim_y)
+    props = info.properties
+    assert props["defpoint"] == pytest.approx([10 - side * 12, 20 + side * 9])
+    assert props["offset"] == pytest.approx(side * 15)
+    assert props["measurement"] == pytest.approx(100)
+    assert props["text"] == "100"
+
+
+async def test_dimension_linear_reports_the_rounded_text(backend):
+    await backend.system_set_variable("DIMDEC", 0)
+    info = await backend.dimension_linear(0, 0, 132.5, 0, 50, -20, rotation=0)
+    assert info.properties["measurement"] == pytest.approx(132.5)
+    assert info.properties["text"] in ("132", "133")  # what the sheet shows, not the value
+    assert info.properties["offset"] == pytest.approx(-20)

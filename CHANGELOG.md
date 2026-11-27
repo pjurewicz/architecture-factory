@@ -300,6 +300,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `dimension_aligned` put the dimension line at the point's distance from the
+  first point instead of through the point: a `dim_x, dim_y` on the measured
+  segment drew the line 37.6 units beside it. The line now passes through the
+  point (its signed perpendicular distance, + left of first -> second);
+  coincident points are `invalid_args`. `dimension_linear` and
+  `dimension_aligned` also return what they drew: `measurement`, the rendered
+  `text` (after DIMDEC rounding) and the line's signed `offset` beside
+  `defpoint`.
+
 - `drawing_finalize` reported the `±0.00` that `arch_symbol(kind="level")`
   and `interior_wall_elevation`'s level marks write as `fake_dimension_text`
   (-8 points), as it did a feature control frame's `⌀0.05` (`gd_frame`), a

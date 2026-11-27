@@ -1566,6 +1566,28 @@ def _paper_space_of(ent) -> str | None:
         return None
 
 
+def _dimension_drawn(ent, x1, y1) -> EntityInfo:
+    """A drawn linear / aligned DIMENSION's row plus what it shows.
+
+    ``measurement`` is the measured value, ``text`` the rendered text of its
+    ``*D`` block (what the sheet displays, after DIMDEC rounding), ``offset``
+    the signed distance of the dimension line (``defpoint``) from the first
+    point, + to the left of the measured direction.
+    """
+    from backends.entity_fields import dimension_rendered
+
+    info = _entity_info_dxf(ent)
+    angle = math.radians(float(ent.dxf.get("angle", 0.0)))
+    base = ent.dxf.defpoint
+    info.properties["measurement"] = round(float(ent.get_measurement()), 9)
+    info.properties["text"] = dimension_rendered(ent)[0]
+    offset = (float(base.y) - float(y1)) * math.cos(angle) - (float(base.x) - float(x1)) * math.sin(
+        angle
+    )
+    info.properties["offset"] = round(offset, 9) + 0.0  # never -0.0
+    return info
+
+
 def _entity_info_dxf(ent, *, detail: bool = False) -> EntityInfo:
     """Convert an ezdxf entity to EntityInfo. Coordinates out are always WCS.
 
@@ -7160,7 +7182,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 _dim_block_ltscale(self._require_doc(), ent)
             self._attach_xdata(ent, prepared)
             self._mark_dirty()
-            return _entity_info_dxf(ent)
+            return _dimension_drawn(ent, x1, y1)
 
         return await self._async(_sync)
 
@@ -7178,13 +7200,21 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         prepared = prepare_xdata(xdata)
 
         def _sync():
+            from engineering.errors import InvalidArgsError
+
+            dx, dy = float(x2) - float(x1), float(y2) - float(y1)
+            length = math.hypot(dx, dy)
+            if length < 1e-9:
+                raise InvalidArgsError("invalid_args: the two points coincide")
+            # The dimension line passes through (dim_x, dim_y): its signed
+            # distance from the line P1-P2, + to the left of P1 -> P2 (ezdxf's
+            # `orthogonal()` side), not its distance from P1.
+            distance = (dx * (float(dim_y) - float(y1)) - dy * (float(dim_x) - float(x1))) / length
             msp = self._msp()
             dim = msp.add_aligned_dim(
                 p1=(float(x1), float(y1)),
                 p2=(float(x2), float(y2)),
-                distance=math.sqrt(
-                    (float(dim_x) - float(x1)) ** 2 + (float(dim_y) - float(y1)) ** 2
-                ),
+                distance=distance,
                 dimstyle=_current_dimstyle_name(self._require_doc()),
                 override=_with_header_dimvars(self._require_doc(), None),
             )
@@ -7193,7 +7223,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             ent.dxf.layer = self._layer_for(layer, own="DIM")
             self._attach_xdata(ent, prepared)
             self._mark_dirty()
-            return _entity_info_dxf(ent)
+            return _dimension_drawn(ent, x1, y1)
 
         return await self._async(_sync)
 

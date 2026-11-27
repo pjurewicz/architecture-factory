@@ -3352,7 +3352,8 @@ async def dimension_linear(
     ] = None,
     ctx: Context = None,
 ) -> dict:
-    """Create a linear dimension, optionally toleranced (ISO 129 or ISO 286 fit)."""
+    """Create a linear dimension, optionally toleranced (ISO 129 or ISO 286 fit).
+    Returns `measurement`, the shown `text` and the line's signed `offset`."""
     from backends.contracts.dimensions import linear_rotation
 
     rotation = linear_rotation(x1, y1, x2, y2, dim_x, dim_y, rotation)
@@ -3389,12 +3390,13 @@ async def dimension_aligned(
     y1: Annotated[float, "First point Y"],
     x2: Annotated[float, "Second point X"],
     y2: Annotated[float, "Second point Y"],
-    dim_x: Annotated[float, "Dimension line position X"],
-    dim_y: Annotated[float, "Dimension line position Y"],
+    dim_x: Annotated[float, "A point the dimension line passes through, X"],
+    dim_y: Annotated[float, "A point the dimension line passes through, Y"],
     layer: Annotated[str | None, "Layer name"] = None,
     ctx: Context = None,
 ) -> dict:
-    """Create an aligned dimension that measures the true distance between two points."""
+    """Create an aligned dimension that measures the true distance between two points.
+    Returns `measurement`, the shown `text` and the line's signed `offset`."""
     result = await _backend(ctx).dimension_aligned(x1, y1, x2, y2, dim_x, dim_y, layer)
     return _dc(result)
 
