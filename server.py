@@ -2985,21 +2985,15 @@ async def leader_create_mleader(
     landing_gap: Annotated[float, Field(default=1.0, ge=0)] = 1.0,
     arrow_size: Annotated[float, Field(default=2.5, gt=0)] = 2.5,
     layer: Annotated[str, "Target layer"] = "DIM",
-    arrow: Annotated[
-        Literal["closed", "dot", "none"], "Head at the first point; none: a plain line"
-    ] = "closed",
+    arrow: Literal["closed", "dot", "none"] = "closed",
     text_side: Annotated[
-        Literal["auto", "left", "right"],
-        "Text beside the last point; auto: the way the last segment points (left: right-aligned)",
+        Literal["auto", "left", "right"], "auto: as the last segment points"
     ] = "auto",
-    color: Annotated[int | None, "ACI colour of the whole leader; default ByLayer"] = None,
-    text_width: Annotated[float | None, Field(default=None, gt=0, description="Wrap width")] = None,
+    color: Annotated[int | None, "ACI; default ByLayer"] = None,
+    text_width: Annotated[float | None, Field(default=None, gt=0)] = None,
     ctx: Context = None,
 ) -> dict:
-    """A leader with its note as one call: polyline from the first point (the
-    head: closed arrow, dot or none) through the others, MTEXT beside the last
-    point, its mid-height on the landing. Returned as a composite: the
-    handles of every part in `child_handles`."""
+    """Leader polyline (head at the first point) and MTEXT beside the last; parts in `child_handles`."""
     result = await _backend(ctx).leader_create_mleader(
         points,
         text,
@@ -3651,14 +3645,13 @@ async def dimension_chain(
     ] = None,
     style: Annotated[
         str | None,
-        Field(default=None, description="Dimension style for this chain; the current stays"),
+        Field(default=None, description="Dimension style; the current one stays"),
     ] = None,
     texts: Annotated[
         dict[str, str] | None,
         Field(
             default=None,
-            description="Text per row: {'0': 'BATERIA= OŚ WANNY <>', 'overall': ...}; row 0 is "
-            "the first span (after merge_repeats), <> the measured value",
+            description="Row text: {'0': 'OŚ <>', 'overall': ...}; <> = the value",
         ),
     ] = None,
     ctx: Context = None,
@@ -7664,9 +7657,8 @@ async def view_screenshot(
     ] = 1568,
     overlay_image: Annotated[
         str | None,
-        "Scan or photo (PNG/JPG/TIFF; rasterise a PDF page first) on the server, drawn "
-        "under the CAD lines, to compare a redraw with its source (a local file: "
-        "file_upload_url first). Needs overlay_align, or layout (fitted page to page).",
+        "Scan (PNG/JPG/TIFF; a PDF: rasterise first) on the server, under the CAD lines "
+        "(local file: file_upload_url first). Needs overlay_align or layout.",
     ] = None,
     overlay_align: Annotated[
         list[list[float]] | None,
@@ -7675,9 +7667,7 @@ async def view_screenshot(
         "rotation and shift.",
     ] = None,
     layout: Annotated[
-        str | None,
-        "A paper layout drawn exactly as drawing_export_pdf plots it (its paper, plot "
-        "style, lineweights at paper size); region is then in paper units.",
+        str | None, "Paper layout drawn as drawing_export_pdf plots it; region in paper units"
     ] = None,
     overlay_opacity: Annotated[
         float, Field(description="Opacity of the scan, 0-1.", ge=0, le=1)
@@ -7710,9 +7700,7 @@ async def view_screenshot(
     the report's `overlay` gives its `units_per_px`, `rotation_deg` and
     `bounds`. Without a region the framing covers the scan too.
 
-    With `layout` the sheet is the PDF's own figure as a PNG - check a sheet
-    before exporting it. A scan there needs no `overlay_align`: it is scaled
-    to fit the paper and centred (`overlay.fit: "page"`, `aspect_delta_pct`).
+    With `layout` a scan needs no `overlay_align`: it is fitted to the paper.
 
     Returns an Image content block with the PNG data, then the report as JSON.
     """
@@ -9141,19 +9129,15 @@ async def drawing_critique(
         ),
     ] = None,
     severity: Annotated[
-        Literal["error", "warning", "info"] | None,
-        "Rows at least this severe (error: errors only); counts stay complete. Implies the "
-        "{total, ...} form.",
+        Literal["error", "warning", "info"] | None, "Only rows this severe or worse"
     ] = None,
     ctx: Context = None,
 ) -> list[dict] | dict:
     """Run premium-quality checks. Returns zero issues for a clean drawing.
 
     Standard production gate: must return [] before `drawing_finalize`. The default
-    result is the bare list of issues; `report`, `summary`, `limit` or `severity` return
-    a dict instead (a summary is a page, never the clean answer: read `total`). Its
-    rows come worst first; with `summary` one row per focus, severity and code carries
-    `count` and the first handles.
+    result is the bare list; `report`, `summary`, `limit` or `severity` return a dict
+    (read `total`), rows worst first, with `summary` one row per code with `count`.
 
     The entity checks (construction_left, untrimmed_corner, duplicate_entities,
     dim_overlap, property_override) read every entity of every space - model and every
@@ -9163,7 +9147,7 @@ async def drawing_critique(
     the applied layer set, title block and block members exempt, other layers at info;
     lineweight -3 is Default, not ByLayer. dimension_truth binds every DIMENSION to its
     geometry and reports, per dimension, dim_override_disagrees (NTS: info),
-    dim_dimlfac_scaled (one info row per style when the style sets DIMLFAC), dim_render_stale (*D block text is not what the style formats;
+    dim_dimlfac_scaled (a style's DIMLFAC: one info row), dim_render_stale (*D block text is not what the style formats;
     drawing_refine redraws it), dim_group42_stale, dim_double_prefix, dim_value_hidden
     and dim_unbound (info: not checked, never a pass). Refusals and failures are issues, never
     silence: a check that raises returns an `error` issue of its focus with
@@ -10472,15 +10456,13 @@ async def dimstyle_create(
 ) -> dict:
     """Create a dimension style: preset values first, then `overrides`.
 
-    Writes 34 variables: DIMTXT DIMASZ DIMEXE DIMEXO DIMGAP DIMTAD DIMTIH
-    DIMTOH DIMDEC DIMDSEP DIMLUNIT DIMZIN DIMBLK DIMTXSTY DIMLWD DIMLWE
-    DIMSCALE (every preset sets these) and DIMTOL DIMTP DIMTM DIMTOLJ DIMTFAC
-    DIMLFAC DIMRND DIMATFIT DIMTMOVE DIMCLRD/E/T DIMSAH DIMBLK1/2 DIMCEN
-    DIMDLE (dimension line past the extension lines, with tick arrowheads).
-    `values` reports the 17 plus every one written.
+    Keys: DIMTXT ASZ EXE EXO GAP TAD TIH TOH DEC DSEP LUNIT ZIN BLK TXSTY LWD
+    LWE SCALE (the presets'), TOL TP TM TOLJ TFAC LFAC RND ATFIT TMOVE CLRD
+    CLRE CLRT SAH BLK1 BLK2 CEN DLE (all DIM-prefixed). `values`: the 17 plus
+    every one written.
 
-    Refuses as `invalid_args`, before anything is written (in `cad_batch`
-    before step 1): an unknown preset; any other key; a value outside its range
+    Refuses as `invalid_args` before any write (in `cad_batch` before step 1):
+    an unknown preset or key; a value outside its range
     (DIMDEC 0-8, sizes > 0, DIMTAD 0-4, DIMDSEP one character, lineweights an
     AutoCAD code); a name that already exists (use `dimstyle_modify`); a
     user DIMBLK/DIMBLK1/DIMBLK2 naming a block the drawing does not define
