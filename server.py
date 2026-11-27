@@ -2413,8 +2413,9 @@ async def drawing_save(
     - `.dwg` path: a real DWG through the ODA File Converter (capability
       `dwg_write` when it is absent), always a copy - the document stays DXF.
 
-    The write is atomic: a temporary file beside the target, checked, then
-    renamed over it. Refused before writing: copy=True without path, version
+    A missing parent folder inside the allowed paths is created. The write is
+    atomic: a temporary file beside the target, checked, then renamed over it.
+    Refused before writing (and before any folder is created): copy=True without path, version
     with a non-.dwg path, a .dwt (capability `dwt_write`: save a .dxf template),
     and a recovered document onto its damaged source (`recovered_source_protected`)
     unless overwrite_source=True.
@@ -2426,11 +2427,19 @@ async def drawing_save(
 
     if copy and path is None:
         raise InvalidArgsError("invalid_args: copy=True requires path")
-    if path is not None:
-        path = str(validate_path(path, allow_write=True, kinds=KINDS_DRAWING))
     suffix = _P(path).suffix.lower() if path is not None else ""
     if version is not None and suffix != ".dwg":
         raise InvalidArgsError(f"invalid_args: version is for a .dwg path only, got {path!r}")
+    if suffix == ".dwt":
+        raise UnsupportedCapabilityError(
+            "dwt_write",
+            "drawing_save: a .dwt is a DWG container and the headless engine has no DWT "
+            f"writer. Save the template as .dxf instead (drawing_new(template="
+            f"'{_P(path).stem}.dxf') opens it).",
+        )
+    if path is not None:
+        # Every refusal above runs first, so a refused save creates no folder.
+        path = str(validate_path(path, allow_write=True, kinds=KINDS_DRAWING, create_parents=True))
     b = _backend(ctx)
     await ctx.info(f"Saving drawing{f' to {path}' if path else ''}{' (copy)' if copy else ''}")
     if suffix == ".dwg":
@@ -2439,13 +2448,6 @@ async def drawing_save(
         except ValueError as exc:  # an unknown version, named with the six
             raise InvalidArgsError(f"invalid_args: {exc}") from exc
         result.setdefault("repointed", False)
-    elif suffix == ".dwt":
-        raise UnsupportedCapabilityError(
-            "dwt_write",
-            "drawing_save: a .dwt is a DWG container and the headless engine has no DWT "
-            f"writer. Save the template as .dxf instead (drawing_new(template="
-            f"'{_P(path).stem}.dxf') opens it).",
-        )
     elif copy:
         result = await b.drawing_export_dxf(path)
     elif overwrite_source:

@@ -109,3 +109,35 @@ async def test_drawing_save_routes_by_path_copy_and_extension(monkeypatch, tmp_p
         assert not error and payload["repointed"] is False
         assert dwg_calls == [(str(tmp_path / "c.dwg"), "R2013")]
         assert await where() == (str(a), False)  # a DWG is always a copy
+
+
+@pytest.mark.asyncio
+async def test_drawing_save_creates_missing_folders_only_inside_the_allowed_paths(
+    monkeypatch, tmp_path
+):
+    from fastmcp import Client
+
+    import config
+    import server
+
+    allowed = tmp_path / "work"
+    allowed.mkdir()
+    monkeypatch.setattr(config.settings, "allowed_paths", [allowed.resolve()])
+    async with Client(server.mcp) as client:
+        await client.call_tool("drawing_new", {})
+        await client.call_tool("entity_create_circle", {"cx": 0, "cy": 0, "radius": 20})
+
+        async def save(**args):
+            result = await client.call_tool("drawing_save", args, raise_on_error=False)
+            return result.is_error, result.structured_content
+
+        target = allowed / "a" / "b" / "part.dxf"
+        assert not (await save(path=str(target), copy=True))[0]
+        assert ezdxf.readfile(target).modelspace().query("CIRCLE")
+
+        error, payload = await save(path=str(tmp_path / "elsewhere" / "part.dxf"))
+        assert error and payload["kind"] == "path_refused"
+        assert not (tmp_path / "elsewhere").exists()
+
+        error, _ = await save(path=str(allowed / "tpl" / "t.dwt"))
+        assert error and not (allowed / "tpl").exists()

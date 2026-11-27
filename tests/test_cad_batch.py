@@ -827,7 +827,7 @@ async def test_a_missing_handle_is_typed_as_not_found(client):
 async def test_a_deliberate_tool_refusal_is_typed_as_refused(client, tmp_path):
     result = await _batch(
         client,
-        [{"tool": "drawing_save", "args": {"path": str(tmp_path / "no" / "part.dxf")}}],
+        [{"tool": "drawing_export_pdf", "args": {"path": str(tmp_path / "no" / "part.pdf")}}],
         on_error="continue",
     )
     assert result["results"][0]["error"]["kind"] == "refused"

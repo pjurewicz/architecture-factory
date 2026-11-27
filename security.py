@@ -175,7 +175,9 @@ def _check_write_target(original: str, resolved: Path, kinds) -> None:
         )
 
 
-def validate_path(path: str, *, allow_write: bool = False, kinds=None) -> Path:
+def validate_path(
+    path: str, *, allow_write: bool = False, kinds=None, create_parents: bool = False
+) -> Path:
     """Resolve and validate a file path against security rules.
 
     Raises ToolError if:
@@ -193,6 +195,10 @@ def validate_path(path: str, *, allow_write: bool = False, kinds=None) -> Path:
       - ``kinds`` (the writer's extension set, e.g. ``(".pdf",)``, or
         :data:`DIRECTORY`) does not admit the name - kind ``path_refused``.
         Every writer passes its ``kinds`` (``tests/test_write_path_policy.py``).
+
+    A write target's missing parent directory is refused, unless
+    ``create_parents=True``: then it is created (``mkdir(parents=True)``, as
+    ``batch_plot`` creates its folder), only after every check above passed.
     """
     if not path or not path.strip():
         raise ToolError("File path cannot be empty.")
@@ -259,6 +265,13 @@ def validate_path(path: str, *, allow_write: bool = False, kinds=None) -> Path:
         check_write(resolved)
         _check_write_target(path, resolved, kinds)
         parent = resolved.parent
+        if create_parents and not parent.exists():
+            try:
+                parent.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                raise ToolError(
+                    f"Cannot create the parent directory '{parent}': {exc.strerror or exc}."
+                ) from exc
         if not parent.exists():
             raise ToolError(
                 f"Parent directory does not exist: '{parent}'. "

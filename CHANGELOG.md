@@ -63,7 +63,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   requires a path, else `invalid_args`), a `.dwg` path writes a real DWG
   through the ODA File Converter and never re-points (`version` is DWG-only:
   with any other path it is `invalid_args`), and a `.dwt` is refused
-  `dwt_write` (a template is a `.dxf`).
+  `dwt_write` (a template is a `.dxf`). A missing parent folder inside the
+  allowed paths is created, as `batch_plot` creates its folder; a refused
+  save creates none.
 - `document_close` is a core and lean tool (it was `settings`-pack): with no
   `name_or_path` it closes the active document, and it never drops unsaved
   work unless `discard=True`. `lean` is 64 tools (54 with `TOOL_PACKS=core`).
