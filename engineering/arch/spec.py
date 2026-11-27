@@ -190,7 +190,7 @@ def _room_item_schema(schema: dict) -> dict:
     props = dict(schema["properties"])
     props["align"] = {"type": "string", "enum": list(_rooms.ALIGNS), "default": "left"}
     props["fit"] = {"type": "boolean", "default": False}
-    props["mask"] = {"type": "boolean", "default": True}
+    props["mask"] = {"type": "boolean", "default": False}
     return {**schema, "properties": props}
 
 
@@ -343,7 +343,7 @@ def validate_spec(spec: dict) -> dict:
         fit = item.get("fit", False)
         if not isinstance(fit, bool):
             raise ValueError(f"{path}.fit: expected true or false, got {fit!r}")
-        mask = item.get("mask", True)
+        mask = item.get("mask", False)
         if not isinstance(mask, bool):
             raise ValueError(f"{path}.mask: expected true or false, got {mask!r}")
         rooms.append({"room": dict(fields), "align": align, "fit": fit, "mask": mask})

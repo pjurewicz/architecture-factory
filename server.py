@@ -12934,8 +12934,12 @@ async def arch_room(
     fit: bool = False,
     mask: Annotated[
         bool,
-        Field(default=True, description="WIPEOUT under the label, clipped to the room."),
-    ] = True,
+        Field(
+            default=False,
+            description="WIPEOUT under the label, clipped to the room: for dense black "
+            "hatching or a plain monochrome plot.",
+        ),
+    ] = False,
     ctx: Context = None,
 ) -> dict:
     """Label the room around (x, y) with its name, number and MEASURED area.

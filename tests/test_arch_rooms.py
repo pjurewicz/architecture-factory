@@ -225,7 +225,11 @@ async def test_a_4000_by_5000_room_between_200_mm_walls_is_labelled_20_m2(backen
         backend, [*rect(-200.0, -200.0, 4200.0, 5200.0), *rect(0.0, 0.0, 4000.0, 5000.0)], WALL
     )
     result = await label_room(
-        backend, {"name": "LIVING", "number": "01", "at": [2000.0, 2500.0]}, lang="en", scale=50
+        backend,
+        {"name": "LIVING", "number": "01", "at": [2000.0, 2500.0]},
+        lang="en",
+        scale=50,
+        mask=True,
     )
     assert result["room"]["area"] == pytest.approx(20_000_000.0, abs=EPS)
     assert result["room"]["area_text"] == "20.00 m²"
@@ -330,18 +334,19 @@ def _extent(points):
 
 
 @pytest.mark.asyncio
-async def test_a_label_mask_is_clipped_to_the_room_and_can_be_switched_off(backend):
+async def test_a_label_mask_is_clipped_to_the_room_and_off_by_default(backend):
     await draw_lines(
         backend, [*rect(-200.0, -200.0, 4200.0, 5200.0), *rect(0.0, 0.0, 4000.0, 5000.0)], WALL
     )
     # the name runs past the right wall face at x=4000: the mask stops at it
-    result = await label_room(backend, {"name": "BEDROOM", "at": [3300.0, 2500.0]})
+    result = await label_room(backend, {"name": "BEDROOM", "at": [3300.0, 2500.0]}, mask=True)
     assert result["mask"]["clipped"] is True
     (handle,) = result["mask"]["handles"]
     x0, _y0, x1, _y1 = _extent(backend._doc.entitydb[handle].boundary_path_wcs())
     assert x1 == pytest.approx(4000.0) and x0 < 3300.0
     await backend.entity_delete_many([*result["handles"], handle])
-    plain = await label_room(backend, {"name": "BEDROOM", "at": [1000.0, 2500.0]}, mask=False)
+    # off by default
+    plain = await label_room(backend, {"name": "BEDROOM", "at": [1000.0, 2500.0]})
     assert plain["mask"] is None
     assert not list(backend._doc.modelspace().query("WIPEOUT"))
 
@@ -355,7 +360,7 @@ async def test_a_masked_label_plots_without_a_frame_and_tiles_laid_later_stay_un
     await draw_lines(
         backend, [*rect(-200.0, -200.0, 4200.0, 5200.0), *rect(0.0, 0.0, 4000.0, 5000.0)], WALL
     )
-    label = await label_room(backend, {"name": "LIVING", "at": [1400.0, 2500.0]})
+    label = await label_room(backend, {"name": "LIVING", "at": [1400.0, 2500.0]}, mask=True)
     tiles = await draw_tile_layout(
         backend, outline=rect_points(0.0, 0.0, 4000.0, 5000.0), length=600, width=600, joint=0
     )

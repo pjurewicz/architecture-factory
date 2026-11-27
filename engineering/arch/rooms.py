@@ -38,9 +38,10 @@ DECLARED, not standard:
   width of a line is estimated, not measured: ``CHAR_WIDTH_FACTOR`` (0.9 text
   heights per character, generous for capitals) times its length; the result
   reports the name height and lines chosen and whether the label fits.
-* ``mask=True`` (the default) draws a WIPEOUT under the label on its layer,
-  so walls, hatches and grid lines drawn before it do not run through the
-  text. Its rectangle is the texts' measured extent plus ``MASK_MARGIN``
+* ``mask=True`` (off by default: with ``arch_monochrome.ctb`` the screened
+  hatches and grid already leave the label legible) draws a WIPEOUT under the
+  label on its layer, so walls, hatches and grid lines drawn before it do not
+  run through the text - for dense black hatching or a plain monochrome plot. Its rectangle is the texts' measured extent plus ``MASK_MARGIN``
   (0.25 x the smallest line height) all round, clipped to the room's face so
   it never hides a wall; a room with no face (an open room) gets the bare
   rectangle. Every line stays a TEXT, the (first) name line carrying the room record.
@@ -772,7 +773,7 @@ async def label_room(
     align: str = "left",
     fit: bool = False,
     open_room: bool = False,
-    mask: bool = True,
+    mask: bool = False,
 ) -> dict:
     """Label the room around ``room_dict["at"]`` with its name, number and measured area.
 
@@ -782,7 +783,7 @@ async def label_room(
     not enter a schedule total), and the result carries ``area: None`` and a
     ``warning`` with code ``room_open``. Every other refusal still refuses.
 
-    ``mask`` (default True) draws a WIPEOUT under the label, clipped to the
+    ``mask=True`` (default False) draws a WIPEOUT under the label, clipped to the
     room (see the module docstring); the result's ``mask`` is
     ``{handles, clipped, omitted}``, or None with ``mask=False``.
 
