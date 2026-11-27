@@ -230,13 +230,18 @@ async def test_each_pair_kind_is_found_on_the_finished_sheet(backend):
     assert all(i.detail["repairable"] is False and i.severity == "warning" for i in issues)
 
 
-@pytest.mark.parametrize(("dx", "reported"), [(17.0, False), (15.0, True)])
+@pytest.mark.parametrize(("shared_width", "reported"), [(0.12, False), (0.18, True)])
 @pytest.mark.asyncio
-async def test_lettering_that_only_touches_is_not_an_overlap(backend, dx, reported):
-    # "AAAA" at 5 mm is about 18 mm wide: shifted 17 mm the boxes share ~6 %
-    # of their area, shifted 15 mm ~17 % - past the 15 % threshold.
+async def test_lettering_that_only_touches_is_not_an_overlap(backend, shared_width, reported):
+    # Two equal boxes side by side sharing 12 % / 18 % of their width share as
+    # much of their area: under and over the 15 % threshold. The width is
+    # measured, so the test holds whatever font the machine renders with.
+    from engineering.viewport_clip import text_box
+
     a = await backend.entity_create_text("AAAA", 0, 0, 5)
-    b = await backend.entity_create_text("AAAA", dx, 0, 5)
+    xs = [x for x, _ in text_box(backend._doc.entitydb[a.handle])]
+    width = max(xs) - min(xs)
+    b = await backend.entity_create_text("AAAA", width * (1 - shared_width), 0, 5)
     issues = await run_critique(backend, FOCUS)
     assert [sorted(i.handles) for i in issues] == (
         [sorted([a.handle, b.handle])] if reported else []
