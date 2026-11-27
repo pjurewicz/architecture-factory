@@ -747,13 +747,48 @@ async def test_describe_tool_takes_several_names_in_one_turn():
     assert both["tools"][0] == one
 
 
+async def test_describe_tool_names_keeps_the_good_cards_and_names_the_nearest():
+    """Round 4 (A6): one wrong name among several no longer refuses them all."""
+    server._apply_discovery_mode("search")
+    async with Client(server.mcp) as client:
+        answer = (
+            await client.call_tool(
+                "describe_tool", {"names": ["layer_list", "entity_create_leader"]}
+            )
+        ).structured_content
+    assert [card["name"] for card in answer["tools"]] == ["layer_list"]
+    assert answer["unknown"][0]["name"] == "entity_create_leader"
+    assert answer["unknown"][0]["nearest"][0] == "leader_create_mleader"
+
+
+async def test_several_names_brief_a_huge_schema_and_one_name_keeps_it_whole():
+    """Round 4 (A7): entity_batch_create's nested schema only on request."""
+    server._apply_discovery_mode("search")
+    async with Client(server.mcp) as client:
+        both = (
+            await client.call_tool(
+                "describe_tool", {"names": ["entity_batch_create", "layer_list"]}
+            )
+        ).structured_content["tools"]
+        one = await _describe(client, "entity_batch_create")
+    batch, layers = both
+    assert batch["schema"].startswith("brief") and "schema" not in layers
+    assert set(batch["input_schema"]["properties"]) == set(one["input_schema"]["properties"])
+    assert batch["input_schema"].get("required") == one["input_schema"].get("required")
+    assert len(str(batch["input_schema"])) < len(str(one["input_schema"])) / 3
+
+
 @pytest.mark.parametrize(
     ("arguments", "pattern"),
     [
         ({}, "exactly one of `name`"),
         ({"name": "layer_list", "names": ["layer_list"]}, "exactly one of `name`"),
         ({"names": []}, "`names` is empty"),
-        ({"names": ["layer_list", "no_such_tool", "solid_box"]}, "'no_such_tool', 'solid_box'"),
+        ({"names": ["no_such_tool", "solid_box"]}, "'no_such_tool', 'solid_box'"),
+        (
+            {"name": "entity_create_leader"},
+            "Nearest: 'entity_create_leader' -> leader_create_mleader",
+        ),
         ({"names": ["layer_list", "call_tool"]}, "synthetic search tool"),
         ({"names": [f"t{i}" for i in range(MAX_DESCRIBE_NAMES + 1)]}, "25"),
     ],
@@ -907,7 +942,8 @@ def _refusal(excinfo, tool: str) -> str:
     text = str(excinfo.value).replace(f"Error calling tool '{tool}': ", "")
     for envelope in ("Internal error: ", "Not found: ", "unknown_tool: "):
         text = text.replace(envelope, "")
-    return text.split(" Hint: ")[0]
+    # round 4: describe_tool adds the nearest names after the same sentence
+    return text.split(" Hint: ")[0].split(". Nearest: ")[0]
 
 
 async def test_describe_tool_returns_the_full_mode_schema_of_every_visible_tool():

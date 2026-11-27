@@ -1642,6 +1642,19 @@ async def test_layer_and_chain_steps_answer_names_counts_and_handles(client):
     result = await _batch(client, steps)
     rows = [row["result"] for row in result["results"]]
     assert rows[:3] == [{"name": "L0"}, {"name": "L1"}, {"name": "L2"}]
+    # round 4: a modify shows what changed; a list step drops the default flags
+    more = await _batch(
+        client,
+        [
+            {"tool": "layer_modify", "args": {"name": "L1", "color": 5}},
+            {"tool": "layer_list", "args": {}},
+        ],
+    )
+    modified, listed = (row["result"] for row in more["results"])
+    assert modified["name"] == "L1" and modified["color"] == 5 and "is_on" not in modified
+    listed_rows = listed["result"] if isinstance(listed, dict) else listed
+    l2 = next(r for r in listed_rows if r["name"] == "L2")
+    assert set(l2) == {"name", "color", "linetype", "lineweight"}
     chain = rows[3]
     assert chain["count"] == 3 and len(chain["handles"]) == 3 and "dimensions" not in chain
     assert rows[4] == {"handle": chain["handles"][0]}  # the bind saw the rows
@@ -1657,3 +1670,20 @@ async def test_a_created_handle_is_printed_once_not_again_in_changes_added(clien
     assert result["changes"]["added_in_results"] == 2 and len(set(named)) == 2
     full = await _batch(client, [_line()], verbose=True)
     assert full["changes"]["added"] == [full["results"][0]["result"]["handle"]]
+
+
+async def test_many_block_definitions_are_one_counts_row():
+    """Round 4 (A7): a catalogue insert defines a block per size; a batch's
+    changes.counts sums them instead of a row each, the layouts kept."""
+    import server
+
+    counts = {"Model": {"added": 9}, **{f"block:ARCH_W_{i}": {"added": 2} for i in range(7)}}
+    changes = {"added": [], "counts": counts}
+    server._fold_block_counts(changes)
+    assert changes["counts"] == {
+        "Model": {"added": 9},
+        "block:*": {"definitions": 7, "added": 14},
+    }
+    few = {"counts": {"block:A": {"added": 1}}}
+    server._fold_block_counts(few)
+    assert few["counts"] == {"block:A": {"added": 1}}

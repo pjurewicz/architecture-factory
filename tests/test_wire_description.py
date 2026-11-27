@@ -179,7 +179,13 @@ async def test_every_off_mode_surface_that_lists_the_pointer_lists_describe_tool
     for name in pointing:
         doc = _docstring(tools[name])
         assert cards[name]["description"] == doc, name
-        assert cards[name]["input_schema"] == listed[name].inputSchema, name
+        # round 4: a several-names answer briefs a huge schema and says so
+        if "schema" not in cards[name]:
+            assert cards[name]["input_schema"] == listed[name].inputSchema, name
+        else:
+            assert set(cards[name]["input_schema"]["properties"]) == set(
+                listed[name].inputSchema["properties"]
+            ), name
         assert DETAILS_POINTER not in doc, name
     # the sentences the reviewer found cut off the wire are on this route
     if "selection_get" in cards:

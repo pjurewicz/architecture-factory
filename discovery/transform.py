@@ -602,6 +602,77 @@ class CadSearchTransform(BM25SearchTransform):
         return self._synthetic(self._describe_tool_name, lambda: _describe_tool_for(self))
 
 
+#: A card in a several-names answer whose input schema serialises longer than
+#: this lists its top-level parameters only (round 4: arch_plan_from_spec and
+#: entity_batch_create alone were ~6,000 tokens of nested oneOf each).
+BRIEF_SCHEMA_CHARS = 4000
+
+
+def brief_card(card: dict[str, Any]) -> dict[str, Any]:
+    """``card`` with a long input schema cut to its top-level parameters: name,
+    type (the kinds an anyOf allows), default, enum, description and the
+    required list; nested ``$defs`` / ``items`` / ``oneOf`` are left out and
+    ``schema`` says how to get them."""
+    import json
+
+    schema = card.get("input_schema") or {}
+    if len(json.dumps(schema, separators=(",", ":"))) <= BRIEF_SCHEMA_CHARS:
+        return card
+    props = {}
+    for key, prop in (schema.get("properties") or {}).items():
+        row: dict[str, Any] = {}
+        kinds = [p.get("type") for p in prop.get("anyOf", ()) if p.get("type")] or [
+            prop.get("type")
+        ]
+        kinds = [k for k in kinds if k]
+        if kinds:
+            row["type"] = kinds[0] if len(kinds) == 1 else kinds
+        for name in ("default", "enum", "description"):
+            if name in prop:
+                row[name] = prop[name]
+        props[key] = row
+    brief = {"type": "object", "properties": props}
+    if schema.get("required"):
+        brief["required"] = schema["required"]
+    return {
+        **card,
+        "input_schema": brief,
+        "schema": f"brief: top-level parameters only; describe_tool(name='{card['name']}') "
+        "for the nested schema",
+    }
+
+
+def nearest_tool_names(name: str, catalog, k: int = 3) -> list[str]:
+    """The ``k`` catalog names nearest ``name``: shared ``_`` words weighted by
+    how rare they are (``leader`` counts, ``entity`` hardly), a word inside a
+    longer one (``leader`` in ``mleader``) at half weight, plus spelling."""
+    import difflib
+    import math
+
+    names = list(catalog)
+    if not names:
+        return []
+    df: dict[str, int] = {}
+    for n in names:
+        for t in set(n.split("_")):
+            df[t] = df.get(t, 0) + 1
+    query = str(name).strip().lower()
+    words = set(query.split("_"))
+
+    def score(n: str) -> float:
+        own = set(n.split("_"))
+        shared = sum(math.log(len(names) / df[t]) for t in words & own)
+        inside = sum(
+            0.5 * math.log(len(names) / df[t])
+            for t in own - words
+            for w in words - own
+            if len(w) > 3 and w in t
+        )
+        return shared + inside + 2 * difflib.SequenceMatcher(None, query, n).ratio()
+
+    return sorted(names, key=lambda n: (-score(n), n))[:k]
+
+
 def _describe_tool_for(transform: Any) -> Tool:
     """The ``describe_tool`` a transform lists: its catalog, its pack table.
 
@@ -638,18 +709,34 @@ def _describe_tool_for(transform: Any) -> Tool:
         # them too.
         catalog = {t.name: t for t in await transform.get_tool_catalog(ctx)}
         unknown = [n for n in wanted if n not in catalog]
-        if unknown:
-            # The exact refusal FastMCP raises when call_tool resolves the name;
-            # several unknown names are all named, nothing is described.
-            raise NotFoundError(f"Unknown tool: {', '.join(repr(n) for n in unknown)}")
+        if len(unknown) == len(wanted):
+            # FastMCP's own refusal when call_tool resolves the name, plus the
+            # nearest names (round 4) so the next call can be right.
+            hints = "; ".join(
+                f"{n!r} -> {', '.join(nearest_tool_names(n, catalog))}" for n in unknown
+            )
+            raise NotFoundError(
+                f"Unknown tool: {', '.join(repr(n) for n in unknown)}. Nearest: {hints}"
+            )
         cards = [
             describe_payload(
                 catalog[n],
                 pack=transform._pack_of(n) if transform._pack_of is not None else None,
             )
             for n in wanted
+            if n in catalog
         ]
-        return cards[0] if names is None else {"tools": cards}
+        if names is None:
+            return cards[0]
+        if len(cards) > 1:
+            cards = [brief_card(card) for card in cards]
+        out: dict[str, Any] = {"tools": cards}
+        if unknown:
+            # round 4: one wrong name no longer costs the others' cards
+            out["unknown"] = [
+                {"name": n, "nearest": nearest_tool_names(n, catalog)} for n in unknown
+            ]
+        return out
 
     return _lean(
         Tool.from_function(

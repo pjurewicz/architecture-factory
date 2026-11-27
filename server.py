@@ -6444,8 +6444,15 @@ def _compact_batch_result(result: Any, verbose: bool, tool: str | None = None) -
         kept = {k: result[k] for k in keep if k in result}
         kept.update({k: result[k] for k in ("warnings", "merged", "repeats") if result.get(k)})
         return kept
-    if {"name", "is_on", "is_frozen"} <= result.keys():  # a LayerInfo: layer_get has the rest
-        return {"name": result["name"]}
+    if {"name", "is_on", "is_frozen"} <= result.keys():
+        # a LayerInfo: layer_get has the rest; layer_modify says what the layer
+        # now is (round 4: {name} alone did not show the change)
+        return _short_layer(result) if tool == "layer_modify" else {"name": result["name"]}
+    rows = result.get("result")
+    if tool == "layer_list" and isinstance(rows, list):
+        # round 4: 40 full records per layer_list step; the visible properties
+        # and only the flags that are set
+        return {**result, "result": [_short_layer(r) for r in rows]}
     handle = result.get("handle", _MISSING)
     if handle is _MISSING:
         return result
@@ -6460,6 +6467,20 @@ def _compact_batch_result(result: Any, verbose: bool, tool: str | None = None) -
     if isinstance(fit, dict) and fit.get("intrusion_count", 0) > 0:
         kept["fit"] = fit
     return kept
+
+
+def _short_layer(row: Any) -> Any:
+    """A layer row as ``{name, color, linetype, lineweight}`` plus the flags that
+    are not the default (off, frozen, locked, current)."""
+    if not isinstance(row, dict) or "name" not in row:
+        return row
+    out = {k: row[k] for k in ("name", "color", "linetype", "lineweight") if k in row}
+    for flag, default in (("is_on", True), ("is_frozen", False), ("is_locked", False)):
+        if flag in row and row[flag] != default:
+            out[flag] = row[flag]
+    if row.get("is_current"):
+        out["is_current"] = True
+    return out
 
 
 _BATCH_CHECK_NOTE = (
@@ -7353,6 +7374,31 @@ def _fold_batch_handles(payload: dict) -> None:
     changes = payload.get("changes")
     if isinstance(changes, dict) and "added" in changes:
         changes["added"] = _fold_handles(changes["added"])
+    if isinstance(changes, dict):
+        _fold_block_counts(changes)
+
+
+#: More block-definition rows than this in ``changes.counts`` are summed (round 4).
+_BLOCK_COUNT_ROWS = 5
+
+
+def _fold_block_counts(changes: dict) -> None:
+    """``counts`` with one ``block:*`` row (definitions, added, deleted) in place
+    of a row per block definition when there are many - a catalogue insert
+    defines a block per size; the layouts keep their own rows."""
+    counts = changes.get("counts")
+    if not isinstance(counts, dict):
+        return
+    blocks = {k: v for k, v in counts.items() if str(k).startswith("block:")}
+    if len(blocks) <= _BLOCK_COUNT_ROWS:
+        return
+    total: dict[str, int] = {"definitions": len(blocks)}
+    for row in blocks.values():
+        for key, value in (row or {}).items():
+            if isinstance(value, int):
+                total[key] = total.get(key, 0) + value
+    changes["counts"] = {k: v for k, v in counts.items() if k not in blocks}
+    changes["counts"]["block:*"] = total
 
 
 def _result_handles(results: list[dict]) -> list[str]:
@@ -10709,7 +10755,16 @@ async def dimstyle_modify(
     except (TypeError, ValueError) as exc:
         raise InvalidArgsError(f"invalid_args: {exc}") from exc
     await ctx.info(f"Modifying dimension style {name!r}")
-    return await _backend(ctx).dimstyle_modify(name, overrides, rerender=rerender, force=force)
+    result = await _backend(ctx).dimstyle_modify(name, overrides, rerender=rerender, force=force)
+    # round 4: 198 dimensions came back three times; a redrawn set equal to the
+    # users is said once, and a long list is folded to its count and ends
+    using, done = result.get("dimensions_using_style"), result.get("rerendered")
+    if using and done and sorted(using) == sorted(done) and len(using) > _HANDLE_LIST_MAX:
+        result["rerendered"] = "all dimensions_using_style"
+    for key in ("dimensions_using_style", "rerendered", "text_kept"):
+        if isinstance(result.get(key), list):
+            result[key] = _fold_handles(result[key])
+    return result
 
 
 @cad_tool(summary="Make a dimension style current so new dimensions use it.", cost="safe")

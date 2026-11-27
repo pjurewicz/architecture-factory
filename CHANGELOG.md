@@ -45,6 +45,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed (round 4)
 
+- `describe_tool(names=[...])` answers the cards of the names it knows and
+  `unknown: [{name, nearest}]` for the rest (`entity_create_leader` ->
+  `leader_create_mleader`); only a request with no known name is refused, and
+  that refusal names the nearest tools too. With several names, a card whose
+  schema is over 4,000 characters lists its top-level parameters only
+  (`schema` says so); `describe_tool(name=...)` keeps the whole schema.
+- Shorter answers: `dimstyle_modify` folds its handle lists and says
+  `rerendered: "all dimensions_using_style"` when that is so; in a batch a
+  `layer_list` step lists name, colour, linetype, lineweight and only the
+  flags that are set, a `layer_modify` step shows what the layer now is, and
+  more than five block-definition rows in `changes.counts` become one
+  `block:*` row.
+
 - `arch_electrical`: an item's `label` replaced its mounting height, so
   `height: 1500, label: "HALL 01"` drew no `H=150CM`. The label is its own
   attribute `L`, above `N` and `H`; an older block without it is redefined in
