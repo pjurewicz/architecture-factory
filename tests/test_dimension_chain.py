@@ -236,3 +236,28 @@ async def test_the_tool_refuses_by_name_and_draws_on_the_dim_layer():
         )
     assert bad.is_error
     assert bad.structured_content["kind"] == "invalid_args"
+
+
+@pytest.mark.asyncio
+async def test_a_chain_in_another_style_with_a_segment_text_leaves_the_current_style(backend):
+    """The redraw deleted a chain to give one segment 'BATERIA= OŚ WANNY 85', and
+    switched dimstyle_set_current twice for a chain in a second style."""
+    from engineering.standards.dimstyles import resolve_dimstyle
+
+    await backend.dimstyle_create("SECOND", resolve_dimstyle("iso", {"DIMTXT": 3.5}))
+    before = backend._doc.header["$DIMTXT"]
+    texts = {"1": "BATERIA= OŚ WANNY <>"}
+    out = await draw_chain(
+        backend, [[0, 0], [300, 0], [340, 0], [900, 0]], -100, style="second", texts=texts
+    )
+    assert out["style"] == "SECOND"
+    dims = _dims(backend, out["handles"])
+    assert {d.dxf.dimstyle for d in dims} == {"SECOND"}
+    assert dims[1].dxf.text == "BATERIA= OŚ WANNY <>" and dims[0].dxf.text in ("", "<>")
+    assert out["dimensions"][1]["placement"] != "inline", "placed by its own, wider text"
+    assert backend._doc.header["$DIMSTYLE"] == "Standard"
+    assert backend._doc.header["$DIMTXT"] == before
+    with pytest.raises(ValueError, match="rows 0..2 and 'overall'"):
+        await draw_chain(backend, [[0, 0], [300, 0], [385, 0], [900, 0]], -100, texts={"7": "x"})
+    with pytest.raises(ValueError, match="dimstyle_list"):
+        await draw_chain(backend, [[0, 0], [300, 0]], -100, style="NOPE")

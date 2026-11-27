@@ -126,8 +126,13 @@ def plan_chain(
     leader: bool = True,
     merge_repeats: bool = False,
     axis=None,
+    texts=None,
 ) -> dict:
     """The chain's dimensions and their text places, in drawing units; draws nothing.
+
+    ``texts`` ``{index: text}`` overrides a chain row's text (0 the first span,
+    after ``merge_repeats``; ``"overall"`` the overall row); ``<>`` in it is
+    the measured value. A text is placed by its own width.
 
     ``text_height`` and ``gap`` are DIMTXT and DIMGAP times DIMSCALE, ``step``
     the distance from the chain row to the overall row (default
@@ -277,6 +282,24 @@ def plan_chain(
     repeats.reverse()
     warnings.reverse()
     with_overall = bool(overall) and len(units) >= 2
+    overall_text = None
+    for key, text in (texts or {}).items():
+        if not isinstance(text, str):
+            raise ValueError(f"texts[{key!r}]: expected a string, got {type(text).__name__}")
+        if str(key) == "overall" and with_overall:
+            overall_text = text
+            continue
+        try:
+            index = int(key)
+        except (TypeError, ValueError):
+            index = -1
+        if not 0 <= index < len(units):
+            raise ValueError(
+                f"texts: key {key!r} names no row; the chain has rows 0..{len(units) - 1}"
+                + (" and 'overall'" if with_overall else "")
+            )
+        a, b, repeat, _ = units[index]
+        units[index] = (a, b, repeat, text)
 
     def label(unit) -> str:
         a, b, _, text = unit
@@ -339,6 +362,7 @@ def plan_chain(
         row = _row("chain", a, b, chain_line, along, chain_line + side * away, placement)
         if repeat:
             row["repeat"] = {"count": repeat[0], "value": repeat[1]}
+        if text:
             row["text"] = text
         rows.append(row)
     overall_away = None
@@ -350,6 +374,8 @@ def plan_chain(
         line = chain_line + side * overall_away
         a, b = stations[0], stations[-1]
         rows.append(_row("overall", a, b, line, (a[0] + b[0]) / 2.0, line + side * t0, "inline"))
+        if overall_text:
+            rows[-1]["text"] = overall_text
     for row in rows:
         line = row.pop("_line")
         row["extension"] = [
@@ -424,8 +450,13 @@ async def draw_chain(
     axis=None,
     dry_run: bool = False,
     ext_length=None,
+    style: str | None = None,
+    texts=None,
 ) -> dict:
     """``plan_chain`` drawn as real linear DIMENSIONs inside one transaction.
+
+    ``style`` draws (and plans) the chain in that dimension style, the
+    current one left current; ``texts`` as :func:`plan_chain`.
 
     ``scale`` (a plot-scale denominator) is DIMSCALE while the chain is drawn,
     the drawing's own put back afterwards; None draws at the drawing's DIMSCALE.
@@ -434,6 +465,22 @@ async def draw_chain(
     line toward its point (DIMFXLON / DIMFXL), so a chain at ``offset`` 0
     still shows a tick through each point.
     """
+    if style is None:
+        return await _draw_chain(
+            backend, points, offset, orientation, overall, step, scale, layer, leader,
+            merge_repeats, axis, dry_run, ext_length, texts, None,
+        )  # fmt: skip
+    async with backend.dimstyle_scope(style) as name:
+        return await _draw_chain(
+            backend, points, offset, orientation, overall, step, scale, layer, leader,
+            merge_repeats, axis, dry_run, ext_length, texts, name,
+        )  # fmt: skip
+
+
+async def _draw_chain(
+    backend, points, offset, orientation, overall, step, scale, layer, leader,
+    merge_repeats, axis, dry_run, ext_length, texts, style_name,
+) -> dict:  # fmt: skip
     from engineering.mech.draw import guarded_transaction
 
     if scale is not None:
@@ -464,6 +511,7 @@ async def draw_chain(
         leader=leader,
         merge_repeats=merge_repeats,
         axis=axis,
+        texts=texts,
     )
     layer = layer or backend._role_layer("dim")
     result = {
@@ -472,6 +520,7 @@ async def draw_chain(
         "angle": plan["angle"],
         "layer": layer,
         "dimscale": factor,
+        **({"style": style_name} if style_name else {}),
         "count": len(plan["rows"]),
         "staggered": sum(r["placement"] == "staggered" for r in plan["rows"]),
         "moved": sum(r["placement"] == "moved" for r in plan["rows"]),

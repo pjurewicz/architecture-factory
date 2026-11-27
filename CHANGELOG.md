@@ -360,6 +360,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `dimension_chain(style=, texts=)`: a chain in another dimension style
+  without switching the current one (it stays current, its DIM* header
+  untouched), and a text per row (`{"1": "BATERIA= OŚ WANNY <>"}`, `"overall"`
+  for the overall row, `<>` the measured value), placed by its own width. A
+  redraw deleted a chain to relabel one segment and switched
+  `dimstyle_set_current` twice for a second style.
+
 - A hatch pattern name is read in any case and an unknown one is refused as
   `invalid_args` with the nearest names: ezdxf filled it with ANSI31 under
   the typed label (`ar-sand` in lower case too). `entity_create_hatch`'s

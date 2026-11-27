@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import collections
 import concurrent.futures
+import contextlib
 import contextvars
 import io
 import logging
@@ -10872,6 +10873,34 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             }
 
         return await self._async(_sync)
+
+    @contextlib.asynccontextmanager
+    async def dimstyle_scope(self, name: str):
+        """``name`` (the table's spelling) current for the ``async with`` body,
+        then the previous style and every DIM* header value put back - nothing
+        marked dirty by the switch itself: a dimension drawn inside keeps the
+        style (``dimension_chain(style=)``)."""
+        from engineering.standards.dimstyles import DIM_VARIABLE_WHITELIST
+
+        doc = self._require_doc()
+        if not doc.dimstyles.has_entry(name):
+            raise ValueError(
+                f"style: dimension style {name!r} does not exist; dimstyle_list names them"
+            )
+        style = doc.dimstyles.get(name)
+        keys = ["$DIMSTYLE", *(f"${var}" for var in DIM_VARIABLE_WHITELIST)]
+        saved = {key: doc.header[key] for key in keys if key in doc.header}
+        doc.header["$DIMSTYLE"] = style.dxf.name
+        _sync_header_to_dimstyle(doc, style)
+        try:
+            yield style.dxf.name
+        finally:
+            doc = self._require_doc()  # a rollback inside replaced the document
+            for key in keys:
+                if key in saved:
+                    doc.header[key] = saved[key]
+                elif key in doc.header:
+                    del doc.header[key]
 
     async def dimstyle_set_current(self, name: str) -> dict:
         def _sync():

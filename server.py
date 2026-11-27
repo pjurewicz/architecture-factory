@@ -3626,6 +3626,18 @@ async def dimension_chain(
             "point (DIMFXL); with offset 0 a tick through each point. Default: to the point",
         ),
     ] = None,
+    style: Annotated[
+        str | None,
+        Field(default=None, description="Dimension style for this chain; the current stays"),
+    ] = None,
+    texts: Annotated[
+        dict[str, str] | None,
+        Field(
+            default=None,
+            description="Text per row: {'0': 'BATERIA= OŚ WANNY <>', 'overall': ...}; row 0 is "
+            "the first span (after merge_repeats), <> the measured value",
+        ),
+    ] = None,
     ctx: Context = None,
 ) -> dict:
     """One continuous chain of linear DIMENSIONs through any points (a section's
@@ -3659,6 +3671,8 @@ async def dimension_chain(
             axis=axis,
             dry_run=dry_run,
             ext_length=ext_length,
+            style=style,
+            texts=texts,
         )
     except ValueError as exc:
         from engineering.errors import InvalidArgsError
