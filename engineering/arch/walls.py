@@ -17,7 +17,8 @@ segments meet:
   the same way (`_resolve_steps`). Where a cross wall reaches the step - where
   a thickness usually changes - it holds it: both ends are carried onto its
   axis, each wall stops on one of its faces, and the node is an X (no step
-  face) or a T (a step face on the open side, on the cross wall's axis).
+  face) or a T (a step face on the open side, on the cross wall's face toward
+  the thinner wall, so the thicker one runs through).
 * **T** - a segment ends *inside* another wall. Its axis is carried to the
   crossing axis, the crossing segment is split there, and the same rule stops
   the stem's faces on the crossing wall's near face. That face is cut where
@@ -384,8 +385,7 @@ def _resolve_steps(walls, pos, segs, tol: float):
         if s1 is s2:
             continue
         p, q = pos[v1], pos[v2]
-        if math.dist(p, q) <= tol:
-            continue  # one node already
+        shared = math.dist(p, q) <= tol  # one node already: a step only if a wall holds it
         u1 = _unit(_far(pos, s1, v1), p)  # arriving at p
         u2 = _unit(q, _far(pos, s2, v2))  # leaving q
         if _dot(u1, u2) <= 0.0 or _line_angle(u1, u2) >= MIN_JOIN_ANGLE_DEG:
@@ -422,6 +422,8 @@ def _resolve_steps(walls, pos, segs, tol: float):
         def holds(other, p=p, q=q) -> bool:
             return _in_body(pos, other, p, tol) and _in_body(pos, other, q, tol)
 
+        if shared and not hosts:
+            continue
         if abs(along) > tol and not any(holds(other) for other in hosts):
             continue  # apart along the wall, and no wall holds the two ends
         hosts.sort(key=lambda other: not holds(other))
@@ -461,8 +463,10 @@ def _carry_onto_host(walls, pos, end1, end2, hosts, tol: float, resolved: set) -
     host, as the T pass carries a stem's end onto the wall it stops in; every
     host is split there, or its own end at the step moved there along its axis.
     Their faces then stop on the host's faces at one T or X node, whose middle
-    the host owns. Returns that node: midway between the two carried ends, on
-    the host's axis - where the step face lies on a T's open side.
+    the host owns. Returns that node, where the step face lies on a T's open
+    side: on the host's face toward the thinner wall, so the thicker one runs
+    through the whole junction (`_step_side`), midway between the two walls'
+    axes.
     """
     (v1, s1), (v2, s2) = end1, end2
     p, q = pos[v1], pos[v2]
@@ -510,8 +514,31 @@ def _carry_onto_host(walls, pos, end1, end2, hosts, tol: float, resolved: set) -
             resolved.add(vertex)
         else:
             host.cuts.append(x)
+    mid = ((x[0] + y[0]) / 2.0, (x[1] + y[1]) / 2.0)
+    side = _step_side(s1, s2, u1, mid, (p, q), tol)
+    host = hosts[0]
+    n0 = _left(h0)
+    offset = host.left if _dot(n0, side) > 0.0 else host.right
     pos[v1], pos[v2] = x, y
-    return ((x[0] + y[0]) / 2.0, (x[1] + y[1]) / 2.0)
+    return _meet(mid, u1, _add(a0, _mul(n0, offset)), h0)
+
+
+def _step_side(s1: _Seg, s2: _Seg, u1: Pt, mid: Pt, typed, tol: float) -> Pt:
+    """Which way along the wall, from the host's axis, a held step's face lies.
+
+    Toward the thinner wall, so the thicker (load-bearing) one is never cut at
+    half the host's thickness. Two walls of one thickness: toward the side the
+    typed ends lie on; ends typed on the host's axis: toward the wall listed
+    later, so the first one runs through.
+    """
+    t1, t2 = s1.left - s1.right, s2.left - s2.right
+    if abs(t1 - t2) > tol:
+        return u1 if t2 < t1 else _mul(u1, -1.0)
+    typed_mid = ((typed[0][0] + typed[1][0]) / 2.0, (typed[0][1] + typed[1][1]) / 2.0)
+    lean = _dot(_sub(typed_mid, mid), u1)
+    if abs(lean) > tol:
+        return u1 if lean > 0.0 else _mul(u1, -1.0)
+    return u1 if s2.wall > s1.wall else _mul(u1, -1.0)
 
 
 def _resolve_tees(walls, pos, segs, tol: float, resolved: set) -> None:

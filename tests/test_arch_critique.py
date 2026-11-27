@@ -331,7 +331,8 @@ async def test_a_stair_core_wall_turning_into_a_partition_at_a_cross_wall(backen
     # turns into a 120 partition at the cross wall x = 4000 (120), bottom faces
     # flush at 2880 (partition axis 2940). The cross wall runs through (four
     # rooms) or stops at the change (two rooms below, one above, with the
-    # step face on the cross wall's axis). Doors sit next to the junction.
+    # step face on the cross wall's east face, x = 4060: the 240 wall runs
+    # through). Doors sit next to the junction.
     from engineering.arch.rooms import rooms_detect
     from engineering.arch.spec import draw_plan_from_spec
     from engineering.critique import run_critique
@@ -376,8 +377,8 @@ async def test_a_stair_core_wall_turning_into_a_partition_at_a_cross_wall(backen
     expected = {"SW": 3820 * 2760, "SE": 3820 * 2760}
     if through:
         expected |= {"NW": 3820 * 2760, "NE": 3820 * 2880}
-    else:  # one room above: 3880 wide on each side of the step at x = 4000
-        expected |= {"NW": 3880 * 2760 + 3880 * 2880}
+    else:  # one room above, stepping at x = 4060: 120..4060 over 3120, 4060..7880 over 3000
+        expected |= {"NW": 3940 * 2760 + 3820 * 2880}
     assert areas == pytest.approx(expected, abs=1.0)
 
 

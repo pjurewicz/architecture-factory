@@ -347,7 +347,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its axis (from the node, from its faces, or with its axis beside the node as
   long as its body covers the change), each stops on one of its faces, and its
   body owns the middle. Through (+), no step face is drawn; from one side (T),
-  a step face on the open side, on the cross wall's axis, joins the two faces.
+  a step face on the open side joins the two faces. It lies on the cross
+  wall's face toward the thinner wall, so the thicker one runs through the
+  whole junction and no chain gets a half-thickness span; for two walls of one
+  thickness, on the face the typed ends lie toward, and with ends typed on the
+  cross wall's axis toward the wall listed later. A thickness change with no
+  axis offset at a cross wall steps the same way.
   Oblique cross walls work the same way. Two cross walls reaching one step at
   different points are refused by name. A T stem carried onto its own other
   end now reads "lies inside the wall it joins" instead of a ZeroDivisionError.
