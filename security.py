@@ -179,7 +179,12 @@ def _check_write_target(original: str, resolved: Path, kinds) -> None:
 
 
 def validate_path(
-    path: str, *, allow_write: bool = False, kinds=None, create_parents: bool = False
+    path: str,
+    *,
+    allow_write: bool = False,
+    kinds=None,
+    create_parents: bool = False,
+    into_uploads: bool = False,
 ) -> Path:
     """Resolve and validate a file path against security rules.
 
@@ -202,6 +207,10 @@ def validate_path(
     A write target's missing parent directory is refused, unless
     ``create_parents=True``: then it is created (``mkdir(parents=True)``, as
     ``batch_plot`` creates its folder), only after every check above passed.
+
+    A write directly into the uploads folder (uploads.py, whose files expire)
+    is refused, reason ``upload_folder``; only the uploader passes
+    ``into_uploads=True``.
     """
     if not path or not path.strip():
         raise ToolError("File path cannot be empty.")
@@ -267,6 +276,10 @@ def validate_path(
 
         check_write(resolved)
         _check_write_target(path, resolved, kinds)
+        if not into_uploads:
+            from uploads import refuse_write
+
+            refuse_write(resolved, "Path rejected")
         parent = resolved.parent
         if create_parents and not parent.exists():
             try:

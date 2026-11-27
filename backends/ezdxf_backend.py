@@ -2326,6 +2326,10 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         export writes a copy and records nothing. A save onto the damaged
         source of a recovered document is refused unless ``overwrite_source``.
         """
+        # uploads.py: the uploads folder expires; no save (in place included) lands there.
+        from uploads import refuse_write
+
+        refuse_write(target, op)
         if repoint and state.recovered_from and not overwrite_source:
             if self._same_file(state.recovered_from, target):
                 raise recovered_source_refusal(op, state.label, state.recovered_from)

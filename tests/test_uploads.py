@@ -195,3 +195,69 @@ def test_sniff_reads_each_format():
     assert uploads.sniff(b"  0\r\nSECTION\r\n") == "dxf"
     assert uploads.sniff(b"  0\nLINE\n") is None
     assert uploads.sniff(b"MZ\x90\x00") is None
+
+
+def _age(path) -> None:
+    past = time.time() - 2 * 86400
+    os.utime(path, (past, past))
+
+
+@pytest.mark.asyncio
+async def test_work_on_an_uploaded_drawing_never_lives_in_the_expiring_folder(
+    monkeypatch, tmp_path
+):
+    """(a) An in-place save or a close-and-save onto an upload is refused; saved elsewhere, it survives."""
+    import ezdxf
+
+    monkeypatch.setattr(config.settings, "allowed_paths", [tmp_path.resolve()], raising=False)
+    monkeypatch.setattr(config.settings, "upload_dir", "", raising=False)
+    folder = uploads.upload_dir()
+    folder.mkdir(parents=True)
+    upload = folder / "client-0123456789abcdef.dxf"
+    ezdxf.new().saveas(upload)
+    work = tmp_path / "work.dxf"
+    async with Client(server.mcp) as client:
+        await client.call_tool("drawing_open", {"path": str(upload)})
+        await client.call_tool("entity_create_line", {"x1": 0, "y1": 0, "x2": 9, "y2": 9})
+        for tool, args in (
+            ("drawing_save", {}),
+            ("document_close", {"save": True}),
+            ("drawing_save", {"path": str(folder / "mine.dxf")}),
+        ):
+            refused = await client.call_tool(tool, args, raise_on_error=False)
+            assert refused.is_error, tool
+            body = refused.structured_content
+            assert body["kind"] == "path_refused" and body["reason"] == "upload_folder", tool
+        assert "drawing_save(path=" in refused.content[0].text
+        saved = await client.call_tool("drawing_save", {"path": str(work)})
+        assert not saved.is_error
+    assert len(ezdxf.readfile(upload).modelspace()) == 0  # the upload was never written
+    _age(upload)
+    _age(work)
+    assert uploads.sweep() == 1 and not upload.exists()
+    assert len(ezdxf.readfile(work).modelspace()) == 1
+
+
+@pytest.mark.asyncio
+async def test_an_attached_upload_survives_the_sweep(monkeypatch, tmp_path):
+    """(b) image_attach references a kept copy, so the drawing keeps its image after the sweep."""
+    import ezdxf
+
+    monkeypatch.setattr(config.settings, "allowed_paths", [tmp_path.resolve()], raising=False)
+    monkeypatch.setattr(config.settings, "upload_dir", "", raising=False)
+    folder = uploads.upload_dir()
+    folder.mkdir(parents=True)
+    upload = folder / "logo-0123456789abcdef.png"
+    upload.write_bytes(_png())
+    async with Client(server.mcp) as client:
+        await client.call_tool("drawing_new", {})
+        attached = await client.call_tool("image_attach", {"path": str(upload), "plot": True})
+        assert attached.structured_content["kept_from_upload"] == str(upload)
+        await client.call_tool("drawing_save", {"path": str(tmp_path / "sheet.dxf")})
+    _age(upload)
+    assert uploads.sweep() == 1 and not upload.exists()
+    defs = list(ezdxf.readfile(tmp_path / "sheet.dxf").objects.query("IMAGEDEF"))
+    assert len(defs) == 1
+    kept = defs[0].dxf.filename
+    assert kept == str(folder / "kept" / upload.name)
+    assert open(kept, "rb").read() == _png()

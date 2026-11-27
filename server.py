@@ -12661,9 +12661,12 @@ async def xref_attach(
     name the drawing already holds — detach it first with
     `xref_manage(action='detach')`.
     """
-    validated = validate_path(path)
+    validated, copied = uploads.keep(validate_path(path))
     await ctx.info(f"Xref {kind}: {validated}")
-    return await _backend(ctx).xref_attach(str(validated), (x, y), scale, rotation, kind)
+    result = await _backend(ctx).xref_attach(str(validated), (x, y), scale, rotation, kind)
+    if copied and isinstance(result, dict):
+        result["kept_from_upload"] = str(path)
+    return result
 
 
 @cad_tool(summary="List, reload, bind, detach or repath an external reference.", cost="mutate")
@@ -12729,11 +12732,14 @@ async def image_attach(
     with `plot`, IMAGE, fade 0. Refusals, all before anything is written: a
     missing or unreadable file (named), a bad scale or fade.
     """
-    validated = validate_path(path)
+    validated, copied = uploads.keep(validate_path(path))
     await ctx.info(f"Image underlay: {validated}")
-    return await _backend(ctx).image_attach(
+    result = await _backend(ctx).image_attach(
         str(validated), (x, y), scale, rotation, plot=plot, fade=fade, layer=layer
     )
+    if copied and isinstance(result, dict):
+        result["kept_from_upload"] = str(path)  # the IMAGE names the kept copy
+    return result
 
 
 @cad_tool(

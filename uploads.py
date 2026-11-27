@@ -42,8 +42,12 @@ Rules (each refusal names its reason):
   ``MAX_HTTP_BODY_BYTES`` and refuses a larger one 413 before a byte is read.
   The body is streamed to disk, never held in memory.
 * **Kept for ``UPLOAD_RETAIN_S``** (24 h): every upload first deletes the
-  uploads older than that (only names this module wrote). A drawing that
-  references an upload (an attached image) should copy what it must keep.
+  uploads older than that (only names this module wrote, only directly in
+  the folder). No user work can live there: every other write into the
+  folder is refused (``refuse_write``: ``validate_path(allow_write=True)``
+  and every DXF save, the in-place one included), and ``image_attach`` /
+  ``xref_attach`` reference a copy in ``kept/`` (:func:`keep`), never the
+  upload itself.
 
 Refusals the HTTP layer makes (404, 401, 411, 413) answer the guard's
 ``{ok: false, error, message}``; the others are the tool error envelope's
@@ -58,6 +62,7 @@ import logging
 import os
 import re
 import secrets
+import shutil
 import tempfile
 import time
 from pathlib import Path
@@ -92,6 +97,9 @@ _STEM_CHARS = re.compile(r"[^A-Za-z0-9_-]+")
 _DWG = re.compile(rb"^AC(\d{4}|\d\.\d{1,2})")
 _BINARY_DXF = b"AutoCAD Binary DXF\r\n\x1a\x00"
 _SNIFF_BYTES = 4096
+#: The subfolder an upload a drawing references is copied into; the sweep
+#: reads only the files directly in the uploads folder, so it is never swept.
+KEPT_DIR = "kept"
 #: A ``.part`` file older than this is a dead upload's leftover.
 _PART_TTL_S = 3600.0
 
@@ -109,6 +117,52 @@ def upload_dir() -> Path:
     if allowed:
         return Path(allowed[0]).resolve() / "uploads"
     return Path(tempfile.gettempdir()).resolve() / "autocad-mcp-pro-uploads"
+
+
+def in_upload_folder(path) -> bool:
+    """True when ``path`` is a file directly in :func:`upload_dir` - what the sweep deletes."""
+    try:
+        return Path(path).resolve().parent == upload_dir()
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def refuse_write(path, op: str = "a write") -> None:
+    """Refuse ``op`` onto a file the sweep would delete (``path_refused``, reason ``upload_folder``).
+
+    Only ``upload()`` writes there; a drawing opened from an upload is saved
+    elsewhere, so no user work ever lives in the expiring folder.
+    """
+    if in_upload_folder(path):
+        raise security.PathRefusedError(
+            f"{op}: '{Path(path).name}' is in the uploads folder, whose files are deleted "
+            f"after UPLOAD_RETAIN_S; save your work elsewhere with "
+            f"drawing_save(path='<folder>/<name>.dxf').",
+            reason="upload_folder",
+        )
+
+
+def keep(path) -> tuple[Path, bool]:
+    """``path``, or - for an upload - its copy in ``<upload_dir>/kept`` (never swept).
+
+    A drawing that references a file (an IMAGE, an xref) must not lose it when
+    the upload expires, so the reference names the kept copy. The second value
+    is True when ``path`` was an upload.
+    """
+    source = Path(path).resolve()
+    if not in_upload_folder(source):
+        return source, False
+    target = security.validate_path(
+        str(source.parent / KEPT_DIR / source.name),
+        allow_write=True,
+        kinds=security.KINDS_UPLOAD,
+        create_parents=True,
+    )
+    if not target.exists():
+        part = target.with_name(target.name + ".part")
+        shutil.copyfile(source, part)
+        os.replace(part, target)
+    return target, True
 
 
 def sweep(folder: Path | None = None, now: float | None = None) -> int:
@@ -275,7 +329,11 @@ async def upload(server, request: Request) -> Response:
         # Inside ALLOWED_PATHS, an upload extension, not a loadable name, and the
         # server's write policy (READ_ONLY / MAX_TOOL_COST) - what every writer passes.
         target = security.validate_path(
-            str(target), allow_write=True, kinds=security.KINDS_UPLOAD, create_parents=True
+            str(target),
+            allow_write=True,
+            kinds=security.KINDS_UPLOAD,
+            create_parents=True,
+            into_uploads=True,
         )
     except security.PathRefusedError as exc:
         return _refusal(403, "path_refused", str(exc), **exc.details)

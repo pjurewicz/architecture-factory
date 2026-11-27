@@ -418,7 +418,7 @@ Nothing loads a `.env` file — export these, or set them in your MCP client's `
 | `HTTP_KEEPALIVE_S` | `120` | Seconds an idle HTTP connection stays open. Keep it above your reverse proxy's upstream idle timeout, or the proxy reuses a socket the server is closing and answers a transient 502 |
 | `MAX_HTTP_BODY_BYTES` | `8388608` | An HTTP request body over this (8 MiB) is refused 413, counted on chunked bodies too; `0` disables. `POST /files` uses `UPLOAD_MAX_BYTES` instead |
 | `UPLOAD_MAX_BYTES` | `268435456` | Over HTTP, `POST /files?name=<file>` stores a client's file (PNG / JPG / TIFF, DXF, DWG) and answers its server path; at most this many bytes (256 MiB, clamped to 2 GiB), with a `Content-Length`. `0` turns uploads off. Needs `MCP_AUTH_TOKEN` (a read-only token is refused) |
-| `UPLOAD_RETAIN_S` | `86400` | Uploads older than this (5 min to 30 days) are deleted at the next upload |
+| `UPLOAD_RETAIN_S` | `86400` | Uploads older than this (5 min to 30 days) are deleted at the next upload. No work is lost with them: a save into the uploads folder (in place included) is refused `path_refused` (`reason: upload_folder`, save with `drawing_save(path=...)`), and `image_attach` / `xref_attach` reference a copy in `uploads/kept/`, which is never deleted |
 | `UPLOAD_DIR` | `<first ALLOWED_PATHS>/uploads` | Where uploads are stored (a temp folder without `ALLOWED_PATHS`); must be inside `ALLOWED_PATHS` |
 
 </details>
