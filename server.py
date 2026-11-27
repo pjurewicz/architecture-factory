@@ -13489,7 +13489,10 @@ async def arch_plan_from_spec(
     lines that bound rooms like a wall face) or a room's own `boundary` polygon;
     either way the area is measured from it. The result carries each
     step's own result, the wall engine's `omitted` list, `warnings` and the three
-    `arch_*` critique focuses run over the committed plan.
+    `arch_*` critique focuses run over the committed plan. `plan_bbox` and
+    `outer_bbox` ({min, max}, read off the drawing) bound the plan without and with
+    the chains' rendered text: place section marks, a north arrow or a title
+    outside `outer_bbox`. Schedules are in neither.
 
     Refused by name: an unknown key, no walls, an unknown language or material, a
     non-finite or non-positive number, an arc segment in a wall axis, an opening

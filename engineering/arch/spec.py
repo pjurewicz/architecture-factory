@@ -392,11 +392,34 @@ def validate_spec(spec: dict) -> dict:
     }
 
 
+async def _extents(backend: AutoCADBackend, handles) -> dict | None:
+    """The drawn extents of ``handles`` as ``{min, max}``, read back from the drawing.
+
+    A DIMENSION's box is its rendered ``*D`` block, so the text, the arrows and
+    the extension lines count, not only the dimension line.
+    """
+    boxes = []
+    for handle in handles:
+        box = (await backend.entity_get(handle)).properties.get("bounding_box")
+        if box:
+            boxes.append(box)
+    if not boxes:
+        return None
+    return {
+        "min": [min(b["min"][0] for b in boxes), min(b["min"][1] for b in boxes)],
+        "max": [max(b["max"][0] for b in boxes), max(b["max"][1] for b in boxes)],
+    }
+
+
 async def draw_plan_from_spec(backend: AutoCADBackend, spec: dict) -> dict:
     """Validate, then draw the whole plan inside one transaction.
 
     Returns ``{"walls", "openings", "stairs", "room_separators", "rooms", "chains", "schedules",
-    "omitted", "drawn", "critique", "warnings", "backend"}``: the wall and opening ids that
+    "plan_bbox", "outer_bbox", "omitted", "drawn", "critique", "warnings", "backend"}``:
+    ``plan_bbox`` is the drawn plan (walls, openings, stairs, separators, room labels),
+    ``outer_bbox`` the same with the dimension chains' rendered text and lines - where
+    section marks, a north arrow or a view title can start; schedules are in neither,
+    since their ``at`` is the caller's. The wall and opening ids that
     were drawn (an opening the wall engine could not cut is in ``omitted``, not
     in ``openings``), each drawing step's own result (``drawn`` is
     ``draw_walls``'), and the three ``arch_*`` critique focuses run over the
@@ -508,6 +531,17 @@ async def draw_plan_from_spec(backend: AutoCADBackend, spec: dict) -> dict:
     index = await build_index(backend)
     critique = [issue.to_dict() for focus in ARCH_FOCUSES for issue in issues_for(focus, index)]
     drawn = result["walls"] or {}
+    plan_handles = [
+        *drawn.get("handles", ()),
+        *(h for item in result["wall_polygons"] for h in item["handles"]),
+        *(h for item in result["stairs"] for h in item["handles"]),
+        *(item["handle"] for item in result["room_separators"]),
+        *(h for item in result["rooms"] for h in item.get("handles", ())),
+    ]
+    plan_bbox = await _extents(backend, plan_handles)
+    outer_bbox = await _extents(
+        backend, plan_handles + list((result["chains"] or {}).get("handles", ()))
+    )
     omitted = list(drawn.get("omitted", norm["omitted"]))
     skipped = {str(item.get("element")) for item in omitted}
     return {
@@ -519,6 +553,8 @@ async def draw_plan_from_spec(backend: AutoCADBackend, spec: dict) -> dict:
         "rooms": result["rooms"],
         "chains": result["chains"],
         "schedules": result["schedules"],
+        "plan_bbox": plan_bbox,
+        "outer_bbox": outer_bbox,
         "omitted": omitted,
         "drawn": drawn,
         "critique": critique,

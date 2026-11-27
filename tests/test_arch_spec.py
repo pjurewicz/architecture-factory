@@ -146,6 +146,23 @@ async def test_the_example_plan_draws_in_one_transaction_and_measures_its_rooms(
 
 
 @pytest.mark.asyncio
+async def test_the_outer_bbox_holds_the_chains_text_and_leaves_the_schedules_out(backend):
+    result = await draw_plan_from_spec(backend, EXAMPLE_SPEC)
+    # the exterior ring's outer faces: axis (0,0)-(9000,6000) at 250 mm
+    assert result["plan_bbox"] == {"min": [-125.0, -125.0], "max": [9125.0, 6125.0]}
+    (x0, y0), (x1, y1) = result["outer_bbox"]["min"], result["outer_bbox"]["max"]
+    # the schedules at x = 10500 are not in it
+    assert x1 < 10500
+    # every chain text (2.5 mm at 1:50 = 125 units tall) lies inside, the farthest
+    # row's and a narrow wall's text slid out past the corner included - not only
+    # the dimension lines between the measured points
+    for row in result["chains"]["dimensions"]:
+        tx, ty = row["text_at"]
+        assert x0 <= tx - 62.5 and tx + 62.5 <= x1 and y0 <= ty - 62.5 and ty + 62.5 <= y1
+    assert x1 > max(max(r["from"][0], r["to"][0]) for r in result["chains"]["dimensions"])
+
+
+@pytest.mark.asyncio
 async def test_a_room_outside_every_face_is_labelled_without_an_area(backend):
     from engineering.arch.draw import read_plan
 
