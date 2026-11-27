@@ -17,8 +17,6 @@ from engineering.standards.templates import (
     template_rows,
 )
 
-pytestmark = pytest.mark.asyncio
-
 ROOT = Path(__file__).resolve().parents[1]
 NAMES = ("iso_a3_mech", "iso_a1_arch", "iso_a3_pid", "ansi_b_mech", "ansi_d_arch")
 
@@ -97,6 +95,7 @@ def test_resolve_template_bundled_path_and_unknown(tmp_path):
 # ── the build ───────────────────────────────────────────────────────────────
 
 
+@pytest.mark.asyncio
 async def test_build_is_deterministic_run_to_run(tmp_path):
     build = _build_module()
     first = await build.build_all(tmp_path / "one")
@@ -111,6 +110,7 @@ async def test_build_is_deterministic_run_to_run(tmp_path):
     assert second  # the second build is only there to be compared with the first
 
 
+@pytest.mark.asyncio
 async def test_committed_templates_match_a_fresh_build(tmp_path):
     """The spec's reproducibility claim — the same comparison the script's --check runs."""
     build = _build_module()
@@ -124,6 +124,7 @@ async def test_committed_templates_match_a_fresh_build(tmp_path):
 # ── drawing_new(template=) ──────────────────────────────────────────────────
 
 
+@pytest.mark.asyncio
 async def test_drawing_new_from_a_bundled_template(backend):
     result = await server.drawing_new(template="iso_a3_mech", ctx=_Ctx(backend))
     assert result["ok"] is True
@@ -144,6 +145,7 @@ async def test_drawing_new_from_a_bundled_template(backend):
         assert await backend.system_get_variable("DIMSTYLE") == "ISO-25"
 
 
+@pytest.mark.asyncio
 async def test_drawing_new_from_the_pid_and_ansi_templates(backend):
     await server.drawing_new(template="iso_a3_pid", ctx=_Ctx(backend))
     assert "PROCESS-PIPING-MAIN" in {layer.name for layer in await backend.layer_list()}
@@ -168,6 +170,7 @@ async def _effective_dimvars(backend) -> dict:
     return {name: override.get(name) for name in _PLACEMENT + ("dimtxt", "dimasz")}
 
 
+@pytest.mark.asyncio
 async def test_templates_dimension_with_their_own_preset_headlessly(backend):
     """The build's fallback lands on the ``Standard`` dimstyle, not only the header.
 
@@ -201,6 +204,7 @@ async def test_templates_dimension_with_their_own_preset_headlessly(backend):
     assert (iso["dimtxt"], iso["dimasz"]) == (2.5, 2.5)
 
 
+@pytest.mark.asyncio
 async def test_drawing_new_unknown_template_is_refused_with_the_names(backend):
     await backend.entity_create_line(0, 0, 1, 1)
     before = (await backend.drawing_info()).entity_count
@@ -209,11 +213,13 @@ async def test_drawing_new_unknown_template_is_refused_with_the_names(backend):
     assert (await backend.drawing_info()).entity_count == before, "the refusal replaced nothing"
 
 
+@pytest.mark.asyncio
 async def test_drawing_new_missing_template_path_is_refused(backend, tmp_path):
     with pytest.raises(ToolError, match="not found"):
         await server.drawing_new(template=str(tmp_path / "gone.dxf"), ctx=_Ctx(backend))
 
 
+@pytest.mark.asyncio
 async def test_drawing_new_from_an_explicit_dxf_path_reports_source_path(backend, tmp_path):
     await backend.layer_create("MINE", color=3)
     saved = tmp_path / "mine.dxf"
@@ -224,6 +230,7 @@ async def test_drawing_new_from_an_explicit_dxf_path_reports_source_path(backend
     assert "MINE" in {layer.name for layer in await backend.layer_list()}
 
 
+@pytest.mark.asyncio
 async def test_drawing_template_list_tool(backend):
     result = await server.drawing_template_list(ctx=_Ctx(backend))
     assert result["ok"] and result["count"] == 5
@@ -234,6 +241,7 @@ async def test_drawing_template_list_tool(backend):
 # ── drawing_template_save ───────────────────────────────────────────────────
 
 
+@pytest.mark.asyncio
 async def test_template_save_dxf_headless_round_trips(backend, tmp_path):
     await backend.layer_create("MINE", color=3)
     out = tmp_path / "mine_template.dxf"
@@ -255,6 +263,7 @@ async def test_template_save_dxf_headless_round_trips(backend, tmp_path):
     assert "MINE" in {layer.name for layer in await backend.layer_list()}
 
 
+@pytest.mark.asyncio
 async def test_template_save_dwt_headless_is_refused_with_the_capability(backend, tmp_path):
     out = tmp_path / "mine.dwt"
     with pytest.raises(UnsupportedCapabilityError) as excinfo:
@@ -265,11 +274,13 @@ async def test_template_save_dwt_headless_is_refused_with_the_capability(backend
     assert not out.exists()
 
 
+@pytest.mark.asyncio
 async def test_template_save_refuses_other_suffixes(backend, tmp_path):
     with pytest.raises(ValueError, match=r"\.dxf"):
         await backend.drawing_template_save(str(tmp_path / "mine.txt"))
 
 
+@pytest.mark.asyncio
 async def test_a_template_is_saved_by_drawing_save(backend, tmp_path):
     with pytest.raises(ToolError):
         await server.drawing_save("../../outside.dxf", ctx=_Ctx(backend))

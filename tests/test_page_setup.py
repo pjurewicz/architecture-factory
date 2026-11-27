@@ -30,8 +30,6 @@ from engineering.standards.papers import (
 )
 from engineering.standards.pdfinfo import read_mediabox
 
-pytestmark = pytest.mark.asyncio
-
 SHEET = "Sheet"
 
 
@@ -345,6 +343,7 @@ async def _mediabox_after_export(backend, tmp_path, layout: str):
     return read_mediabox(str(pdf))
 
 
+@pytest.mark.asyncio
 async def test_apply_iso_a3_landscape_and_the_pdf_mediabox_agrees(backend, tmp_path):
     await _sheet(backend)
     result = await backend.page_setup_apply(SHEET, resolve_page_setup("ISO_A3", "landscape"))
@@ -385,6 +384,7 @@ def _pdf_strokes(path) -> tuple[list[float], set[str]]:
     return widths, {" ".join(c.split()) for c in colours}
 
 
+@pytest.mark.asyncio
 @pytest.mark.parametrize(("ctb", "expect_colour"), [("monochrome.ctb", False), ("acad.ctb", True)])
 async def test_a_sheet_plots_its_ctb_and_its_lineweights(backend, tmp_path, ctb, expect_colour):
     """The plot style and the ISO 128 hierarchy reach the PDF.
@@ -419,6 +419,7 @@ def _grey(value: int) -> str:
     return f"{value / 255:.10f}".rstrip("0") + " G"
 
 
+@pytest.mark.asyncio
 async def test_a_sheet_plots_screening_50_on_bylayer_and_direct_colours(backend, tmp_path):
     """Screening is ink intensity: channel c plots as 255 - (255 - c) * 0.5.
 
@@ -443,6 +444,7 @@ async def test_a_sheet_plots_screening_50_on_bylayer_and_direct_colours(backend,
     assert "1 0 0 RG" not in colours and _grey(128) not in colours, colours
 
 
+@pytest.mark.asyncio
 async def test_model_plots_arch_monochrome_grey_pens_thin_by_their_resolved_colour(
     backend, tmp_path
 ):
@@ -474,6 +476,7 @@ async def test_model_plots_arch_monochrome_grey_pens_thin_by_their_resolved_colo
     assert plain["plot_style"] == {"name": None, "ink": "object", "exact": True}
 
 
+@pytest.mark.asyncio
 async def test_model_background_white_turns_aci7_black(backend, tmp_path):
     pytest.importorskip("matplotlib", reason="rendering needs the [pdf] extra")
     backend._doc.modelspace().add_line((0, 0), (100, 0))  # ACI 7 via layer 0
@@ -502,6 +505,7 @@ async def test_model_background_white_turns_aci7_black(backend, tmp_path):
         ({"plot_style": "company.stb"}, ".ctb"),
     ],
 )
+@pytest.mark.asyncio
 async def test_export_pdf_refuses_model_options_on_a_sheet_and_bad_values(
     backend, tmp_path, kwargs, match
 ):
@@ -512,6 +516,7 @@ async def test_export_pdf_refuses_model_options_on_a_sheet_and_bad_values(
     assert not pdf.exists()
 
 
+@pytest.mark.asyncio
 async def test_apply_full_bleed_a3_round_trips_and_the_pdf_mediabox_agrees(backend, tmp_path):
     """Issue #18 on the headless engine: the full-bleed name is written into
     the LAYOUT's plot settings, read back by page_setup_list, carried by the
@@ -537,6 +542,7 @@ async def test_apply_full_bleed_a3_round_trips_and_the_pdf_mediabox_agrees(backe
     assert abs(width - 420.0) <= 0.5 and abs(height - 297.0) <= 0.5
 
 
+@pytest.mark.asyncio
 async def test_a_sheet_frame_from_the_origin_fits_a_new_layout_and_a_full_bleed_one(backend):
     """A new layout kept ezdxf's [20, 20, 7.5, 7.5] margins, so a 1:1 layout
     plot started at (-7.5, -20) and a sheet_frame drawn over 0..420 x 0..297
@@ -563,6 +569,7 @@ async def test_a_sheet_frame_from_the_origin_fits_a_new_layout_and_a_full_bleed_
     assert backend._paper_frame(lay)["xlim"] == pytest.approx((0.0, 420.0))
 
 
+@pytest.mark.asyncio
 async def test_apply_bleed_expand_portrait_a4(backend, tmp_path):
     await _sheet(backend)
     await backend.page_setup_apply(SHEET, resolve_page_setup("ISO_A4", "portrait", bleed="expand"))
@@ -571,6 +578,7 @@ async def test_apply_bleed_expand_portrait_a4(backend, tmp_path):
     assert row["size_mm"] == [210.0, 297.0] and row["orientation"] == "portrait"
 
 
+@pytest.mark.asyncio
 async def test_apply_ansi_b(backend, tmp_path):
     await _sheet(backend)
     await backend.page_setup_apply(SHEET, resolve_page_setup("ANSI_B", "landscape", scale="1:1"))
@@ -581,6 +589,7 @@ async def test_apply_ansi_b(backend, tmp_path):
     assert abs(width - 432.0) <= 0.5 and abs(height - 279.0) <= 0.5
 
 
+@pytest.mark.asyncio
 async def test_apply_portrait_a4(backend, tmp_path):
     await _sheet(backend)
     await backend.page_setup_apply(SHEET, resolve_page_setup("ISO_A4", "portrait"))
@@ -602,6 +611,7 @@ def _ink_columns(png_path: str) -> tuple[int, int, int]:
     return inked[0], inked[-1], width
 
 
+@pytest.mark.asyncio
 async def test_rotated_layout_renders_the_whole_sheet(backend, tmp_path):
     """plot_rotation 1 is AutoCAD's landscape-on-portrait-media convention.
 
@@ -655,6 +665,7 @@ async def _export_png(backend, tmp_path, layout: str, stem: str):
     return result, _ink_columns(str(png))
 
 
+@pytest.mark.asyncio
 async def test_layout_plot_honours_the_plot_scale(backend, tmp_path):
     """A 1:2 sheet holds twice the paper-space units a 1:1 sheet holds.
 
@@ -695,6 +706,7 @@ async def test_layout_plot_honours_the_plot_scale(backend, tmp_path):
     assert last < last_full - 20, "1:2 and 1:1 must not render the same"
 
 
+@pytest.mark.asyncio
 async def test_custom_scale_sizes_the_window_too(backend):
     """1:5 takes the custom route (as on the live engine), so it rides on the
     numerator / denominator."""
@@ -705,6 +717,7 @@ async def test_custom_scale_sizes_the_window_too(backend):
     assert frame["xlim"][1] - frame["xlim"][0] == pytest.approx(2100.0)
 
 
+@pytest.mark.asyncio
 async def test_fit_on_a_layout_plot_is_one_to_one(backend):
     """AutoCAD greys "Fit to paper" out under the layout plot area."""
     await _sheet(backend)
@@ -722,6 +735,7 @@ async def test_fit_on_a_layout_plot_is_one_to_one(backend):
         pytest.param("ANSI_B", "inches", (432.0, 279.0), (16.0, 10.0), id="inches"),
     ],
 )
+@pytest.mark.asyncio
 async def test_extents_plot_fits_the_printable_area_and_centres(
     backend, tmp_path, paper, paper_units, sheet_mm, frame_units
 ):
@@ -776,6 +790,7 @@ async def test_extents_plot_fits_the_printable_area_and_centres(
     assert abs(last - int(width * (ink_left_mm + frame_mm) / sheet_w)) <= 3, (first, last, width)
 
 
+@pytest.mark.asyncio
 async def test_extents_plot_at_a_fixed_scale_starts_at_the_plot_origin(backend):
     await _sheet(backend)
     await backend.page_setup_apply(
@@ -792,6 +807,7 @@ async def test_extents_plot_at_a_fixed_scale_starts_at_the_plot_origin(backend):
     assert frame["xlim"][1] - frame["xlim"][0] == pytest.approx(840.0)
 
 
+@pytest.mark.asyncio
 async def test_extents_plot_of_an_empty_layout_falls_back_to_the_sheet(backend):
     await _sheet(backend)
     await backend.page_setup_apply(SHEET, resolve_page_setup("ISO_A3", plot_area="extents"))
@@ -801,6 +817,7 @@ async def test_extents_plot_of_an_empty_layout_falls_back_to_the_sheet(backend):
     assert frame["xlim"][1] - frame["xlim"][0] == pytest.approx(420.0)
 
 
+@pytest.mark.asyncio
 async def test_unrenderable_plot_area_is_reported_not_hidden(backend, tmp_path):
     """display / view need a screen; the headless engine plots the sheet and says so."""
     pytest.importorskip("matplotlib", reason="rendering needs the [pdf] extra")
@@ -816,6 +833,7 @@ async def test_unrenderable_plot_area_is_reported_not_hidden(backend, tmp_path):
     assert result["scale_applied"] is True
 
 
+@pytest.mark.asyncio
 async def test_apply_materialises_the_default_flags_before_setting_centre(backend):
     """Measured: set_flag_state starts from 0 on a fresh layout, so a naive
     plot_centered(True) writes 4 and drops lineweights/plot-styles/viewports-first."""
@@ -838,6 +856,7 @@ async def test_apply_materialises_the_default_flags_before_setting_centre(backen
     assert (await backend.page_setup_list(SHEET))[0]["center"] is False
 
 
+@pytest.mark.asyncio
 async def test_layout_plot_never_sets_the_centre_bit_and_reports_it_not_applicable(backend):
     """A layout plot is the whole sheet from its origin: AutoCAD disables
     'Center the plot' (ActiveX refuses CenterPlot=True under acLayout). The
@@ -861,6 +880,7 @@ async def test_layout_plot_never_sets_the_centre_bit_and_reports_it_not_applicab
     assert result["changed"]["plot_area"] == ["extents", "layout"]
 
 
+@pytest.mark.asyncio
 async def test_custom_scale_clears_the_standard_scale_bit_and_writes_the_ratio(backend):
     await _sheet(backend)
     await backend.page_setup_apply(SHEET, resolve_page_setup("ISO_A3", scale="1:5"))
@@ -885,6 +905,7 @@ async def test_custom_scale_clears_the_standard_scale_bit_and_writes_the_ratio(b
         ("10:1", 31, 10.0),
     ],
 )
+@pytest.mark.asyncio
 async def test_standard_scale_writes_the_code_and_the_factor_autocad_plots_by(
     backend, label, code, factor
 ):
@@ -943,6 +964,7 @@ def _autocad_authored_scale(layout, code, numerator, denominator, factor):
         (22, 1.0, 16.0, 0.0625, "1:16", 6720.0),
     ],
 )
+@pytest.mark.asyncio
 async def test_list_and_render_read_an_autocad_authored_sheet_at_its_own_scale(
     backend, code, numerator, denominator, factor, label, units_across
 ):
@@ -964,6 +986,7 @@ async def test_list_and_render_read_an_autocad_authored_sheet_at_its_own_scale(
     assert frame["xlim"][1] - frame["xlim"][0] == pytest.approx(units_across)
 
 
+@pytest.mark.asyncio
 async def test_apply_keeps_the_viewports(backend):
     await _sheet(backend)
     await backend.viewport_create(SHEET, 210, 148.5, 260, 180, 0, 0, scale=1.0)
@@ -972,6 +995,7 @@ async def test_apply_keeps_the_viewports(backend):
     assert (await backend.viewport_list(SHEET))["count"] == before
 
 
+@pytest.mark.asyncio
 async def test_changed_reports_only_what_moved(backend):
     await _sheet(backend)
     first = await backend.page_setup_apply(SHEET, resolve_page_setup("ISO_A3"))
@@ -984,6 +1008,7 @@ async def test_changed_reports_only_what_moved(backend):
     assert third["changed"] == {"plot_style": ["monochrome.ctb", "acad.ctb"]}
 
 
+@pytest.mark.asyncio
 async def test_unknown_ctb_is_written_and_flagged(backend):
     await _sheet(backend)
     result = await backend.page_setup_apply(
@@ -993,6 +1018,7 @@ async def test_unknown_ctb_is_written_and_flagged(backend):
     assert (await backend.page_setup_list(SHEET))[0]["plot_style"] == "company.ctb"
 
 
+@pytest.mark.asyncio
 async def test_refusals_happen_before_any_write(backend):
     await _sheet(backend)
     dxf = backend._doc.layouts.get(SHEET).dxf_layout.dxf
@@ -1008,6 +1034,7 @@ async def test_refusals_happen_before_any_write(backend):
         await backend.page_setup_list("Nope")
 
 
+@pytest.mark.asyncio
 async def test_list_covers_every_paper_layout_and_skips_model(backend):
     await _sheet(backend, "A")
     await _sheet(backend, "B")
@@ -1032,6 +1059,7 @@ def _rotated_a4(backend, name: str = "Rot", rotation: int = 1):
     return lay
 
 
+@pytest.mark.asyncio
 async def test_list_turns_the_margins_with_the_sheet(backend):
     """The row used to swap ``size_mm`` for rotation 1/3 but report the
     margins un-turned: [20, 20, 7.5, 7.5] on a 297 x 210 sheet whose true
@@ -1055,6 +1083,7 @@ async def test_list_turns_the_margins_with_the_sheet(backend):
     assert frame["ylim"][1] - frame["ylim"][0] == pytest.approx(210.0)
 
 
+@pytest.mark.asyncio
 @pytest.mark.parametrize("rotation", [1, 2, 3])
 async def test_apply_on_a_turned_sheet_keeps_the_effective_margins(backend, rotation):
     """``page_setup_apply`` writes ``plot_rotation`` 0 (orientation rides on
@@ -1085,6 +1114,7 @@ async def test_apply_on_a_turned_sheet_keeps_the_effective_margins(backend, rota
     )
 
 
+@pytest.mark.asyncio
 async def test_apply_with_margins_on_a_turned_sheet_writes_them_as_asked(backend):
     await _sheet(backend, "Rot")
     _rotated_a4(backend)
@@ -1112,6 +1142,7 @@ def _inch_sheet(backend, name: str = "In"):
     return lay
 
 
+@pytest.mark.asyncio
 async def test_row_reports_the_paper_units(backend):
     await _sheet(backend, "In")
     lay = _inch_sheet(backend)
@@ -1123,6 +1154,7 @@ async def test_row_reports_the_paper_units(backend):
     assert (await backend.page_setup_list("In"))[0]["paper_units"] == "mm"
 
 
+@pytest.mark.asyncio
 async def test_apply_names_a_paper_units_flip_and_its_consequence(backend):
     """The default setup plots in millimetres. On an inch-authored sheet that
     is a 25.4x rescale of every paper-space unit: the 16-unit frame used to
@@ -1145,6 +1177,7 @@ async def test_apply_names_a_paper_units_flip_and_its_consequence(backend):
     assert again["changed"] == {} and again["warnings"] == []
 
 
+@pytest.mark.asyncio
 async def test_apply_can_keep_or_set_the_paper_units(backend):
     await _sheet(backend, "In")
     lay = _inch_sheet(backend)
@@ -1173,12 +1206,14 @@ async def test_apply_can_keep_or_set_the_paper_units(backend):
     assert int(lay.dxf_layout.dxf.plot_paper_units) == 0
 
 
+@pytest.mark.asyncio
 async def test_apply_on_a_mm_sheet_warns_of_nothing(backend):
     await _sheet(backend)
     result = await backend.page_setup_apply(SHEET, resolve_page_setup("ISO_A3"))
     assert result["warnings"] == [] and "paper_units" not in result["changed"]
 
 
+@pytest.mark.asyncio
 async def test_plot_style_list_headless_is_the_catalog_then_the_authored_tables(backend):
     rows = await backend.plot_style_list()
     assert [row["name"] for row in rows] == list(CTB_CATALOG) + ["arch_monochrome.ctb"]
@@ -1186,5 +1221,6 @@ async def test_plot_style_list_headless_is_the_catalog_then_the_authored_tables(
     assert all(row["installed"] is None for row in rows)
 
 
+@pytest.mark.asyncio
 async def test_dwt_write_capability_is_declared_false_headlessly(backend):
     assert backend.capabilities().to_dict()["features"]["dwt_write"]["supported"] is False

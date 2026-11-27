@@ -16,9 +16,6 @@ import server
 from engineering.environment.ucs import is_world_axes, resolve_ucs_axes
 from engineering.environment.views import resolve_view_args
 
-pytestmark = pytest.mark.asyncio
-
-
 # ── pure helpers ────────────────────────────────────────────────────────────
 
 
@@ -64,6 +61,7 @@ def test_world_is_decided_by_the_frame_not_the_name():
 # ── headless: named views ───────────────────────────────────────────────────
 
 
+@pytest.mark.asyncio
 async def test_view_defaults_to_the_drawing_extents(backend):
     await backend.entity_create_line(0, 0, 100, 50)
     result = await backend.view_named_save("OVERALL")
@@ -77,6 +75,7 @@ async def test_view_defaults_to_the_drawing_extents(backend):
     assert tuple(view.dxf.center)[:2] == (50.0, 25.0)
 
 
+@pytest.mark.asyncio
 async def test_view_on_an_empty_drawing_needs_an_explicit_window(backend):
     with pytest.raises(ValueError, match="no extents"):
         await backend.view_named_save("EMPTY")
@@ -86,6 +85,7 @@ async def test_view_on_an_empty_drawing_needs_an_explicit_window(backend):
     assert result["width"] == pytest.approx(13.4)
 
 
+@pytest.mark.asyncio
 async def test_view_replace_restore_and_list(backend):
     await backend.view_named_save("V", center=[1, 2], height=10, width=15)
     again = await backend.view_named_save("v", center=[5, 5], height=20)
@@ -116,6 +116,7 @@ async def test_view_replace_restore_and_list(backend):
     assert "BAD" not in backend._doc.views
 
 
+@pytest.mark.asyncio
 async def test_view_restore_keeps_the_vport_aspect_and_fits_the_window(backend):
     """Measured (AutoCAD 2026, display aspect 2.013): the *Active VPORT's
     aspect ratio is reconciled against the real display by the viewport's
@@ -138,6 +139,7 @@ async def test_view_restore_keeps_the_vport_aspect_and_fits_the_window(backend):
     assert wide["vport_height"] == pytest.approx(100.0 / 2.0125) and wide["height"] == 20.0
 
 
+@pytest.mark.asyncio
 async def test_view_is_written_as_a_plan_view_on_disk(backend, tmp_path):
     """ezdxf's VIEW default is ``direction=(1, 1, 1)`` — an isometric view. The
     tool stores the plan window of ``center``/``height``, so the entry must
@@ -160,6 +162,7 @@ async def test_view_is_written_as_a_plan_view_on_disk(backend, tmp_path):
     assert tuple(reopened.dxf.center)[:2] == (50.0, 25.0)
 
 
+@pytest.mark.asyncio
 async def test_view_restore_carries_the_orientation_into_the_vport(backend):
     """A foreign drawing's VIEW may be oblique or twisted; restoring it must
     not silently flatten it to a plan view of the same center."""
@@ -192,6 +195,7 @@ async def test_view_restore_carries_the_orientation_into_the_vport(backend):
 # ── headless: UCS ───────────────────────────────────────────────────────────
 
 
+@pytest.mark.asyncio
 async def test_ucs_set_stores_the_entry_and_makes_it_current(backend):
     result = await backend.ucs_set("FRONT", [10, 10, 0], [0, 1, 0], [-1, 0, 0])
     assert result == {
@@ -218,12 +222,14 @@ async def test_ucs_set_stores_the_entry_and_makes_it_current(backend):
     assert rows[1]["name"] == "FRONT" and rows[1]["current"] is True
 
 
+@pytest.mark.asyncio
 async def test_ucs_non_orthogonal_is_refused_before_any_write(backend):
     with pytest.raises(ValueError, match="measured 60"):
         await backend.ucs_set("SKEW", [0, 0, 0], [1, 0, 0], [0.5, 0.8660254, 0])
     assert "SKEW" not in backend._doc.ucs and backend._doc.header["$UCSNAME"] == ""
 
 
+@pytest.mark.asyncio
 async def test_ucs_restore_world_and_named(backend):
     await backend.ucs_set("FRONT", [10, 10, 0], [0, 1, 0], [-1, 0, 0])
     world = await backend.ucs_restore("world")
@@ -238,6 +244,7 @@ async def test_ucs_restore_world_and_named(backend):
         await backend.ucs_set("world", [0, 0, 0], [1, 0, 0], [0, 1, 0])
 
 
+@pytest.mark.asyncio
 async def test_ucs_replace_keeps_one_entry(backend):
     await backend.ucs_set("A", [0, 0, 0], [1, 0, 0], [0, 1, 0])
     again = await backend.ucs_set("a", [1, 1, 0], [1, 0, 0], [0, 1, 0])
@@ -245,6 +252,7 @@ async def test_ucs_replace_keeps_one_entry(backend):
     assert len(list(backend._doc.ucs)) == 1
 
 
+@pytest.mark.asyncio
 async def test_ucs_list_does_not_call_an_unnamed_ucs_world(backend):
     """``UCS Origin`` / ``UCS 3P`` without saving — the common kind — leaves
     ``$UCSNAME`` empty exactly like WCS does (AutoCAD 2026 writes
@@ -273,6 +281,7 @@ async def test_ucs_list_does_not_call_an_unnamed_ucs_world(backend):
     assert rows[0]["current"] is True and rows[1]["current"] is False
 
 
+@pytest.mark.asyncio
 async def test_ucs_list_a_stale_name_falls_back_to_the_frame(backend):
     """``$UCSNAME`` naming an entry the table no longer holds is not a
     current row; the frame decides between world and unnamed."""
@@ -286,6 +295,7 @@ async def test_ucs_list_a_stale_name_falls_back_to_the_frame(backend):
     assert rows[1]["origin"] == [0.0, 20.0, 0.0]
 
 
+@pytest.mark.asyncio
 async def test_ucs_list_tool_reports_an_unnamed_ucs_over_the_wire(monkeypatch, tmp_path):
     """The exact file AutoCAD writes after ``_.UCS _O 0,20,0`` without saving:
     ``$UCSNAME=''`` and ``$UCSORG=(0,20,0)``. The tool used to answer

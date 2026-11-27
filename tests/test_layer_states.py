@@ -23,8 +23,6 @@ from engineering.environment.layer_states import (
     validate_properties,
 )
 
-pytestmark = pytest.mark.asyncio
-
 
 def _layer(name, **overrides) -> LayerInfo:
     base = dict(
@@ -152,6 +150,7 @@ async def _table(backend) -> dict:
     }
 
 
+@pytest.mark.asyncio
 async def test_save_change_restore_equals_the_snapshot(backend):
     await _seed(backend)
     before = await _table(backend)
@@ -184,6 +183,7 @@ async def test_save_change_restore_equals_the_snapshot(backend):
     assert await _table(backend) == before
 
 
+@pytest.mark.asyncio
 async def test_restore_applies_only_the_requested_properties(backend):
     await _seed(backend)
     await backend.layer_state_save("S")
@@ -195,6 +195,7 @@ async def test_restore_applies_only_the_requested_properties(backend):
     assert center.color == 1 and center.is_frozen is False, "frozen was not requested"
 
 
+@pytest.mark.asyncio
 async def test_restore_reports_missing_and_new_layers_and_never_creates(backend):
     await _seed(backend)
     await backend.layer_state_save("S")
@@ -205,6 +206,7 @@ async def test_restore_reports_missing_and_new_layers_and_never_creates(backend)
     assert "CENTER" not in [lyr.name for lyr in await backend.layer_list()]
 
 
+@pytest.mark.asyncio
 async def test_plot_flag_and_current_layer_round_trip(backend):
     await _seed(backend)
     backend._doc.layers.get("HIDDEN").dxf.plot = 0
@@ -217,6 +219,7 @@ async def test_plot_flag_and_current_layer_round_trip(backend):
     assert backend._doc.header["$CLAYER"] == "GEOMETRY"
 
 
+@pytest.mark.asyncio
 async def test_state_survives_save_and_reopen(backend, tmp_path):
     await _seed(backend)
     await backend.layer_state_save("PLOT", description="d")
@@ -233,6 +236,7 @@ async def test_state_survives_save_and_reopen(backend, tmp_path):
     assert center.is_frozen is True
 
 
+@pytest.mark.asyncio
 async def test_xrecord_chunks_stay_under_256_characters(backend):
     for i in range(80):
         await backend.layer_create(f"LONG-LAYER-NAME-{i:03d}-{'x' * 30}")
@@ -244,6 +248,7 @@ async def test_xrecord_chunks_stay_under_256_characters(backend):
     assert all(len(t.value) <= 255 for t in tags)
 
 
+@pytest.mark.asyncio
 async def test_replace_delete_and_missing_names(backend):
     await backend.layer_state_save("S")
     again = await backend.layer_state_save("s")
@@ -257,6 +262,7 @@ async def test_replace_delete_and_missing_names(backend):
         await backend.layer_state_delete("S")
 
 
+@pytest.mark.asyncio
 async def test_refusals_happen_before_any_write(backend):
     with pytest.raises(ValueError, match="layer state name"):
         await backend.layer_state_save("   ")

@@ -20,8 +20,6 @@ import pytest
 from backends.base import UnsupportedCapabilityError
 from backends.contracts.settings import _SETTING_MAP, parse_scale, scale_value
 
-pytestmark = pytest.mark.asyncio
-
 NEW_KEYS = (
     "limits",
     "grid",
@@ -65,6 +63,7 @@ def test_every_new_key_is_in_the_map():
 # ── headless engine ─────────────────────────────────────────────────────────
 
 
+@pytest.mark.asyncio
 async def test_snapshot_reports_every_key_including_the_unavailable_ones(backend):
     snap = (await backend.drawing_settings())["settings"]
     for key in NEW_KEYS:
@@ -82,6 +81,7 @@ async def test_snapshot_reports_every_key_including_the_unavailable_ones(backend
     assert snap["polar_angle"] is None
 
 
+@pytest.mark.asyncio
 async def test_limits_survive_a_save_and_reopen(backend, tmp_path):
     res = await backend.drawing_settings({"limits": [[0, 0], [500, 350]]})
     assert res["ok"] is True, res.get("errors")
@@ -101,6 +101,7 @@ async def test_limits_survive_a_save_and_reopen(backend, tmp_path):
     ]
 
 
+@pytest.mark.asyncio
 async def test_grid_and_snap_live_on_the_active_vport(backend, tmp_path):
     res = await backend.drawing_settings(
         {"grid": True, "grid_spacing": 5, "snap": "on", "snap_spacing": [2.5, 5]}
@@ -123,6 +124,7 @@ async def test_grid_and_snap_live_on_the_active_vport(backend, tmp_path):
     assert again["snap_spacing"] == [2.5, 5.0]
 
 
+@pytest.mark.asyncio
 async def test_ortho_and_psltscale_are_header_variables(backend):
     res = await backend.drawing_settings({"ortho": True, "psltscale": False})
     assert res["ok"] is True, res.get("errors")
@@ -132,6 +134,7 @@ async def test_ortho_and_psltscale_are_header_variables(backend):
     assert snap["ortho"] is True and snap["psltscale"] is False
 
 
+@pytest.mark.asyncio
 async def test_polar_is_refused_headlessly_by_capability(backend):
     res = await backend.drawing_settings({"polar": True, "polar_angle": 45, "ortho": True})
     assert res["ok"] is False
@@ -143,6 +146,7 @@ async def test_polar_is_refused_headlessly_by_capability(backend):
     assert excinfo.value.capability == "registry_sysvar"
 
 
+@pytest.mark.asyncio
 async def test_annotation_scale_writes_the_variable_dictionary_and_scale_list(backend, tmp_path):
     res = await backend.drawing_settings({"annotation_scale": "1:50"})
     assert res["ok"] is True, res.get("errors")
@@ -191,6 +195,7 @@ async def test_annotation_scale_writes_the_variable_dictionary_and_scale_list(ba
     assert backend._doc.audit().has_errors is False
 
 
+@pytest.mark.asyncio
 async def test_reading_the_annotation_scale_never_creates_the_scale_list(backend):
     """The read side stays pure: a fresh headless drawing keeps its empty
     ACAD_SCALELIST (AutoCAD fills it on open) until a scale is written."""
@@ -245,6 +250,7 @@ def _scale_names(scales):
     ]
 
 
+@pytest.mark.asyncio
 async def test_annotation_scale_matches_an_autocad_keyed_scale_list_by_name(backend, tmp_path):
     """Regression: the presence check used to look the scale up by dictionary
     *key*, so on any AutoCAD-authored drawing (keys A0, A1, ...) every write
@@ -278,6 +284,7 @@ async def test_annotation_scale_matches_an_autocad_keyed_scale_list_by_name(back
     assert backend._doc.audit().has_errors is False
 
 
+@pytest.mark.asyncio
 async def test_unit_formats_by_name_and_by_code(backend):
     res = await backend.drawing_settings({"linear_units": "architectural", "angular_units": "dms"})
     assert res["ok"] is True, res.get("errors")
@@ -297,6 +304,7 @@ async def test_unit_formats_by_name_and_by_code(backend):
     assert backend._doc.header["$LUNITS"] == 1, "a refused value writes nothing"
 
 
+@pytest.mark.asyncio
 async def test_current_styles_delegate_to_the_styles_contract(backend, monkeypatch):
     calls: list[tuple[str, str]] = []
 
@@ -320,6 +328,7 @@ async def test_current_styles_delegate_to_the_styles_contract(backend, monkeypat
     assert snap["dimstyle"] == "ANSI" and snap["textstyle"] == "ISOCP"
 
 
+@pytest.mark.asyncio
 async def test_current_styles_are_refused_when_no_styles_contract_exists(backend, monkeypatch):
     # Group S may or may not have merged: force the "absent" branch either way.
     monkeypatch.setattr(backend, "dimstyle_set_current", None, raising=False)
@@ -329,6 +338,7 @@ async def test_current_styles_are_refused_when_no_styles_contract_exists(backend
     assert (await backend.drawing_settings())["settings"]["dimstyle"] == "ISO-25"
 
 
+@pytest.mark.asyncio
 async def test_changed_reports_only_values_that_moved(backend):
     same = await backend.drawing_settings({"psltscale": True, "ortho": False})
     assert same["ok"] is True and same["changed"] == {}
@@ -336,6 +346,7 @@ async def test_changed_reports_only_values_that_moved(backend):
     assert moved["changed"] == {"psltscale": [True, False]}
 
 
+@pytest.mark.asyncio
 async def test_malformed_values_are_refused_before_any_write(backend):
     before_limmax = tuple(backend._doc.header["$LIMMAX"])
     res = await backend.drawing_settings(
@@ -365,6 +376,7 @@ async def test_malformed_values_are_refused_before_any_write(backend):
     assert tuple(_active_vport(backend).dxf.grid_spacing)[:2] != (0.0, 0.0)
 
 
+@pytest.mark.asyncio
 async def test_raw_gridmode_routes_to_the_vport_and_the_old_error_is_gone(backend):
     assert await backend.system_get_variable("GRIDMODE") == 0
     out = await backend.system_set_variable("GRIDMODE", 1)
@@ -373,11 +385,13 @@ async def test_raw_gridmode_routes_to_the_vport_and_the_old_error_is_gone(backen
     assert await backend.system_get_variable("GRIDMODE") == 1
 
 
+@pytest.mark.asyncio
 async def test_raw_unknown_header_name_is_a_named_value_error(backend):
     with pytest.raises(ValueError, match=r"\$HPNAME2"):
         await backend.system_set_variable("HPNAME2", "x")
 
 
+@pytest.mark.asyncio
 async def test_cannoscalevalue_is_read_only(backend):
     with pytest.raises(ValueError, match="CANNOSCALEVALUE is read-only"):
         await backend.system_set_variable("CANNOSCALEVALUE", 0.5)
@@ -396,6 +410,7 @@ async def _r12_backend(tmp_path):
     return backend
 
 
+@pytest.mark.asyncio
 async def test_annotation_scale_on_r12_is_refused_rather_than_lost(tmp_path):
     """Measured: an R12 (AC1009) file has no OBJECTS section, so ezdxf exports
     neither AcDbVariableDictionary nor ACAD_SCALELIST — a CANNOSCALE written to
@@ -432,6 +447,7 @@ async def test_annotation_scale_on_r12_is_refused_rather_than_lost(tmp_path):
         await backend.disconnect()
 
 
+@pytest.mark.asyncio
 async def test_annotation_scale_on_r12_refuses_a_malformed_value_by_the_value(tmp_path):
     """A malformed scale is the caller's mistake whatever the file version, so
     it is named as such — the R12 refusal is not allowed to mask it."""
@@ -461,6 +477,7 @@ class _FakeCtx:
         pass
 
 
+@pytest.mark.asyncio
 async def test_server_tool_carries_the_new_keys(backend):
     import server
 

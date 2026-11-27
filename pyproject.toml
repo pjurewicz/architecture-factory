@@ -158,6 +158,11 @@ quote-style = "double"
 
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
+# Mark async tests one by one: a module-wide `pytestmark = pytest.mark.asyncio`
+# also lands on the sync tests beside them.
+filterwarnings = [
+    "error:The test <.*> is marked with '@pytest.mark.asyncio' but it is not an async function:pytest.PytestWarning",
+]
 
 [tool.coverage.run]
 # sys.monitoring (Python 3.12+): the suite with coverage in 1m43s instead of 2m30s.

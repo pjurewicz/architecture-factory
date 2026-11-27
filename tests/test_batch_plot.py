@@ -13,8 +13,6 @@ import server
 from engineering.standards.papers import AUTHORED_CTB, CTB_CATALOG, resolve_page_setup
 from engineering.standards.plot import batch_plot, safe_filename
 
-pytestmark = pytest.mark.asyncio
-
 
 class _Ctx:
     def __init__(self, backend):
@@ -49,6 +47,7 @@ def test_safe_filename_strips_what_a_filesystem_refuses():
     assert safe_filename("Layout1") == "Layout1"
 
 
+@pytest.mark.asyncio
 async def test_every_paper_layout_is_plotted_and_measured(backend, tmp_path):
     pytest.importorskip("matplotlib", reason="rendering needs the [pdf] extra")
     await _two_sheets(backend)
@@ -65,6 +64,7 @@ async def test_every_paper_layout_is_plotted_and_measured(backend, tmp_path):
     assert b["paper"] == "ANSI_B"
 
 
+@pytest.mark.asyncio
 async def test_a_full_bleed_sheet_is_measured_420_by_297_issue_18(backend, tmp_path):
     pytest.importorskip("matplotlib", reason="rendering needs the [pdf] extra")
     await backend.layout_rename("Layout1", "Bleed")
@@ -78,6 +78,7 @@ async def test_a_full_bleed_sheet_is_measured_420_by_297_issue_18(backend, tmp_p
     assert abs(sheet["mediabox_mm"][0] - 420) <= 0.5 and abs(sheet["mediabox_mm"][1] - 297) <= 0.5
 
 
+@pytest.mark.asyncio
 async def test_page_setup_apply_tool_takes_bleed_and_derives_orientation(backend):
     await backend.layout_rename("Layout1", "Sheet")
     tool = server.page_setup_apply
@@ -104,6 +105,7 @@ async def test_page_setup_apply_tool_takes_bleed_and_derives_orientation(backend
         )
 
 
+@pytest.mark.asyncio
 async def test_model_is_included_only_when_named(backend, tmp_path):
     pytest.importorskip("matplotlib", reason="rendering needs the [pdf] extra")
     await _two_sheets(backend)
@@ -115,6 +117,7 @@ async def test_model_is_included_only_when_named(backend, tmp_path):
     assert model["paper"] is None, "model space has no sheet; the size is reported, not named"
 
 
+@pytest.mark.asyncio
 async def test_refusals_write_nothing(backend, tmp_path):
     await _two_sheets(backend)
     out = tmp_path / "nothing"
@@ -129,6 +132,7 @@ async def test_refusals_write_nothing(backend, tmp_path):
     assert not out.exists() or not any(out.iterdir())
 
 
+@pytest.mark.asyncio
 async def test_an_empty_default_sheet_is_skipped_unless_asked_for(backend, tmp_path):
     """A model-space drawing's untouched Layout1 is no sheet: omitted from the
     default set and reported in `skipped`, with no PDF written."""
@@ -139,6 +143,7 @@ async def test_an_empty_default_sheet_is_skipped_unless_asked_for(backend, tmp_p
     assert not any((tmp_path / "out").iterdir())
 
 
+@pytest.mark.asyncio
 async def test_a_viewport_is_content_and_a_named_empty_sheet_still_plots(backend, tmp_path):
     pytest.importorskip("matplotlib", reason="rendering needs the [pdf] extra")
     await backend.entity_create_line(0, 0, 100, 50)
@@ -153,6 +158,7 @@ async def test_a_viewport_is_content_and_a_named_empty_sheet_still_plots(backend
     assert forced["sheets"] == [] and forced["skipped"][0]["layout"] == "Empty"
 
 
+@pytest.mark.asyncio
 async def test_a_fresh_drawing_plots_its_one_default_sheet_at_the_dxf_default_size(
     backend, tmp_path
 ):
@@ -183,6 +189,7 @@ def _aspect(mediabox_mm):
     return width / height
 
 
+@pytest.mark.asyncio
 async def test_the_model_row_is_model_space_even_when_a_sheet_is_current(backend, tmp_path):
     """The Model row must be model space whichever tab is current — proven by
     content, not by the row's shape. The headless export used to route the
@@ -220,6 +227,7 @@ async def test_the_model_row_is_model_space_even_when_a_sheet_is_current(backend
     assert _aspect(a3_row["mediabox_mm"]) == pytest.approx(420 / 297, abs=0.02)
 
 
+@pytest.mark.asyncio
 async def test_export_pdf_without_a_layout_is_model_space_even_when_a_sheet_is_current(
     backend, tmp_path
 ):
@@ -237,6 +245,7 @@ async def test_export_pdf_without_a_layout_is_model_space_even_when_a_sheet_is_c
     assert _aspect(read_mediabox(str(default))) == pytest.approx(1.0, abs=0.02)
 
 
+@pytest.mark.asyncio
 async def test_a_sheet_the_engine_cannot_plot_is_a_failed_row_not_a_lost_batch(backend, tmp_path):
     """COM raises RuntimeError for an AutoCAD error (E_FAIL after a stranded
     background job, say). That is one row's failure; the sheets already
@@ -263,6 +272,7 @@ async def test_a_sheet_the_engine_cannot_plot_is_a_failed_row_not_a_lost_batch(b
     }
 
 
+@pytest.mark.asyncio
 async def test_a_plot_reported_ok_without_a_file_is_a_failed_row(backend, tmp_path):
     """A background plot answers ok before any file exists; the row says so
     instead of dying on ``path.stat()`` with an unhandled FileNotFoundError."""
@@ -282,6 +292,7 @@ async def test_a_plot_reported_ok_without_a_file_is_a_failed_row(backend, tmp_pa
 # ── the tools ───────────────────────────────────────────────────────────────
 
 
+@pytest.mark.asyncio
 async def test_page_setup_tools_round_trip(backend):
     ctx = _Ctx(backend)
     # A fresh drawing already carries Layout1; renaming it keeps exactly one
@@ -295,6 +306,7 @@ async def test_page_setup_tools_round_trip(backend):
     assert only["layouts"][0]["layout"] == "A3"
 
 
+@pytest.mark.asyncio
 async def test_page_setup_apply_tool_refuses_before_writing(backend):
     ctx = _Ctx(backend)
     await backend.layout_create("A3")
@@ -306,12 +318,14 @@ async def test_page_setup_apply_tool_refuses_before_writing(backend):
     assert row["device"] == "", "nothing was written"
 
 
+@pytest.mark.asyncio
 async def test_plot_style_list_tool(backend):
     result = await server.plot_style_list(ctx=_Ctx(backend))
     assert result["ok"] and result["count"] == len(CTB_CATALOG) + len(AUTHORED_CTB)
     assert result["backend"] == "ezdxf"
 
 
+@pytest.mark.asyncio
 async def test_batch_plot_tool_validates_the_output_directory(backend, tmp_path):
     pytest.importorskip("matplotlib", reason="rendering needs the [pdf] extra")
     await _two_sheets(backend)

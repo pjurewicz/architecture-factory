@@ -14,9 +14,6 @@ from backends.xdata_specs import (
     validate_app_name,
 )
 
-pytestmark = pytest.mark.asyncio
-
-
 # ── pure encoding ────────────────────────────────────────────────────────────
 
 
@@ -129,6 +126,7 @@ def test_bad_app_names_are_refused(bad):
 # ── headless engine ─────────────────────────────────────────────────────────
 
 
+@pytest.mark.asyncio
 async def test_roundtrip_registers_the_appid(backend):
     line = await backend.entity_create_line(0, 0, 1, 1)
     result = await backend.entity_set_xdata(line.handle, "ACADMCP_PID", ["json", 42, 1.5, [1, 2]])
@@ -138,6 +136,7 @@ async def test_roundtrip_registers_the_appid(backend):
     assert got["xdata"] == {"ACADMCP_PID": ["json", 42, 1.5, [1.0, 2.0, 0.0]]}
 
 
+@pytest.mark.asyncio
 async def test_get_without_app_returns_every_app(backend):
     line = await backend.entity_create_line(0, 0, 1, 1)
     await backend.entity_set_xdata(line.handle, "APP_A", ["a"])
@@ -146,12 +145,14 @@ async def test_get_without_app_returns_every_app(backend):
     assert got["xdata"] == {"APP_A": ["a"], "APP_B": ["b"]}
 
 
+@pytest.mark.asyncio
 async def test_unknown_app_is_empty_not_an_error(backend):
     line = await backend.entity_create_line(0, 0, 1, 1)
     got = await backend.entity_get_xdata(line.handle, "NOPE")
     assert got["xdata"] == {}
 
 
+@pytest.mark.asyncio
 async def test_set_replaces_and_empty_removes(backend):
     line = await backend.entity_create_line(0, 0, 1, 1)
     await backend.entity_set_xdata(line.handle, "APP_A", ["one", "two"])
@@ -162,6 +163,7 @@ async def test_set_replaces_and_empty_removes(backend):
     assert (await backend.entity_get_xdata(line.handle))["xdata"] == {}
 
 
+@pytest.mark.asyncio
 async def test_limits_are_enforced_before_writing(backend):
     line = await backend.entity_create_line(0, 0, 1, 1)
     with pytest.raises(ValueError, match="255"):
@@ -169,6 +171,7 @@ async def test_limits_are_enforced_before_writing(backend):
     assert (await backend.entity_get_xdata(line.handle))["xdata"] == {}
 
 
+@pytest.mark.asyncio
 async def test_non_finite_and_string_coordinates_are_refused_before_writing(backend):
     line = await backend.entity_create_line(0, 0, 1, 1)
     with pytest.raises(TypeError, match=r"values\[0\]\[0\] must be a number"):
@@ -180,6 +183,7 @@ async def test_non_finite_and_string_coordinates_are_refused_before_writing(back
     assert (await backend.entity_get_xdata(line.handle))["xdata"] == {}
 
 
+@pytest.mark.asyncio
 async def test_16k_is_per_entity_across_apps_not_per_call(backend, tmp_path):
     # Three 15 KB payloads under three apps each fit on their own; the entity
     # does not, and AutoCAD's SetXData would refuse the second one live.
@@ -207,6 +211,7 @@ async def test_16k_is_per_entity_across_apps_not_per_call(backend, tmp_path):
     assert len((await backend.entity_get_xdata(line.handle, "APP_B"))["xdata"]["APP_B"]) == 60
 
 
+@pytest.mark.asyncio
 async def test_budget_counts_acad_xdata_the_dimension_tools_write(backend):
     # A toleranced dimension carries DSTYLE overrides under the ACAD app; the
     # live engine counts them against the 16 KB and so must the gate.
@@ -231,6 +236,7 @@ async def test_budget_counts_acad_xdata_the_dimension_tools_write(backend):
     assert (await backend.entity_get_xdata(dim.handle))["xdata"] == acad
 
 
+@pytest.mark.asyncio
 async def test_newline_is_refused_before_writing_and_snapshots_still_load(backend, tmp_path):
     # Every undo/transaction snapshot is a DXF save, so an accepted newline
     # would break rollback, not just the file on disk.

@@ -33,8 +33,6 @@ from backends.contracts.settings import (
     validate_drawing_properties,
 )
 
-pytestmark = pytest.mark.asyncio
-
 EMPTY_SUMMARY = {field: None for field in SUMMARY_FIELDS}
 
 
@@ -197,6 +195,7 @@ def test_validation_accepts_two_keys_autocad_stores_side_by_side(a, b):
 # ── headless engine ─────────────────────────────────────────────────────────
 
 
+@pytest.mark.asyncio
 async def test_get_reports_no_summary_and_empty_custom(backend):
     assert await backend.drawing_properties_get() == {
         "summary": EMPTY_SUMMARY,
@@ -206,6 +205,7 @@ async def test_get_reports_no_summary_and_empty_custom(backend):
     }
 
 
+@pytest.mark.asyncio
 async def test_custom_properties_write_replace_delete_and_survive_reopen(backend, tmp_path):
     first = await backend.drawing_properties_set(custom={"PROJECT": "X-1", "REV": "B"})
     assert first == {
@@ -229,6 +229,7 @@ async def test_custom_properties_write_replace_delete_and_survive_reopen(backend
     assert (await backend.drawing_properties_get())["custom"] == {"PROJECT": "X-2"}
 
 
+@pytest.mark.asyncio
 async def test_line_break_is_refused_before_any_write_and_the_file_still_opens(backend, tmp_path):
     """Measured: `custom={'NOTE': 'line1\\nline2', 'AFTER': 'ok'}` reported
     `ok: True`, and the saved DXF failed to reopen with
@@ -244,6 +245,7 @@ async def test_line_break_is_refused_before_any_write_and_the_file_still_opens(b
     assert (await backend.drawing_properties_get())["custom"] == {}
 
 
+@pytest.mark.asyncio
 async def test_autocad_invalid_keys_are_refused_headlessly_too(backend):
     """The headless engine used to write ' BAD ', 'A=B' and 'A;B' without
     complaint (and AutoCAD loaded them from the DXF) while the live engine
@@ -253,6 +255,7 @@ async def test_autocad_invalid_keys_are_refused_headlessly_too(backend):
     assert (await backend.drawing_properties_get())["custom"] == {}
 
 
+@pytest.mark.asyncio
 async def test_legacy_invalid_syntax_keys_stay_deletable_headlessly(tmp_path):
     """Regression of 2b9791f: `_check_custom_key` ran before the `value is
     None` branch, so `{'A=B': None}` on a document carrying 'A=B' (any ezdxf
@@ -295,6 +298,7 @@ async def test_legacy_invalid_syntax_keys_stay_deletable_headlessly(tmp_path):
         await backend.disconnect()
 
 
+@pytest.mark.asyncio
 async def test_custom_keys_match_case_insensitively_headlessly(backend):
     """Mirrors AutoCAD (measured on 2026): a write to 'PROJECT' over an
     existing 'Project' updates it under the stored spelling instead of adding
@@ -307,6 +311,7 @@ async def test_custom_keys_match_case_insensitively_headlessly(backend):
     assert (await backend.drawing_properties_get())["custom"] == {"Project": "X-2"}
 
 
+@pytest.mark.asyncio
 @pytest.mark.parametrize("a, b", DISTINCT_KEY_PAIRS)
 async def test_headless_keeps_keys_autocad_keeps_apart(backend, a, b):
     """Measured: `custom={'Stra\u00dfe': 's1'}` then `{'STRASSE': 's2'}` gave
@@ -334,6 +339,7 @@ async def _backend_for_version(tmp_path, version: str):
     return backend
 
 
+@pytest.mark.asyncio
 @pytest.mark.parametrize("version, dxfversion", [("R12", "AC1009"), ("R2000", "AC1015")])
 async def test_custom_properties_before_r2004_are_refused_rather_than_lost(
     tmp_path, version, dxfversion
@@ -371,6 +377,7 @@ async def test_custom_properties_before_r2004_are_refused_rather_than_lost(
         await backend.disconnect()
 
 
+@pytest.mark.asyncio
 async def test_custom_properties_on_r2004_survive_save_and_reopen(tmp_path):
     """The oldest version that carries the pairs -- the boundary the refusal
     sits on -- round-trips."""
@@ -387,6 +394,7 @@ async def test_custom_properties_on_r2004_survive_save_and_reopen(tmp_path):
         await backend.disconnect()
 
 
+@pytest.mark.asyncio
 async def test_summary_is_refused_headlessly_before_any_write(backend):
     with pytest.raises(UnsupportedCapabilityError) as excinfo:
         await backend.drawing_properties_set(summary={"title": "T"}, custom={"LATE": "no"})
@@ -395,11 +403,13 @@ async def test_summary_is_refused_headlessly_before_any_write(backend):
     assert (await backend.drawing_properties_get())["custom"] == {}
 
 
+@pytest.mark.asyncio
 async def test_all_null_summary_is_not_a_summary_write(backend):
     res = await backend.drawing_properties_set(summary={"title": None, "author": None})
     assert res["ok"] is True and res["summary_written"] == []
 
 
+@pytest.mark.asyncio
 async def test_malformed_custom_is_refused_by_name_before_any_write(backend):
     with pytest.raises(TypeError, match=r"custom\['N'\]"):
         await backend.drawing_properties_set(custom={"OK": "1", "N": 3})
@@ -423,6 +433,7 @@ class _FakeCtx:
         pass
 
 
+@pytest.mark.asyncio
 async def test_server_tools_round_trip_custom_and_refuse_summary(backend):
     import server
 
