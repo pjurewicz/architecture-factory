@@ -94,9 +94,17 @@ class EntityModificationContract(ABC):
     ) -> list[EntityInfo]: ...
 
     @abstractmethod
-    async def draw_order(self, handles: list[str], action: str = "send_to_back") -> dict:
-        """DRAWORDER: draw ``handles`` under (``send_to_back``) or over
-        (``bring_to_front``) everything else in their own layout.
+    async def draw_order(
+        self,
+        handles: list[str] | None,
+        action: str = "send_to_back",
+        *,
+        where: dict | None = None,
+        space: str = "model",
+    ) -> dict:
+        """DRAWORDER: draw ``handles`` - or what ``where`` matches in ``space``
+        (``entity_modify_where``'s grammar, round 4) - under (``send_to_back``)
+        or over (``bring_to_front``) everything else in their own layout.
 
         Written to the layout's SORTENTSTABLE, so the handles and the creation
         order are unchanged; the selected entities keep their order among

@@ -4127,20 +4127,16 @@ async def entity_edit_text(
     tags={"entity", "modify"},
 )
 async def draw_order(
-    handles: Annotated[list[str], "Entity handles to reorder."],
-    action: Annotated[
-        Literal["send_to_back", "bring_to_front"],
-        "send_to_back draws them under everything else, bring_to_front over it.",
-    ] = "send_to_back",
+    handles: list[str] | None = None,
+    action: Literal["send_to_back", "bring_to_front"] = "send_to_back",
+    where: Annotated[dict | None, "Or entity_modify_where's filter"] = None,
+    space: Annotated[str, "model | paper | all"] = "model",
     ctx: Context = None,
 ) -> dict:
-    """AutoCAD's DRAWORDER: change which entities cover which, without recreating them.
-
-    Without it masking follows creation order only - a tile grid or hatch drawn
-    after the labels covers them. Written to the layout's SORTENTSTABLE, so
-    handles stay; the selected entities keep their order among themselves.
+    """AutoCAD's DRAWORDER: which entities cover which (a hatch or a block's
+    wipeout drawn later covers labels); handles stay, via the SORTENTSTABLE.
     """
-    return await _backend(ctx).draw_order(handles, action)
+    return await _backend(ctx).draw_order(handles, action, where=where, space=space)
 
 
 @cad_tool(summary="Put an opaque background box behind an MTEXT.", cost="mutate")
@@ -14105,6 +14101,9 @@ async def arch_catalogue_insert(
         float | None,
         Field(default=None, description="Height, mm - written into the SIZE attribute only"),
     ] = None,
+    send_to_back: Annotated[
+        bool, Field(default=True, description="False: on top, its mask hides what is under it")
+    ] = True,
     ctx: Context = None,
 ) -> dict:
     """Define the item's block once per footprint, insert it on the furniture or sanitary layer.
@@ -14135,6 +14134,7 @@ async def arch_catalogue_insert(
             width=width,
             depth=depth,
             height=height,
+            send_to_back=send_to_back,
         )
     except ValueError as exc:
         raise ToolError(str(exc)) from exc

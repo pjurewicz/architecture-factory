@@ -720,6 +720,10 @@ from .text_overlap import check_text_overlap  # noqa: E402  (imports scan_incomp
 
 _FOCUS_DISPATCH["text_overlap"] = check_text_overlap
 
+from .wipeout_mask import check_wipeout_mask  # noqa: E402
+
+_FOCUS_DISPATCH["wipeout_mask"] = check_wipeout_mask
+
 from .pid.critique import PID_DISPATCH  # noqa: E402  (registered after the mechanical focuses)
 
 _FOCUS_DISPATCH.update(PID_DISPATCH)

@@ -8061,7 +8061,21 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         "table's). Use dimension_* text_override for that."
     )
 
-    async def draw_order(self, handles: list[str], action: str = "send_to_back") -> dict:
+    async def draw_order(
+        self,
+        handles: list[str] | None,
+        action: str = "send_to_back",
+        *,
+        where: dict | None = None,
+        space: str = "model",
+    ) -> dict:
+        from backends import set_edits as se
+
+        if (handles is None) == (where is None):
+            raise InvalidArgsError("invalid_args: draw_order takes handles or where, one of them")
+        query = se.parse_where(where) if where is not None else None
+        scope = se.parse_space(space)
+
         def _sync():
             from ezdxf.entities import is_graphic_entity
 
@@ -8069,10 +8083,19 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 raise InvalidArgsError(
                     f"invalid_args: action must be send_to_back or bring_to_front, got {action!r}"
                 )
-            if not handles:
+            picked = handles
+            skipped: dict = {}
+            if query is not None:
+                found, skipped = se.ezdxf_select(self._require_doc(), query, scope)
+                picked = [str(e.dxf.handle) for e in found]
+                if not picked:
+                    raise InvalidArgsError(
+                        f"invalid_args: where {query.to_dict()} matches nothing in {scope}"
+                    )
+            if not picked:
                 raise InvalidArgsError("invalid_args: handles must not be empty")
             by_layout: dict[str, tuple] = {}
-            for handle in handles:
+            for handle in picked:
                 entity = self._get_entity(str(handle).strip().upper())
                 layout = entity.get_layout() if is_graphic_entity(entity) else None
                 if layout is None:
@@ -8105,13 +8128,20 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 )
             if changed:
                 self._mark_dirty()
-            return {
+            out = {
                 "ok": True,
                 "action": action,
                 "changed": changed,
                 "layouts": rows,
-                "handles": [str(h).strip().upper() for h in handles],
+                "handles": [str(h).strip().upper() for h in picked],
             }
+            if query is not None:
+                out["count"] = len(picked)
+                out["handles"] = out["handles"][: se.HANDLE_SAMPLE]
+                out["truncated"] = len(picked) > se.HANDLE_SAMPLE
+                if skipped:
+                    out["skipped_locked"] = se.skipped_payload(skipped)
+            return out
 
         return await self._async(_sync)
 

@@ -72,6 +72,13 @@ FOCUS_CATALOG: dict[str, tuple[str, str, str | None]] = {
         "table cells, items of one INSERT / GROUP / DIMENSION / ACADMCP record, furniture "
         "blocks and hidden layers are not tested",
     ),
+    "wipeout_mask": (
+        "core",
+        "an entity a block's WIPEOUT hides: drawn before a masking INSERT under its "
+        "mask polygon (hidden_by_wipeout); never repaired - draw_order sends it back",
+        "a WIPEOUT outside a block and masks in nested blocks are not tested; "
+        "silent (domain_absent) when no block carries a WIPEOUT",
+    ),
     "gdt": (
         "core",
         "a datum a feature control frame cites with no datum feature",

@@ -45,6 +45,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed (round 4)
 
+- A catalogue block's WIPEOUT hid symbols and LED strips drawn before it and
+  nothing said so. `arch_catalogue_insert` now sends a masking item under
+  everything in its space (`send_to_back=True`, reported as `draw_order`);
+  `draw_order(where=..., space=...)` takes `entity_modify_where`'s filter
+  instead of handles; the new `wipeout_mask` critique focus reports every
+  entity a block's mask covers (`hidden_by_wipeout`, never repaired).
+
 - `describe_tool(names=[...])` answers the cards of the names it knows and
   `unknown: [{name, nearest}]` for the rest (`entity_create_leader` ->
   `leader_create_mleader`); only a request with no known name is refused, and

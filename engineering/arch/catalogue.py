@@ -1364,8 +1364,14 @@ async def insert_item(
     width: float | None = None,
     depth: float | None = None,
     height: float | None = None,
+    send_to_back: bool = True,
 ) -> dict:
     """Define the item's block once per footprint, insert it so its ``anchor`` lands on ``at``.
+
+    ``send_to_back`` (round 4, the default) draws the INSERT under everything
+    already in its space, so its wipeout masks nothing drawn before it - LED
+    strips and symbols in a wardrobe stayed hidden until a 300 dpi PDF showed
+    it; ``False`` keeps it on top, masking what lies under its footprint.
 
     ``anchor`` names a point of the footprint (``ANCHORS``; the block's own
     base is ``back_left``); ``rotation`` is degrees CCW about ``at``;
@@ -1418,9 +1424,13 @@ async def insert_item(
         {ITEM_TAG: spec["item"], SIZE_TAG: spec["attdefs"][1]["default"]},
         layer,
     )
+    masks = any(e.get("type") == "wipeout" for e in spec["entities"])
+    if send_to_back and masks:
+        await backend.draw_order([ref.handle], "send_to_back")
     return {
         "ok": True,
         "handle": ref.handle,
+        "draw_order": ("back" if send_to_back else "front") if masks else "none (no mask)",
         "block_name": spec["name"],
         "defined": defined,
         "item": spec["item"],
