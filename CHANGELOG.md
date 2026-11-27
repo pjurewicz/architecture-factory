@@ -291,9 +291,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   face flush) was refused as "a junction below 5°". Two free wall ends that
   meet end to end, parallel, with their axes at most half the thicker wall
   apart now join at one node and step there: both faces stop on the square
-  cut through the shared end, and a short face closes the step. A larger
-  offset whose faces still overlap is refused by name, with the offset and
-  the limit.
+  cut through the shared end, and a short face closes the step. Ends further
+  apart (along the wall beyond the 1 mm join tolerance, or across beyond half
+  the thicker wall, or whose faces only touch) stay two separate walls, as
+  before, `arch_wall_gap` included. An end two walls would both continue, and
+  a wall reaching into the step's cut, are refused by name; a too-short
+  stretch next to a step names the step.
 - `untrimmed_corner` reported a door on a skewed wall (-30°) as an untrimmed
   corner "0.000 mm apart": when the wall engine snaps a wall end onto another
   axis, the door leaf's hinge and its jamb differ by float noise (~1e-8 mm).

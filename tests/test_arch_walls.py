@@ -182,12 +182,41 @@ def test_a_thinner_wall_continuing_with_its_axis_offset_steps_at_the_shared_end(
     assert all(signed_area(r) > 0 for r in geo.regions)
 
 
-def test_an_axis_offset_beyond_half_the_thicker_wall_is_refused_by_name():
-    with pytest.raises(ValueError, match=r"axis 150 mm to the side.*half the thicker wall \(120"):
+@pytest.mark.parametrize(("t2", "off", "gap"), [(120.0, 135.0, 35.0), (200.0, 150.0, 50.0)])
+def test_an_axis_offset_beyond_half_the_thicker_wall_stays_two_walls(t2, off, gap):
+    # No step: two walls end to end, each closed by its own jamb, and the
+    # critique's gap reading is what it was before steps existed.
+    from engineering.arch.critique import wall_gaps
+
+    walls = [
+        wall("a", (0, 0), (6000, 0), thickness=200.0),
+        wall("b", (6000, off), (12000, off), thickness=t2),
+    ]
+    geo = wall_geometry(walls)
+    assert len(geo.jambs) == 4 and len(geo.regions) == 2
+    assert [row["gap_mm"] for row in wall_gaps(walls)] == [gap]
+
+
+def test_a_wall_ending_inside_a_step_is_refused_by_name_not_as_a_short_segment():
+    with pytest.raises(
+        ValueError, match=r"\('c'\) reaches into the step where .*\('b'\) continues"
+    ):
         wall_geometry(
             [
-                wall("a", (0, 0), (3000, 0), thickness=240.0),
-                wall("b", (3000, 150), (6000, 150), thickness=160.0),
+                wall("a", (0, 0), (6000, 0)),
+                wall("b", (6000, 75), (12000, 75)),
+                wall("c", (6075, -3000), (6075, 0)),
+            ]
+        )
+
+
+def test_an_end_two_walls_would_both_continue_is_refused_by_name():
+    with pytest.raises(ValueError, match=r"\('a'\) ends at \(6000, 0\) where .*both continue it"):
+        wall_geometry(
+            [
+                wall("a", (0, 0), (6000, 0)),
+                wall("b", (6000, 75), (12000, 75), thickness=120.0),
+                wall("c", (6000, -75), (12000, -75), thickness=120.0),
             ]
         )
 
