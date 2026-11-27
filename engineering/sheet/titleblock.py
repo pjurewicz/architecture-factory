@@ -37,6 +37,7 @@ from engineering.sheet.frames import (
     enter_layout,
     frame_metrics,
     frame_prims,
+    resolve_sheet,
 )
 
 if TYPE_CHECKING:
@@ -374,10 +375,10 @@ def _series_height(texts: dict[str, tuple[str, float]], nominal: float) -> float
 async def apply_titleblock(
     backend: AutoCADBackend,
     *,
-    size: str = "A3",
+    size: str | None = None,
     metadata: TitleBlockMetadata,
     origin: Pt = (0.0, 0.0),
-    orientation: str = "landscape",
+    orientation: str | None = None,
     projection: str | None = "first",
     frame: bool = True,
     zones: bool = False,
@@ -389,8 +390,13 @@ async def apply_titleblock(
     `projection=None`, `zones=False` and `marks=False` reproduce exactly what
     `titleblock_apply_iso_a3` has always drawn. Every refusal -- an unknown
     size, an unknown orientation, an unknown projection angle, a missing layout
-    -- fires before the first entity reaches the drawing.
+    -- fires before the first entity reaches the drawing. An empty `size` /
+    `orientation` is read from `layout`'s page setup (`resolve_sheet`);
+    without a layout it is A3 landscape.
     """
+    size, orientation, report = await resolve_sheet(
+        backend, size, orientation, layout, caller="titleblock_apply"
+    )
     metrics = frame_metrics(size, orientation=orientation)
     tb_prims = titleblock_prims(size, metadata, orientation=orientation, projection=projection)
     sheet_prims = (
@@ -426,4 +432,5 @@ async def apply_titleblock(
             "values": tb_prims[value_text_indices()["drawing_no"]].height,
         },
         "bbox": {"min": [ox, oy], "max": [ox + w, oy + h]},
+        **report,
     }

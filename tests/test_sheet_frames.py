@@ -298,3 +298,55 @@ async def test_the_caller_s_tab_is_read_from_the_listing_not_a_private_attribute
 
     assert result["layout"] == "SheetA"
     assert (await backend.layout_list())["current"] == "SheetB"
+
+
+async def _a4_portrait_layout(backend, name="T2", paper="ISO_A4", orientation="portrait"):
+    from engineering.standards.papers import resolve_page_setup
+
+    await backend.layout_create(name)
+    await backend.page_setup_apply(name, resolve_page_setup(paper, orientation, scale="1:1"))
+    return name
+
+
+@pytest.mark.asyncio
+async def test_a_frame_on_a_layout_takes_the_layout_s_paper_unless_size_is_given(backend):
+    """sheet_frame(layout=...) on an A4 portrait layout drew the default A3
+    landscape, so only the frame's left half reached the printed page."""
+    layout = await _a4_portrait_layout(backend)
+    result = await draw_sheet_frame(backend, layout=layout, zones=False, marks=False)
+    assert (result["size"], result["orientation"]) == ("A4", "portrait")
+    assert result["bbox"]["max"] == [210.0, 297.0]
+    assert result["sheet_source"] == {"size": "layout", "orientation": "layout"}
+    assert result["warnings"] == []
+
+    override = await draw_sheet_frame(
+        backend, "A3", orientation="landscape", layout=layout, zones=False, marks=False
+    )
+    assert override["bbox"]["max"] == [420.0, 297.0]
+    assert override["sheet_source"] == {"size": "argument", "orientation": "argument"}
+    assert len(override["warnings"]) == 1 and "210 x 297" in override["warnings"][0]
+
+    without_layout = await draw_sheet_frame(backend, zones=False, marks=False)
+    assert (without_layout["size"], without_layout["orientation"]) == ("A3", "landscape")
+
+
+@pytest.mark.asyncio
+async def test_a_title_block_on_a_layout_takes_the_layout_s_paper(backend):
+    from engineering.sheet.titleblock import TitleBlockMetadata, apply_titleblock
+
+    layout = await _a4_portrait_layout(backend)
+    result = await apply_titleblock(
+        backend, metadata=TitleBlockMetadata(title="T", drawing_no="1"), layout=layout
+    )
+    assert (result["size"], result["orientation"]) == ("A4", "portrait")
+    assert result["bbox"]["max"] == [210.0, 297.0]
+
+
+@pytest.mark.asyncio
+async def test_a_layout_paper_outside_a4_a0_is_refused_when_size_is_empty(backend):
+    layout = await _a4_portrait_layout(backend, "B", paper="ANSI_B", orientation="landscape")
+    before = len(await backend.entity_list())
+    with pytest.raises(ValueError) as excinfo:
+        await draw_sheet_frame(backend, layout=layout)
+    assert "ANSI_B" in str(excinfo.value) and "pass size" in str(excinfo.value)
+    assert len(await backend.entity_list()) == before

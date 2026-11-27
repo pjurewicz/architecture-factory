@@ -91,6 +91,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `sheet_frame(layout=...)` and `titleblock_apply(layout=...)` ignored the
+  layout's paper and drew the default A3 landscape, so on an A4 portrait layout
+  only the frame's left half was printed. An empty `size` / `orientation` is
+  now read from the layout's page setup (the sheet as plotted); an explicit one
+  overrides it, with `warnings` when they differ, and `sheet_source` says which
+  was used. A layout paper outside A4-A0 with no `size` is refused by name; a
+  layout that does not plot 1:1 or has non-zero margins is warned. Without a
+  layout the default stays A3 landscape.
 - A `sheet_frame` drawn from (0, 0) on a new layout lost its right 7.5 mm and
   top 20 mm off the PDF page: `layout_create` and `drawing_new()`'s `Layout1`
   kept ezdxf's default [20, 20, 7.5, 7.5] margins, so a 1:1 layout plot started

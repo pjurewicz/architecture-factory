@@ -11943,11 +11943,19 @@ async def hatch_material(
 )
 async def sheet_frame(
     size: Annotated[
-        str, Field(default="A3", description="ISO 216 sheet: A4, A3, A2, A1 or A0.")
-    ] = "A3",
+        str,
+        Field(
+            default="",
+            description="ISO 216 sheet: A4, A3, A2, A1 or A0. Empty: the layout's paper, else A3.",
+        ),
+    ] = "",
     orientation: Annotated[
-        str, Field(default="landscape", description="'landscape' or 'portrait'.")
-    ] = "landscape",
+        str,
+        Field(
+            default="",
+            description="'landscape' or 'portrait'. Empty: the layout's, else landscape.",
+        ),
+    ] = "",
     zones: Annotated[
         bool,
         Field(
@@ -11985,17 +11993,20 @@ async def sheet_frame(
     Borders, rules and marks land on TITLEBLOCK; the zone lettering on TEXT.
     Refusals, all before the first entity is drawn: a size outside A4-A0 is
     refused by name and the five covered sizes are listed; an orientation that
-    is neither 'landscape' nor 'portrait'; a `layout` that does not exist. The
-    zone divisions drawn are equal -- ISO 5457's shorter corner fields are not
+    is neither 'landscape' nor 'portrait'; a `layout` that does not exist; an
+    empty `size` on a layout whose paper is not A4-A0. With `layout`, an empty
+    size / orientation is the layout's paper as plotted; an explicit one
+    overrides it, with `warnings` when they differ (`sheet_source` says
+    which). The zone divisions drawn are equal -- ISO 5457's shorter corner fields are not
     implemented -- while the division counts are the standard's.
     """
     from engineering.sheet.frames import draw_sheet_frame
 
-    await ctx.info(f"Sheet frame {size} {orientation}")
+    await ctx.info(f"Sheet frame {size or 'from layout'} {orientation}")
     return await draw_sheet_frame(
         _backend(ctx),
-        size,
-        orientation=orientation,
+        size or None,
+        orientation=orientation or None,
         zones=zones,
         marks=marks,
         origin=(origin_x, origin_y),
@@ -12015,11 +12026,19 @@ async def titleblock_apply(
     title: Annotated[str, Field(description="Drawing title (verbatim, no transformation).")],
     drawing_no: Annotated[str, Field(description="Identification number, e.g. 'AM-2026-001'.")],
     size: Annotated[
-        str, Field(default="A3", description="ISO 216 sheet: A4, A3, A2, A1 or A0.")
-    ] = "A3",
+        str,
+        Field(
+            default="",
+            description="ISO 216 sheet: A4, A3, A2, A1 or A0. Empty: the layout's paper, else A3.",
+        ),
+    ] = "",
     orientation: Annotated[
-        str, Field(default="landscape", description="'landscape' or 'portrait'.")
-    ] = "landscape",
+        str,
+        Field(
+            default="",
+            description="'landscape' or 'portrait'. Empty: the layout's, else landscape.",
+        ),
+    ] = "",
     projection: Annotated[
         str,
         Field(
@@ -12066,7 +12085,8 @@ async def titleblock_apply(
     the left and the concentric circles on the right, 'third' is its mirror.
     Refusals, all before the first entity: an unknown size (the five covered
     sizes are listed), an unknown orientation, a projection that is not
-    'first'/'third'/'', a `layout` that does not exist. `titleblock_apply_iso_a3`
+    'first'/'third'/'', a `layout` that does not exist. Size and orientation
+    follow `layout`'s paper unless given, as in `sheet_frame`. `titleblock_apply_iso_a3`
     is this tool with size='A3' and no symbol, kept so no caller breaks.
     """
     from engineering.sheet.titleblock import TitleBlockMetadata, apply_titleblock
@@ -12088,10 +12108,10 @@ async def titleblock_apply(
     )
     return await apply_titleblock(
         _backend(ctx),
-        size=size,
+        size=size or None,
         metadata=metadata,
         origin=(origin_x, origin_y),
-        orientation=orientation,
+        orientation=orientation or None,
         projection=projection or None,
         frame=frame,
         zones=zones,

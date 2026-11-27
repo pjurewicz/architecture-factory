@@ -62,6 +62,7 @@ __all__ = [
     "enter_layout",
     "frame_metrics",
     "frame_prims",
+    "resolve_sheet",
     "sheet_size",
     "zone_divisions",
 ]
@@ -304,17 +305,94 @@ async def draw_sheet_prims(
     return handles
 
 
+async def resolve_sheet(
+    backend: AutoCADBackend,
+    size: str | None,
+    orientation: str | None,
+    layout: str | None,
+    *,
+    caller: str,
+) -> tuple[str, str, dict]:
+    """``(size, orientation, report)`` for a sheet drawn on ``layout``.
+
+    On a paper layout an empty ``size`` / ``orientation`` is read from its page
+    setup (the sheet as plotted); without a layout they default to A3 landscape.
+    An explicit value overrides the layout and is drawn, with a warning when it
+    differs from the layout's paper. A layout paper outside A4-A0 is refused
+    when ``size`` is empty, never guessed. ``report`` is ``{sheet_source,
+    warnings}``.
+    """
+    row = None
+    if layout is not None:
+        rows = await backend.page_setup_list()
+        row = next((r for r in rows if r.get("layout") == layout), None)
+    paper = None
+    if row is not None:
+        w, h = (float(v) for v in row["size_mm"])
+        paper = next(
+            (
+                name
+                for name, (short, long) in SHEETS.items()
+                if abs(min(w, h) - short) <= 0.5 and abs(max(w, h) - long) <= 0.5
+            ),
+            None,
+        )
+        paper_orientation = "portrait" if h > w else "landscape"
+
+    source = {"size": "argument", "orientation": "argument"}
+    if not size:
+        if row is not None and paper is None:
+            w, h = row["size_mm"]
+            raise ValueError(
+                f"{caller}: layout {layout!r} plots on {row.get('paper') or 'custom'} "
+                f"({w:g} x {h:g} mm), which is not an ISO 5457 sheet "
+                f"({', '.join(SHEETS)}); pass size explicitly"
+            )
+        size, source["size"] = (paper, "layout") if paper else ("A3", "default")
+    if not orientation:
+        orientation, source["orientation"] = (
+            (paper_orientation, "layout") if row is not None else ("landscape", "default")
+        )
+
+    warnings = []
+    if row is not None:
+        drawn = sheet_size(size, orientation)  # refuses an unknown size / orientation
+        w, h = (float(v) for v in row["size_mm"])
+        if abs(drawn[0] - w) > 0.5 or abs(drawn[1] - h) > 0.5:
+            warnings.append(
+                f"sheet {str(size).upper()} {orientation} ({drawn[0]:g} x {drawn[1]:g} mm) "
+                f"differs from the paper of layout {layout!r} ({w:g} x {h:g} mm)"
+            )
+        if row.get("scale") not in ("1:1", None):
+            warnings.append(
+                f"layout {layout!r} plots at {row['scale']}; the sheet is drawn in "
+                "millimetres for a 1:1 plot"
+            )
+        if any(float(m) for m in row.get("margins_mm") or ()):
+            warnings.append(
+                f"layout {layout!r} has margins {row['margins_mm']} [top, bottom, left, right]; "
+                "a sheet drawn from (0, 0) is shifted by the lower-left one on the plot"
+            )
+    return size, orientation, {"sheet_source": source, "warnings": warnings}
+
+
 async def draw_sheet_frame(
     backend: AutoCADBackend,
-    size: str,
+    size: str | None = None,
     *,
-    orientation: str = "landscape",
+    orientation: str | None = None,
     zones: bool = True,
     marks: bool = True,
     origin: Pt = (0.0, 0.0),
     layout: str | None = None,
 ) -> dict:
-    """Draw the ISO 5457 frame. Every refusal fires before the first entity."""
+    """Draw the ISO 5457 frame. Every refusal fires before the first entity.
+
+    An empty ``size`` / ``orientation`` is read from ``layout``'s page setup
+    (``resolve_sheet``); without a layout it is A3 landscape."""
+    size, orientation, report = await resolve_sheet(
+        backend, size, orientation, layout, caller="sheet_frame"
+    )
     metrics = frame_metrics(size, orientation=orientation)
     prims = frame_prims(size, orientation=orientation, zones=zones, marks=marks)
     previous = await enter_layout(backend, layout, caller="sheet_frame")
@@ -337,4 +415,5 @@ async def draw_sheet_frame(
         "inner_border": handles[1],
         "metrics": metrics,
         "bbox": {"min": [ox, oy], "max": [ox + w, oy + h]},
+        **report,
     }
