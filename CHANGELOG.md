@@ -22,6 +22,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   wider than the column stands alone and is listed in `overflow`; a no-break
   space (U+00A0) keeps "18 mm" together; `max_width` on a numbered callout is
   refused. The result also reports `lines`.
+- `viewport_create(fit_region=[x1, y1, x2, y2], margin_mm=)`: the view centre
+  and the paper size are computed from a model region (`width = region width ×
+  scale + 2 × margin_mm`), so a caller no longer works them out by hand. The
+  result carries `width`, `height`, `view_center` and `fit {region,
+  model_window, intrusions, intrusion_count}`: model-space entities whose
+  extents enter the shown window without lying inside the region,
+  `crosses_region` (clipped by the viewport) or `in_margin`. Mixing
+  `fit_region` with `width` / `height` / `view_center_*`, a zero-area region or
+  `margin_mm` without `fit_region` is `invalid_args`; the explicit form is
+  unchanged.
 - Session tracking in the durable journal: a `sessions` table in
   `journal.sqlite3` keeps one row per MCP session - the client's `initialize`
   (`clientInfo` name / version / full JSON, `protocolVersion`, capabilities),

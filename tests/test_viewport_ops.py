@@ -412,3 +412,62 @@ async def test_exporting_a_layout_finds_it_whatever_case_it_is_typed_in(backend,
     await _sheet(backend)
     result = await backend.drawing_export_pdf(str(tmp_path / "sheet.png"), layout=SHEET.upper())
     assert result["ok"] is True
+
+
+# ── viewport_create(fit_region=) ─────────────────────────────────────────────
+
+
+async def test_fit_region_sizes_the_viewport_and_names_what_else_it_shows(backend):
+    """A 5000 x 2500 region at 1:50 is 100 x 50 mm of paper, plus 5 mm a side;
+    the window shown is therefore 250 model units wider than the region on each
+    side, and what lies there is reported, not silently printed."""
+    inside = await backend.entity_create_line(1500, 2500, 5500, 4000)
+    crossing = await backend.entity_create_line(5800, 3000, 6400, 3000)
+    margin = await backend.entity_create_circle(6100, 3000, 50)
+    await backend.entity_create_circle(9000, 3000, 50)  # outside the window
+    await _sheet(backend)
+
+    result = await backend.viewport_create(
+        SHEET, 210, 148.5, scale=0.02, fit_region=[6000, 4500, 1000, 2000], margin_mm=5
+    )
+
+    assert result["ok"] is True
+    assert result["width"] == pytest.approx(110.0)
+    assert result["height"] == pytest.approx(60.0)
+    assert result["view_center"] == pytest.approx([3500.0, 3250.0])
+    assert result["view_height"] == pytest.approx(3000.0)
+    fit = result["fit"]
+    assert fit["region"] == pytest.approx([1000, 2000, 6000, 4500])
+    assert fit["model_window"] == pytest.approx([750, 1750, 6250, 4750])
+    reasons = {row["handle"]: row["reason"] for row in fit["intrusions"]}
+    assert reasons == {crossing.handle: "crosses_region", margin.handle: "in_margin"}
+    assert inside.handle not in reasons
+    assert fit["intrusion_count"] == 2
+
+    row = next(
+        vp
+        for vp in (await backend.viewport_list(SHEET))["viewports"]
+        if vp["handle"] == result["handle"]
+    )
+    assert row["scale"] == pytest.approx(0.02)
+    assert row["view_center"][:2] == pytest.approx([3500.0, 3250.0])
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"fit_region": [0, 0, 10, 10], "width": 50},
+        {"fit_region": [0, 0, 10, 0]},
+        {"fit_region": [0, 0, 10, 10], "margin_mm": -1},
+        {"width": 50, "height": 50, "view_center_x": 0, "view_center_y": 0, "margin_mm": 5},
+        {"width": 50, "height": 50},
+    ],
+    ids=["mixed", "zero_area", "negative_margin", "margin_without_fit", "no_view_center"],
+)
+async def test_fit_region_refuses_ambiguous_arguments(backend, kwargs):
+    from engineering.errors import InvalidArgsError
+
+    await _sheet(backend)
+    with pytest.raises(InvalidArgsError):
+        await backend.viewport_create(SHEET, 210, 148.5, **kwargs)
+    assert (await backend.viewport_list(SHEET))["count"] == 1  # only the main one

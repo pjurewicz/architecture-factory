@@ -74,17 +74,29 @@ class LayoutContract(ABC):
         layout: str,
         center_x: float,
         center_y: float,
-        width: float,
-        height: float,
-        view_center_x: float,
-        view_center_y: float,
+        width: float | None = None,
+        height: float | None = None,
+        view_center_x: float | None = None,
+        view_center_y: float | None = None,
         scale: float = 1.0,
+        *,
+        fit_region: list[float] | None = None,
+        margin_mm: float = 0.0,
     ) -> dict:
         """Place a scaled model-space viewport on a paper-space layout.
 
         ``scale`` is paper:model (1.0 = 1:1, 0.5 = 1:2). The viewport shows
         the model window centered at (view_center_x, view_center_y) with
         view height = height / scale.
+
+        ``fit_region=[x1, y1, x2, y2]`` (model units) replaces ``width``,
+        ``height`` and ``view_center_*`` (passing any of them with it is
+        ``invalid_args``): the view centre is the region's centre and the
+        viewport is the region times ``scale`` plus ``margin_mm`` of paper on
+        every side. The result then carries ``fit`` with the region, the model
+        window actually shown and ``intrusions``: model-space entities whose
+        extents enter that window but do not lie inside the region
+        (``crosses_region`` - clipped by its edge - or ``in_margin``).
         """
         ...
 

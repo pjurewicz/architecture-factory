@@ -9241,24 +9241,52 @@ async def viewport_create(
     layout: Annotated[str, "Paper-space layout that receives the viewport."],
     center_x: Annotated[float, "Viewport center X in paper units."],
     center_y: Annotated[float, "Viewport center Y in paper units."],
-    width: Annotated[float, Field(gt=0, description="Viewport width in paper units.")],
-    height: Annotated[float, Field(gt=0, description="Viewport height in paper units.")],
-    view_center_x: Annotated[float, "Model-space X the viewport looks at."],
-    view_center_y: Annotated[float, "Model-space Y the viewport looks at."],
+    width: Annotated[
+        float | None, Field(gt=0, description="Viewport width in paper units.")
+    ] = None,
+    height: Annotated[
+        float | None, Field(gt=0, description="Viewport height in paper units.")
+    ] = None,
+    view_center_x: Annotated[float | None, "Model-space X the viewport looks at."] = None,
+    view_center_y: Annotated[float | None, "Model-space Y the viewport looks at."] = None,
     scale: Annotated[
         float,
         Field(gt=0, description="Paper:model scale (1.0 = 1:1, 0.5 = 1:2, 2.0 = 2:1)."),
     ] = 1.0,
+    fit_region: Annotated[
+        list[float] | None,
+        Field(
+            min_length=4,
+            max_length=4,
+            description="Model region [x1, y1, x2, y2] to fit; replaces width, height, view_center_*.",
+        ),
+    ] = None,
+    margin_mm: Annotated[
+        float, Field(ge=0, description="Paper added on every side of fit_region.")
+    ] = 0.0,
     ctx: Context = None,
 ) -> dict:
     """Place a scaled model-space viewport on a paper-space layout.
 
     The viewport window shows the model region centered at
     (view_center_x, view_center_y); view height = height / scale.
+
+    With fit_region the view centre and size are computed: width =
+    region width × scale + 2 × margin_mm. `fit.intrusions` lists model
+    entities that enter the shown window without lying inside the region.
     """
     await ctx.info(f"Creating viewport on {layout} at {scale}:1")
     return await _backend(ctx).viewport_create(
-        layout, center_x, center_y, width, height, view_center_x, view_center_y, scale
+        layout,
+        center_x,
+        center_y,
+        width,
+        height,
+        view_center_x,
+        view_center_y,
+        scale,
+        fit_region=fit_region,
+        margin_mm=margin_mm,
     )
 
 

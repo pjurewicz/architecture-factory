@@ -4125,19 +4125,75 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         layout: str,
         center_x: float,
         center_y: float,
-        width: float,
-        height: float,
-        view_center_x: float,
-        view_center_y: float,
+        width: float | None = None,
+        height: float | None = None,
+        view_center_x: float | None = None,
+        view_center_y: float | None = None,
         scale: float = 1.0,
+        *,
+        fit_region: list[float] | None = None,
+        margin_mm: float = 0.0,
     ) -> dict:
+        region = None
+        if fit_region is not None:
+            given = [
+                name
+                for name, value in (
+                    ("width", width),
+                    ("height", height),
+                    ("view_center_x", view_center_x),
+                    ("view_center_y", view_center_y),
+                )
+                if value is not None
+            ]
+            if given:
+                raise InvalidArgsError(
+                    f"invalid_args: fit_region computes {', '.join(given)}; pass one or the other"
+                )
+            if len(fit_region) != 4:
+                raise InvalidArgsError("invalid_args: fit_region is [x1, y1, x2, y2]")
+            x1, y1, x2, y2 = (float(v) for v in fit_region)
+            region = (min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2))
+            if region[2] - region[0] <= 0 or region[3] - region[1] <= 0:
+                raise InvalidArgsError("invalid_args: fit_region has zero width or height")
+            if margin_mm < 0:
+                raise InvalidArgsError("invalid_args: margin_mm must be >= 0")
+        else:
+            missing = [
+                name
+                for name, value in (
+                    ("width", width),
+                    ("height", height),
+                    ("view_center_x", view_center_x),
+                    ("view_center_y", view_center_y),
+                )
+                if value is None
+            ]
+            if missing:
+                raise InvalidArgsError(
+                    f"invalid_args: {', '.join(missing)} required unless fit_region is given"
+                )
+            if margin_mm:
+                raise InvalidArgsError("invalid_args: margin_mm applies only with fit_region")
+
         def _sync():
+            nonlocal width, height, view_center_x, view_center_y
             doc = self._require_doc()
             if scale <= 0:
                 return {"ok": False, "error": "scale must be > 0 (paper:model, e.g. 0.5 for 1:2)"}
             if layout == "Model" or layout not in doc.layouts.names():
                 return {"ok": False, "error": f"Paper-space layout not found: {layout}"}
             target = doc.layouts.get(layout)
+            fit = None
+            if region is not None:
+                rx0, ry0, rx1, ry1 = region
+                view_center_x = (rx0 + rx1) / 2.0
+                view_center_y = (ry0 + ry1) / 2.0
+                width = (rx1 - rx0) * scale + 2.0 * margin_mm
+                height = (ry1 - ry0) * scale + 2.0 * margin_mm
+                fit = self._viewport_fit_report(
+                    doc, region, view_center_x, view_center_y, width / scale, height / scale
+                )
             view_height = height / scale
             viewport = target.add_viewport(
                 center=(center_x, center_y),
@@ -4146,15 +4202,73 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 view_height=view_height,
             )
             self._mark_dirty()
-            return {
+            result = {
                 "ok": True,
                 "handle": viewport.dxf.handle,
                 "layout": layout,
                 "scale": scale,
                 "view_height": view_height,
             }
+            if fit is not None:
+                result.update(
+                    width=width,
+                    height=height,
+                    view_center=[view_center_x, view_center_y],
+                    fit=fit,
+                )
+            return result
 
         return await self._async(_sync)
+
+    @staticmethod
+    def _viewport_fit_report(doc, region, cx, cy, view_w, view_h) -> dict:
+        """What a ``fit_region`` viewport shows besides the region itself.
+
+        An entity is an intrusion when its extents overlap the model window
+        the viewport shows but do not lie inside the region: ``crosses_region``
+        when they also reach into the region (the viewport clips it at the
+        region's edge, the margin included), ``in_margin`` otherwise.
+        """
+        rx0, ry0, rx1, ry1 = region
+        wx0, wy0 = cx - view_w / 2.0, cy - view_h / 2.0
+        wx1, wy1 = cx + view_w / 2.0, cy + view_h / 2.0
+        tol = 1e-9 * max(1.0, rx1 - rx0, ry1 - ry0)
+        intrusions: list[dict] = []
+        unmeasured = 0
+        cache = ezdxf_bbox.Cache() if _BBOX_OK else None
+        for ent in doc.modelspace():
+            try:
+                box = ezdxf_bbox.extents([ent], cache=cache)
+            except Exception:
+                unmeasured += 1
+                continue
+            if not box.has_data:
+                continue
+            ex0, ey0 = float(box.extmin.x), float(box.extmin.y)
+            ex1, ey1 = float(box.extmax.x), float(box.extmax.y)
+            if ex1 < wx0 or ex0 > wx1 or ey1 < wy0 or ey0 > wy1:
+                continue
+            if ex0 >= rx0 - tol and ey0 >= ry0 - tol and ex1 <= rx1 + tol and ey1 <= ry1 + tol:
+                continue
+            touches_region = not (ex1 < rx0 or ex0 > rx1 or ey1 < ry0 or ey0 > ry1)
+            intrusions.append(
+                {
+                    "handle": ent.dxf.handle,
+                    "type": ent.dxftype(),
+                    "layer": ent.dxf.get("layer", "0"),
+                    "extents": [ex0, ey0, ex1, ey1],
+                    "reason": "crosses_region" if touches_region else "in_margin",
+                }
+            )
+        report = {
+            "region": [rx0, ry0, rx1, ry1],
+            "model_window": [wx0, wy0, wx1, wy1],
+            "intrusion_count": len(intrusions),
+            "intrusions": intrusions[:50],
+        }
+        if unmeasured:
+            report["unmeasured"] = unmeasured
+        return report
 
     # ---------------------------------------------------------------------------
     # ── environment (track E) ───────────────────────────────────────────────────
