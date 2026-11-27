@@ -537,6 +537,32 @@ async def test_apply_full_bleed_a3_round_trips_and_the_pdf_mediabox_agrees(backe
     assert abs(width - 420.0) <= 0.5 and abs(height - 297.0) <= 0.5
 
 
+async def test_a_sheet_frame_from_the_origin_fits_a_new_layout_and_a_full_bleed_one(backend):
+    """A new layout kept ezdxf's [20, 20, 7.5, 7.5] margins, so a 1:1 layout
+    plot started at (-7.5, -20) and a sheet_frame drawn over 0..420 x 0..297
+    lost its right 7.5 mm and top 20 mm off the PDF page; full-bleed media
+    kept those margins too."""
+    await backend.drawing_new()
+    default = (await backend.page_setup_list())[0]
+    assert default["margins_mm"] == [0.0, 0.0, 0.0, 0.0], default["layout"]
+
+    await _sheet(backend)
+    lay = backend._doc.layouts.get(SHEET)
+    await backend.page_setup_apply(SHEET, resolve_page_setup("ISO_A3", scale="1:1"))
+    frame = backend._paper_frame(lay)
+    assert frame["xlim"] == pytest.approx((0.0, 420.0))
+    assert frame["ylim"] == pytest.approx((0.0, 297.0))
+
+    dxf = lay.dxf_layout.dxf
+    dxf.top_margin = dxf.bottom_margin = 20.0
+    dxf.left_margin = dxf.right_margin = 7.5
+    await backend.page_setup_apply(
+        SHEET, resolve_page_setup("ISO_A3", scale="1:1", bleed="full_bleed")
+    )
+    assert (await backend.page_setup_list(SHEET))[0]["margins_mm"] == [0.0, 0.0, 0.0, 0.0]
+    assert backend._paper_frame(lay)["xlim"] == pytest.approx((0.0, 420.0))
+
+
 async def test_apply_bleed_expand_portrait_a4(backend, tmp_path):
     await _sheet(backend)
     await backend.page_setup_apply(SHEET, resolve_page_setup("ISO_A4", "portrait", bleed="expand"))
@@ -638,7 +664,12 @@ async def test_layout_plot_honours_the_plot_scale(backend, tmp_path):
     exports were pixel-identical (both clipped at the edge) with ``ok: True``.
     """
     await _sheet(backend)
-    await backend.page_setup_apply(SHEET, resolve_page_setup("ISO_A3", scale="1:2"))
+    # The frame starts at (0, 0): with zero margins its left edge would lie on
+    # the page edge, so the sheet keeps a printable border.
+    margins = [20.0, 20.0, 7.5, 7.5]
+    await backend.page_setup_apply(
+        SHEET, resolve_page_setup("ISO_A3", scale="1:2", margins_mm=margins)
+    )
     lay = backend._doc.layouts.get(SHEET)
     lay.add_lwpolyline([(0, 0), (800, 0), (800, 500), (0, 500)], close=True)
     _, _, left_mm, _ = (await backend.page_setup_list(SHEET))[0]["margins_mm"]
@@ -655,7 +686,9 @@ async def test_layout_plot_honours_the_plot_scale(backend, tmp_path):
     expected_last = int(width * (left_mm + 400.0) / 420.0)
     assert abs(last - expected_last) <= 3, (first, last, width, expected_last)
 
-    await backend.page_setup_apply(SHEET, resolve_page_setup("ISO_A3", scale="1:1"))
+    await backend.page_setup_apply(
+        SHEET, resolve_page_setup("ISO_A3", scale="1:1", margins_mm=margins)
+    )
     result, (_, last_full, _) = await _export_png(backend, tmp_path, SHEET, "full")
     assert result["scale"] == "1:1"
     assert last_full >= width - 2, "at 1:1 the 800-unit frame runs off the 420 mm sheet"
@@ -711,6 +744,8 @@ async def test_extents_plot_fits_the_printable_area_and_centres(
             plot_area="extents",
             center=True,
             paper_units=paper_units,
+            # A printable area smaller than the sheet, so the fit is below 1:1.
+            margins_mm=[20.0, 20.0, 7.5, 7.5],
         ),
     )
     lay = backend._doc.layouts.get(SHEET)

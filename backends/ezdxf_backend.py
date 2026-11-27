@@ -644,6 +644,15 @@ def _arial_standard_style(doc) -> None:
     doc.styles.get("Standard").dxf.font = "arial.ttf"
 
 
+def _zero_margins(layout) -> None:
+    """Zero margins on a layout this server creates, as the bundled templates
+    store them. ezdxf's default [20, 20, 7.5, 7.5] put the plot origin at
+    (7.5, 20), so a sheet_frame drawn from (0, 0) lost its right and top edges
+    off the PDF page."""
+    dxf = layout.dxf_layout.dxf
+    dxf.top_margin = dxf.bottom_margin = dxf.left_margin = dxf.right_margin = 0.0
+
+
 def _apply_iso_dimstyle(doc) -> None:
     """Store ISO defaults on the document's `Standard` dimension style."""
     try:
@@ -3139,6 +3148,9 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 doc = ezdxf.new(dxfversion="R2010")
                 _apply_iso_dimstyle(doc)
                 _arial_standard_style(doc)
+                for name in doc.layouts.names():
+                    if name != "Model":
+                        _zero_margins(doc.layouts.get(name))
             # R32: registering a fresh Drawing is the release — the runaway keeps
             # the object it captured. The quarantined entry is evicted first so
             # it can never be re-activated. Clear before _reset_history_baseline,
@@ -3884,7 +3896,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             existing = self._find_layout(wanted)
             if existing is not None:
                 return {"ok": False, "error": f"Layout already exists: {existing}"}
-            doc.layouts.new(wanted)
+            _zero_margins(doc.layouts.new(wanted))
             self._mark_dirty()
             return {"ok": True, "layout": wanted}
 

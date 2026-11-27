@@ -85,6 +85,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A `sheet_frame` drawn from (0, 0) on a new layout lost its right 7.5 mm and
+  top 20 mm off the PDF page: `layout_create` and `drawing_new()`'s `Layout1`
+  kept ezdxf's default [20, 20, 7.5, 7.5] margins, so a 1:1 layout plot started
+  at (-7.5, -20). New layouts now get zero margins, as the bundled templates
+  store them, and `page_setup_apply` on full-bleed media (`bleed="full_bleed"`
+  or an `ISO_full_bleed_…` name) writes zero margins unless `margins_mm` is given.
 - `drawing_critique`'s `iso128` dimension-legibility lane now grades paper
   layouts: each model viewport grades the model lettering inside its window at
   its own scale (TEXT / MTEXT / MULTILEADER height, or a DIMENSION's DIMTXT x

@@ -653,6 +653,10 @@ def resolve_page_setup(
                 f"margins_mm: {values} leave no printable area on a {width:g} x {height:g} mm sheet"
             )
         margins = values
+    elif "_full_bleed_" in media:
+        # Full-bleed media has no unprintable border; keeping a layout's old
+        # margins under it shifted a 0..W sheet frame off the page.
+        margins = [0.0, 0.0, 0.0, 0.0]
 
     if not isinstance(center, bool):
         raise ValueError(f"center: must be true or false, got {center!r}")
