@@ -434,6 +434,74 @@ def _standard_linetypes(doc):
     return ezdxf_standards.linetypes(scale=25.4 if metric else 1.0)
 
 
+def _normalise_linetype_units(doc) -> list[str]:
+    """Rescale inch standard linetypes stored in a metric drawing to acadiso.lin's.
+
+    Every build before 8632da0 loaded ezdxf's CENTER, PHANTOM, DASHED, ... in
+    acad.lin's inches into metric drawings: reopened, CENTER still repeated
+    every 2 mm and plotted solid. A linetype whose pattern is exactly the inch
+    one is given the metric one; any other definition is the author's and is
+    kept. Returns the names rescaled.
+    """
+    if doc.header.get("$MEASUREMENT", 1) != 1:
+        return []
+    from ezdxf.tools import standards as ezdxf_standards
+
+    inch = {name.upper(): pattern for name, _, pattern in ezdxf_standards.linetypes()}
+    rescaled = []
+    for ltype in doc.linetypes:
+        pattern = inch.get(ltype.dxf.name.upper())
+        if not pattern or not pattern[0]:  # unknown, or CONTINUOUS
+            continue
+        stored = ltype.simplified_line_pattern()
+        wanted = [abs(e) for e in pattern[1:]]
+        if len(stored) != len(wanted) or any(
+            abs(a - b) > 1e-9 for a, b in zip(stored, wanted, strict=True)
+        ):
+            continue
+        ltype.setup_pattern([e * 25.4 for e in pattern])
+        rescaled.append(ltype.dxf.name)
+    return rescaled
+
+
+#: A viewport plotting its linetype patterns at more than this many times their
+#: defined size, or under its inverse, is warned (``_linetype_scale_warnings``).
+LINETYPE_PLOT_FACTOR_LIMIT = 5.0
+
+
+def _linetype_scale_warnings(doc, layout) -> list[str]:
+    """Viewports of ``layout`` whose linetype patterns plot far from their size.
+
+    Under PSLTSCALE 1 a viewport already sizes patterns in paper units, so
+    LTSCALE multiplies them on paper: LTSCALE 50 on a 1:50 viewport makes
+    HIDDEN's dash 250 mm and every dashed line plots solid - in AutoCAD too.
+    Under PSLTSCALE 0 patterns are model units: LTSCALE 1 at 1:50 shrinks them
+    to a fiftieth.
+    """
+    ltscale = float(doc.header.get("$LTSCALE", 1.0) or 1.0)
+    paper_units = bool(doc.header.get("$PSLTSCALE", 1))
+    main = layout.main_viewport()
+    warnings = []
+    for vp in layout.query("VIEWPORT"):
+        height, view_height = vp.dxf.get("height", 0.0), vp.dxf.get("view_height", 0.0)
+        if (main is not None and vp.dxf.handle == main.dxf.handle) or not height or not view_height:
+            continue
+        factor = ltscale * (1.0 if paper_units else height / view_height)
+        if 1 / LINETYPE_PLOT_FACTOR_LIMIT <= factor <= LINETYPE_PLOT_FACTOR_LIMIT:
+            continue
+        fix = (
+            "with PSLTSCALE 1 keep LTSCALE 1"
+            if paper_units
+            else f"set PSLTSCALE 1 and LTSCALE 1 (or LTSCALE {view_height / height:g})"
+        )
+        warnings.append(
+            f"viewport {vp.dxf.handle} (1:{view_height / height:g}) plots linetype patterns at "
+            f"{factor:g}x their size (LTSCALE {ltscale:g}, PSLTSCALE {int(paper_units)}): "
+            f"dashed lines may plot solid; {fix}"
+        )
+    return warnings
+
+
 def _add_linetype_from_fallback(doc, name: str) -> bool:
     """Add `name` from _AUTOCAD_FALLBACK_LINETYPES if known. Returns True on success."""
     fallback = _AUTOCAD_FALLBACK_LINETYPES.get(name.upper())
@@ -1189,6 +1257,61 @@ def _render_override(ent):
     return override
 
 
+#: Pattern sequences a DIMLTEX extension line must hold (``_fit_ext_ltscale``).
+EXT_LINETYPE_SEQUENCES = 2.0
+
+
+def _patterned(doc, entity) -> float:
+    """The pattern length of ``entity``'s own linetype, 0 for none or a solid one."""
+    name = entity.dxf.get("linetype", "")
+    if not name or name.lower() in _BUILTIN_LINETYPES or name not in doc.linetypes:
+        return 0.0
+    return float(sum(doc.linetypes.get(name).simplified_line_pattern()))
+
+
+def _fit_ext_ltscale(doc, dim) -> None:
+    """Give a dimension whose DIMLTEX line is too short for its pattern a linetype scale.
+
+    AutoCAD draws a line shorter than one sequence of its pattern solid (the
+    A-type alignment), and so does the plot: an axis extension line 20 mm long
+    on a 1:50 sheet never showed CENTER's 50.8 mm dash-dot. The DIMENSION's own
+    linetype scale is set so its shortest patterned extension line holds
+    ``EXT_LINETYPE_SEQUENCES`` sequences on paper - the pattern measured in
+    model units as the plot sizes it: x LTSCALE, and x DIMSCALE (the plot
+    scale's denominator) under PSLTSCALE 1. Never above 1.
+    """
+    ent = dim.dimension
+    block = doc.blocks.get(ent.dxf.get("geometry"))
+    if block is None:
+        return
+    factor = float(doc.header.get("$LTSCALE", 1.0) or 1.0)
+    if doc.header.get("$PSLTSCALE", 1):
+        factor *= float(dim.get("dimscale", 1.0) or 1.0)
+    fit = 1.0
+    for line in block.query("LINE"):
+        period = _patterned(doc, line)
+        if period > 0:
+            length = Vec3(line.dxf.start).distance(Vec3(line.dxf.end))
+            fit = min(fit, length / (EXT_LINETYPE_SEQUENCES * period * factor))
+    if 0 < fit < 1:
+        ent.dxf.ltscale = round(fit, 4)
+
+
+def _dim_block_ltscale(doc, ent) -> None:
+    """Carry a DIMENSION's linetype scale onto the patterned lines of its ``*D`` block.
+
+    AutoCAD draws a dimension's parts at the dimension's linetype scale; ezdxf's
+    renderer writes the block's lines at 1.0, and the plot reads each line's own.
+    """
+    block = doc.blocks.get(ent.dxf.get("geometry"))
+    if block is None:
+        return
+    scale = float(ent.dxf.get("ltscale", 1.0))
+    for line in block.query("LINE"):
+        if _patterned(doc, line) > 0:
+            line.dxf.ltscale = scale
+
+
 def _stage_rerender(doc, ent, *, force: bool) -> dict:
     """Draw one DIMENSION's new ``*D`` block and point the entity at it (1.8-15).
 
@@ -1223,6 +1346,7 @@ def _stage_rerender(doc, ent, *, force: bool) -> dict:
         dxf.geometry = block.name
         renderer.render(block)
         renderer.finalize()
+        _dim_block_ltscale(doc, ent)
 
         new_texts = _text_inserts(block)
         if keep_text and old_texts and len(old_texts) == len(new_texts):
@@ -3193,6 +3317,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             if template and Path(template).exists():
                 doc = ezdxf.readfile(template)
                 _normalise_dimstyle_rounding(doc)
+                _normalise_linetype_units(doc)
             else:
                 doc = ezdxf.new(dxfversion="R2010")
                 _apply_iso_dimstyle(doc)
@@ -3280,6 +3405,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             # 1.8-08: the revision the file was saved at, before the open moves it.
             saved_record = None if recover else lineage.read_record(path)
             _normalise_dimstyle_rounding(doc)
+            rescaled = _normalise_linetype_units(doc)
             if recover:
                 line = {
                     "lineage_id": lineage.new_lineage_id(),
@@ -3361,6 +3487,8 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             }
             if line["external_change"]:
                 result["previous_sha256"] = line.get("previous_sha256")
+            if rescaled:
+                result["linetypes_rescaled"] = rescaled
             if recovered is not None:
                 result["recovered"] = recovered
                 result["recovered_from"] = path
@@ -3883,6 +4011,9 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                         result["rotation_applied"] = False
                 if resolved is not None and resolved != "Model":
                     result["layout"] = resolved
+                    ltype_warnings = _linetype_scale_warnings(doc, target)
+                    if ltype_warnings:
+                        result.setdefault("warnings", []).extend(ltype_warnings)
                     result["note"] = (
                         "Paper-space entities are rendered, and model content is projected "
                         "through each viewport at its scale and clipped to its window. "
@@ -7014,6 +7145,9 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             dim.render()
             ent = dim.dimension
             ent.dxf.layer = self._layer_for(layer, own="DIM")
+            if dimvars and (dimvars.get("dimltex1") or dimvars.get("dimltex2")):
+                _fit_ext_ltscale(self._require_doc(), dim)
+                _dim_block_ltscale(self._require_doc(), ent)
             self._attach_xdata(ent, prepared)
             self._mark_dirty()
             return _entity_info_dxf(ent)

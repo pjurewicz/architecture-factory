@@ -325,6 +325,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   axis, the door leaf's hinge and its jamb differ by float noise (~1e-8 mm).
   Two LINE ends closer than 1 µm (`COINCIDENT_MM = 1e-3`, was 1e-9) now count
   as one point.
+- `dimension_chain(axis=)`'s CENTER extension lines plotted solid: the
+  override reached the `*D` block, but a 20 mm extension line on a 1:50 sheet
+  holds none of CENTER's 50.8 mm sequences, which AutoCAD also draws as a
+  continuous line. A dimension drawn with DIMLTEX1/2 now gets its own linetype
+  scale, fitted so its shortest patterned extension line holds two sequences
+  on paper (the pattern x LTSCALE, x DIMSCALE under PSLTSCALE 1, never above
+  1), and every render of a dimension - creation and `dimension_rerender`, so
+  `dimstyle_modify`, `entity_scale`, `entity_edit_geometry` and
+  `drawing_refine` - writes the dimension's linetype scale onto the patterned
+  lines of its `*D` block, as AutoCAD draws them.
+- A metric drawing saved by a build before 8632da0 still stored the inch
+  CENTER, PHANTOM, DASHED, ... and plotted them solid after reopening.
+  `drawing_open` and `drawing_new(template=)` rescale a standard linetype whose
+  pattern is exactly the inch one (x 25.4) and `drawing_open` lists them in
+  `linetypes_rescaled`; any other definition is kept.
+- A sheet plot (`drawing_export_pdf(layout=)`, each `batch_plot` row) warns per
+  viewport when LTSCALE / PSLTSCALE plot its linetype patterns over 5x or under
+  1/5 of their size - LTSCALE 50 under PSLTSCALE 1, or LTSCALE 1 under
+  PSLTSCALE 0 at 1:50 - the settings under which dashed lines plot solid,
+  in AutoCAD as here.
 - CENTER lines plotted solid on a PDF and in `view_screenshot` (an A2 sheet at
   1:50 included): ezdxf's standard linetypes - CENTER, PHANTOM, DASHED,
   DASHDOT, DOT, DIVIDE and their variants - were loaded in acad.lin's inch

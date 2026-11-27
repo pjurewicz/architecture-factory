@@ -143,6 +143,8 @@ async def batch_plot(
             )
             continue
         row = {"layout": name, "ok": True, "path": str(path), "bytes": path.stat().st_size}
+        if result.get("warnings"):
+            row["warnings"] = result["warnings"]
         try:
             width, height = read_mediabox(str(path))
             row["mediabox_mm"] = [width, height]

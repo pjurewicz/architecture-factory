@@ -42,7 +42,8 @@ inside the run lose their extension lines.
 ``axis`` names the points (indices into ``points``) that lie on a wall's or a
 partition's axis rather than on a face: every extension line at such a
 station is drawn with the CENTER linetype (DIMLTEX1 / DIMLTEX2), the axis
-convention. An extension line of zero length - a point on its own dimension
+convention; the dimension's linetype scale is fitted so that line holds two
+CENTER sequences on paper (a shorter line plots solid, in AutoCAD too). An extension line of zero length - a point on its own dimension
 line, as ``offset`` 0 gives - is suppressed (DIMSE1 / DIMSE2) instead of
 leaving a DIMEXE tick; an axis station there is warned ``axis_on_line``.
 

@@ -199,28 +199,97 @@ async def test_a_hidden_line_seen_through_a_viewport_plots_dashed(backend, pslts
     assert 9 <= dashes <= 11, dashes  # 75 mm of line / 7.5 mm period
 
 
+async def _a2_sheet_at_1_50(backend, view_x, view_y):
+    await backend.layout_create("A2")
+    backend._doc.layouts.get("A2").page_setup(size=(594, 420), margins=(0, 0, 0, 0), units="mm")
+    await backend.viewport_create("A2", 297, 210, 500, 340, view_x, view_y, scale=1 / 50)
+    await backend.layout_set_current("A2")
+
+
+def _gaps_mm(report, *, vertical=False) -> list[float]:
+    """Breaks (paper mm) along the inkiest pixel row - or column - of a render."""
+    image = Image.open(io.BytesIO(report["png"])).convert("RGB")
+    if vertical:
+        image = image.transpose(Image.Transpose.ROTATE_90)
+    background = image.getpixel((0, 0))
+    width, height = image.size
+    rows = [[image.getpixel((x, y)) != background for x in range(width)] for y in range(height)]
+    row = max(rows, key=sum)  # the line's own row
+    ink = [x for x in range(width) if row[x]]
+    pairs = zip(ink, ink[1:], strict=False)
+    return [(b - a - 1) / report["px_per_unit"] for a, b in pairs if b - a > 1]
+
+
 @pytest.mark.asyncio
 async def test_a_center_line_on_an_a2_sheet_at_1_50_plots_with_visible_gaps(backend):
     # ezdxf's standard CENTER is acad.lin's, in inches: loaded into a metric
     # drawing it repeated every 2 mm with 0.25 mm gaps and plotted solid.
     # acadiso.lin's CENTER: 31.75 dash, 6.35 gap, 6.35 dot, 6.35 gap (mm).
     await backend.entity_create_line(0, 0, 7500, 0, linetype="CENTER")
-    await backend.layout_create("A2")
-    backend._doc.layouts.get("A2").page_setup(size=(594, 420), margins=(0, 0, 0, 0), units="mm")
-    await backend.viewport_create("A2", 297, 210, 500, 340, 3750, 0, scale=1 / 50)
-    await backend.layout_set_current("A2")
-    report = await backend.view_render(region=[222, 200, 372, 220], max_px=1500)
-    image = Image.open(io.BytesIO(report["png"])).convert("RGB")
-    background = image.getpixel((0, 0))
-    width, height = image.size
-    rows = [[image.getpixel((x, y)) != background for x in range(width)] for y in range(height)]
-    row = max(rows, key=sum)  # the line's own row
-    ink = [x for x in range(width) if row[x]]
-    gaps = [
-        (b - a - 1) / report["px_per_unit"] for a, b in zip(ink, ink[1:], strict=False) if b - a > 1
-    ]
+    await _a2_sheet_at_1_50(backend, 3750, 0)
+    gaps = _gaps_mm(await backend.view_render(region=[222, 200, 372, 220], max_px=1500))
     assert 5 <= len(gaps) <= 7, gaps  # 150 mm of line / 50.8 mm period, two gaps each
     assert min(gaps) > 5, gaps  # 6.35 mm of paper, less the pen's round caps
+
+
+@pytest.mark.asyncio
+async def test_a_drawing_saved_with_inch_center_reopens_with_visible_gaps(backend, tmp_path):
+    # Every build before 8632da0 stored acad.lin's inch CENTER (period 2.0) in
+    # metric drawings; reopened, it still plotted solid through the viewport.
+    from ezdxf.tools import standards
+
+    doc = backend._doc
+    _, description, inch = next(lt for lt in standards.linetypes() if lt[0] == "CENTER")
+    doc.linetypes.add("CENTER", pattern=inch, description=description)
+    await backend.entity_create_line(0, 0, 7500, 0, linetype="CENTER")
+    await _a2_sheet_at_1_50(backend, 3750, 0)
+    path = str(tmp_path / "legacy.dxf")
+    await backend.drawing_save(path)
+    opened = await backend.drawing_open(path)
+    assert opened["linetypes_rescaled"] == ["CENTER"]
+    await backend.layout_set_current("A2")
+    gaps = _gaps_mm(await backend.view_render(region=[222, 200, 372, 220], max_px=1500))
+    assert 5 <= len(gaps) <= 7 and min(gaps) > 5, gaps
+
+
+@pytest.mark.asyncio
+async def test_a_sheet_plot_warns_when_ltscale_makes_its_viewport_patterns_plot_solid(
+    backend, tmp_path
+):
+    # LTSCALE 50 under PSLTSCALE 1 draws HIDDEN's dash 250 mm on paper: the
+    # line plots solid, as in AutoCAD, and the plot said nothing.
+    from engineering.standards.plot import batch_plot
+
+    await backend.entity_create_line(0, 0, 7500, 0, linetype="HIDDEN")
+    await _a2_sheet_at_1_50(backend, 3750, 0)
+    quiet = await backend.drawing_export_pdf(str(tmp_path / "quiet.pdf"), layout="A2")
+    assert "warnings" not in quiet
+    backend._doc.header["$LTSCALE"] = 50.0
+    loud = await backend.drawing_export_pdf(str(tmp_path / "loud.pdf"), layout="A2")
+    assert len(loud["warnings"]) == 1 and "50x their size" in loud["warnings"][0]
+    backend._doc.header["$PSLTSCALE"] = 0  # model units: LTSCALE 50 is right at 1:50
+    assert "warnings" not in await backend.drawing_export_pdf(str(tmp_path / "ok.pdf"), layout="A2")
+    backend._doc.header["$LTSCALE"] = 1.0
+    plotted = await batch_plot(backend, ["A2"], str(tmp_path / "set"))
+    assert "0.02x their size" in plotted["sheets"][0]["warnings"][0]
+
+
+@pytest.mark.asyncio
+async def test_an_axis_extension_line_plots_dash_dot_at_1_50_and_after_a_rerender(backend):
+    # dimension_chain(axis=) gives the station's extension line CENTER, but a
+    # 20 mm line holds no 50.8 mm sequence: AutoCAD draws it solid, and so did
+    # the plot. The dimension's linetype scale now fits two sequences.
+    from engineering.dimension_chain import draw_chain
+
+    out = await draw_chain(
+        backend, [[0, 0], [3000, 0], [7000, 0]], 1000, axis=[1], overall=False, scale=50
+    )
+    await _a2_sheet_at_1_50(backend, 3000, 500)
+    window = [292, 200, 302, 230]  # paper, around the axis station's extension line
+    for _ in range(2):
+        gaps = _gaps_mm(await backend.view_render(region=window, max_px=1500), vertical=True)
+        assert len([g for g in gaps if g > 0.8]) >= 2, gaps  # 1.29 mm, less the round caps
+        await backend.dimension_rerender([d["handle"] for d in out["dimensions"]], True)
 
 
 @pytest.mark.asyncio
