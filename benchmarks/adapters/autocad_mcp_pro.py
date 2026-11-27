@@ -2446,14 +2446,14 @@ class AutoCADMCPProAdapter(BenchmarkAdapter):
     async def _task_dwg_headless_roundtrip(self):
         """A DWG opened headlessly through a converter, saved as DXF (K1).
 
-        The DWG is the bundled ``templates/iso_a3_mech.dwt`` under a ``.dwg``
-        name (a DWT is a DWG container); the truth is the template's DXF twin,
-        read with ezdxf directly. Through the real server: ``drawing_open`` on
-        the DWG, ``drawing_save_as`` to a DXF, and that file must hold the
-        twin's layers, block names and per-layout entity counts. The
-        broken-input twin runs first: with the converter switched off (the
-        ODA probe answering no) the same open
-        is refused ``unsupported`` / capability ``dwg_read`` and the open
+        The DWG is the bundled ``templates/iso_a3_mech.dxf`` written as DWG by
+        the ODA File Converter; the truth is that DXF, read with ezdxf
+        directly. Through the real server: ``drawing_open`` on the DWG,
+        ``drawing_save`` to a DXF, and that file must hold the template's
+        layers, block names and per-layout entity counts. The broken-input
+        twin runs first: with the converter switched off (the ODA probe
+        answering no) an open of a ``.dwg`` path is refused ``unsupported`` /
+        capability ``dwg_read`` before its bytes are read, and the open
         document is unchanged. A machine with no converter at all is
         ``environment_blocked``, never a pass.
         """
@@ -2461,7 +2461,7 @@ class AutoCADMCPProAdapter(BenchmarkAdapter):
 
         import ezdxf
 
-        from backends import ezdxf_backend
+        from backends import dwg_read, ezdxf_backend
 
         def counts(doc) -> dict:
             return {
@@ -2473,9 +2473,12 @@ class AutoCADMCPProAdapter(BenchmarkAdapter):
         templates = Path(__file__).resolve().parents[2] / "templates"
         work = self.artifact_dir / "dwg_headless_roundtrip"
         work.mkdir(parents=True, exist_ok=True)
+        source = templates / "iso_a3_mech.dxf"
         dwg = work / "iso_a3_mech.dwg"
-        shutil.copyfile(templates / "iso_a3_mech.dwt", dwg)
-        truth = counts(ezdxf.readfile(templates / "iso_a3_mech.dxf"))
+        # The twin is refused before the file is read, so any bytes do.
+        refused_dwg = work / "refused.dwg"
+        shutil.copyfile(source, refused_dwg)
+        truth = counts(ezdxf.readfile(source))
 
         saved_probe = ezdxf_backend._odafc_available
         ezdxf_backend._odafc_available = lambda: False
@@ -2483,7 +2486,7 @@ class AutoCADMCPProAdapter(BenchmarkAdapter):
             async with self._served() as client:
                 before = (await client.call_tool("drawing_info", {})).structured_content
                 refused = await client.call_tool(
-                    "drawing_open", {"path": str(dwg)}, raise_on_error=False
+                    "drawing_open", {"path": str(refused_dwg)}, raise_on_error=False
                 )
                 after = (await client.call_tool("drawing_info", {})).structured_content
         finally:
@@ -2510,6 +2513,7 @@ class AutoCADMCPProAdapter(BenchmarkAdapter):
                 "no DWG converter on this machine (ODA File Converter)",
                 metrics=metrics,
             )
+        dwg_read.odafc_module().export_dwg(ezdxf.readfile(source), str(dwg), replace=True)
         target = work / "roundtrip.dxf"
         async with self._served() as client:
             opened = await client.call_tool(

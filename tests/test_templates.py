@@ -79,7 +79,7 @@ def test_template_rows_report_files():
     rows = template_rows()
     assert [row["name"] for row in rows] == list(NAMES)
     for row in rows:
-        assert set(row["files"]) == {"dxf", "dwt"}
+        assert set(row["files"]) == {"dxf"}
         assert row["files"]["dxf"]["path"].endswith(f"{row['name']}.dxf")
         assert isinstance(row["files"]["dxf"]["present"], bool)
 

@@ -2,8 +2,7 @@
 
 Built by ``scripts/build_templates.py`` through the server's own backend
 (layers, styles, settings, the ISO 5457 A3 frame where the sheet is A3, page
-setup) and saved as DXF; the ``.dwt`` twins were produced once in AutoCAD
-and committed.
+setup) and saved as DXF. The DXF is the only file a template has.
 """
 
 from __future__ import annotations
@@ -172,7 +171,7 @@ def template_rows() -> list[dict]:
     rows = []
     for spec in TEMPLATE_CATALOG.values():
         row = asdict(spec)
-        row["files"] = {"dxf": _file(spec.name, ".dxf"), "dwt": _file(spec.name, ".dwt")}
+        row["files"] = {"dxf": _file(spec.name, ".dxf")}
         rows.append(row)
     return rows
 

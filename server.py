@@ -10664,7 +10664,7 @@ async def drawing_template_list(ctx: Context = None) -> dict:
     name), `layer_set` (mech / pid / iso13567), `dimstyle` / `textstyle`
     (ISO-25 / ISOCP or ANSI / ROMANS), `scale`, `title_block` (the ISO 5457 A3
     frame, A3 sheets only), `ctb` (the page setup's plot style), the
-    `settings` applied, and `files.dxf` / `files.dwt` with `present` flags.
+    `settings` applied, and `files.dxf` with its `present` flag.
     Never refuses; it reads a catalogue.
     """
     from engineering.standards.templates import TEMPLATES_DIR, template_rows

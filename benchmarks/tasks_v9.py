@@ -80,10 +80,10 @@ generalises those kills (and can kill at a named in-process barrier).
   the task is ``not_run`` naming the tables deferred to 1.8.1, never a vacuous
   pass. It runs through the backend contract, so it is not headless-only.
 * ``dwg_headless_roundtrip`` (K1, reliability) - a DWG (the bundled
-  ``templates/iso_a3_mech.dwt`` under a ``.dwg`` name: a DWT is a DWG
-  container) opened by ``drawing_open`` on the headless engine through a
-  converter (ODA, then accoreconsole) and saved as DXF holds the layers,
-  blocks and per-layout entity counts of the template's DXF twin. Its
+  ``templates/iso_a3_mech.dxf`` written as DWG by the ODA File Converter)
+  opened by ``drawing_open`` on the headless engine through the converter
+  and saved as DXF holds the layers, blocks and per-layout entity counts of
+  that template DXF. Its
   broken-input twin: with the converters switched off the same open is refused
   ``unsupported`` / capability ``dwg_read`` with the open document unchanged.
   No converter on the machine is ``environment_blocked``, never a pass.

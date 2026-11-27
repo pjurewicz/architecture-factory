@@ -13,25 +13,18 @@ listed by `drawing_template_list`. Start from one with
 | `ansi_b_mech` | ANSI (metric) | ANSI B landscape | mech | ANSI / ROMANS | ANSI_B, monochrome.ctb, 1:1 |
 | `ansi_d_arch` | ANSI (metric) | ANSI D landscape | iso13567 | ANSI / ROMANS (DIMDEC 0) | ANSI_D, monochrome.ctb, fit |
 
-## The two files per template
+## The file per template
 
-- `<name>.dxf` — the headless twin. Produced by
-  `uv run --frozen python scripts/build_templates.py`, which runs
-  `drawing_new → apply_layer_set → styles → drawing_settings → layout rename →
-  titleblock_apply_iso_a3 (A3 sheets) → page_setup_apply → drawing_save`.
-  `scripts/build_templates.py --check` rebuilds into a temporary folder and
-  fails if any committed DXF differs (the save-time stamps `$TDCREATE`,
-  `$TDUPDATE`, `$FINGERPRINTGUID`, `$VERSIONGUID` and the two `EZDXF_META`
-  entries are masked; everything else must be byte-identical).
-  `tests/test_templates.py` runs the same check.
-- `<name>.dwt` — a DWG-container twin of each upstream DXF, built once on
-  AutoCAD 2026 by upstream and committed (`iso_a2_arch` was added in this fork
-  and has none: `files.dwt.present` is false). The server never opens it (`drawing_new` resolves
-  a catalogue name to the `.dxf`); `drawing_template_list` reports it under
-  `files.dwt`, and the benchmark task `dwg_headless_roundtrip` reads one as a
-  DWG through the ODA File Converter. No headless library writes DWT, so the
-  twins are not rebuilt: the `iso_a1_arch` / `ansi_d_arch` twins still carry
-  the DIMDEC 2 their DXFs had before whole-millimetre arch dimensions.
+`<name>.dxf` is the only file a template has. Produced by
+`uv run --frozen python scripts/build_templates.py`, which runs
+`drawing_new → apply_layer_set → styles → drawing_settings → layout rename →
+titleblock_apply_iso_a3 (A3 sheets) → page_setup_apply → drawing_save`.
+`scripts/build_templates.py --check` rebuilds into a temporary folder and
+fails if any committed DXF differs (the save-time stamps `$TDCREATE`,
+`$TDUPDATE`, `$FINGERPRINTGUID`, `$VERSIONGUID` and the two `EZDXF_META`
+entries are masked; everything else must be byte-identical).
+`tests/test_templates.py` runs the same check. There is no `.dwt`: no headless
+library writes one, and `drawing_save` refuses a `.dwt` path (`dwt_write`).
 
 Line endings: ezdxf writes CRLF and `.gitattributes` pins `templates/*.dxf`
 to CRLF so a checkout on any platform equals a fresh build.

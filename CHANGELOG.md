@@ -50,7 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (ISO 13567 layers, ISO-25 / ISOCP, annotation scale 1:50) whose `A2` layout
   is set up on ISO_A2 (594 × 420 mm), zero margins, `arch_monochrome.ctb`,
   scaled to fit. Template specs carry `ctb` (default `monochrome.ctb`), listed by
-  `drawing_template_list`. No `.dwt` twin.
+  `drawing_template_list`.
 - `view_screenshot(overlay_image=, overlay_align=, overlay_opacity=0.5)`: a
   scan drawn semi-transparent under the CAD, so a redraw that missed a jog or
   a skewed wall shows against its source. `overlay_align` is two pairs
@@ -180,8 +180,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dimension in whole millimetres: their dimension style and `$DIMDEC` are 0, so
   an oblique plan reads "9250", not "9250,48" (template specs carry
   `dimstyle_overrides`). Not backward compatible for drawings started from
-  them; `drawing_settings({"dim_decimals": n})` sets another precision. The
-  `.dwt` twins are not rebuilt and keep DIMDEC 2.
+  them; `drawing_settings({"dim_decimals": n})` sets another precision.
 - `arch_plan_from_spec` / `arch_dimension_chains`: an oblique wall's two faces
   projected at its end no longer leave a sliver in the walls row. A span under
   35 mm ending on such a projected point loses it - beside a face, jamb or step
@@ -293,6 +292,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- The `.dwt` twins of the bundled templates (`templates/iso_a3_mech.dwt`,
+  `iso_a1_arch.dwt`, `iso_a3_pid.dwt`, `ansi_b_mech.dwt`, `ansi_d_arch.dwt`).
+  They were made once in AutoCAD, cannot be rebuilt headless and had drifted
+  from the DXFs (DIMDEC 2 in the arch twins, inch-size linetypes); the server
+  never opened them. The `.dxf` is now a template's only file, and
+  `drawing_template_list` rows report `files: {dxf}` only (no `files.dwt`).
+  The v9 task `dwg_headless_roundtrip` now writes its DWG from
+  `iso_a3_mech.dxf` through the ODA File Converter. `drawing_save` still
+  refuses a `.dwt` path (`dwt_write`).
 - The tools `drawing_save_as`, `drawing_export_dxf`, `drawing_export_dwg` and
   `drawing_template_save` (all `drawing_save` now), `drawing_close` (whose
   `save=True` default discarded an untitled document's changes with only a
