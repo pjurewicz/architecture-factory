@@ -489,3 +489,15 @@ async def test_fit_region_refuses_ambiguous_arguments(backend, kwargs):
     with pytest.raises(InvalidArgsError):
         await backend.viewport_create(SHEET, 210, 148.5, **kwargs)
     assert (await backend.viewport_list(SHEET))["count"] == 1  # only the main one
+
+
+async def test_viewport_create_warns_about_linetype_scale_before_the_first_plot(backend):
+    """The warning used to arrive only with drawing_export_pdf, after a PDF had
+    already plotted every dashed line solid."""
+    await _sheet(backend)
+    plain = await backend.viewport_create(SHEET, 210, 148, 200, 150, 0, 0, 0.05)
+    assert "warnings" not in plain
+    backend._doc.header["$LTSCALE"] = 15.0
+    scaled = await backend.viewport_create(SHEET, 100, 100, 50, 50, 0, 0, 0.05)
+    (warning,) = scaled["warnings"]
+    assert warning.startswith(f"viewport {scaled['handle']} ") and "15x" in warning

@@ -4553,6 +4553,10 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 "scale": scale,
                 "view_height": view_height,
             }
+            # The PDF export says the same; said here, before the first plot.
+            mine = f"viewport {viewport.dxf.handle} "
+            if ltype := [w for w in _linetype_scale_warnings(doc, target) if w.startswith(mine)]:
+                result["warnings"] = ltype
             if fit is not None:
                 result.update(
                     width=width,

@@ -360,6 +360,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `viewport_create` warns when LTSCALE / PSLTSCALE will plot the new
+  viewport's linetype patterns far from their size (the warning
+  `drawing_export_pdf` gives), before the first PDF comes out with every
+  dashed line solid.
+
 - `drawing_critique` no longer hides its only error under noise: summary rows
   come worst severity first, `summary=True` folds rows of one focus, severity
   and code into one row with `count` and the first handles, and
