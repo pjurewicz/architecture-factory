@@ -6934,9 +6934,12 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             # set_pattern_fill both default to an explicit ACI 7, which the
             # property_override focus would rightly report on every hatch.
             hatch = msp.add_hatch(color=256)
-            hatch.set_pattern_fill(
-                _hatch_pattern(pattern), color=256, scale=float(scale), angle=float(angle)
-            )
+            name = _hatch_pattern(pattern)
+            if name == "SOLID":
+                # ezdxf's set_pattern_fill("SOLID") writes ANSI31's lines under the name
+                hatch.set_solid_fill(color=256)
+            else:
+                hatch.set_pattern_fill(name, color=256, scale=float(scale), angle=float(angle))
             pts = [(float(p[0]), float(p[1])) for p in boundary_points]
             hatch.paths.add_polyline_path(pts, is_closed=True)
             self._apply_attrs(hatch, layer, color)
@@ -7133,7 +7136,9 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 }
 
             before = _snapshot()
-            if pattern:
+            if pattern and _hatch_pattern(pattern) == "SOLID":
+                hatch.set_solid_fill(color=before["color"], style=before["style"])
+            elif pattern:
                 hatch.set_pattern_fill(
                     _hatch_pattern(pattern),
                     scale=float(scale) if scale is not None else before["scale"],
@@ -10856,7 +10861,18 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                         key.lower(), (float(value[0]), float(value[1]))
                     )
             self._mark_dirty()
-            return {"ok": True, "variable": name, "value": value}
+            result = {"ok": True, "variable": name, "value": value}
+            if key in ("LTSCALE", "PSLTSCALE"):
+                # round 3: set after viewport_create, the warning came only with a plot
+                found = [
+                    w
+                    for layout_name in doc.layouts.names_in_taborder()
+                    if layout_name.lower() != "model"
+                    for w in _linetype_scale_warnings(doc, doc.layouts.get(layout_name))
+                ]
+                if found:
+                    result["warnings"] = found
+            return result
 
         return await self._async(_sync)
 

@@ -116,6 +116,22 @@ async def test_a_bad_room_label_option_is_refused_by_path(backend, over, message
     assert await _count(backend) == 0
 
 
+@pytest.mark.asyncio
+async def test_poche_solid_fills_every_cut_face(backend):
+    """Round 3: interior drawings want a solid grey poche, not ANSI31."""
+    from engineering.arch.layers import ARCH_ROLE_LAYER
+
+    await draw_plan_from_spec(backend, _spec(poche="solid"))
+    hatches = [
+        e for e in backend._doc.modelspace().query("HATCH")
+        if e.dxf.layer == ARCH_ROLE_LAYER["wall_hatch"]
+    ]  # fmt: skip
+    assert hatches and all(h.dxf.solid_fill == 1 for h in hatches)
+    assert {h.dxf.pattern_name for h in hatches} == {"SOLID"}
+    with pytest.raises(ValueError, match="'solid'"):
+        await draw_plan_from_spec(backend, _spec(poche="grey"))
+
+
 def test_validate_spec_turns_dicts_into_the_model():
     norm = validate_spec(EXAMPLE_SPEC)
     assert [w.id for w in norm["walls"]] == ["EXT", "INT"]
@@ -377,7 +393,9 @@ async def test_the_reply_is_compact_unless_verbose_and_a_batch_binding_sees_it_a
                 },
             )
         ).structured_content
-    assert set(compact) == {"rooms", "warnings", "omitted", "plan_bbox", "outer_bbox"}
+    assert set(compact) - {"unsaved"} == {
+        "rooms", "warnings", "omitted", "plan_bbox", "outer_bbox"
+    }  # fmt: skip
     assert compact["rooms"] == [
         {
             "id": item["room"]["id"],
@@ -394,7 +412,8 @@ async def test_the_reply_is_compact_unless_verbose_and_a_batch_binding_sees_it_a
     assert full["critique"] == [] and full["drawn"] and full["chains"]["handles"]
     assert len(json.dumps(compact)) < 0.2 * len(json.dumps(full))
     plan_step, get_step = batched["results"]
-    assert plan_step["result"] == compact
+    # the direct call adds the untitled drawing's `unsaved` note, a batch step does not
+    assert plan_step["result"] == {k: v for k, v in compact.items() if k != "unsaved"}
     assert get_step["status"] == "ok" and get_step["result"]["handle"] == full["rooms"][1]["handle"]
 
 

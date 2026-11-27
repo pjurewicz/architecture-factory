@@ -198,6 +198,8 @@ def _hatch_style(
     if role_layer is not None and "wall_hatch" in role_layer:
         from engineering.arch.materials import wall_hatch
 
+        if material == "solid":  # poche="solid": the plan's grey fill, not a material
+            return {"pattern": "SOLID", "angle": 0.0, "scale": 1.0}
         return wall_hatch(material, plot_scale)
     return hatch_for(material)
 

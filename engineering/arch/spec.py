@@ -221,7 +221,11 @@ def spec_schema() -> dict:
             "additionalProperties": False,
         },
         "lang": {"type": "string", "enum": list(LANGS), "default": "en"},
-        "poche": {"type": "boolean", "default": True},
+        "poche": {
+            "anyOf": [{"type": "boolean"}, {"const": "solid"}],
+            "default": True,
+            "description": "true: material hatch; 'solid': solid fill",
+        },
         "walls": {"type": "array", "items": item_schema(Wall), "minItems": 1},
         "wall_polygons": {"type": "array", "items": item_schema(WallPolygon)},
         "openings": {"type": "array", "items": item_schema(Opening)},
@@ -288,8 +292,8 @@ def validate_spec(spec: dict) -> dict:
     if lang not in LANGS:
         raise ValueError(f"lang: unknown language {lang!r}; languages are {', '.join(LANGS)}")
     poche = spec.get("poche", True)
-    if not isinstance(poche, bool):
-        raise ValueError(f"poche: expected true or false, got {poche!r}")
+    if not isinstance(poche, bool) and poche != "solid":
+        raise ValueError(f"poche: expected true, false or 'solid', got {poche!r}")
 
     raw_walls = _list(spec, "walls")
     if not raw_walls:

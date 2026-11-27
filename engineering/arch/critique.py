@@ -203,6 +203,57 @@ def _nearest_body(point, wall: Wall, own: int, walls: Sequence[Wall]) -> tuple[f
     return best
 
 
+def _extension(wall: Wall, end: str, point, other: Wall) -> float | None:
+    """How far ``wall``'s free ``end`` must run on along its own axis to meet
+    ``other``'s body (a ray against each segment's rectangle), or None when its
+    own line misses it."""
+    pts = wall.axis
+    prev = pts[1] if end == "start" else pts[-2]
+    length = math.dist(prev, point)
+    if length <= EPS:
+        return None
+    ux, uy = (point[0] - prev[0]) / length, (point[1] - prev[1]) / length
+    best = None
+    band = _band(other)
+    for a, b in axis_segments(other):
+        seg = math.dist(a, b)
+        if seg <= EPS:
+            continue
+        ax, ay = (b[0] - a[0]) / seg, (b[1] - a[1]) / seg
+        dx, dy = point[0] - a[0], point[1] - a[1]
+        lo, hi = 0.0, math.inf
+        for origin, step, low, high in (
+            (dx * ax + dy * ay, ux * ax + uy * ay, 0.0, seg),
+            (-dx * ay + dy * ax, -ux * ay + uy * ax, band[0], band[1]),
+        ):
+            if abs(step) <= 1e-12:
+                if not low <= origin <= high:
+                    lo, hi = 1.0, 0.0
+                continue
+            t1, t2 = sorted(((low - origin) / step, (high - origin) / step))
+            lo, hi = max(lo, t1), min(hi, t2)
+        if lo <= hi and (best is None or lo < best):
+            best = lo
+    return best
+
+
+def _toward(point, other: Wall) -> tuple[float, float]:
+    """The shortest move ``[dx, dy]`` that puts ``point`` on ``other``'s body."""
+    band, best = _band(other), None
+    for a, b in axis_segments(other):
+        seg = math.dist(a, b)
+        if seg <= EPS:
+            continue
+        ax, ay = (b[0] - a[0]) / seg, (b[1] - a[1]) / seg
+        dx, dy = point[0] - a[0], point[1] - a[1]
+        along, across = dx * ax + dy * ay, -dx * ay + dy * ax
+        ca, cc = min(max(along, 0.0), seg), min(max(across, band[0]), band[1])
+        move = ((ca - along) * ax - (cc - across) * ay, (ca - along) * ay + (cc - across) * ax)
+        if best is None or math.hypot(*move) < math.hypot(*best):
+            best = move
+    return (round(best[0], 3), round(best[1], 3)) if best else (0.0, 0.0)
+
+
 def wall_gaps(
     walls: Sequence[Wall], *, gap: float = GAP_MM, tol: float = JOIN_TOL_MM
 ) -> list[dict]:
@@ -221,6 +272,8 @@ def wall_gaps(
             if best is None or best[0] <= tol or best[0] > gap:
                 continue
             pair = frozenset((wall.id, best[1]))
+            other = next(w for w in walls if w.id == best[1])
+            run = _extension(wall, end, point, other)
             row = {
                 "walls": tuple(sorted(pair)) if len(pair) == 2 else (wall.id, wall.id),
                 "end": f"{wall.id}.{end}",
@@ -228,6 +281,16 @@ def wall_gaps(
                 "gap_mm": round(best[0], 3),
                 "at": (float(point[0]), float(point[1])),
             }
+            row["move_by"] = _toward(point, other)
+            if run is not None and run <= 4 * gap:
+                # round 3: the fix, measured - where the end meets the other body
+                prev = wall.axis[1] if end == "start" else wall.axis[-2]
+                k = run / math.dist(prev, point)
+                row["extend_mm"] = round(run, 3)
+                row["extend_to"] = (
+                    round(point[0] + (point[0] - prev[0]) * k, 3),
+                    round(point[1] + (point[1] - prev[1]) * k, 3),
+                )
             if pair not in found or row["gap_mm"] < found[pair]["gap_mm"]:
                 found[pair] = row
     return sorted(found.values(), key=lambda row: row["walls"])
@@ -443,9 +506,23 @@ def _wall_gap(index: dict) -> list[Issue]:
                 "arch_wall_gap",
                 f"Wall end {row['end']} stops {row['gap_mm']:g} mm short of wall "
                 f"{row['other']} without joining it: the room leaks and its area is measured "
-                "through the gap. Extend the wall to the joint (arch_wall) or move it clear.",
+                "through the gap. "
+                + (
+                    f"Move that end to {list(row['extend_to'])} ({row['extend_mm']:g} mm on "
+                    "along its axis; arch_plan_patch walls.<id>.axis), or move it clear."
+                    if "extend_to" in row
+                    else f"Its line misses {row['other']}: shift wall {row['end'].split('.')[0]} "
+                    f"by {list(row['move_by'])} (onto {row['other']}'s face, so they join), "
+                    "or move it clear."
+                ),
                 _handles(index, "walls", sorted({a, b})),
-                {"walls": [a, b], "gap_mm": row["gap_mm"], "at": list(row["at"])},
+                {
+                    "walls": [a, b],
+                    "gap_mm": row["gap_mm"],
+                    "at": list(row["at"]),
+                    "move_by": list(row["move_by"]),
+                    **({"extend_to": list(row["extend_to"])} if "extend_to" in row else {}),
+                },
             )
         )
     return out

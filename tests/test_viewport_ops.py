@@ -501,3 +501,14 @@ async def test_viewport_create_warns_about_linetype_scale_before_the_first_plot(
     scaled = await backend.viewport_create(SHEET, 100, 100, 50, 50, 0, 0, 0.05)
     (warning,) = scaled["warnings"]
     assert warning.startswith(f"viewport {scaled['handle']} ") and "15x" in warning
+
+
+async def test_a_linetype_scale_set_after_the_viewport_warns_where_it_is_set(backend):
+    """Round 3: LTSCALE set after viewport_create warned only on a layout render."""
+    await _sheet(backend)
+    viewport = await backend.viewport_create(SHEET, 210, 148, 200, 150, 0, 0, 0.05)
+    assert "warnings" not in await backend.system_set_variable("LTSCALE", 1.0)
+    (warning,) = (await backend.system_set_variable("LTSCALE", 50.0))["warnings"]
+    assert warning.startswith(f"viewport {viewport['handle']} ") and "50x" in warning
+    settings = await backend.drawing_settings({"psltscale": False, "ltscale": 1.0})
+    assert any("PSLTSCALE 0" in w for w in settings["warnings"])

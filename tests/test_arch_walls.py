@@ -197,6 +197,19 @@ def test_an_axis_offset_beyond_half_the_thicker_wall_stays_two_walls(t2, off, ga
     assert [row["gap_mm"] for row in wall_gaps(walls)] == [gap]
 
 
+def test_a_wall_gap_names_the_move_that_closes_it():
+    """Round 3: a 47.5 mm gap was an error without a way to fix it."""
+    from engineering.arch.critique import wall_gaps
+
+    thick = wall("a", (0, 0), (6000, 0), thickness=200.0)
+    (end_to_end,) = wall_gaps([thick, wall("b", (6000, 147.5), (9000, 147.5), thickness=105.0)])
+    assert end_to_end["move_by"] == (0.0, -47.5) and "extend_to" not in end_to_end
+    (stem,) = wall_gaps([thick, wall("c", (3000, 3000), (3000, 147.5), thickness=105.0)])
+    assert stem["extend_to"] == (3000.0, 100.0) and stem["extend_mm"] == 47.5
+    fixed = wall("c", (3000, 3000), stem["extend_to"], thickness=105.0)
+    assert wall_gaps([thick, fixed]) == []
+
+
 # -- a step a cross wall holds ----------------------------------------------------
 #
 # a: 240 on y = 0, ends at x = 3000; b: 160 on y = -40 (bottom faces flush at

@@ -64,6 +64,7 @@ class SettingsContract:
         applied: dict = {}
         changed: dict = {}
         errors: dict = {}
+        warnings: list = []
         for key, value in settings.items():
             spec = _SETTING_MAP.get(key)
             if spec is None:
@@ -71,7 +72,9 @@ class SettingsContract:
                 continue
             try:
                 before = await self._read_setting(key, spec)
-                await self._write_setting(key, spec, value)
+                written = await self._write_setting(key, spec, value)
+                if isinstance(written, dict):
+                    warnings.extend(written.get("warnings") or ())
                 after = await self._read_setting(key, spec)
                 applied[key] = value
                 if after != before:
@@ -82,6 +85,8 @@ class SettingsContract:
         result = {"ok": not errors, "applied": applied, "changed": changed}
         if errors:
             result["errors"] = errors
+        if warnings:
+            result["warnings"] = list(dict.fromkeys(warnings))
         return result
 
     async def _read_setting(self, key: str, spec: tuple[str, str]) -> Any:
@@ -94,7 +99,7 @@ class SettingsContract:
             return [_point2(low), _point2(high)]
         return _decode_setting(key, kind, await self.system_get_variable(var))
 
-    async def _write_setting(self, key: str, spec: tuple[str, str], value: Any) -> None:
+    async def _write_setting(self, key: str, spec: tuple[str, str], value: Any) -> Any:
         var, kind = spec
         if kind == "limits":
             low, high = _encode_limits(key, value)  # validated before either write
@@ -118,7 +123,7 @@ class SettingsContract:
             mask = _BIT_MASKS[key]
             await self.system_set_variable(var, (current | mask) if flag else (current & ~mask))
             return
-        await self.system_set_variable(var, _encode_setting(key, kind, value))
+        return await self.system_set_variable(var, _encode_setting(key, kind, value))
 
 
 # ---------------------------------------------------------------------------

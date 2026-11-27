@@ -1008,7 +1008,13 @@ def _assemble(parts: dict, poche: bool, owner: str | None) -> WallGeometry:
     material = {wall.id: wall.material for wall in parts["walls"]}
     regions = [(polygon, who) for polygon, who in parts["regions"] if owner in (None, who)]
     hatches = (
-        tuple(HatchArea((polygon,), material[who]) for polygon, who in regions) if poche else ()
+        tuple(
+            # round 3: poche="solid" fills every cut face (interior drawings)
+            HatchArea((polygon,), SOLID_POCHE if poche == "solid" else material[who])
+            for polygon, who in regions
+        )
+        if poche
+        else ()
     )
     return WallGeometry(
         faces=tuple(mine(parts["faces"])),
@@ -1020,6 +1026,10 @@ def _assemble(parts: dict, poche: bool, owner: str | None) -> WallGeometry:
         cuts=tuple(mine(parts["cuts"])),
         seams=tuple(mine(parts["seams"])),
     )
+
+
+#: The HatchArea material of ``poche="solid"``: a solid fill, whatever the wall is.
+SOLID_POCHE = "solid"
 
 
 def wall_geometry(walls, openings=(), *, poche=True, join_tol=1.0) -> WallGeometry:

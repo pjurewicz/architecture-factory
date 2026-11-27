@@ -276,7 +276,8 @@ def wall_polygon_prims(polygon: WallPolygon, *, poche: bool = True) -> tuple:
     outline = Poly(tuple(polygon.points), True, "wall")
     if not poche:
         return (outline,)
-    return (outline, HatchArea((tuple(polygon.points),), polygon.material or "generic"))
+    material = "solid" if poche == "solid" else polygon.material or "generic"
+    return (outline, HatchArea((tuple(polygon.points),), material))
 
 
 async def draw_wall_polygons(backend, polygons, *, poche: bool = True, scale=50) -> list[dict]:
