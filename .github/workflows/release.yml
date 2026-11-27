@@ -30,12 +30,18 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install "uv==${{ env.LOCKED_UV_VERSION }}"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/oda
+          key: oda-ODAFileConverter_QT6_lnxX64_11dll-v1
+      - name: Install the ODA File Converter
+        run: ODA_DEB_DIR=~/.cache/oda scripts/install_oda.sh
       - name: Install the locked environment
         # `--locked` refuses to re-resolve, so the artifact that goes to PyPI is
         # gated by the exact dependency set the suite was run against — not by
         # whatever the index happens to serve at tag time. ruff's version comes
         # from [dependency-groups] dev via the lock; it is not restated here.
-        run: uv sync --locked --extra pdf --python "${{ steps.python.outputs.python-path }}"
+        run: uv sync --locked --extra pdf --extra office --python "${{ steps.python.outputs.python-path }}"
       - run: uv run --no-sync ruff check .
       - run: uv run --no-sync ruff format --check .
       - run: uv run --no-sync pytest -q -n auto
