@@ -4029,6 +4029,10 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                         result["warnings"] = warnings
                 if image_warnings:
                     result.setdefault("warnings", []).extend(image_warnings)
+                from backends.region_render import font_substitutions
+
+                if subs := font_substitutions(doc):
+                    result["fonts_substituted"] = subs
                 if paper is not None:
                     result["paper_mm"] = paper["size_mm"]
                     result["scale"] = paper["scale"]
@@ -10793,6 +10797,11 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             if set_current:
                 doc.header["$TEXTSTYLE"] = spec["name"]
             self._mark_dirty()
+            from backends.region_render import render_font
+
+            drawn = render_font(spec["font_file"])
+            # a preset AutoCAD knows may still be missing here: renders differ
+            render_note = {} if drawn == spec["font_file"] else {"render_font": drawn}
             return {
                 "ok": True,
                 "name": spec["name"],
@@ -10801,6 +10810,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 # and *said* to be unresolved, never refused.
                 "font_resolved": spec["known"] or _font_available(spec["font_file"]),
                 "current": bool(set_current),
+                **render_note,
             }
 
         return await self._async(_sync)

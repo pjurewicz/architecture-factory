@@ -666,6 +666,43 @@ def _glyph_pipeline(out, psltscale: bool = True):
     return _Pipeline(out)
 
 
+_TEXT_TYPES = ("TEXT", "MTEXT", "ATTRIB", "ATTDEF")
+
+
+def render_font(font: str) -> str:
+    """The font file the headless renderer draws ``font`` with (ezdxf's font
+    manager: the file itself, its TrueType twin, else the fallback face)."""
+    from ezdxf.fonts import fonts
+
+    manager = fonts.font_manager
+    if font and manager.has_font(font):
+        return font
+    twin = fonts.SHX_FONTS.get((font or "").upper())
+    if twin and manager.has_font(twin):
+        return twin
+    return manager.fallback_font_name()
+
+
+def font_substitutions(doc) -> dict[str, str]:
+    """``{style font: font drawn with}`` for the text styles the drawing's
+    lettering uses whose font this machine lacks (AutoCAD's SHX / TTF faces
+    are not shipped): widths in a render then differ from AutoCAD's."""
+    used = {
+        str(e.dxf.get("style", "Standard")).lower()
+        for e in doc.entitydb.values()
+        if e.is_alive and e.dxftype() in _TEXT_TYPES
+    }
+    out: dict[str, str] = {}
+    for style in doc.styles:
+        if style.dxf.name.lower() not in used:
+            continue
+        font = style.dxf.get("font", "") or "txt"
+        drawn = render_font(font)
+        if drawn != font:
+            out[font] = drawn
+    return out
+
+
 def render_layout(
     doc,
     layout,
@@ -781,6 +818,7 @@ def render_layout(
         "truncated": truncated,
         **({} if overlay is None else {"overlay": overlay["report"]}),
         **({"warnings": warnings} if warnings else {}),
+        **({"fonts_substituted": subs} if (subs := font_substitutions(doc)) else {}),
     }
 
 

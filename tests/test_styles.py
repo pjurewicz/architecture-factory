@@ -360,6 +360,7 @@ async def test_set_current_restores_every_dim_variable_not_just_the_stored_ones(
 
 async def test_textstyle_create_list_set_current_and_new_text_uses_it(backend):
     result = await backend.textstyle_create("ISOCP", "isocp", set_current=True)
+    result.pop("render_font", None)  # this machine's face, tested below
     assert result == {
         "ok": True,
         "name": "ISOCP",
@@ -666,3 +667,19 @@ async def test_dimstyle_preset_takes_any_case_and_the_iso_alias():
         assert resolve_dimstyle(spelling, None) == base
     with pytest.raises(ValueError, match="unknown value 'din'"):
         resolve_dimstyle("din", None)
+
+
+async def test_a_render_without_the_style_font_says_what_it_drew_with(backend, monkeypatch):
+    """AutoCAD's faces are not shipped: a render substitutes and says so."""
+    from ezdxf.fonts import fonts
+
+    from backends.region_render import render_layout
+
+    monkeypatch.setattr(fonts.font_manager, "has_font", lambda name: name == "DejaVuSans.ttf")
+    made = await backend.textstyle_create("ISOCP", "isocp", set_current=True)
+    assert made["font_resolved"] is True and made["render_font"] == "DejaVuSans.ttf"
+    plain = render_layout(backend._doc, backend._doc.modelspace())
+    assert "fonts_substituted" not in plain  # nothing lettered yet
+    await backend.entity_create_text("note", 0, 0)
+    report = render_layout(backend._doc, backend._doc.modelspace())
+    assert report["fonts_substituted"] == {"isocp.shx": "DejaVuSans.ttf"}

@@ -312,6 +312,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A screenshot or PDF drew lettering in the fallback face (DejaVu Sans) when
+  the style's font (`isocp.shx`, `romans.shx`, `arial.ttf`: AutoCAD's faces,
+  not redistributable) was missing, while `textstyle_create` said
+  `font_resolved: true`, so texts came out wider than in AutoCAD with no word.
+  `view_screenshot`, `drawing_export_pdf` and `batch_plot` now report
+  `fonts_substituted` {style font: font drawn} for the styles the lettering
+  uses, and `textstyle_create` adds `render_font` when this server draws the
+  style with another face.
+
 - An unknown linetype name was accepted everywhere (`layer_create`,
   `layer_modify`, `entity_set_properties`, a create's `linetype`) and drew
   Continuous, said only in the server log. A name that is neither in the

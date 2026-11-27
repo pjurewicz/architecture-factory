@@ -7517,6 +7517,8 @@ async def view_screenshot(
     the requested one widened by under a pixel so x and y share one scale),
     `px_per_unit` (drawing point (x, y) is pixel ((x - x0)·ppu, (y1 - y)·ppu)).
     A zero-width region or a `max_px` outside 64-4096 is refused by name.
+    `fonts_substituted` {style font: font drawn} means text is wider or
+    narrower than in AutoCAD (its SHX / TTF faces are not on this server).
 
     With `overlay_handles`, each entity is labelled with its handle at its own
     centre — every modify tool takes a handle, and without the labels there is
@@ -10383,6 +10385,7 @@ async def textstyle_create(
 
     A font nobody can find is *written* and reported `font_resolved: false` (AutoCAD
     substitutes at open; the renderer falls back), because a DXF stores only the name.
+    `render_font` names the face screenshots and PDFs here draw it with instead.
     Refuses, before any write: a name that exists, an empty font, `width_factor <= 0`,
     `height < 0`, an oblique angle outside ±85°.
     """
