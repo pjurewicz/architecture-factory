@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   each pointer; `label` is then optional and drawn in the centre. A letter that
   leaves the bubble or touches another text is refused. The list form is
   unchanged.
+- `callout(max_width=)`: a note is wrapped at spaces into lines no wider than
+  `max_width` (drawing units, like `text_height`), written as explicit MTEXT
+  lines (width 0, so AutoCAD never re-breaks them differently from the mask)
+  and kept centred on the shelf; the mask follows the widest line. A word
+  wider than the column stands alone and is listed in `overflow`; a no-break
+  space (U+00A0) keeps "18 mm" together; `max_width` on a numbered callout is
+  refused. The result also reports `lines`.
 - Session tracking in the durable journal: a `sessions` table in
   `journal.sqlite3` keeps one row per MCP session - the client's `initialize`
   (`clientInfo` name / version / full JSON, `protocolVersion`, capabilities),

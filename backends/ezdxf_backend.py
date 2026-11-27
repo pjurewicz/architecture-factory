@@ -6212,6 +6212,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         layer="DIM",
         layout=None,
         side="auto",
+        max_width=None,
     ) -> dict:
         from ezdxf.enums import TextEntityAlignment
 
@@ -6227,6 +6228,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 mask=bool(mask),
                 text_height=text_height,
                 side=str(side or "auto"),
+                max_width=max_width,
             )
         except ValueError as exc:
             raise InvalidArgsError(f"invalid_args: callout: {exc}") from exc
@@ -6317,6 +6319,8 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 "style": plan.style,
                 "side": plan.side,
                 "text": plan.content.replace("\\P", "\n"),
+                "lines": plan.content.count("\\P") + 1,
+                "overflow": list(plan.overflow),
                 "text_height": plan.height,
                 "layer": layer,
                 "layout": space.name,

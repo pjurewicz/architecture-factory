@@ -59,6 +59,7 @@ class CalloutPlan:
     content_align: str  # MTEXT attachment / TEXT alignment name
     circle: tuple[Pt, float] | None  # the numbered circle
     mask: tuple[Pt, ...] | None
+    overflow: tuple[str, ...] = ()  # words wider than max_width
 
 
 def _point(value, name: str) -> Pt:
@@ -93,6 +94,29 @@ def _content(text, number) -> tuple[str, list[str] | str]:
     return "number", label
 
 
+def _wrap(lines: list[str], limit: float, h: float) -> tuple[list[str], tuple[str, ...]]:
+    """Each line broken at ASCII spaces into lines no wider than ``limit``
+    (a no-break space U+00A0 keeps "18 mm" together), and the words wider
+    than ``limit`` on their own, which stand alone on a line, never split."""
+    out: list[str] = []
+    overflow: list[str] = []
+    for line in lines:
+        current = ""
+        for word in line.split(" "):
+            if not word:
+                continue
+            if text_width(word, h) > limit:
+                overflow.append(word)
+            trial = f"{current} {word}" if current else word
+            if current and text_width(trial, h) > limit:
+                out.append(current)
+                current = word
+            else:
+                current = trial
+        out.append(current)
+    return out, tuple(overflow)
+
+
 def plan_callout(
     target,
     landing,
@@ -103,8 +127,13 @@ def plan_callout(
     mask: bool = True,
     text_height: float = 2.5,
     side: str = "auto",
+    max_width: float | None = None,
 ) -> CalloutPlan:
-    """Every vertex of one callout, or ``ValueError`` naming what is wrong."""
+    """Every vertex of one callout, or ``ValueError`` naming what is wrong.
+
+    ``max_width`` (drawing units, like ``text_height``) wraps a note at spaces
+    into explicit MTEXT lines; the MTEXT keeps width 0, so AutoCAD's own font
+    metrics never re-break it differently from the mask."""
     tx, ty = _point(target, "target")
     lx, ly = _point(landing, "landing")
     kind, body = _content(text, number)
@@ -115,6 +144,18 @@ def plan_callout(
     h = float(text_height)
     if not (math.isfinite(h) and h > 0):
         raise ValueError(f"text_height must be positive; got {text_height!r}")
+    if max_width is not None:
+        if kind != "text":
+            raise ValueError("max_width wraps a text note; a numbered callout has none")
+        try:
+            limit = float(max_width)
+        except (TypeError, ValueError):
+            limit = math.nan
+        if not (math.isfinite(limit) and limit > 0):
+            raise ValueError(f"max_width must be positive; got {max_width!r}")
+        body, overflow = _wrap(body, limit, h)
+    else:
+        overflow = ()
 
     leg = math.hypot(lx - tx, ly - ty)
     reach = ARROW_LENGTH * h if style == "arrow" else DOT_RADIUS * h
@@ -182,4 +223,5 @@ def plan_callout(
         content_align=align,
         circle=circle,
         mask=outline if mask else None,
+        overflow=overflow,
     )

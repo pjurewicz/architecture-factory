@@ -256,12 +256,14 @@ class EntityCreationContract(ABC):
         layer: str = "DIM",
         layout: str | None = None,
         side: str = "auto",
+        max_width: float | None = None,
     ) -> dict:
         """One technical callout (``engineering/callout.py``): a dot or a filled
         arrow on ``target``, a leader to ``landing`` and a horizontal shelf,
         then a note (``text``) or a numbered circle (``number``), over a WIPEOUT
         mask when ``mask``; ``side`` ("auto" | "left" | "right") is where the
-        shelf runs from the landing. Drawn into ``layout`` (None: the current
+        shelf runs from the landing; ``max_width`` wraps the note at spaces.
+        Drawn into ``layout`` (None: the current
         space) in one call, its parts held in one GROUP so deleting any part
         deletes the callout; every refusal fires before the first entity."""
         ...

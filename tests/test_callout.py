@@ -218,3 +218,42 @@ async def test_deleting_any_part_erases_the_whole_callout(backend):
     )
     assert many == {"deleted": 2, "errors": []}
     assert not list(backend._doc.modelspace())
+
+
+async def test_max_width_wraps_the_note_and_the_mask_follows(backend):
+    # 1:50: 2.5 mm lettering is 125 units, a 50 mm column 2500
+    h, limit = 125.0, 2500.0
+    text = "PŁYTA LAMIN. 18\u00a0mm DĄB BIELONY + ABS 2\u00a0mm\nKRAWĘDŹ"
+    one_line = text_width(text.split("\n")[0], h)
+    assert one_line > limit  # wrapping is actually needed
+    result = await backend.callout([0, 0], [1000, 1000], text=text, text_height=h, max_width=limit)
+
+    lines = result["text"].split("\n")
+    assert result["lines"] == len(lines) >= 3 and lines[-1] == "KRAWĘDŹ"
+    assert all(text_width(line, h) <= limit for line in lines)
+    # no word lost or split, the no-break spaces kept "18 mm" and "2 mm" whole
+    assert " ".join(lines[:-1]).split(" ") == text.split("\n")[0].split(" ")
+    assert any("18\u00a0mm" in line for line in lines) and result["overflow"] == []
+    # greedy: the next word would not have fitted on any line
+    words = [line.split(" ") for line in lines[:-1]]
+    for line, nxt in zip(lines[:-2], words[1:], strict=True):
+        assert text_width(f"{line} {nxt[0]}", h) > limit
+    note = _entity(backend, result["parts"]["text"])
+    assert not note.dxf.get("width")  # explicit breaks only: AutoCAD never re-wraps
+    xs = [p[0] for p in result["mask"]]
+    widest = max(text_width(line, h) for line in lines)
+    assert max(xs) - min(xs) == pytest.approx(widest + 2 * 0.5 * h)
+    ys = [p[1] for p in result["mask"]]
+    assert max(ys) - min(ys) == pytest.approx(h * (1 + (len(lines) - 1) * 5 / 3) + h)
+
+
+async def test_max_width_word_wider_than_the_column_stands_alone(backend):
+    result = await backend.callout(
+        [0, 0], [20, 10], text="A SUPERCALIFRAGILISTIC B", max_width=10.0
+    )
+    assert result["text"].split("\n") == ["A", "SUPERCALIFRAGILISTIC", "B"]
+    assert result["overflow"] == ["SUPERCALIFRAGILISTIC"]
+    with pytest.raises(InvalidArgsError, match="max_width"):
+        await backend.callout([0, 0], [20, 10], number=1, max_width=10.0)
+    with pytest.raises(InvalidArgsError, match="max_width must be positive"):
+        await backend.callout([0, 0], [20, 10], text="A", max_width=0)

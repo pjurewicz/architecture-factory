@@ -2919,6 +2919,10 @@ async def callout(
         Field(default="auto", description="Shelf direction; 'auto' = away from the target."),
     ] = "auto",
     text_height: Annotated[float, Field(default=2.5, gt=0)] = 2.5,
+    max_width: Annotated[
+        float | None,
+        Field(default=None, gt=0, description="Wrap the note at spaces (drawing units)."),
+    ] = None,
     layer: Annotated[str, Field(default="DIM")] = "DIM",
     layout: Annotated[str, Field(default="", description="Layout name; '' = current space.")] = "",
     ctx: Context = None,
@@ -2935,8 +2939,13 @@ async def callout(
     draws the viewport's model over the mask. Native entities (WIPEOUT,
     LWPOLYLINE, SOLID HATCH, MTEXT or CIRCLE + TEXT), listed in `parts` and
     held in one GROUP (`group`): entity_delete of any part erases them all.
+    `max_width` breaks the note into lines no wider than it (same units as
+    `text_height`, so 1:50 sheet mm x 50), kept centred on the shelf; a word
+    wider than it stands alone and is listed in `overflow`. A U+00A0 space
+    keeps "18 mm" on one line.
     Refused before drawing: both or neither of text / number, an unknown
-    style, a leader not longer than its terminator, an unknown layout.
+    style, a leader not longer than its terminator, an unknown layout,
+    max_width on a numbered callout.
     """
     return await _backend(ctx).callout(
         target,
@@ -2949,6 +2958,7 @@ async def callout(
         layer=layer,
         layout=layout or None,
         side=side,
+        max_width=max_width,
     )
 
 
