@@ -9,6 +9,9 @@ numbers; at 1:50 the rows sit 500, 900 and 1300 mm outside the building.
 
 from __future__ import annotations
 
+import copy
+import math
+
 import pytest
 
 from engineering.arch.dimension import (
@@ -165,24 +168,26 @@ def test_stepped_facade_texts_never_overlap_and_fitting_ones_stay_centred():
             assert (x, y) == ((intent.p1[0] + intent.p2[0]) / 2.0, intent.text_at[1] + gap + h / 2)
 
 
-#: A bottom facade kinked up by 500 over 4000 at x = 8000, 250 mm thick: the
-#: oblique wall's two faces at its end project 250 * sin(7.125°) = 31 mm apart,
-#: at 8000 -/+ 125 * 500 / hypot(4000, 500) = 7984.496 / 8015.504 - no feature
-#: of the plan. The bottom face runs to its mitre at 8007.8, so of the two only
-#: 7984.496 lies on it.
+#: A bottom facade kinked up by 500 over 4000 at x = 8000, 250 mm thick. The
+#: junction engine mitres the kink: the outer faces meet at
+#: (8000 + 125 * tan(a / 2), -125) and the inner ones at (8000 - 125 * tan(a / 2),
+#: 125), a = atan(500 / 4000) - 15.6 mm apart along the facade, so the walls row
+#: keeps the one on the outer face.
 KINKED = Wall(
     id="k",
     axis=((0.0, 0.0), (8000.0, 0.0), (12000.0, 500.0), (12000.0, 6000.0), (0.0, 6000.0)),
     thickness=250.0,
     closed=True,
 )
-KINK_FACE = round(8000.0 - 125.0 * 500.0 / (4000.0**2 + 500.0**2) ** 0.5, 6)
+KINK_FACE = round(8000.0 + 125.0 * math.tan(math.atan2(500.0, 4000.0) / 2.0), 6)
 
 
-def test_an_oblique_walls_projected_faces_merge_into_one_point_on_the_face():
+def test_an_oblique_walls_chain_point_is_the_mitre_its_faces_are_drawn_to():
     intents = exterior_chains([KINKED], [], sides=("bottom",))
     spans = [(round(i.p1[0], 6), round(i.p2[0], 6)) for i in intents if i.feature == "bottom:walls"]
     assert spans == [(-125.0, 125.0), (125.0, KINK_FACE), (KINK_FACE, 12125.0)]
+    kink = next(i.p2 for i in intents if round(i.p2[0], 6) == KINK_FACE)
+    assert kink[1] == pytest.approx(-125.0, abs=1e-9)
 
 
 def test_a_real_30_mm_gap_beside_an_oblique_wall_stays_dimensioned():
@@ -195,3 +200,96 @@ def test_a_real_30_mm_gap_beside_an_oblique_wall_stays_dimensioned():
     spans = [(round(i.p1[0], 6), round(i.p2[0], 6)) for i in intents if i.feature == "bottom:walls"]
     assert (4050.0, 4080.0) in spans
     assert spans[-2:] == [(4180.0, KINK_FACE), (KINK_FACE, 12125.0)]
+
+
+def _kinked_spec(degrees: float) -> dict:
+    """A 250 ring whose bottom facade turns by ``degrees`` at x = 8000, a 100
+    partition teed into it, a 60-degree partition teed into the top wall."""
+    t = math.radians(degrees)
+    x, y = 8000.0 + 4000.0 * math.cos(t), 4000.0 * math.sin(t)
+    return {
+        "walls": [
+            {
+                "id": "ext",
+                "axis": [[0, 0], [8000, 0], [x, y], [x, 6000], [0, 6000]],
+                "thickness": 250,
+                "closed": True,
+            },
+            {"id": "p", "axis": [[4000, 0], [4000, 6000]], "thickness": 100},
+            {
+                "id": "q",
+                "axis": [[1500, 6000], [3000, 6000 - 1500 * math.sqrt(3)]],
+                "thickness": 100,
+            },
+        ],
+        "openings": [{"id": "w1", "wall": "ext", "kind": "window", "offset": 5000, "width": 1500}],
+        "chains": {"sides": list(SIDES)},
+    }
+
+
+#: The whole top facade oblique: no top wall runs parallel to the top side.
+OBLIQUE_TOP = {
+    "walls": [
+        {
+            "id": "ext",
+            "axis": [[0, 0], [8000, 0], [12000, 500], [12000, 6000], [2500, 7000], [0, 4500]],
+            "thickness": 250,
+            "closed": True,
+        },
+        {"id": "p", "axis": [[5000, 0], [5000, 6400]], "thickness": 100},
+    ],
+    "openings": [{"id": "w1", "wall": "ext", "kind": "window", "offset": 2000, "width": 1500}],
+    "chains": {"sides": list(SIDES)},
+}
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [_kinked_spec(7.0), _kinked_spec(30.0), _kinked_spec(45.0), _kinked_spec(-30.0), OBLIQUE_TOP],
+    ids=["7", "30", "45", "-30", "oblique_top"],
+)
+@pytest.mark.asyncio
+async def test_every_chain_point_beside_an_oblique_wall_is_drawn_and_binds(backend, spec):
+    from engineering.arch.spec import draw_plan_from_spec, validate_spec
+    from engineering.arch.walls import wall_geometry
+
+    result = await draw_plan_from_spec(backend, copy.deepcopy(spec))
+    issues = await backend.drawing_critique(focus=["dimension_truth"])
+    unbound = [i for i in issues if i.detail["code"] == "dim_unbound"]
+    assert result["chains"]["count"] > 0 and unbound == []
+    plan = validate_spec(copy.deepcopy(spec))
+    faces = wall_geometry(plan["walls"], plan["openings"], poche=False).faces
+    vertices = [p for line in faces for p in (line.p1, line.p2)]
+    intents = exterior_chains(plan["walls"], plan["openings"], sides=SIDES)
+    for intent in intents:
+        ai = 0 if intent.feature.split(":")[0] in ("bottom", "top") else 1
+        for point in (intent.p1, intent.p2):
+            # a drawn corner, or (a wall teed square into the facade) that
+            # corner's foot on the facade's outer face
+            assert any(
+                abs(point[ai] - v[ai]) <= 1e-6
+                and (math.dist(point, v) <= 1e-6 or abs(point[1 - ai] - v[1 - ai]) > 1.0)
+                for v in vertices
+            ), (intent.feature, point)
+
+
+def test_a_facade_oblique_all_along_does_not_repeat_the_opposite_one():
+    plan_walls = [
+        Wall(
+            id=w["id"],
+            axis=tuple(map(tuple, w["axis"])),
+            thickness=w["thickness"],
+            closed=w.get("closed", False),
+        )
+        for w in OBLIQUE_TOP["walls"]
+    ]
+    intents = exterior_chains(plan_walls, [], sides=("bottom", "top"))
+    top = [i for i in intents if i.feature.startswith("top:")]
+    # nothing parallel to the top side faces it: only the overall extremes,
+    # each on the drawn corner nearest the top, not on the bottom wall
+    assert [i.feature for i in top] == ["top:overall"]
+    # the 45-degree face on x = -125; the top face on x = 12125: 125 off the axis
+    # from (12000, 6000) along the normal (1000, 9500) / |(9500, 1000)|
+    assert top[0].p1 == pytest.approx((-125.0, 4500.0 + 125.0 * math.sqrt(2.0) - 125.0))
+    rise = (125.0 * math.hypot(9500.0, 1000.0) - 125.0 * 1000.0) / 9500.0
+    assert top[0].p2 == pytest.approx((12125.0, 6000.0 + rise))

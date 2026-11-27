@@ -11,9 +11,11 @@ parallel to each facade, nearest first:
 3. **overall** - the building's extreme faces.
 
 The "exterior wall on a side" is every axis segment parallel to that side
-whose outer face no other parallel segment overlapping it lies beyond. Points
-come from the wall engine's own faces, so a chain can never disagree with the
-outline it measures.
+whose outer face no other parallel segment overlapping it, and no oblique face
+across its middle, lies beyond. Points come from the wall engine's own faces,
+so a chain can never disagree with the outline it measures: an oblique wall
+meeting a facade gives the corners its faces are drawn to (a mitre, a tee),
+never its faces projected from the axis end.
 
 Wall outlines that are not in the junction engine - a bay, a column, a wall
 imported as a polygon (``polygons``, tuples of points) - widen the box the
@@ -63,8 +65,9 @@ STEP_PAPER_MM = 8.0
 #: never narrower than its text.
 TEXT_WIDTH_FACTOR = 0.75
 _TOL = 1.0
-#: A walls-row span shorter than this, ending on an oblique wall's projected
-#: face, is merged away (`_merge_oblique`).
+#: An oblique wall's two face corners at a facade closer than this along it (a
+#: near-straight kink: 16 mm at 7 degrees in a 250 wall) are one point, the one
+#: on the facade's outer face.
 OBLIQUE_MERGE_MM = 35.0
 
 
@@ -95,8 +98,13 @@ def _unit(a, b) -> tuple[float, float]:
     return ((b[0] - a[0]) / length, (b[1] - a[1]) / length)
 
 
-def _exterior(walls: Sequence[Wall], ai: int, sign: float) -> list[dict]:
-    """The segments parallel to a side whose outer face nothing parallel lies beyond."""
+def _exterior(walls: Sequence[Wall], ai: int, sign: float, drawn=()) -> list[dict]:
+    """The segments parallel to a side whose outer face nothing lies beyond.
+
+    Beyond means a parallel segment overlapping it, or an oblique wall face
+    (of ``drawn``, the face lines) crossing the line out of its middle: under a
+    facade that is oblique all along, the opposite wall is no facade of it.
+    """
     ci = 1 - ai
     parallel: list[dict] = []
     for wall in walls:
@@ -117,10 +125,26 @@ def _exterior(walls: Sequence[Wall], ai: int, sign: float) -> list[dict]:
                     "outer": min(faces) if sign < 0 else max(faces),
                 }
             )
+    oblique = [
+        line
+        for line in drawn
+        if abs(line.p1[ai] - line.p2[ai]) > 1e-9 and abs(line.p1[ci] - line.p2[ci]) > 1e-9
+    ]
+
+    def crossed(item) -> bool:
+        mid = sum(item["span"]) / 2.0
+        for line in oblique:
+            p, q = sorted((line.p1, line.p2), key=lambda pt: pt[ai])
+            if p[ai] < mid < q[ai]:
+                across = p[ci] + (q[ci] - p[ci]) * (mid - p[ai]) / (q[ai] - p[ai])
+                if (across - item["outer"]) * sign > _TOL:
+                    return True
+        return False
+
     exterior = []
     for item in parallel:
         lo, hi = item["span"]
-        covered = any(
+        covered = crossed(item) or any(
             other is not item
             and min(hi, other["span"][1]) - max(lo, other["span"][0]) > _TOL
             and (
@@ -160,37 +184,25 @@ def _anchor(anchors: dict, value: float, default: float) -> float:
     return default
 
 
-def _merge_oblique(
-    points: list[float], oblique: dict[float, float], real: set[float]
-) -> list[float]:
-    """The walls row without the slivers an oblique wall's end projection leaves.
+def _face_end(lines, a, b, offset: float, at_b: bool):
+    """Where the drawn face ``offset`` from axis segment ``a``-``b`` ends at one end.
 
-    An oblique wall's two faces at its end project onto the facade
-    ``thickness * |sin|`` apart, at points that are no feature of the plan. A
-    span under ``OBLIQUE_MERGE_MM`` ending on such a point loses it: next to a
-    point another source gives (a face, a jamb, a step) the projected point
-    goes, and the two points of one wall end become the one toward the wall it
-    meets (``oblique`` maps each to it), which lies on that wall's faces. A
-    point any other source gives is never dropped.
+    The face's drawn lines are the ones on its line; their end point farthest
+    toward ``b`` (``at_b``) or ``a`` is the corner the junction engine drew
+    there - a mitre, a tee on the wall it meets - or ``None`` if none is drawn.
     """
-
-    def near(value, values, within=1e-6) -> bool:
-        return any(abs(value - v) <= within for v in values)
-
-    short = OBLIQUE_MERGE_MM - 1e-9
-    known = [p for p in points if near(p, real) or not near(p, oblique)]
-    by_end: dict[float, list[float]] = {}
-    for p in points:
-        if p not in known and not near(p, known, short):
-            kept = next(k for o, k in oblique.items() if abs(p - o) <= 1e-6)
-            by_end.setdefault(kept, []).append(p)
-    out = list(known)
-    for kept, projected in by_end.items():
-        if len(projected) > 1 and max(projected) - min(projected) <= short:
-            out.append(kept)
-        else:
-            out.extend(projected)
-    return _points(set(out))
+    u = _unit(a, b)
+    n = (-u[1], u[0])
+    o = (a[0] + n[0] * offset, a[1] + n[1] * offset)
+    half = math.dist(a, b) / 2.0
+    found = []
+    for line in lines:
+        rel = [(p, (p[0] - o[0]) * u[0] + (p[1] - o[1]) * u[1]) for p in (line.p1, line.p2)]
+        if all(abs((p[0] - o[0]) * n[0] + (p[1] - o[1]) * n[1]) <= 1e-6 for p, _ in rel):
+            found += [(s, p) for p, s in rel if (s >= half if at_b else s <= half)]
+    if not found:
+        return None
+    return (max if at_b else min)(found)[1]
 
 
 def exterior_chains(
@@ -246,7 +258,7 @@ def exterior_chains(
         edge = box[side]
         lo, hi = (box["left"], box["right"]) if ai == 0 else (box["bottom"], box["top"])
         ci = 1 - ai
-        exterior = _exterior(walls, ai, sign)
+        exterior = _exterior(walls, ai, sign, faces_drawn)
         hosts = {(item["wall"].id, item["index"]): item for item in exterior}
 
         def extreme(value: float, ai=ai, ci=ci, edge=edge) -> float:
@@ -279,10 +291,6 @@ def exterior_chains(
             jambs.setdefault(a[ai] + u[ai] * (along + float(opening.width)), host["outer"])
 
         faces = {lo: jambs[lo], hi: jambs[hi]}
-        # an oblique wall's two faces projected at its end: value -> the one of the
-        # two that lies toward the wall it meets, which is on that wall's faces
-        oblique: dict[float, float] = {}
-        real = {lo, hi}  # every value another source gives
         for wall in walls:
             left, right = face_offsets(wall)
             for a, b in wall_segments(wall):
@@ -290,18 +298,29 @@ def exterior_chains(
                 if abs(u[1 - ai]) <= 1e-9:
                     continue
                 n = (-u[1], u[0])
-                for end, away in ((a, u[ai]), (b, -u[ai])):
+                for end, at_b in ((a, False), (b, True)):
                     met = next((item for item in exterior if _inside(end, item)), None)
                     if met is None:
                         continue
-                    pair = [end[ai] + n[ai] * left, end[ai] + n[ai] * right]
-                    for value in pair:
-                        faces.setdefault(value, met["outer"])
-                    if abs(u[ai]) > 1e-9:
-                        kept = min(pair, key=lambda v, away=away: v * away)
-                        oblique.update(dict.fromkeys(pair, kept))
-                    else:
-                        real.update(pair)
+                    if abs(u[ai]) <= 1e-9:
+                        for value in (end[ai] + n[ai] * left, end[ai] + n[ai] * right):
+                            faces.setdefault(value, met["outer"])
+                        continue
+                    # an oblique wall: the corners its two faces end on, as drawn
+                    corners = [
+                        corner
+                        for offset in (left, right)
+                        if (corner := _face_end(faces_drawn, a, b, offset, at_b)) is not None
+                    ]
+                    if (
+                        len(corners) == 2
+                        and abs(corners[0][ai] - corners[1][ai]) < OBLIQUE_MERGE_MM
+                    ):
+                        corners = [
+                            c for c in corners if abs(c[ci] - met["outer"]) <= 1e-6
+                        ] or corners
+                    for corner in corners:
+                        faces.setdefault(corner[ai], corner[ci])
         for outline in outlines:
             on_facade = any(
                 abs(p[ci] - edge) <= _TOL or any(_inside(p, item) for item in exterior)
@@ -312,11 +331,9 @@ def exterior_chains(
                     tied = [p for p in outline if abs(p[ai] - value) <= 1e-6]
                     nearest = min(tied, key=lambda p: abs(p[ci] - facade[side]))
                     faces.setdefault(value, nearest[ci])
-                    real.add(value)
 
         anchors = {**faces, **jambs}
-        walls_row = _merge_oblique(_points(set(faces)), oblique, real)
-        rows = [_points(set(jambs)), walls_row, _points({lo, hi})]
+        rows = [_points(set(jambs)), _points(set(faces)), _points({lo, hi})]
         for r, points in enumerate(rows):
             if any(points == later for later in rows[r + 1 :]):
                 continue

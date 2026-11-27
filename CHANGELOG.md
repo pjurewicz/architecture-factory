@@ -204,12 +204,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an oblique plan reads "9250", not "9250,48" (template specs carry
   `dimstyle_overrides`). Not backward compatible for drawings started from
   them; `drawing_settings({"dim_decimals": n})` sets another precision.
-- `arch_plan_from_spec` / `arch_dimension_chains`: an oblique wall's two faces
-  projected at its end no longer leave a sliver in the walls row. A span under
-  35 mm ending on such a projected point loses it - beside a face, jamb or step
-  the projected point goes, and the two points of one wall end become the one
-  on the face of the wall it meets, so the dimension still binds. Points from
-  any other source, a real 30 mm step included, are never merged.
+- `arch_plan_from_spec` / `arch_dimension_chains`: where an oblique wall meets
+  a facade, the chains measure the corners its faces are drawn to (the mitre
+  or tee the junction engine computed), no longer its faces projected from the
+  axis end, which matched no drawn point: on a plan with walls at 7, 30, 45 and
+  -30 degrees `dimension_truth` drops from 2 / 4 / 4 / 2 `dim_unbound` to 0,
+  and from 6 to 0 on a plan whose top facade is oblique all along. The two
+  corners of a near-straight kink closer than 35 mm along the facade (16 mm at
+  7 degrees in a 250 wall) are one point, the one on the outer face; a real
+  30 mm step stays dimensioned. Orthogonal plans are unchanged. A facade
+  oblique all along no longer repeats the opposite side's openings and walls
+  rows anchored on that wall's inner face: a wall parallel to a side with an
+  oblique face beyond its middle is not that side's exterior wall, so the side
+  keeps only its overall row, on the corners nearest it.
 - `drawing_new(close_current=True)` closes the document that was active once
   the new one is created and reports it in `closed_previous` (`null` with
   nothing open). It follows `document_close`'s rule: a document with unsaved
