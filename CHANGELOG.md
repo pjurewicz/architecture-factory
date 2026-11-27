@@ -149,6 +149,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   axis, the door leaf's hinge and its jamb differ by float noise (~1e-8 mm).
   Two LINE ends closer than 1 µm (`COINCIDENT_MM = 1e-3`, was 1e-9) now count
   as one point.
+- CENTER lines plotted solid on a PDF and in `view_screenshot` (an A2 sheet at
+  1:50 included): ezdxf's standard linetypes - CENTER, PHANTOM, DASHED,
+  DASHDOT, DOT, DIVIDE and their variants - were loaded in acad.lin's inch
+  units into a metric drawing, so CENTER repeated every 2 mm with 0.25 mm
+  gaps. A drawing with `$MEASUREMENT` 1 now loads them at acadiso.lin's size
+  (x 25.4: CENTER 31.75 / 6.35 / 6.35 / 6.35 mm), and the six bundled
+  templates are rebuilt with them. A linetype already stored in a drawing is
+  left as it is.
 - `sheet_frame(layout=...)` and `titleblock_apply(layout=...)` ignored the
   layout's paper and drew the default A3 landscape, so on an A4 portrait layout
   only the frame's left half was printed. An empty `size` / `orientation` is
@@ -2837,7 +2845,7 @@ member. Spec: `docs/superpowers/specs/2026-09-24-v1.6-understand-design.md`.
     which has no superscript two: a room label's `m²` read `m?` when AutoCAD
     opened the DXF and rendered as a box headlessly. Standard is now
     `arial.ttf`, as AutoCAD 2026's `acadiso.dwt` ships it, so both engines
-    begin from the same Standard; the five bundled templates are rebuilt on it
+    begin from the same Standard; the six bundled templates are rebuilt on it
     and `scripts/build_templates.py --check` reproduces them.
 - **Hatch islands on a live seat.** `hatch_add_boundary` was refused on COM
   (`hatch_edge_paths`), so a transverse section of any hollow part - a

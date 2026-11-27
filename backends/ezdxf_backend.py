@@ -417,6 +417,20 @@ _AUTOCAD_FALLBACK_LINETYPES: dict[str, tuple[str, list[float]]] = {
 }
 
 
+def _standard_linetypes(doc):
+    """ezdxf's standard linetypes, in the drawing's own units.
+
+    ezdxf ships them as acad.lin has them, in inches. A metric drawing
+    ($MEASUREMENT 1) takes acadiso.lin's, which are the same patterns x 25.4:
+    loaded unscaled, CENTER repeated every 2 mm with 0.25 mm gaps and plotted as
+    a solid line on any sheet.
+    """
+    from ezdxf.tools import standards as ezdxf_standards
+
+    metric = doc.header.get("$MEASUREMENT", 1) == 1
+    return ezdxf_standards.linetypes(scale=25.4 if metric else 1.0)
+
+
 def _add_linetype_from_fallback(doc, name: str) -> bool:
     """Add `name` from _AUTOCAD_FALLBACK_LINETYPES if known. Returns True on success."""
     fallback = _AUTOCAD_FALLBACK_LINETYPES.get(name.upper())
@@ -438,15 +452,10 @@ def _ensure_linetype_loaded(doc, name: str) -> None:
         return
     if name in doc.linetypes:
         return
-    try:
-        from ezdxf.tools import standards as ezdxf_standards
-
-        for lt_name, description, pattern in ezdxf_standards.linetypes():
-            if lt_name.lower() == name.lower():
-                doc.linetypes.add(lt_name, pattern=pattern, description=description)
-                return
-    except ImportError:
-        pass
+    for lt_name, description, pattern in _standard_linetypes(doc):
+        if lt_name.lower() == name.lower():
+            doc.linetypes.add(lt_name, pattern=pattern, description=description)
+            return
     if _add_linetype_from_fallback(doc, name):
         return
     log.warning(
@@ -8562,8 +8571,6 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         # 1. ezdxf.tools.standards (ISO: CENTER, DASHED, DASHDOT, PHANTOM, ...)
         # 2. AutoCAD fallback table (HIDDEN, BORDER and *2/X2 variants)
         # The `file` parameter is accepted but ignored — ezdxf does not ship a .lin parser.
-        from ezdxf.tools import standards as ezdxf_standards
-
         del file
 
         def _sync():
@@ -8571,7 +8578,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             existing = {lt.dxf.name.lower() for lt in doc.linetypes}
             if name.lower() in existing:
                 return {"ok": True, "name": name, "already_loaded": True}
-            for lt_name, description, pattern in ezdxf_standards.linetypes():
+            for lt_name, description, pattern in _standard_linetypes(doc):
                 if lt_name.lower() == name.lower():
                     doc.linetypes.add(lt_name, pattern=pattern, description=description)
                     self._mark_dirty()

@@ -200,6 +200,30 @@ async def test_a_hidden_line_seen_through_a_viewport_plots_dashed(backend, pslts
 
 
 @pytest.mark.asyncio
+async def test_a_center_line_on_an_a2_sheet_at_1_50_plots_with_visible_gaps(backend):
+    # ezdxf's standard CENTER is acad.lin's, in inches: loaded into a metric
+    # drawing it repeated every 2 mm with 0.25 mm gaps and plotted solid.
+    # acadiso.lin's CENTER: 31.75 dash, 6.35 gap, 6.35 dot, 6.35 gap (mm).
+    await backend.entity_create_line(0, 0, 7500, 0, linetype="CENTER")
+    await backend.layout_create("A2")
+    backend._doc.layouts.get("A2").page_setup(size=(594, 420), margins=(0, 0, 0, 0), units="mm")
+    await backend.viewport_create("A2", 297, 210, 500, 340, 3750, 0, scale=1 / 50)
+    await backend.layout_set_current("A2")
+    report = await backend.view_render(region=[222, 200, 372, 220], max_px=1500)
+    image = Image.open(io.BytesIO(report["png"])).convert("RGB")
+    background = image.getpixel((0, 0))
+    width, height = image.size
+    rows = [[image.getpixel((x, y)) != background for x in range(width)] for y in range(height)]
+    row = max(rows, key=sum)  # the line's own row
+    ink = [x for x in range(width) if row[x]]
+    gaps = [
+        (b - a - 1) / report["px_per_unit"] for a, b in zip(ink, ink[1:], strict=False) if b - a > 1
+    ]
+    assert 5 <= len(gaps) <= 7, gaps  # 150 mm of line / 50.8 mm period, two gaps each
+    assert min(gaps) > 5, gaps  # 6.35 mm of paper, less the pen's round caps
+
+
+@pytest.mark.asyncio
 async def test_handle_labels_only_for_entities_in_the_region(backend):
     left = await backend.entity_create_circle(*LEFT, RADIUS)
     await backend.entity_create_circle(*RIGHT, RADIUS)
