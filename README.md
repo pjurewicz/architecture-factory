@@ -416,9 +416,25 @@ Nothing loads a `.env` file — export these, or set them in your MCP client's `
 | `HTTP_ALLOWED_ORIGINS` | *(empty)* | Origins an HTTP request may carry; any other Origin is refused 403. A browser-based MCP inspector needs its own origin listed (e.g. `http://localhost:6274`); `*` allows all |
 | `HTTP_ALLOWED_HOSTS` | *(empty)* | Host headers accepted besides the bound host:port and the loopback names; any other is refused 421. `*` allows all |
 | `HTTP_KEEPALIVE_S` | `120` | Seconds an idle HTTP connection stays open. Keep it above your reverse proxy's upstream idle timeout, or the proxy reuses a socket the server is closing and answers a transient 502 |
-| `MAX_HTTP_BODY_BYTES` | `8388608` | An HTTP request body over this (8 MiB) is refused 413, counted on chunked bodies too; `0` disables |
+| `MAX_HTTP_BODY_BYTES` | `8388608` | An HTTP request body over this (8 MiB) is refused 413, counted on chunked bodies too; `0` disables. `POST /files` uses `UPLOAD_MAX_BYTES` instead |
+| `UPLOAD_MAX_BYTES` | `268435456` | Over HTTP, `POST /files?name=<file>` stores a client's file (PNG / JPG / TIFF, DXF, DWG) and answers its server path; at most this many bytes (256 MiB, clamped to 2 GiB), with a `Content-Length`. `0` turns uploads off. Needs `MCP_AUTH_TOKEN` (a read-only token is refused) |
+| `UPLOAD_RETAIN_S` | `86400` | Uploads older than this (5 min to 30 days) are deleted at the next upload |
+| `UPLOAD_DIR` | `<first ALLOWED_PATHS>/uploads` | Where uploads are stored (a temp folder without `ALLOWED_PATHS`); must be inside `ALLOWED_PATHS` |
 
 </details>
+
+### Sending a local file to an HTTP server
+
+Every tool that reads a file - `image_attach`, `view_screenshot(overlay_image=)`, `drawing_open`, `xref_attach`, `drawing_new(template=)` - takes a path on the server. Over the HTTP transport, upload the file first and pass the `path` it answers (a stdio server runs on your machine and opens your files directly):
+
+```bash
+curl -H "Authorization: Bearer $MCP_AUTH_TOKEN" --data-binary @scan.png \
+     "https://cad.example.com/files?name=scan.png"
+# 201 {"ok": true, "path": "/srv/cad/uploads/scan-3f9c0a1b2c4d5e6f.png",
+#      "sha256": "...", "bytes": 48213, "format": "png", "expires_in_s": 86400}
+```
+
+The server picks the stored name; the content must match the extension (magic bytes, a DXF / DWG header), and a loadable name (`*.lsp`, `acad.pgp`, ...) or a path in `name` is refused. MCP itself has no way to send a file, and a base64 tool argument would cost the model its tokens, so this is an HTTP route, not a tool.
 
 ## Architecture
 

@@ -91,6 +91,7 @@ from security import (
     KINDS_PDF,
     KINDS_REPORT,
     KINDS_TABLE,
+    KINDS_UPLOAD,
     validate_path,
 )
 from version import __version__
@@ -2444,8 +2445,8 @@ async def drawing_new(
 async def drawing_open(
     path: Annotated[
         str,
-        "Full path to the .dxf or .dwg. A .dwg is converted through the ODA File "
-        "Converter, or refused `dwg_read` without it.",
+        "Server path to the .dxf or .dwg (a local file: POST /files). A .dwg is converted "
+        "through the ODA File Converter, or refused `dwg_read` without it.",
     ],
     recover: Annotated[
         bool,
@@ -7471,8 +7472,8 @@ async def view_screenshot(
     ] = 1568,
     overlay_image: Annotated[
         str | None,
-        "Scan or photo (PNG/JPG/TIFF...) drawn under the CAD lines, to compare a "
-        "redraw with its source. Needs overlay_align.",
+        "Scan or photo (PNG/JPG/TIFF...) on the server, drawn under the CAD lines, to "
+        "compare a redraw with its source (a local file: POST /files first). Needs overlay_align.",
     ] = None,
     overlay_align: Annotated[
         list[list[float]] | None,
@@ -8021,6 +8022,13 @@ async def system_about(ctx: Context = None) -> dict:
             "max_body_bytes": getattr(config.settings, "max_http_body_bytes", None),
             "auth": _auth is not None,
             "readonly_token": bool(getattr(config.settings, "mcp_auth_token_readonly", "")),
+            # uploads.py: where a client sends a local file to get a server path.
+            "upload": {
+                "route": f"POST {uploads.UPLOAD_PATH}?name=<file name>",
+                "enabled": uploads.enabled() and _auth is not None,
+                "max_bytes": config.settings.upload_max_bytes,
+                "kinds": list(KINDS_UPLOAD),
+            },
         },
     }
     return out
@@ -12693,7 +12701,9 @@ async def xref_manage(
     tags={"sheet", "drawing", "create"},
 )
 async def image_attach(
-    path: Annotated[str, Field(description="Full path of the raster image.")],
+    path: Annotated[
+        str, Field(description="Server path of the raster image (a local file: POST /files).")
+    ],
     x: Annotated[float, Field(default=0.0, description="Insertion X (WCS).")] = 0.0,
     y: Annotated[float, Field(default=0.0, description="Insertion Y (WCS).")] = 0.0,
     scale: Annotated[
@@ -15588,6 +15598,11 @@ preview.register(sys.modules[__name__])
 
 # artifact_links.py: GET /artifacts/<token>/<name>, the download_url of a written file.
 artifact_links.register(sys.modules[__name__])
+
+# uploads.py: POST /files stores a client's file and answers its server path.
+import uploads  # noqa: E402
+
+uploads.register(sys.modules[__name__])
 
 # 1.8-17 (spike S3): the HTTP request guard (Origin 403, Host 421, body 413),
 # prepended on every app builder - main(), mcp.run, `fastmcp run` and a direct

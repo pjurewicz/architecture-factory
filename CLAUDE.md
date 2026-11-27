@@ -54,7 +54,7 @@ Uses `pytest-asyncio` for async test support.
 - `backends/base.py` — shared dataclasses (`EntityInfo`, `LayerInfo`, `BlockInfo`, `DrawingInfo`, `CapabilityMap`) and the `AutoCADBackend` composition of every contract. `from backends.base import AutoCADBackend, UnsupportedCapabilityError` works.
 - `backends/ezdxf_backend.py` — `EzdxfBackend`: file-based DXF operations using the `ezdxf` library. All sync ezdxf calls are wrapped with `asyncio.to_thread` via `_async()`. Transactions are implemented as full DXF snapshots on an `_undo_stack`.
 - `server.py::_make_backend` always builds `EzdxfBackend` (after `_check_backend_setting`).
-- `backends/session_backends.py` — `SESSION_ISOLATION` (default `true`): each MCP session gets its own engine (documents, active document, undo, transactions); `SESSION_IDLE_TIMEOUT` releases an idle one. `preview.py` serves the read-only `/preview` page (off until `PREVIEW_PASSWORD` is set).
+- `backends/session_backends.py` — `SESSION_ISOLATION` (default `true`): each MCP session gets its own engine (documents, active document, undo, transactions); `SESSION_IDLE_TIMEOUT` releases an idle one. `preview.py` serves the read-only `/preview` page (off until `PREVIEW_PASSWORD` is set). `uploads.py` serves `POST /files?name=` (HTTP only): a client's PNG / JPG / TIFF / DXF / DWG stored under a server-chosen name in `UPLOAD_DIR` (default `<ALLOWED_PATHS[0]>/uploads`), the MCP bearer token with `mcp:write`, content sniffed against the extension (`security.KINDS_UPLOAD`), `UPLOAD_MAX_BYTES` in `HttpGuard`, `UPLOAD_RETAIN_S` sweep; it answers `{path, sha256, bytes}` for the tools that read a file.
 
 ### FastMCP Server Structure (`server.py`)
 

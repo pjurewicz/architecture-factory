@@ -120,6 +120,9 @@ KINDS_TABLE: tuple[str, ...] = (".csv", ".xlsx")
 KINDS_CSV: tuple[str, ...] = (".csv",)
 KINDS_IMAGE: tuple[str, ...] = (".png", ".jpg")
 KINDS_REPORT: tuple[str, ...] = (".json", ".md")
+#: What ``POST /files`` stores (uploads.py): scans for image_attach /
+#: overlay_image, and drawings for drawing_open / xref_attach / templates.
+KINDS_UPLOAD: tuple[str, ...] = (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".dxf", ".dwg")
 
 
 def _write_name(resolved: Path) -> str:

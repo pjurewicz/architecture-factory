@@ -18,7 +18,8 @@ Per request, before any MCP handler runs:
 * a body larger than ``MAX_HTTP_BODY_BYTES`` (8 MiB; 0 disables) is refused
   **413**: on its ``Content-Length`` before a byte is read, and - for a chunked
   body with no length - counted as it arrives (buffered up to the limit, then
-  replayed to the app).
+  replayed to the app). A ``POST /files`` upload (uploads.py) is held to
+  ``UPLOAD_MAX_BYTES`` instead and must declare its ``Content-Length`` (411).
 
 fastmcp appends user middleware after its authentication middleware (S3), so a
 403/421/413 never reveals whether a token was valid.
@@ -167,6 +168,14 @@ class HttpGuard:
             )
             return
         limit = int(getattr(config.settings, "max_http_body_bytes", 0) or 0)
+        upload_limit = int(getattr(config.settings, "upload_max_bytes", 0) or 0)
+        if upload_limit > 0 and _is_upload(scope):
+            # uploads.py streams the body to disk: its own limit, and a declared
+            # length, so nothing is buffered here.
+            if headers.get("content-length") is None:
+                await _refuse(send, 411, "length_required", "an upload must send Content-Length")
+                return
+            limit = upload_limit
         if limit <= 0:
             await self.app(scope, receive, send)
             return
@@ -200,6 +209,17 @@ class HttpGuard:
             chunks.append(body)
             more = bool(message.get("more_body"))
         await self.app(scope, _replay(b"".join(chunks), receive, disconnect), send)
+
+
+def _is_upload(scope) -> bool:
+    """A ``POST`` to uploads.py's route (``UPLOAD_MAX_BYTES`` instead of ``MAX_HTTP_BODY_BYTES``)."""
+    from uploads import UPLOAD_PATH
+
+    path = scope.get("path") or ""
+    root = scope.get("root_path") or ""
+    if root and path.startswith(root):
+        path = path[len(root) :]
+    return scope.get("method") == "POST" and path.rstrip("/") == UPLOAD_PATH
 
 
 def _counting(receive, limit: int):

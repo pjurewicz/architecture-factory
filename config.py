@@ -10,6 +10,7 @@ DEFAULT_MAX_DXF_BYTES = 512 * 1024 * 1024
 
 #: Default ``MAX_HTTP_BODY_BYTES``: 8 MiB (1.8-17).
 DEFAULT_MAX_HTTP_BODY_BYTES = 8 * 1024 * 1024
+DEFAULT_UPLOAD_MAX_BYTES = 256 * 1024 * 1024
 
 
 class Settings:
@@ -178,6 +179,19 @@ class Settings:
         self.max_http_body_bytes: int = max(
             0, int(os.environ.get("MAX_HTTP_BODY_BYTES", str(DEFAULT_MAX_HTTP_BODY_BYTES)))
         )
+        # uploads.py: POST /files stores a client's file (a scan, a DXF, a DWG)
+        # and answers its server path. UPLOAD_MAX_BYTES bounds one upload
+        # (clamped to 2 GiB; 0 turns uploads off); UPLOAD_RETAIN_S is how long
+        # an upload is kept (5 min to 30 days); UPLOAD_DIR is the folder
+        # (default <first ALLOWED_PATHS entry>/uploads, else a temp folder).
+        self.upload_max_bytes: int = min(
+            2 * 1024**3,
+            max(0, int(os.environ.get("UPLOAD_MAX_BYTES", str(DEFAULT_UPLOAD_MAX_BYTES)))),
+        )
+        self.upload_retain_s: float = min(
+            30 * 86400.0, max(300.0, float(os.environ.get("UPLOAD_RETAIN_S", "86400")))
+        )
+        self.upload_dir: str = os.environ.get("UPLOAD_DIR", "").strip()
         self.mcp_auth_token_readonly: str = os.environ.get("MCP_AUTH_TOKEN_READONLY", "").strip()
 
         # Exposed tool profile: "full" (default, everything) or "lean" (a
