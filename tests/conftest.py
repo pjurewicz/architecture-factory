@@ -1,6 +1,15 @@
 """Shared fixtures for AutoCAD MCP tests."""
 
-import pytest
+import os
+
+# Plain logging for fastmcp, read when fastmcp is first imported (so before the
+# imports below). Its rich handler renders a syntax-highlighted traceback for
+# every tool that raises, and the suite provokes thousands of refusals: that
+# rendering was about a third of the suite's CPU time.
+os.environ.setdefault("FASTMCP_ENABLE_RICH_TRACEBACKS", "false")
+os.environ.setdefault("FASTMCP_ENABLE_RICH_LOGGING", "false")
+
+import pytest  # noqa: E402
 import pytest_asyncio
 
 from backends.ezdxf_backend import EzdxfBackend
