@@ -48,6 +48,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `fit_region` with `width` / `height` / `view_center_*`, a zero-area region or
   `margin_mm` without `fit_region` is `invalid_args`; the explicit form is
   unchanged.
+- The `text_overlap` critique focus (core): lettering printed over other
+  lettering in one space (model space or one paper layout) - TEXT / MTEXT /
+  ATTRIB over each other (`text_overlaps_text`), TEXT / MTEXT over a
+  dimension's text (`text_overlaps_dimension`) and TEXT / MTEXT over an
+  architectural symbol's bubble, arrow or block on `A-SYMB-T-N`
+  (`text_overlaps_symbol`; `arch_symbol` and `arch_grid` draw plain entities
+  there, not blocks), one warning per pair whose intersection covers more than
+  15 % of the smaller outline. Boxes are `viewport_clip`'s (`text_box`).
+  Not tested: hidden layers and invisible entities, table cells, items of one
+  INSERT / GROUP / DIMENSION / `ACADMCP_*` record, the symbol layer's own
+  lettering against its outlines, furniture blocks, and lines (a section cut
+  line through a label is not reported yet). Never repaired. It runs under
+  `focus=None` and inside `drawing_finalize` / `drawing_deliver`: on the README
+  arch, mech, P&ID and showcase sheets and every recipe's end state it reports
+  nothing.
 - The `viewport_clip` critique focus (core): for every model viewport of every
   paper layout, a model-space TEXT, MTEXT, ATTRIB, DIMENSION or MULTILEADER
   that its frame cuts - partly inside the window, partly outside - is a

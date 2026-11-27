@@ -715,6 +715,10 @@ from .viewport_clip import check_viewport_clip  # noqa: E402  (imports _read_vie
 
 _FOCUS_DISPATCH["viewport_clip"] = check_viewport_clip
 
+from .text_overlap import check_text_overlap  # noqa: E402  (imports scan_incomplete_issue lazily)
+
+_FOCUS_DISPATCH["text_overlap"] = check_text_overlap
+
 from .pid.critique import PID_DISPATCH  # noqa: E402  (registered after the mechanical focuses)
 
 _FOCUS_DISPATCH.update(PID_DISPATCH)

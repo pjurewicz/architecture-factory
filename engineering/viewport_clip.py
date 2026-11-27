@@ -105,12 +105,13 @@ def _flat(e) -> bool:
     return abs(ext[0]) < 1e-9 and abs(ext[1]) < 1e-9 and ext[2] > 0
 
 
-def _piece(e) -> list[Pt]:
-    """One drawn piece of an entity as the points of a convex outline."""
+def text_box(e) -> list[Pt]:
+    """A TEXT / ATTRIB / MTEXT's lettering box as WCS corners (TEXT and
+    ATTRIB by ``ezdxf.disassemble``, MTEXT by :func:`mtext_box`), or ``[]``
+    for an empty one, one tilted out of WCS XY, or another type.
+    ``text_overlap`` measures with it too, so both focuses see one box."""
     kind = e.dxftype()
-    if kind == "LINE":
-        return [(e.dxf.start.x, e.dxf.start.y), (e.dxf.end.x, e.dxf.end.y)]
-    if kind == "MTEXT" and _flat(e):
+    if kind == "MTEXT":
         return mtext_box(e)
     if kind in ("TEXT", "ATTRIB") and _flat(e):
         if not str(e.dxf.get("text", "") or "").strip():
@@ -119,6 +120,16 @@ def _piece(e) -> list[Pt]:
 
         points = [(v.x, v.y) for v in disassemble.make_primitive(e).vertices()]
         return points[:-1] if len(points) > 1 and points[0] == points[-1] else points
+    return []
+
+
+def _piece(e) -> list[Pt]:
+    """One drawn piece of an entity as the points of a convex outline."""
+    kind = e.dxftype()
+    if kind == "LINE":
+        return [(e.dxf.start.x, e.dxf.start.y), (e.dxf.end.x, e.dxf.end.y)]
+    if kind in ("MTEXT", "TEXT", "ATTRIB") and _flat(e):
+        return text_box(e)
     if kind == "POINT":  # a defpoint: DEFPOINTS does not plot
         return []
     return _box_corners(e)

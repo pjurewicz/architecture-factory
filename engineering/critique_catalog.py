@@ -63,6 +63,15 @@ FOCUS_CATALOG: dict[str, tuple[str, str, str | None]] = {
         "height is viewport_scale_deferred, one with a non-rectangular clip "
         "viewport_clip_boundary",
     ),
+    "text_overlap": (
+        "core",
+        "lettering printed over other lettering in one space: TEXT / MTEXT / ATTRIB over "
+        "each other (text_overlaps_text), TEXT / MTEXT over a dimension's text "
+        "(text_overlaps_dimension) or over an arch symbol's bubble or arrow on A-SYMB-T-N "
+        "(text_overlaps_symbol), more than 15 % of the smaller outline; never repaired",
+        "table cells, items of one INSERT / GROUP / DIMENSION / ACADMCP record, furniture "
+        "blocks and hidden layers are not tested",
+    ),
     "gdt": (
         "core",
         "a datum a feature control frame cites with no datum feature",

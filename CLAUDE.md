@@ -260,7 +260,11 @@ These rules are non-negotiable for production engineering output.
    `dim_group42_stale` are repaired automatically, every other code is
    `manual_required`), `viewport_clip` (a model TEXT / MTEXT / ATTRIB /
    DIMENSION / MULTILEADER a paper viewport's frame cuts; code
-   `viewport_clips_text`, never repaired automatically). Pass `focus=None` for
+   `viewport_clips_text`, never repaired automatically), `text_overlap`
+   (TEXT / MTEXT / ATTRIB over lettering, a dimension's text or an arch symbol
+   on `A-SYMB-T-N` in one space; codes `text_overlaps_text` /
+   `text_overlaps_dimension` / `text_overlaps_symbol`, never repaired
+   automatically). Pass `focus=None` for
    all (it also runs `gdt` and the
    `pid_*` / `mech_*` / `arch_*` / `topo_*` focuses); every focus and what it
    reports is in `autocad://critique/focuses`. Zero issues is not the whole
