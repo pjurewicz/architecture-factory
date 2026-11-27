@@ -45,6 +45,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed (round 4)
 
+- An unknown `drawing_critique` focus answers `unknown_focus` with the focus
+  catalogue and the not-checked reasons, so `focus=['?']` lists them through
+  `call_tool`; the descriptions and `search_tools` no longer point to MCP
+  resources a proxied client cannot read.
+- `arch_plan_from_spec` reports `layers {walls, poche}` (the solid poché is
+  coloured by `A-WALL-H-N`, not `A-WALL-E-N`) and says what `spec.sheet` is
+  for: lettering scale and critique, no layout is made.
+- `entity_batch_create(layout=)` places every type on that layout (only
+  MTEXT honoured a layout before) and restores the current space.
+- More than five dimensions `dimension_truth` cannot bind are one
+  `dim_unbound` info row with `count`, `by_status` and 20 handles, not one row
+  each (197 of round 4's 233 critique rows).
+
 - A DIMRND tie rounds away from zero, as AutoCAD: 12.5 at DIMRND 1 is "13"
   (it was "12", Python's round-half-even, in the renderer and in
   `dimension_truth`'s formatter alike - both changed together).

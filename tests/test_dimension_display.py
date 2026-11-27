@@ -642,3 +642,17 @@ async def test_a_dimrnd_tie_draws_what_autocad_draws_and_the_truth_focus_agrees(
     assert shown == ["13"]
     truth = await run_critique(backend, focus=["dimension_truth"])
     assert [i for i in truth if i.severity != "info"] == []
+
+
+@pytest.mark.asyncio
+async def test_many_unbound_dimensions_are_one_info_row_with_the_count(backend):
+    # round 4 (A9g): 197 of a plan's 233 critique rows were one dim_unbound each
+    handles = [
+        (await backend.dimension_linear(0, 0, 10 + i, 0, 5, -5 - i)).handle for i in range(8)
+    ]
+    issues = await run_critique(backend, FOCUS)
+    rows = [i for i in issues if i.detail["code"] == "dim_unbound"]
+    assert len(rows) == 1
+    assert rows[0].severity == "info"
+    assert rows[0].detail["count"] == 8
+    assert sorted(rows[0].handles) == sorted(handles)

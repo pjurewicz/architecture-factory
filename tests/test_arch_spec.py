@@ -394,7 +394,7 @@ async def test_the_reply_is_compact_unless_verbose_and_a_batch_binding_sees_it_a
             )
         ).structured_content
     assert set(compact) - {"unsaved"} == {
-        "rooms", "warnings", "omitted", "plan_bbox", "outer_bbox"
+        "rooms", "warnings", "omitted", "plan_bbox", "outer_bbox", "layers", "sheet"
     }  # fmt: skip
     assert compact["rooms"] == [
         {
@@ -460,3 +460,19 @@ def test_swing_towards_beside_swing_is_refused_by_path():
     spec["openings"][0] = {**spec["openings"][0], "swing": "in", "swing_towards": [1500, 500]}
     with pytest.raises(ValueError, match=r"openings\[0\]: swing and swing_towards"):
         validate_spec(spec)
+
+
+@pytest.mark.asyncio
+async def test_the_reply_names_the_poche_layer_and_what_sheet_did(backend):
+    """Round 4 (A9b, A9c): the solid poche's colour sits on A-WALL-H-N, and
+    spec.sheet makes no layout - the reply says both."""
+    result = await draw_plan_from_spec(
+        backend,
+        {
+            "sheet": {"sheet_size": "A3", "scale": 50},
+            "poche": "solid",
+            "walls": [{"id": "W", "axis": [[0, 0], [3000, 0]], "thickness": 200}],
+        },
+    )
+    assert result["layers"] == {"walls": "A-WALL-E-N", "poche": "A-WALL-H-N"}
+    assert "no layout" in result["sheet"]["used_for"]

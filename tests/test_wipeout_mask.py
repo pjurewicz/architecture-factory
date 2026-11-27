@@ -44,3 +44,11 @@ async def test_by_default_the_wardrobe_goes_under_what_is_already_drawn(backend)
     order = [e.dxf.handle for e in backend._doc.modelspace().entities_in_redraw_order()]
     assert order[0] == placed["handle"]
     assert await run_critique(backend, focus=["wipeout_mask"]) == []
+
+
+async def test_an_unknown_focus_answers_the_catalogue_a_tool_only_client_can_read(backend):
+    """Round 4 (A9a): the focus list was only a resource, out of call_tool's reach."""
+    (issue,) = await run_critique(backend, focus=["?"])
+    assert issue.detail["code"] == "unknown_focus"
+    assert "hidden_by_wipeout" in issue.detail["focuses"]["wipeout_mask"]
+    assert "domain_absent" in issue.detail["not_checked_reasons"]

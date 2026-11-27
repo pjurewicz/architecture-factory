@@ -480,7 +480,8 @@ async def test_the_focus_resource_lists_the_closed_enum(monkeypatch, full_catalo
     assert [row["focus"] for row in served["focuses"]] == list(ALL_CRITIQUE_FOCUSES)
     assert set(served["not_checked_reasons"]) == set(NOT_CHECKED_REASONS)
     description = tools["drawing_critique"].inputSchema["properties"]["focus"]["description"]
-    assert "autocad://critique/focuses" in description
+    # round 4 (A9a): the resource is not reachable through call_tool; focus=['?'] is
+    assert "focus=['?']" in description
     assert len(description) < 300, len(description)
     assert "pid_unconnected_equipment" not in description
 

@@ -263,7 +263,9 @@ def search_guide(query: str, visible: set[str]) -> str:
         if steps and steps[-1].split(" / ")[0] in _WRITERS:
             steps[-1] += " (their download_url fetches the file)"
         batch = " Any steps run together in cad_batch." if "cad_batch" in visible else ""
-        return f"Workflow: {' -> '.join(steps)}.{batch} Recipes: autocad://recipes/index."
+        # round 4: no "Recipes: autocad://recipes/index" - a resource a
+        # call_tool-only client cannot read is no lead
+        return f"Workflow: {' -> '.join(steps)}.{batch}"
     if len(words) >= _MANY_WORDS:
         return "Tip: search one job at a time (a query mixing several ranks none of them well)."
     return ""

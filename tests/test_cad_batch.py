@@ -1766,3 +1766,39 @@ async def test_many_chains_in_one_call_share_their_parameters(client):
     assert counts[0] == 2, "the shared overall=False holds for the first chain"
     assert counts[1] >= 1
     assert await _entity_count(client) == before + done["count"]
+
+
+async def test_entity_batch_create_draws_every_type_on_the_layout_it_names(client):
+    """Round 4 (A9e): only mtext took a layout; a line or a circle went to paper
+    only after layout_set_current."""
+
+    async def handles(space):
+        rows = (
+            await client.call_tool(
+                "call_tool", {"name": "entity_list", "arguments": {"space": space}}
+            )
+        ).structured_content
+        rows = rows.get("result", rows) if isinstance(rows, dict) else rows
+        return {r["handle"] for r in rows}
+
+    await client.call_tool("call_tool", {"name": "layout_create", "arguments": {"name": "A3"}})
+    done = (
+        await client.call_tool(
+            "entity_batch_create",
+            {
+                "layout": "A3",
+                "entities": [
+                    {"type": "line", "x1": 0, "y1": 0, "x2": 10, "y2": 0},
+                    {"type": "circle", "cx": 5, "cy": 5, "radius": 2},
+                ],
+            },
+        )
+    ).structured_content
+    assert len(done["handles"]) == 2
+    assert set(done["handles"]) <= await handles("A3")
+    assert not set(done["handles"]) & await handles("model")
+    # the caller's space is back: the next plain create lands in model space
+    line = (
+        await client.call_tool("entity_create_line", {"x1": 0, "y1": 0, "x2": 1, "y2": 1})
+    ).structured_content
+    assert line["handle"] in await handles("model")

@@ -184,6 +184,9 @@ def reflex_render(dimtype: int, rendered: str | None, shown) -> bool:
     return abs(other + float(shown.value) - 360.0) <= 2.0 * float(shown.tolerance) + 1e-9
 
 
+UNBOUND_ROWS = 5  # more unbound dimensions than this fold into one info row
+
+
 def dimension_issues(
     records,
     observed,
@@ -204,6 +207,7 @@ def dimension_issues(
     index = DimensionIndex(observed, epsilon)
     issues: list[Issue] = []
     by_style: dict[str, list] = {}
+    unbound: list[Issue] = []
     for record in records:
         if record.type != "DIMENSION" or record.dimension is None:
             continue
@@ -308,14 +312,43 @@ def dimension_issues(
                 {**evidence, "reasons": hidden},
             )
         if bound["status"] != "bound":
-            found[DIM_UNBOUND] = _issue(
-                DIM_UNBOUND,
-                record,
-                f"not checked against geometry ({bound['status']}: {bound['reason']}) - "
-                "never a pass",
-                {**evidence, "status": bound["status"], "reason": bound["reason"]},
+            unbound.append(
+                _issue(
+                    DIM_UNBOUND,
+                    record,
+                    f"not checked against geometry ({bound['status']}: {bound['reason']}) - "
+                    "never a pass",
+                    {**evidence, "status": bound["status"], "reason": bound["reason"]},
+                )
             )
         issues.extend(found[code] for code in CODES if code in found)
+    if len(unbound) <= UNBOUND_ROWS:
+        issues.extend(unbound)
+    else:
+        # round 4: 197 of a plan's 233 critique rows were one dim_unbound each
+        statuses: dict[str, int] = {}
+        for row in unbound:
+            statuses[row.detail["status"]] = statuses.get(row.detail["status"], 0) + 1
+        handles = [str(row.detail["handle"]) for row in unbound]
+        issues.append(
+            Issue(
+                severity="info",
+                focus=FOCUS,  # type: ignore[arg-type]
+                message=(
+                    f"{len(unbound)} dimensions are not checked against geometry "
+                    f"({', '.join(f'{k} {v}' for k, v in sorted(statuses.items()))}) - "
+                    "never a pass; drawing_verify_requirements binds the ones that matter"
+                ),
+                handles=handles[:20],
+                detail={
+                    "code": DIM_UNBOUND,
+                    "count": len(unbound),
+                    "by_status": statuses,
+                    "handles": handles[:20],
+                    "repairable": False,
+                },
+            )
+        )
     for style, scaled in by_style.items():
         factor = (style_dimlfac or {})[style.lower()]
         issues.append(

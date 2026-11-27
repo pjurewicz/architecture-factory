@@ -6497,6 +6497,7 @@ def _compact_plan(result: dict) -> dict:
         "omitted": result["omitted"],
         "plan_bbox": result["plan_bbox"],
         "outer_bbox": result["outer_bbox"],
+        **{k: result[k] for k in ("layers", "sheet") if k in result},
     }
     if result.get("critique"):
         compact["critique"] = result["critique"]
@@ -7578,6 +7579,7 @@ async def entity_batch_create(
         bool,
         "True: also return each entity's full record; default {ok, created, handles, errors}.",
     ] = False,
+    layout: Annotated[str | None, "Draw every item on this layout"] = None,
     ctx: Context = None,
 ) -> dict:
     """Create multiple entities in a single call for better performance.
@@ -7626,7 +7628,11 @@ async def entity_batch_create(
     total = len(entities)
     await ctx.info(f"Batch creating {total} entities")
     # 1.8-23: one backend call - the contract's loop over entity_create_*.
-    result = await b.entity_batch_create(entities, progress=ctx.report_progress)
+    if layout is not None:
+        from engineering.sheet.frames import enter_layout
+
+        await b.layout_set_current(await enter_layout(b, layout, caller="entity_batch_create"))
+    result = await b.entity_batch_create(entities, progress=ctx.report_progress, layout=layout)
     await ctx.report_progress(total, total)
     if not result["errors"]:
         payload = {"ok": True, **result}
@@ -8937,7 +8943,7 @@ async def drawing_finalize(
 
     The payload's `qa_coverage` says what the critique did not check: {complete, records,
     spaces, reason, not_checked: [{focus, layout, reason, lane}], domain_absent: [focus]}
-    (reasons: autocad://critique/focuses) - e.g. a paper layout without a model viewport is
+    (reasons: drawing_critique(focus=['?'])) - e.g. a paper layout without a model viewport is
     `no_viewport_scale`.
 
     Fails (error kind validation_failed / critique_gate_failed / failed_acceptance) if any
@@ -9439,8 +9445,8 @@ async def drawing_critique(
         Field(
             default=None,
             description="Focus names to run, a closed set (iso128, layer_color, "
-            "construction_left, pid_*, mech_*, arch_*, topo_*, ...; every name and what it "
-            "reports: resource autocad://critique/focuses). None = run all.",
+            "construction_left, pid_*, mech_*, arch_*, topo_*, ...; focus=['?'] lists "
+            "every name and what it reports). None = run all.",
         ),
     ] = None,
     report: Annotated[

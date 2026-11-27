@@ -437,7 +437,9 @@ class EntityCreationContract(ABC):
         spec["closed"] = True
         return spec
 
-    async def entity_batch_create(self, specs: list[dict], *, progress=None) -> dict:
+    async def entity_batch_create(
+        self, specs: list[dict], *, progress=None, layout: str | None = None
+    ) -> dict:
         """Create every spec in ``specs``. ``{created, errors, entities}``.
 
         A spec is ``{"type": <BATCH_CREATE_TYPES or _ALIASES>, ...that create's
@@ -449,7 +451,18 @@ class EntityCreationContract(ABC):
         ``{index, type, error}`` for a create that raised; ``entities`` the
         created ``EntityInfo`` as dicts, in spec order. ``progress(i, total)``
         is awaited before each spec when given. The specs are not modified.
+        ``layout`` (round 4) draws every item there - an mtext's own ``layout``
+        still wins - and puts the current space back.
         """
+        if layout is not None:
+            previous = str((await self.layout_list()).get("current") or "Model")
+            switched = await self.layout_set_current(str(layout))
+            if isinstance(switched, dict) and switched.get("ok") is False:
+                raise ValueError(f"layout {layout!r}: {switched.get('error', 'refused')}")
+            try:
+                return await self.entity_batch_create(specs, progress=progress)
+            finally:
+                await self.layout_set_current(previous)
         from dataclasses import asdict
 
         from backends.base import lineweight_name, parse_lineweight

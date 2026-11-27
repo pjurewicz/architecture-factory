@@ -41,6 +41,7 @@ from engineering.arch import schedule as _schedule
 from engineering.validation import within_budget
 
 from .lang import LANGS
+from .layers import ARCH_ROLE_LAYER
 from .model import (
     opening_from_dict,
     room_from_dict,
@@ -574,5 +575,12 @@ async def draw_plan_from_spec(backend: AutoCADBackend, spec: dict) -> dict:
         "drawn": drawn,
         "critique": critique,
         "warnings": warnings,
+        # round 4: what a caller restyles (poche="solid" fills A-WALL-H-N, not
+        # the outline layer) and what `sheet` did - no layout is made
+        "layers": {"walls": ARCH_ROLE_LAYER["wall"], "poche": ARCH_ROLE_LAYER["wall_hatch"]},
+        "sheet": {
+            **norm["sheet"],
+            "used_for": "lettering scale + critique only; no layout is made",
+        },
         "backend": backend.name,
     }

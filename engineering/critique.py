@@ -815,11 +815,22 @@ async def run_critique(
     for f in foci:
         check = _FOCUS_DISPATCH.get(f)
         if check is None:
+            # round 4: the catalogue was only a resource, which a call_tool-only
+            # client cannot read; an unknown name now answers it
+            from .critique_catalog import FOCUS_CATALOG
+            from .qa_coverage import NOT_CHECKED_REASONS
+
             issues.append(
                 Issue(
                     severity="warning",
                     focus=f,  # type: ignore[arg-type]
-                    message=f"Unknown critique focus '{f}' (closed enum).",
+                    message=f"Unknown critique focus '{f}' (closed enum); detail.focuses "
+                    "lists every focus and what it reports, detail.not_checked_reasons the coverage reasons.",
+                    detail={
+                        "code": "unknown_focus",
+                        "focuses": {n: row[1] for n, row in FOCUS_CATALOG.items()},
+                        "not_checked_reasons": dict(NOT_CHECKED_REASONS),
+                    },
                 )
             )
             continue
