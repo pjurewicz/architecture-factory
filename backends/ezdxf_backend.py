@@ -8892,6 +8892,24 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
 
     # ── set-based edits (1.8-12; the grammar is backends/set_edits.py) ──────────
 
+    @staticmethod
+    def _resolve_typed_set(doc, spec):
+        """A ``set``'s pattern and text style as the drawing spells them, or
+        ``invalid_args`` before anything is written."""
+        from dataclasses import replace
+
+        if spec.pattern is not None:
+            spec = replace(spec, pattern=_hatch_pattern(spec.pattern))
+        if spec.text_style is not None:
+            names = {str(st.dxf.name).lower(): str(st.dxf.name) for st in doc.styles}
+            if spec.text_style.lower() not in names:
+                raise InvalidArgsError(
+                    f"invalid_args: set.text_style: no text style {spec.text_style!r}; "
+                    f"the drawing has {', '.join(sorted(names.values()))}"
+                )
+            spec = replace(spec, text_style=names[spec.text_style.lower()])
+        return spec
+
     async def entity_select_where(self, where, set_, space="model") -> dict:
         from backends import set_edits as se
 
@@ -8900,6 +8918,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         def _sync():
             doc = self._require_doc()
             spec, _missing = se.resolve_layer(base, [lyr.dxf.name for lyr in doc.layers])
+            spec = self._resolve_typed_set(doc, spec)
             found, skipped = se.ezdxf_select(doc, query, scope)
             handles = [str(e.dxf.handle) for e in found]
             return {
@@ -8926,6 +8945,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         def _sync():
             doc = self._require_doc()
             spec, missing = se.resolve_layer(base, [lyr.dxf.name for lyr in doc.layers])
+            spec = self._resolve_typed_set(doc, spec)
             found, skipped = se.ezdxf_select(doc, query, scope)
             if expect_count is not None and len(found) != int(expect_count):
                 raise StaleRevisionError(
@@ -11083,6 +11103,60 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 "current": bool(set_current),
                 **render_note,
             }
+
+        return await self._async(_sync)
+
+    async def textstyle_modify(
+        self, name, font=None, height=None, width_factor=None, oblique_deg=None
+    ) -> dict:
+        from engineering.standards.textstyles import validate_textstyle
+
+        def _sync():
+            doc = self._require_doc()
+            names = {str(st.dxf.name).lower(): st for st in doc.styles}
+            style = names.get(str(name).strip().lower())
+            if style is None:
+                raise InvalidArgsError(
+                    f"invalid_args: no text style {name!r}; the drawing has "
+                    f"{', '.join(sorted(str(st.dxf.name) for st in doc.styles))}"
+                )
+            dxf = style.dxf
+            now = {
+                "font": str(dxf.get("font", "")),
+                "height": float(dxf.get("height", 0.0)),
+                "width_factor": float(dxf.get("width", 1.0) or 1.0),
+                "oblique_deg": float(dxf.get("oblique", 0.0)),
+            }
+            try:
+                spec = validate_textstyle(
+                    str(dxf.name),
+                    now["font"] if font is None else font,
+                    now["height"] if height is None else height,
+                    now["width_factor"] if width_factor is None else width_factor,
+                    now["oblique_deg"] if oblique_deg is None else oblique_deg,
+                )
+            except (TypeError, ValueError) as exc:
+                raise InvalidArgsError(f"invalid_args: {exc}") from None
+            wanted = {
+                "font": spec["font_file"],
+                "height": spec["height"],
+                "width_factor": spec["width_factor"],
+                "oblique_deg": spec["oblique_deg"],
+            }
+            changed = {k: [now[k], wanted[k]] for k in now if now[k] != wanted[k]}
+            fields = {"font": "font", "height": "height", "width_factor": "width"}
+            for key in changed:
+                setattr(dxf, fields.get(key, "oblique"), wanted[key])
+            if changed:
+                self._mark_dirty()
+            own = sum(
+                1
+                for layout in doc.layouts
+                for e in layout.query("TEXT")
+                if str(e.dxf.get("style", "Standard")).lower() == str(dxf.name).lower()
+                and float(e.dxf.get("width", 1.0)) != wanted["width_factor"]
+            )
+            return {"ok": True, "name": str(dxf.name), "changed": changed, "texts_own_width": own}
 
         return await self._async(_sync)
 

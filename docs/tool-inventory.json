@@ -3,7 +3,7 @@
   "schema_version": 2,
   "package_version": "1.8.0",
   "totals": {
-    "tools": 247,
+    "tools": 248,
     "resources": 13,
     "prompts": 5,
     "groups": 27
@@ -29,7 +29,7 @@
     "plant": 2,
     "premium": 12,
     "sheet": 11,
-    "styles": 10,
+    "styles": 11,
     "system": 5,
     "templates": 2,
     "transactions": 7,
@@ -5703,6 +5703,27 @@
       "annotations": {
         "title": "Styles: List Text Styles",
         "readOnlyHint": true
+      }
+    },
+    {
+      "name": "textstyle_modify",
+      "group": "styles",
+      "cost": "mutate",
+      "summary": "Change a text style's font, height, width factor or oblique angle.",
+      "acad": [],
+      "synonyms": [
+        "change a text style",
+        "edit text style width factor",
+        "change the font of a style",
+        "narrower text style"
+      ],
+      "tags": [
+        "modify",
+        "style"
+      ],
+      "annotations": {
+        "title": "Styles: Modify Text Style",
+        "readOnlyHint": false
       }
     },
     {

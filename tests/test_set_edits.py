@@ -219,6 +219,58 @@ async def test_a_dimension_moved_to_another_layer_takes_its_colour_on_screen(bac
     assert red > 500 and dark < red / 20, (red, dark)
 
 
+async def test_hatch_and_text_keys_write_only_the_types_that_have_them(backend):
+    """Round 3: 73 hatch_edit calls to turn ANSI31 solid, and no text keys at all."""
+    await backend.textstyle_create("NARROW", "isocp.shx", width_factor=0.7)
+    square = [[0, 0], [10, 0], [10, 10], [0, 10]]
+    hatches = [(await backend.entity_create_hatch("ANSI31", square)).handle for _ in range(3)]
+    text = (await backend.entity_create_text("A", 0, 0, height=2.5)).handle
+    mtext = (await backend.entity_create_mtext("B", 0, 5, height=2.5)).handle
+    line = (await backend.entity_create_line(0, 0, 5, 5)).handle
+    db = _doc(backend).entitydb
+
+    out = await backend.entity_modify_where(
+        {"type": "*"}, {"pattern": "solid", "text_style": "narrow", "text_height": 3.5}
+    )
+    assert out["changed"] == 5 and out["set"]["pattern"] == "SOLID"
+    assert all(db[h].dxf.solid_fill == 1 for h in hatches)
+    assert db[text].dxf.style == db[mtext].dxf.style == "NARROW"
+    assert db[text].dxf.height == db[mtext].dxf.char_height == 3.5
+    assert db[text].dxf.width == pytest.approx(0.7), "a TEXT takes its new style's width"
+    assert db[line].dxf.layer == "0"
+
+    out = await backend.entity_modify_where(
+        {"type": "HATCH"}, {"pattern": "ANSI37", "pattern_scale": 2, "pattern_angle": 30}
+    )
+    assert out["changed"] == 3
+    assert (db[hatches[0]].dxf.pattern_name, db[hatches[0]].dxf.pattern_scale) == ("ANSI37", 2)
+    again = await backend.entity_modify_where({"type": "HATCH"}, {"pattern_angle": 30})
+    assert again["changed"] == 0, "re-setting a value to itself is not a change"
+    for bad, needle in (({"pattern": "ANSI99"}, "ANSI99"), ({"text_style": "NOPE"}, "NOPE")):
+        with pytest.raises(InvalidArgsError, match=needle):
+            await backend.entity_modify_where({"type": "*"}, bad)
+
+
+async def test_textstyle_modify_changes_the_style_and_counts_texts_with_their_own_width(
+    backend,
+):
+    await backend.textstyle_create("NOTES", "isocp.shx")
+    await backend.entity_create_text("A", 0, 0)
+    _doc(backend).header["$TEXTSTYLE"] = "NOTES"
+    text = (await backend.entity_create_text("B", 0, 5)).handle
+    await backend.entity_edit_text(text, style="NOTES")
+    out = await backend.textstyle_modify("notes", width_factor=0.8, oblique_deg=15)
+    assert out["changed"] == {"width_factor": [1.0, 0.8], "oblique_deg": [0.0, 15.0]}
+    assert out["texts_own_width"] == 1
+    style = _doc(backend).styles.get("NOTES")
+    assert (style.dxf.width, style.dxf.oblique) == (0.8, 15.0)
+    assert (await backend.textstyle_modify("NOTES", width_factor=0.8))["changed"] == {}
+    with pytest.raises(InvalidArgsError, match="NOPE"):
+        await backend.textstyle_modify("NOPE", height=2)
+    with pytest.raises(InvalidArgsError, match="width_factor"):
+        await backend.textstyle_modify("NOTES", width_factor=0)
+
+
 async def test_set_layer_is_spelt_as_the_table_stores_it(backend, drawn):
     result = await backend.entity_modify_where({"layer": "NOTES"}, {"layer": "walls"})
     assert result["layers_created"] == [] and result["set"]["layer"] == "Walls"

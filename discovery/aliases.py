@@ -1908,6 +1908,15 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "current text style",
         ),
     ),
+    "textstyle_modify": ToolAliases(
+        acad=(),
+        synonyms=(
+            "change a text style",
+            "edit text style width factor",
+            "change the font of a style",
+            "narrower text style",
+        ),
+    ),
     "textstyle_set_current": ToolAliases(
         acad=("STYLE", "TEXTSTYLE"),
         synonyms=(

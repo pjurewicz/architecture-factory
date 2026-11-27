@@ -65,6 +65,7 @@ STYLE_TOOLS = {
     "dimstyle_set_current",
     "textstyle_list",
     "textstyle_create",
+    "textstyle_modify",
     "textstyle_set_current",
     "mleaderstyle_list",
     "mleaderstyle_create",

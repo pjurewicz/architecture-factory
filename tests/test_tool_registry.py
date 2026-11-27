@@ -661,7 +661,7 @@ async def test_tool_group_sizes_are_unchanged():
     `drawing_close` and moved from `environment` (16 -> 15) to `drawing`
     (11 -> 9); `view_zoom_and_screenshot` went (`view` 2 -> 1): 242 tools.
     `arch_plan_patch` (T-11) joins `architecture`; `file_upload_url` `sheet`: 244 tools.
-    `arch_electrical`, `arch_legend` and `arch_title_block` join `architecture`: 247 tools.
+    `arch_electrical`, `arch_legend` and `arch_title_block` join `architecture`; `textstyle_modify` `styles`: 248.
     """
     sizes = {label: len(names) for label, names in (await server._tool_groups()).items()}
     assert (
@@ -687,7 +687,7 @@ async def test_tool_group_sizes_are_unchanged():
             "plant": 2,
             "premium": 12,
             "sheet": 11,
-            "styles": 10,
+            "styles": 11,
             "system": 5,
             "templates": 2,
             "transactions": 7,
@@ -696,4 +696,4 @@ async def test_tool_group_sizes_are_unchanged():
             "view": 1,
         }
     )
-    assert sum(sizes.values()) == 247
+    assert sum(sizes.values()) == 248

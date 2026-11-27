@@ -479,6 +479,7 @@ STYLE_TOOLS = {
     "dimstyle_set_current",
     "textstyle_list",
     "textstyle_create",
+    "textstyle_modify",
     "textstyle_set_current",
     "mleaderstyle_list",
     "mleaderstyle_create",
@@ -640,7 +641,7 @@ async def test_apply_standard_tool_is_registered_in_the_styles_group(backend):
     names = {t.name for t in await server._registered_tools() if getattr(t, "name", None)}
     assert "drawing_apply_standard" in names
     styles_group = set((await server._tool_groups())["styles"])
-    assert styles_group == STYLE_TOOLS | {"drawing_apply_standard"}, "SECTION 18 is exactly ten"
+    assert styles_group == STYLE_TOOLS | {"drawing_apply_standard"}, "SECTION 18 is exactly eleven"
     result = await server.drawing_apply_standard(standard="iso", layers=False, ctx=_Ctx(backend))
     assert result["dimstyle"]["created"] is True
 

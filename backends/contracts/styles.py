@@ -104,6 +104,23 @@ class StylesContract(ABC):
         ...
 
     @abstractmethod
+    async def textstyle_modify(
+        self,
+        name: str,
+        font: str | None = None,
+        height: float | None = None,
+        width_factor: float | None = None,
+        oblique_deg: float | None = None,
+    ) -> dict:
+        """Change an existing text style; ``None`` leaves a field. Returns
+        ``{ok, name, changed: {field: [old, new]}, texts_own_width}``: MTEXT
+        draws with the style's width, a TEXT keeps its own (AutoCAD's rule),
+        and ``texts_own_width`` counts the TEXTs whose own width now differs.
+        Refused by name before any write: a missing style, the
+        ``textstyle_create`` value rules."""
+        ...
+
+    @abstractmethod
     async def textstyle_set_current(self, name: str) -> dict:
         """``$TEXTSTYLE``. Returns ``{ok, current, previous, changed}``; new
         TEXT/MTEXT then carry the style."""

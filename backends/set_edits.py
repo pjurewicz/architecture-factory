@@ -26,7 +26,10 @@ select every entity in the space; say ``{"type": "*"}`` to mean that):
 
 **set** - at least one of ``layer`` (created when missing and reported),
 ``color`` (0-256; a true colour is dropped with it), ``linetype`` (loaded
-when missing), ``lineweight`` (``parse_lineweight``), ``visible`` (bool).
+when missing), ``lineweight`` (``parse_lineweight``), ``visible`` (bool), and
+the type-specific ``pattern`` / ``pattern_scale`` / ``pattern_angle`` (HATCH),
+``text_style`` / ``text_height`` (TEXT, MTEXT), ``width_factor`` (TEXT), which
+leave every other matched type as it is (``TYPED_KEYS``).
 
 **space** - ``model``, ``paper`` (every paper layout) or ``all``. Block
 definitions are never searched by ``entity_modify_where``; ``layer_merge``
@@ -77,7 +80,30 @@ SPACES = ("model", "paper", "all")
 PROTECTED_LAYERS = frozenset({"0", "defpoints"})
 
 WHERE_KEYS = ("layer", "type", "color", "linetype", "lineweight", "region", "block")
-SET_KEYS = ("layer", "color", "linetype", "lineweight", "visible")
+SET_KEYS = (
+    "layer",
+    "color",
+    "linetype",
+    "lineweight",
+    "visible",
+    # round 3: written only on the types that have them (HATCH; TEXT / MTEXT,
+    # width_factor TEXT only), every other match left as it is
+    "pattern",
+    "pattern_scale",
+    "pattern_angle",
+    "text_style",
+    "text_height",
+    "width_factor",
+)
+#: The type-specific ``set`` keys and the DXF types that carry them.
+TYPED_KEYS = {
+    "pattern": ("HATCH",),
+    "pattern_scale": ("HATCH",),
+    "pattern_angle": ("HATCH",),
+    "text_style": ("TEXT", "MTEXT"),
+    "text_height": ("TEXT", "MTEXT"),
+    "width_factor": ("TEXT",),
+}
 
 
 def _invalid(path: str, message: str) -> InvalidArgsError:
@@ -220,19 +246,15 @@ class SetSpec:
     linetype: str | None = None
     lineweight: int | None = None
     visible: bool | None = None
+    pattern: str | None = None
+    pattern_scale: float | None = None
+    pattern_angle: float | None = None
+    text_style: str | None = None
+    text_height: float | None = None
+    width_factor: float | None = None
 
     def to_dict(self) -> dict:
-        return {
-            k: v
-            for k, v in (
-                ("layer", self.layer),
-                ("color", self.color),
-                ("linetype", self.linetype),
-                ("lineweight", self.lineweight),
-                ("visible", self.visible),
-            )
-            if v is not None
-        }
+        return {k: getattr(self, k) for k in SET_KEYS if getattr(self, k) is not None}
 
 
 def parse_set(raw) -> SetSpec:
@@ -253,7 +275,22 @@ def parse_set(raw) -> SetSpec:
         if not isinstance(given["visible"], bool):
             raise _invalid("set.visible", f"expected true or false, got {given['visible']!r}")
         visible = given["visible"]
+    typed: dict = {}
+    for key in ("pattern", "text_style"):
+        if key in given:
+            if not isinstance(given[key], str) or not given[key].strip():
+                raise _invalid(f"set.{key}", f"expected a name, got {given[key]!r}")
+            typed[key] = given[key].strip()
+    for key in ("pattern_scale", "text_height", "width_factor", "pattern_angle"):
+        if key in given:
+            value = given[key]
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise _invalid(f"set.{key}", f"expected a number, got {value!r}")
+            if key != "pattern_angle" and not float(value) > 0:
+                raise _invalid(f"set.{key}", f"must be > 0, got {value!r}")
+            typed[key] = float(value)
     return SetSpec(
+        **typed,
         layer=layer,
         color=_color(given["color"], "set.color") if "color" in given else None,
         linetype=linetype,
@@ -413,7 +450,30 @@ def ezdxf_differs(entity, spec: SetSpec) -> bool:
         return True
     if spec.lineweight is not None and int(dxf.get("lineweight", -1)) != spec.lineweight:
         return True
-    return spec.visible is not None and bool(dxf.get("invisible", 0)) == spec.visible
+    if spec.visible is not None and bool(dxf.get("invisible", 0)) == spec.visible:
+        return True
+    return any(old != new for old, new in _typed_changes(entity, spec))
+
+
+def _typed_changes(entity, spec: SetSpec):
+    """``(now, wanted)`` for each type-specific key ``spec`` sets on ``entity``'s type."""
+    kind, dxf = entity.dxftype(), entity.dxf
+    if kind == "HATCH":
+        if spec.pattern is not None:
+            yield str(dxf.get("pattern_name", "")).upper(), spec.pattern
+        solid = (spec.pattern or str(dxf.get("pattern_name", ""))).upper() == "SOLID"
+        if spec.pattern_scale is not None and not solid:
+            yield round(float(dxf.get("pattern_scale", 1.0)), 9), round(spec.pattern_scale, 9)
+        if spec.pattern_angle is not None and not solid:
+            yield round(float(dxf.get("pattern_angle", 0.0)), 9), round(spec.pattern_angle, 9)
+    if kind in ("TEXT", "MTEXT"):
+        if spec.text_style is not None:
+            yield str(dxf.get("style", "Standard")).lower(), spec.text_style.lower()
+        if spec.text_height is not None:
+            field = "height" if kind == "TEXT" else "char_height"
+            yield round(float(dxf.get(field, 0.0)), 9), round(spec.text_height, 9)
+    if kind == "TEXT" and spec.width_factor is not None:
+        yield round(float(dxf.get("width", 1.0)), 9), round(spec.width_factor, 9)
 
 
 def ezdxf_dimension_follow(entity, old_layer: str, old_color: int) -> None:
@@ -464,6 +524,38 @@ def ezdxf_write(entity, spec: SetSpec) -> None:
     if spec.visible is not None:
         dxf.invisible = 0 if spec.visible else 1
     ezdxf_dimension_follow(entity, old_layer, old_color)
+    _write_typed(entity, spec)
+
+
+def _write_typed(entity, spec: SetSpec) -> None:
+    """The type-specific keys: a hatch's fill, a text's style, height, width."""
+    kind, dxf = entity.dxftype(), entity.dxf
+    if kind == "HATCH":
+        scale = spec.pattern_scale or float(dxf.get("pattern_scale", 1.0) or 1.0)
+        angle = spec.pattern_angle
+        angle = float(dxf.get("pattern_angle", 0.0)) if angle is None else angle
+        color = int(dxf.get("color", 256))
+        if spec.pattern == "SOLID":
+            entity.set_solid_fill(color=color, style=int(dxf.get("hatch_style", 0)))
+        elif spec.pattern is not None:
+            entity.set_pattern_fill(spec.pattern, color=color, scale=scale, angle=angle)
+        elif str(dxf.get("pattern_name", "")).upper() != "SOLID":
+            if spec.pattern_scale is not None:
+                entity.set_pattern_scale(scale)
+            if spec.pattern_angle is not None:
+                entity.set_pattern_angle(angle)
+    if kind in ("TEXT", "MTEXT"):
+        if spec.text_style is not None:
+            dxf.style = spec.text_style
+            if kind == "TEXT" and spec.width_factor is None:
+                # as entity_edit_text: a TEXT given a style takes its width factor
+                style = entity.doc.styles.get(spec.text_style) if entity.doc else None
+                if style is not None:
+                    dxf.width = float(style.dxf.get("width", 1.0) or 1.0)
+        if spec.text_height is not None:
+            setattr(dxf, "height" if kind == "TEXT" else "char_height", spec.text_height)
+    if kind == "TEXT" and spec.width_factor is not None:
+        dxf.width = spec.width_factor
 
 
 def ezdxf_containers(doc) -> dict[str, tuple[str, str]]:

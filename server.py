@@ -4343,7 +4343,9 @@ async def entity_modify_where(
         Field(
             description=(
                 "What to write, at least one key: layer (created when missing), color "
-                "(0-256), linetype, lineweight ('ByLayer' = -1, never -3), visible."
+                "(0-256), linetype, lineweight ('ByLayer' = -1, never -3), visible; on their "
+                "types only: pattern, pattern_scale, pattern_angle (HATCH), text_style, "
+                "text_height (TEXT, MTEXT), width_factor (TEXT)."
             )
         ),
     ],
@@ -10513,7 +10515,7 @@ async def pid_project(
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 18: Styles (10 tools) ───────────────────────────────────────────
+# ── SECTION 18: Styles (11 tools) ───────────────────────────────────────────
 # ---------------------------------------------------------------------------
 #
 # Pack: core (drafting essentials). Lean profile: dimstyle_set_current and
@@ -10699,6 +10701,26 @@ async def textstyle_create(
     return await _backend(ctx).textstyle_create(
         name, font, height, width_factor, oblique_deg, set_current
     )
+
+
+@cad_tool(
+    summary="Change a text style's font, height, width factor or oblique angle.", cost="mutate"
+)
+@mcp.tool(
+    annotations={"title": "Styles: Modify Text Style", "readOnlyHint": False},
+    tags={"style", "modify"},
+)
+async def textstyle_modify(
+    name: Annotated[str, "Existing text style (any case)"],
+    font: Annotated[str | None, "Font name or file"] = None,
+    height: Annotated[float | None, "Fixed height; 0 = per text"] = None,
+    width_factor: Annotated[float | None, "Width factor (> 0)"] = None,
+    oblique_deg: Annotated[float | None, "-85..85"] = None,
+    ctx: Context = None,
+) -> dict:
+    """Change a text style; omitted fields stay. `changed` {field: [old, new]};
+    a TEXT keeps its own width (`texts_own_width`; entity_modify_where set width_factor)."""
+    return await _backend(ctx).textstyle_modify(name, font, height, width_factor, oblique_deg)
 
 
 @cad_tool(summary="Make a text style current so new text uses it.", cost="safe")
