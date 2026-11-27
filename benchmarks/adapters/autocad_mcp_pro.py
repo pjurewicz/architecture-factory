@@ -1817,11 +1817,12 @@ class AutoCADMCPProAdapter(BenchmarkAdapter):
         The default ``drawing_open`` does not recover a damaged DXF; what it
         must do is refuse honestly (since 1.8.0 the refusal names
         ``recover=True``, B09, and that opt-in recovers the truncated file -
-        ``tests/test_identity_lineage.py``). A valid 50-line DXF is cut in half
-        (no ENDSEC, no EOF) and a text file is given a .dxf name. Opening each
-        must raise an error that names the fault (DXF in its text), and the
-        document that was open - one line - must still be the current document,
-        unchanged: never an empty or half-read drawing reported as opened.
+        ``tests/test_identity_lineage.py``). A valid 50-line DXF is cut after
+        half of its tags (no ENDSEC, no EOF) and a text file is given a .dxf
+        name. Opening each must raise an error that names the fault (DXF in
+        its text), and the document that was open - one line - must still be
+        the current document, unchanged: never an empty or half-read drawing
+        reported as opened.
         """
         import ezdxf
 
@@ -1834,9 +1835,12 @@ class AutoCADMCPProAdapter(BenchmarkAdapter):
         for index in range(50):
             doc.modelspace().add_line((0, index), (10, index))
         doc.saveas(str(intact))
-        data = intact.read_bytes()
+        # Cut after half of the tags, never mid-line: a byte cut at len // 2
+        # moved with the header timestamps' digit count and sometimes left a
+        # bare "  " group-code line, which ezdxf reads as an invalid group code.
+        lines = intact.read_bytes().split(b"\n")
         truncated = self.artifact_dir / "truncated.dxf"
-        truncated.write_bytes(data[: len(data) // 2])
+        truncated.write_bytes(b"\n".join(lines[: len(lines) // 4 * 2]) + b"\n")
         not_dxf = self.artifact_dir / "not_a_drawing.dxf"
         not_dxf.write_bytes(b"this is not a drawing\n" * 8)
 

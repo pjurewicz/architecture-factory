@@ -17,6 +17,7 @@ import os
 import select
 import shutil
 import subprocess
+import tempfile
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -75,33 +76,51 @@ def _ready_xvfb_display():
     converter aborts with "could not connect to display"; two conversions in one
     process also claim the same display. ``-displayfd`` makes Xvfb pick a free
     display and write its number only when it is ready.
+
+    The wait is bounded by ``XVFB_START_TIMEOUT`` (seconds, default 30) and
+    watches the process too: an Xvfb that exits is reported at once, with the
+    end of its stderr, even when a child it started still holds the pipe.
     """
     if not shutil.which("Xvfb"):
         with _EZDXF_DUMMY_DISPLAY() as display:
             yield display
         return
+    timeout = float(os.environ.get("XVFB_START_TIMEOUT", "").strip() or _XVFB_START_TIMEOUT_S)
     read_fd, write_fd = os.pipe()
-    proc = subprocess.Popen(
-        ["Xvfb", "-displayfd", str(write_fd), "-screen", "0", "800x600x24"],
-        pass_fds=(write_fd,),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    os.close(write_fd)
-    try:
-        with os.fdopen(read_fd) as ready:
-            if not select.select([ready], [], [], _XVFB_START_TIMEOUT_S)[0]:
-                raise RuntimeError(f"Xvfb did not start within {_XVFB_START_TIMEOUT_S} s")
-            number = ready.readline().strip()
-        if not number:
-            raise RuntimeError(f"Xvfb exited before it was ready (exit code {proc.poll()})")
-        yield f":{number}"
-    finally:
-        proc.terminate()
-        proc.wait()
+    with tempfile.TemporaryFile() as stderr:
+        proc = subprocess.Popen(
+            ["Xvfb", "-displayfd", str(write_fd), "-screen", "0", "800x600x24"],
+            pass_fds=(write_fd,),
+            stdout=subprocess.DEVNULL,
+            stderr=stderr,
+        )
+        os.close(write_fd)
+
+        def failed(what: str) -> RuntimeError:
+            stderr.seek(0)
+            tail = " ".join(stderr.read().decode(errors="replace").split())[-300:]
+            return RuntimeError(f"Xvfb {what}" + (f"; stderr: {tail}" if tail else ""))
+
+        try:
+            with os.fdopen(read_fd) as ready:
+                deadline = time.monotonic() + timeout
+                while not select.select([ready], [], [], 0.1)[0]:
+                    if proc.poll() is not None:
+                        raise failed(f"exited before it was ready (exit code {proc.returncode})")
+                    if time.monotonic() >= deadline:
+                        raise failed(f"did not start within {timeout:g} s (XVFB_START_TIMEOUT)")
+                number = ready.readline().strip()
+            if not number:
+                raise failed(f"exited before it was ready (exit code {proc.wait()})")
+            yield f":{number}"
+        finally:
+            proc.terminate()
+            proc.wait()
 
 
-_XVFB_START_TIMEOUT_S = 10
+#: Measured: 0.04 s warm, 0.2 s beside a parallel test run, 2.3 s from a cold
+#: cache. The 1.8.0 value, 10 s, was exceeded once on a loaded CI runner.
+_XVFB_START_TIMEOUT_S = 30.0
 _EZDXF_DUMMY_DISPLAY = None
 
 

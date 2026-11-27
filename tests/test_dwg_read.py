@@ -239,3 +239,25 @@ def test_the_real_converter_waits_for_a_slow_xvfb(tmp_path, monkeypatch):
     back, report = dwg_read.read_dwg(str(target), odafc=True)
     assert report["route"] == "odafc"
     assert [e.dxftype() for e in back.modelspace()] == ["LINE"]
+
+
+def test_an_xvfb_that_dies_is_named_at_once_with_its_stderr(tmp_path, monkeypatch):
+    """A crashed Xvfb whose child still holds the ready pipe read as a timeout
+    ("did not start within 10 s") before; the process is watched now."""
+    import os
+    import time
+
+    fake = tmp_path / "bin" / "Xvfb"
+    fake.parent.mkdir()
+    fake.write_text("#!/bin/sh\nsleep 15 &\necho 'Fatal server error: no screens' >&2\nexit 1\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{fake.parent}:{os.environ['PATH']}")
+    monkeypatch.setenv("XVFB_START_TIMEOUT", "20")
+
+    started = time.monotonic()
+    with pytest.raises(RuntimeError) as failed:
+        with dwg_read._ready_xvfb_display():
+            pass
+    assert time.monotonic() - started < 10
+    assert "exited before it was ready (exit code 1)" in str(failed.value)
+    assert "Fatal server error: no screens" in str(failed.value)

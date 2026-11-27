@@ -211,6 +211,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- DWG read and write waited 10 s for their private Xvfb display and reported
+  "did not start" both when Xvfb was slow and when it had died while a child
+  still held its ready pipe. The wait is now 30 s (`XVFB_START_TIMEOUT`),
+  watches the process, and names an early exit at once with the end of
+  Xvfb's stderr.
+- The v8 `damaged_dxf_refusal` task cut its DXF at half its bytes; the header
+  timestamps' digit count moved that cut, and sometimes it left a bare
+  group-code line ("Invalid group code") instead of a missing ENDSEC. It now
+  cuts after half of the tags.
 - A wall that changes thickness with its axis shifted (24 cm to 16 cm, one
   face flush) was refused as "a junction below 5°". Two free wall ends that
   meet end to end, parallel, with their axes at most half the thicker wall

@@ -320,7 +320,14 @@ async def test_foreign_edit_verified_fails_loudly_when_the_edit_is_a_no_op(tmp_p
 
 
 @pytest.mark.asyncio
-async def test_damaged_dxf_refusal_names_the_fault_and_not_the_machine(tmp_path):
+@pytest.mark.parametrize("created", [None, 2461372.5555555])
+async def test_damaged_dxf_refusal_names_the_fault_and_not_the_machine(
+    tmp_path, monkeypatch, created
+):
+    # The header timestamps' digit count changes the file's length; a cut by
+    # bytes then landed on a bare group-code line with this one.
+    if created is not None:
+        monkeypatch.setattr(ezdxf.document, "juliandate", lambda _now: created)
     passed, metrics, _artifacts = await _run("damaged_dxf_refusal", tmp_path)
     assert passed, metrics
     assert "ENDSEC" in metrics["cases"]["truncated"]["error"]
