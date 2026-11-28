@@ -269,3 +269,42 @@ async def test_tool_modes_and_refusals(client, tmp_path):
         bad = await client.call_tool("scan_read", {"align": ALIGN, **args}, raise_on_error=False)
         assert bad.is_error and bad.structured_content["kind"] == "invalid_args"
         assert word in bad.structured_content["message"]
+
+
+@pytest.mark.asyncio
+async def test_a_page_at_one_to_n_or_two_points_and_a_length_calibrate_in_one_call(
+    client, tmp_path
+):
+    # round 6: the agent derived A3 at 300 dpi and checked two dimensions itself
+    page = tmp_path / "a3.png"
+    Image.new("RGB", (4961, 3508), "white").save(page)  # A3 landscape at 300 dpi
+    out = (
+        await client.call_tool(
+            "scan_read", {"align": {"sheet": "A3", "scale": 20}, "image": str(page)}
+        )
+    ).structured_content["calibration"]
+    assert out["align"] == [[0, 3508, 0, 0], [4961, 0, 8400, 5940]]
+    assert out["dpi"] == pytest.approx(300, abs=0.1) and out["aspect_delta_pct"] < 0.1
+    # the align it answered is the one view_screenshot / scan_read take: pixel -> WCS
+    mapped = await client.call_tool(
+        "scan_read", {"align": out["align"], "pixels": [[4961 / 2, 3508 / 2]]}
+    )
+    assert mapped.structured_content["to_drawing"][0] == pytest.approx([4200, 2970], abs=0.01)
+    # two pixels 250 px apart along u are 1000 mm: 4 mm a pixel, the first on (500, 0)
+    two = (
+        await client.call_tool(
+            "scan_read",
+            {
+                "align": {"points": [[100, 40], [350, 40]], "length": 1000, "at": [500, 0]},
+                "pixels": [[350, 140]],
+            },
+        )
+    ).structured_content
+    assert two["calibration"]["units_per_px"] == 4
+    assert two["to_drawing"] == [[1500, -400]]  # v down: 100 px below is 400 mm lower
+    bad = await client.call_tool(
+        "scan_read",
+        {"align": {"sheet": "A3", "scale": 0}, "image": str(page)},
+        raise_on_error=False,
+    )
+    assert bad.is_error and "calibrate.scale" in bad.structured_content["message"]

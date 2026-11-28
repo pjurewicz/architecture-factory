@@ -14760,7 +14760,11 @@ async def arch_title_block(
     tags={"arch", "query"},
 )
 async def scan_read(
-    align: Annotated[list[list[float]], "view_screenshot's overlay_align; 3+ pairs report rms"],
+    align: Annotated[
+        list[list[float]] | dict,
+        "overlay_align pairs (3+ report rms), or a shortcut: {sheet, scale, origin?} or "
+        "{points: [[u, v], [u, v]], length, at?, angle?} - answered as align",
+    ],
     mode: Annotated[
         Literal["map", "grid", "rects", "blobs", "compare"], "What to read; see Details"
     ] = "map",
@@ -14783,6 +14787,11 @@ async def scan_read(
     v down); answers in drawing units, never writes the drawing.
 
     Details:
+
+    `align` as a shortcut answers `calibration` {align, how, dpi | units_per_px}
+    - the pairs to paste into view_screenshot(overlay_align=) and later calls:
+    {sheet: 'A3', scale: 50, origin?} (the scan is the whole page; needs image)
+    or {points: [[u, v], [u, v]], length, at?, angle?}.
 
     `map` (no file): `pixels` -> `to_drawing`, `points` -> `to_image`;
     `measure` adds segment lengths / angles; 2 pairs say `controlled: false`,
@@ -14812,11 +14821,19 @@ async def scan_read(
     from engineering.arch.image_map import image_map as run_map
 
     try:
+        path = None if image is None else str(validate_path(image))
+        calibration = None
+        if isinstance(align, dict):  # round 6: a shortcut, answered as align to paste
+            size = None if path is None or "sheet" not in align else sr.image_size(path)
+            calibration = sr.calibrate(align, size)
+            align = calibration["align"]
         if mode == "map":
-            return run_map(align, pixels=pixels, points=points, measure=measure)
-        if image is None:
+            if calibration is not None and not pixels and not points:
+                return {"ok": True, "calibration": calibration}
+            out = run_map(align, pixels=pixels, points=points, measure=measure)
+            return out if calibration is None else {**out, "calibration": calibration}
+        if path is None:
             raise ValueError(f"image: mode {mode!r} reads the scan file; give its path.")
-        path = str(validate_path(image))
         window = {"region": region, "region_px": region_px}
         if mode == "grid":
             report = await asyncio.to_thread(

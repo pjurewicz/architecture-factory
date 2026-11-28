@@ -88,6 +88,109 @@ def parse_color(color) -> tuple[int, int, int]:
     return r, g, b
 
 
+def calibrate(spec, image_size) -> dict:
+    """``align`` from one of two shortcuts (round 6), as ``{align, how, ...}``.
+
+    * ``{"sheet": "A3", "scale": 50, "origin": [x, y]}`` - the scan is the whole
+      page at 1:N: its pixel box is the sheet (orientation from the image's
+      aspect), the page's bottom-left corner at ``origin`` (default 0, 0);
+      ``dpi`` and ``aspect_delta_pct`` say how well the page fits.
+    * ``{"points": [[u1, v1], [u2, v2]], "length": L, "at": [x, y], "angle": a}``
+      - two scan pixels a known length apart: the first lands on ``at``
+      (default 0, 0), the second ``length`` along ``angle`` degrees (default
+      the direction the two pixels have in the image: no rotation).
+
+    ``image_size`` (width, height) is needed by the sheet form only.
+    """
+    if not isinstance(spec, dict):
+        raise ValueError(f"calibrate: a dict (sheet + scale, or points + length), got {spec!r}.")
+
+    def xy(value, where):
+        try:
+            x, y = (float(v) for v in value)
+        except (TypeError, ValueError):
+            raise ValueError(f"calibrate.{where}: [x, y], got {value!r}.") from None
+        return x, y
+
+    if "sheet" in spec:
+        from engineering.standards.papers import paper_size_mm
+
+        extra = set(spec) - {"sheet", "scale", "origin"}
+        if extra:
+            raise ValueError(f"calibrate: unknown key(s) {sorted(extra)} for the sheet form.")
+        if image_size is None:
+            raise ValueError("calibrate: the sheet form reads the scan's size; give image.")
+        w, h = image_size
+        try:
+            scale = float(spec.get("scale", 1))
+        except (TypeError, ValueError):
+            scale = 0.0
+        if not scale > 0:
+            raise ValueError(
+                f"calibrate.scale: the denominator N of 1:N, > 0, got {spec.get('scale')!r}."
+            )
+        try:
+            pw, ph = paper_size_mm(str(spec["sheet"]), "landscape" if w >= h else "portrait")
+        except (KeyError, ValueError) as exc:
+            raise ValueError(f"calibrate.sheet: {exc}") from None
+        x0, y0 = xy(spec.get("origin", (0, 0)), "origin")
+        align = [[0, h, x0, y0], [w, 0, x0 + pw * scale, y0 + ph * scale]]
+        return {
+            "align": align,
+            "how": f"page = {spec['sheet']} {pw:g} x {ph:g} mm at 1:{scale:g}",
+            "dpi": round(w / (pw / 25.4), 2),
+            "aspect_delta_pct": round(abs((w / h) / (pw / ph) - 1.0) * 100.0, 2),
+        }
+    if "points" in spec:
+        extra = set(spec) - {"points", "length", "at", "angle"}
+        if extra:
+            raise ValueError(f"calibrate: unknown key(s) {sorted(extra)} for the points form.")
+        pts = spec["points"]
+        if not isinstance(pts, list | tuple) or len(pts) != 2:
+            raise ValueError(f"calibrate.points: two pixels [[u1, v1], [u2, v2]], got {pts!r}.")
+        (u1, v1), (u2, v2) = (xy(p, "points") for p in pts)
+        try:
+            length = float(spec.get("length"))
+        except (TypeError, ValueError):
+            length = 0.0
+        if not length > 0 or math.hypot(u2 - u1, v2 - v1) < 1e-9:
+            raise ValueError("calibrate: points two different pixels, length > 0 in drawing units.")
+        x, y = xy(spec.get("at", (0, 0)), "at")
+        angle = spec.get("angle")
+        a = math.atan2(-(v2 - v1), u2 - u1) if angle is None else math.radians(float(angle))
+        align = [[u1, v1, x, y], [u2, v2, x + length * math.cos(a), y + length * math.sin(a)]]
+        return {
+            "align": [[round(c, 6) for c in pair] for pair in align],
+            "how": f"{length:g} units between the two pixels",
+            "units_per_px": round(length / math.hypot(u2 - u1, v2 - v1), 6),
+        }
+    raise ValueError("calibrate: give sheet + scale, or points + length.")
+
+
+def image_size(path: str) -> tuple[int, int]:
+    """The scan's (width, height) in pixels, read from its header."""
+    _require_pillow()
+    from PIL import Image, UnidentifiedImageError
+
+    try:
+        with Image.open(path) as source:
+            return source.size
+    except (FileNotFoundError, IsADirectoryError) as exc:
+        raise ValueError(f"image: {path} does not exist") from exc
+    except (UnidentifiedImageError, OSError) as exc:
+        raise ValueError(f"image: {path} is not an image Pillow can read") from exc
+
+
+def page_align(size, box) -> list[list[float]]:
+    """The align that fits a scan of ``size`` px into the paper ``box`` page to
+    page, as ``view_screenshot(layout=)`` does (uniform scale, centred)."""
+    w, h = size
+    x0, y0, x1, y1 = box
+    k = min((x1 - x0) / w, (y1 - y0) / h)
+    left, top = (x0 + x1 - w * k) / 2.0, (y0 + y1 + h * k) / 2.0
+    return [[0, 0, left, top], [w, h, left + w * k, top - h * k]]
+
+
 class Calibration:
     """``align`` as the similarity model = a·(u - i·v) + b and its inverse."""
 
