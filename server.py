@@ -93,6 +93,7 @@ from security import (
     KINDS_DRAWING,
     KINDS_IMAGE,
     KINDS_PDF,
+    KINDS_PNG,
     KINDS_REPORT,
     KINDS_TABLE,
     KINDS_UPLOAD,
@@ -8185,6 +8186,7 @@ async def view_screenshot(
         Literal["auto", "white", "black"],
         "white: paper as in a PDF (thin colours read true); auto: the space's own (dark model)",
     ] = "auto",
+    save_path: Annotated[str | None, "Also write the PNG here (download_url over HTTP)"] = None,
     ctx: Context = None,
 ):
     """Capture a screenshot of the current drawing view, rendered via matplotlib.
@@ -8201,6 +8203,11 @@ async def view_screenshot(
     await ctx.info("Capturing drawing screenshot")
     await ctx.report_progress(0, 100)
 
+    target = (
+        None
+        if save_path is None
+        else validate_path(save_path, allow_write=True, kinds=KINDS_PNG, create_parents=True)
+    )
     overlay = {}
     if overlay_image is not None:
         overlay = {"overlay_image": str(validate_path(overlay_image))}
@@ -8218,6 +8225,9 @@ async def view_screenshot(
         **overlay,
     )
     await ctx.report_progress(100, 100)
+    if target is not None and report.get("png") is not None:
+        await asyncio.to_thread(target.write_bytes, report["png"])
+        report = artifact_links.add_link({**report, "path": str(target)}, target)
     return _view_image_result(
         report,
         "Screenshot not available. Install matplotlib (pip install matplotlib).",

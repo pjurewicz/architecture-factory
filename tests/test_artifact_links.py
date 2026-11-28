@@ -70,6 +70,17 @@ async def test_a_written_pdf_and_dxf_download_through_their_links(monkeypatch, t
         got = await http.get(sheet["download_url"])
         assert got.content.startswith(b"%PDF") and sheet["download_url"].endswith(".pdf")
 
+        # round 6: a screenshot saved as a file downloads too
+        shot = await mcp.call_tool(
+            "call_tool",
+            {"name": "view_screenshot", "arguments": {"save_path": str(tmp_path / "v/a.png")}},
+        )
+        shot = shot.structured_content.get("result", shot.structured_content)
+        got = await http.get(shot["download_url"])
+        assert got.headers["content-type"] == "image/png"
+        assert got.content == (tmp_path / "v/a.png").read_bytes()
+        assert got.content.startswith(b"\x89PNG") and shot["path"] == str(tmp_path / "v/a.png")
+
         # an expired link is gone
         artifact_links._links[token]["expires"] = 0
         assert (await http.get(url)).status_code == 404

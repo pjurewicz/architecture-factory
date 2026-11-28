@@ -119,6 +119,7 @@ KINDS_PDF: tuple[str, ...] = (".pdf",)
 KINDS_TABLE: tuple[str, ...] = (".csv", ".xlsx")
 KINDS_CSV: tuple[str, ...] = (".csv",)
 KINDS_IMAGE: tuple[str, ...] = (".png", ".jpg")
+KINDS_PNG: tuple[str, ...] = (".png",)
 KINDS_REPORT: tuple[str, ...] = (".json", ".md")
 #: What ``POST /files`` stores (uploads.py): scans for image_attach /
 #: overlay_image, and drawings for drawing_open / xref_attach / templates.
