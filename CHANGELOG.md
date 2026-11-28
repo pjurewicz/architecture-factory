@@ -89,6 +89,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `drawing_new` answers `save_dir` (round 8, 6b) when `ALLOWED_PATHS` is set: the
   folder a relative `drawing_save` path lands in (`system_status.files.relative_to`).
+- `entity_batch_create(defaults={layer, color, style, height})` (round 8): the
+  fallbacks an item does not carry itself, so a batch of 70 labels no longer
+  repeats `"style"` and `"height"` on each. An item's own value wins. `layer`
+  and `color` reach every type; `style` (a text style) and `height` (lettering)
+  reach `text` and `mtext` only, because a `dimension_linear`'s `style` is a
+  dimension style, a callout's a terminator and a rectangle's `height` its
+  extent - a type a key does not reach is left alone, never refused. An unknown
+  key or a bad value is refused as `defaults.<key>` before anything is drawn.
+  The item schema lost its redundant `"type": "string"` beside every `const`
+  and the `integer` branch of `lineweight` (`number` covers it), which pays for
+  the parameter within `idle.packs_core` (net -42: 44,039 -> 43,997 of 44,100).
+
 - `arch_electrical` draws a lighting plan (round 4): ceiling, pendant, spot,
   spot pair and track-head luminaires, a motion sensor and an LED driver
   access hatch; LED strip, surface and pendant track and circuit links along

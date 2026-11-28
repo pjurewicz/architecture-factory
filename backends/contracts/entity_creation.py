@@ -70,7 +70,7 @@ def batch_create_adapter():
             fields[name] = (hint, ... if p.default is p.empty else p.default)
         return fields
 
-    lineweight = (int | float | str | None, None)  # parse_lineweight names the spellings
+    lineweight = (float | str | None, None)  # parse_lineweight names the spellings
     shapes = {target: params(target) for target in EntityCreationContract.BATCH_CREATE_TYPES}
     # batch_create_spec resolves an ISO 286 fit into the tol_* arguments
     shapes["dimension_linear"]["fit"] = (str | None, None)
@@ -105,6 +105,52 @@ def batch_create_adapter():
     return TypeAdapter(Annotated[Union[tuple(models)], Field(discriminator="type")])  # noqa: UP007
 
 
+#: ``entity_batch_create``'s ``defaults`` keys -> the item types they reach
+#: (``None``: every type). ``style`` is a *text* style, so only TEXT / MTEXT take
+#: it (a dimension_linear's ``style`` is a dimension style, a callout's a
+#: terminator); ``height`` is a lettering height there (a rectangle's is its
+#: extent). A type a key does not reach keeps its own value or none, never an error.
+BATCH_DEFAULT_KEYS: dict[str, tuple[str, ...] | None] = {
+    "layer": None,
+    "color": None,
+    "style": ("text", "mtext"),
+    "height": ("text", "mtext"),
+}
+
+
+@functools.cache
+def batch_defaults_adapter():
+    """The pydantic adapter of ``entity_batch_create``'s ``defaults``."""
+    from pydantic import ConfigDict, Field, TypeAdapter, create_model
+
+    model = create_model(
+        "defaults",
+        __config__=ConfigDict(extra="forbid"),
+        layer=(str | None, None),
+        color=(int | None, None),
+        style=(str | None, None),
+        height=(float | None, Field(None, gt=0)),
+    )
+    return TypeAdapter(model)
+
+
+def batch_apply_defaults(specs: list[dict], defaults: dict | None) -> list[dict]:
+    """``specs`` with each default added to the items it reaches and that do not
+    carry the key themselves (the item's value wins). The inputs are not modified."""
+    if not defaults:
+        return specs
+    out = []
+    for spec in specs:
+        kind = str(spec.get("type") or "").lower()
+        reached = {
+            key: value
+            for key, value in defaults.items()
+            if BATCH_DEFAULT_KEYS[key] is None or kind in BATCH_DEFAULT_KEYS[key]
+        }
+        out.append(reached | spec)
+    return out
+
+
 def inline_json_schema(schema: dict) -> dict:
     """A pydantic schema made self-contained so it can sit under a property.
 
@@ -133,10 +179,12 @@ def inline_json_schema(schema: dict) -> dict:
                 if key != "anyOf" and not (key == "default" and value is None)
             }
             node = rest | (kept[0] if len(kept) == 1 else {"anyOf": kept})
+        # a const names its own type
+        drop = ("$defs", "title", "discriminator") + (("type",) if "const" in node else ())
         return {
             key: (walk(value) if key != "properties" else {k: walk(v) for k, v in value.items()})
             for key, value in node.items()
-            if key not in ("$defs", "title", "discriminator")
+            if key not in drop
         }
 
     return walk(schema)

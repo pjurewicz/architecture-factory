@@ -47,7 +47,15 @@ from backends.base import (
     LayerInfo,
     Lineweight,
 )
-from backends.contracts.entity_creation import batch_create_adapter as _batch_create_adapter
+from backends.contracts.entity_creation import (
+    batch_apply_defaults as _batch_apply_defaults,
+)
+from backends.contracts.entity_creation import (
+    batch_create_adapter as _batch_create_adapter,
+)
+from backends.contracts.entity_creation import (
+    batch_defaults_adapter as _batch_defaults_adapter,
+)
 from backends.contracts.entity_creation import inline_json_schema as _inline_json_schema
 from backends.journal_store import open_journal, state_store_status
 from backends.operations import (
@@ -7779,6 +7787,16 @@ async def entity_batch_create(
             }
         ),
     ],
+    defaults: Annotated[
+        dict | None,
+        WithJsonSchema(
+            {
+                **_inline_json_schema(_batch_defaults_adapter().json_schema()),
+                "description": "Item fallbacks; an item's own value wins. style / height reach "
+                "text and mtext only.",
+            }
+        ),
+    ] = None,
     verbose: Annotated[
         bool,
         "True: also return each entity's full record; default {ok, created, handles, errors}.",
@@ -7812,6 +7830,27 @@ async def entity_batch_create(
         raise InvalidArgsError(
             f"invalid_args: unknown or missing entity type at index {', '.join(bad[:10])} - "
             f"nothing was drawn. Types: {', '.join(known)}"
+        )
+    if defaults:
+        try:
+            _batch_defaults_adapter().validate_python(defaults)
+        except ValidationError as exc:
+            keys = ", ".join(_batch_defaults_adapter().json_schema()["properties"])
+            raise InvalidArgsError(
+                "invalid_args: "
+                + "; ".join(
+                    f"defaults.{'.'.join(map(str, err['loc']))}: "
+                    + (
+                        f"unknown key; allowed: {keys}"
+                        if err["type"] == "extra_forbidden"
+                        else err["msg"]
+                    )
+                    for err in exc.errors()[:10]
+                )
+                + " - nothing was drawn"
+            ) from None
+        entities = _batch_apply_defaults(
+            entities, {k: v for k, v in defaults.items() if v is not None}
         )
     # Every item against the schema this tool advertises, before anything is drawn.
     problems, seen = [], set()

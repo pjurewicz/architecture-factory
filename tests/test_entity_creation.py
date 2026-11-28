@@ -283,3 +283,98 @@ async def test_a_batch_answers_tags_and_dimension_texts_and_a_list_reads_them_ba
             raise_on_error=False,
         )
         assert nope.is_error and "invalid_args" in nope.content[0].text
+
+
+class _Ctx:
+    def __init__(self, backend):
+        self.lifespan_context = {"backend": backend}
+
+    async def info(self, message):
+        pass
+
+    async def report_progress(self, progress, total):
+        pass
+
+
+async def test_batch_defaults_fill_what_an_item_leaves_out_and_skip_types_that_cannot_take_them(
+    backend,
+):
+    # round 8: an agent repeated "style": "ISO", "height": 60 on 70 items
+    import server
+
+    await backend.textstyle_create("ISO", "isocp.shx")
+    out = await server.entity_batch_create(
+        entities=[
+            {"type": "text", "text": "A", "x": 0, "y": 0},
+            {"type": "text", "text": "B", "x": 0, "y": 100, "height": 20, "color": 5},
+            {"type": "mtext", "text": "C", "x": 0, "y": 200, "layer": "0"},
+            # height / style mean something else here: not defaults for these types
+            {"type": "line", "x1": 0, "y1": 0, "x2": 10, "y2": 0},
+            {"type": "rectangle", "x": 0, "y": 0, "width": 5, "height": 7},
+            {
+                "type": "dimension_linear",
+                "x1": 0,
+                "y1": 0,
+                "x2": 50,
+                "y2": 0,
+                "dim_x": 0,
+                "dim_y": 9,
+            },
+            {"type": "callout", "target": [0, 0], "landing": [20, 20], "text": "N"},
+        ],
+        defaults={"layer": "NOTES", "style": "ISO", "height": 60, "color": 3},
+        ctx=_Ctx(backend),
+    )
+    assert out["ok"] and out["created"] == 7, out
+    ents = [backend._doc.entitydb[h] for h in out["handles"]]
+    text_a, text_b, mtext, line, rect, dim, _ = ents
+    assert (text_a.dxf.layer, text_a.dxf.color) == ("NOTES", 3)
+    assert (text_a.dxf.height, text_a.dxf.style) == (60, "ISO")
+    assert (text_b.dxf.height, text_b.dxf.color, text_b.dxf.layer) == (20, 5, "NOTES")  # item wins
+    assert (mtext.dxf.layer, mtext.dxf.char_height, mtext.dxf.style) == ("0", 60, "ISO")
+    assert (line.dxf.layer, line.dxf.color) == ("NOTES", 3)
+    # a rectangle's height is its extent, never the lettering height
+    assert [tuple(p[:2]) for p in rect.get_points()][2] == (5, 7)
+    assert dim.dxf.layer == "NOTES"
+    assert dim.dxf.dimstyle != "ISO"  # a dimension's style is a dimension style
+
+
+async def test_batch_defaults_refusals_name_the_key_and_draw_nothing(backend):
+    import server
+
+    line = {"type": "line", "x1": 0, "y1": 0, "x2": 10, "y2": 0}
+    before = len(backend._doc.modelspace())
+    for defaults, needle in (
+        ({"colour": 3}, "defaults.colour: unknown key; allowed: layer, color, style, height"),
+        ({"height": 0}, "defaults.height"),
+        ({"color": "red"}, "defaults.color"),
+    ):
+        with pytest.raises(InvalidArgsError, match=needle):
+            await server.entity_batch_create(entities=[line], defaults=defaults, ctx=_Ctx(backend))
+    # a default the text style does not exist for fails the item, all or nothing
+    out = await server.entity_batch_create(
+        entities=[line, {"type": "text", "text": "A", "x": 0, "y": 0}],
+        defaults={"style": "NOPE"},
+        ctx=_Ctx(backend),
+    )
+    assert out["ok"] is False and out["rolled_back"]
+    assert len(backend._doc.modelspace()) == before
+
+
+async def test_batch_defaults_reach_every_item_on_a_layout(backend):
+    import server
+
+    await backend.layout_create("S1")
+    out = await server.entity_batch_create(
+        entities=[
+            {"type": "text", "text": "A", "x": 0, "y": 0},
+            {"type": "point", "x": 1, "y": 1},
+        ],
+        defaults={"height": 9, "color": 2},
+        layout="S1",
+        ctx=_Ctx(backend),
+    )
+    assert out["created"] == 2
+    text, point = (backend._doc.entitydb[h] for h in out["handles"])
+    assert (text.dxf.height, text.dxf.color, point.dxf.color) == (9, 2, 2)
+    assert text.dxf.owner == backend._doc.layouts.get("S1").layout_key
