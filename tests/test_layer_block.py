@@ -148,3 +148,44 @@ async def test_block_insert_keep_text_upright(backend):
     assert at_90.properties["text_upright"]["flipped"] == []
     at_270 = await backend.block_insert("SOCKET", 0, 0, rotation=270, keep_text_upright=True)
     assert attrib(at_270).dxf.rotation == pytest.approx(90)
+
+
+@pytest.mark.asyncio
+async def test_layer_create_makes_many_layers_in_one_call_all_or_none():
+    # round 6: 22 layer_create steps for one sheet
+    from fastmcp import Client
+
+    import server
+
+    async with Client(server.mcp) as client:
+        await client.call_tool("drawing_new", {"bootstrap": "none"})
+        made = await client.call_tool(
+            "layer_create",
+            {
+                "layers": [{"name": "A-WALL"}, {"name": "A-DOOR", "color": 3, "lineweight": 35}],
+                "color": 8,
+            },
+        )
+        assert made.structured_content["created"] == ["A-WALL", "A-DOOR"]
+        rows = {
+            r["name"]: r
+            for r in (await client.call_tool("layer_list", {})).structured_content["result"]
+        }
+        assert rows["A-WALL"]["color"] == 8 and rows["A-DOOR"]["color"] == 3
+        assert rows["A-DOOR"]["lineweight"] == 35
+        for bad in (
+            [{"name": "NEW"}, {"name": "a-wall"}],  # exists (any case)
+            [{"name": "NEW"}, {"name": "NEW"}],  # twice
+            [{"name": "NEW"}, {"name": "X", "colour": 1}],  # unknown key
+        ):
+            refused = await client.call_tool("layer_create", {"layers": bad}, raise_on_error=False)
+            assert refused.is_error and "nothing created" in refused.content[0].text
+        names = (await client.call_tool("layer_list", {})).structured_content["result"]
+        assert "NEW" not in {r["name"] for r in names}
+        failed = await client.call_tool(
+            "layer_create",
+            {"layers": [{"name": "OK1"}, {"name": "BAD", "linetype": "NO_SUCH_LT"}]},
+            raise_on_error=False,
+        )
+        names = (await client.call_tool("layer_list", {})).structured_content["result"]
+        assert failed.is_error and "OK1" not in {r["name"] for r in names}

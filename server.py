@@ -4991,16 +4991,48 @@ async def layer_list(
     tags={"layer"},
 )
 async def layer_create(
-    name: Annotated[str, "New layer name"],
+    name: Annotated[str | None, "New layer name (or layers)"] = None,
     color: Annotated[int, "ACI color code (1=Red, 2=Yellow, 3=Green, 4=Cyan, 5=Blue, 7=White)"] = 7,
     linetype: Annotated[str, "Linetype name"] = "Continuous",
     lineweight: Annotated[Lineweight, LINEWEIGHT_HELP + LINEWEIGHT_LAYER_NOTE] = -3,
+    layers: Annotated[
+        list[dict] | None,
+        "Many at once: [{name, color?, linetype?, lineweight?}], the others the defaults",
+    ] = None,
     ctx: Context = None,
 ) -> dict:
-    """Create a new layer with specified properties."""
-    await ctx.info(f"Creating layer '{name}' color={color}")
-    result = await _backend(ctx).layer_create(name, color, linetype, lineweight)
-    return _dc(result)
+    """Create a new layer with specified properties; `layers`: all or none."""
+    b = _backend(ctx)
+    if (name is None) == (layers is None):
+        raise InvalidArgsError("layer_create: give name or layers, not both")
+    if name is not None:
+        await ctx.info(f"Creating layer '{name}' color={color}")
+        return _dc(await b.layer_create(name, color, linetype, lineweight))
+    defaults = {"color": color, "linetype": linetype, "lineweight": lineweight}
+    existing = {row.name.lower() for row in await b.layer_list()}
+    specs, problems = [], []
+    for i, raw in enumerate(layers):
+        item = raw if isinstance(raw, dict) else {}
+        unknown = set(item) - {"name", *defaults}
+        layer = str(item.get("name") or "").strip()
+        if unknown or not layer:
+            problems.append(f"layers[{i}]: {{name, color?, linetype?, lineweight?}}, got {raw!r}")
+        elif layer.lower() in existing:
+            problems.append(f"layers[{i}]: layer {layer!r} already exists (layer_modify)")
+        existing.add(layer.lower())
+        specs.append({**defaults, **item, "name": layer})
+    if problems or not specs:
+        raise InvalidArgsError(f"{'; '.join(problems[:10]) or 'layers: empty'} - nothing created")
+    made: list[str] = []
+    try:
+        for spec in specs:
+            await b.layer_create(spec["name"], spec["color"], spec["linetype"], spec["lineweight"])
+            made.append(spec["name"])
+    except Exception:
+        for done in made:  # all or none
+            await b.layer_delete(done)
+        raise
+    return {"ok": True, "created": made}
 
 
 @cad_tool(summary="Remove an empty layer from the drawing.", cost="destructive")
