@@ -1169,7 +1169,7 @@ async def insert_points(
             }
         )
     out = await backend._async(_draw, backend, work, k, th, color)
-    dims = await _dimensions(backend, work, out, walls, k, color)
+    dims = await _dimensions(backend, work, out, walls, k, th)
     counts: dict[str, int] = {}
     circuits: dict[str, int] = {}
     trades: dict[str, int] = {}
@@ -1198,7 +1198,7 @@ async def insert_points(
     return result
 
 
-async def _dimensions(backend, work, out, walls, k: float, color) -> list[dict]:
+async def _dimensions(backend, work, out, walls, k: float, th: float) -> list[dict]:
     """One linear DIMENSION per ``dim_from`` item: from the named wall's face or
     axis to the point's anchor, square to that wall, its line past the symbol
     on the room side; on the item's layer with its record (``kind: dim``)."""
@@ -1222,7 +1222,11 @@ async def _dimensions(backend, work, out, walls, k: float, color) -> list[dict]:
             a = math.radians(job["rotation"])
             front = (-math.sin(a), math.cos(a))
             _p, _c, depth, _h = _geometry(row["kind"], k, row["length"])
-            reach = (depth + DIM_OFFSET) * k
+            if job["own"]:
+                depth = 0.0
+            lines = sum(1 for t in ("L", "N", "H") if job["values"][t])
+            # past the symbol and its label lines, so the text never lands on them
+            reach = (depth + LABEL_GAP + lines * 1.3 * th + DIM_OFFSET) * k
             at = (
                 (foot[0] + anchor[0]) / 2.0 + front[0] * reach,
                 (foot[1] + anchor[1]) / 2.0 + front[1] * reach,
@@ -1241,7 +1245,7 @@ async def _dimensions(backend, work, out, walls, k: float, color) -> list[dict]:
                 anchor[1],
                 at[0],
                 at[1],
-                math.degrees(math.atan2(ny, nx)),
+                (math.degrees(math.atan2(ny, nx)) + 90.0) % 180.0 - 90.0,  # text upright
                 row["layer"],
                 xdata={APP_ID: to_values(payload, app_id=APP_ID, kinds=RECORD_KINDS)},
             )

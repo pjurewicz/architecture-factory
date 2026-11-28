@@ -246,6 +246,7 @@ async def test_dim_from_measures_the_point_square_to_the_named_wall(backend):
     dim = backend._doc.entitydb[first["handle"]]
     assert dim.dxftype() == "DIMENSION" and dim.dxf.layer == "P-DOMW-E-N"
     assert dim.get_measurement() == pytest.approx(950.0)
+    assert dim.dxf.angle == pytest.approx(0.0)  # measured leftwards, its text still upright
     radiator = backend._doc.entitydb[result["items"][1]["handle"]]
     assert radiator.dxf.name == "ARCH_H_RADIATOR_50_L900"
     with pytest.raises(InvalidArgsError, match=r"items\[0\]\.dim_from\.wall: no arch_wall 'W9'"):
