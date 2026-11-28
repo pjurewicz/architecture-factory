@@ -249,3 +249,47 @@ async def test_one_legend_names_the_points_of_every_trade(backend):
         "drain": "podejście kanalizacyjne",  # the project block, named by its record
         "socket": "gniazdo wtyczkowe",
     }
+
+
+@pytest.mark.asyncio
+async def test_a_line_row_and_hatches_that_name_themselves(backend):
+    """Round 7: extra kind 'line' was refused twice; ANSI37 was a bare key."""
+    from engineering.annotation_record import tag_annotation
+
+    await _drawing(backend)
+    await backend.layer_create("M-HEAT-PIPE", 1, "HIDDEN")
+    zone = await backend.entity_create_hatch(
+        "ANSI37", [[300, 300], [2700, 300], [2700, 2000], [300, 2000]], scale=50
+    )
+    await tag_annotation(backend, zone.handle, "arch_floor_zone", "uh", legend="ogrzewanie")
+    result = await draw_legend(
+        backend,
+        at=(9000, 4000),
+        lang="pl",
+        only=["ANSI37", "ogrzewanie"],
+        extra=[
+            {"label": "rura grzewcza", "kind": "line", "layer": "M-HEAT-PIPE"},
+            {"label": "granica", "kind": "line", "linetype": "DASHED", "color": 3},
+        ],
+    )
+    assert [(r["kind"], r["label"]) for r in result["rows"]] == [
+        ("hatch", "ogrzewanie"),  # the zone's own label, kept apart from the bare ANSI37
+        ("hatch", "ANSI37"),
+        ("line", "rura grzewcza"),
+        ("line", "granica"),
+    ]
+    assert result["warnings"] == [
+        "labels: ANSI37 read as their pattern name; give labels={pattern: text} "
+        "(a zone tool's hatch names itself)"
+    ]
+    lines = [
+        e for e in backend._doc.modelspace().query("LINE") if e.dxf.handle in set(result["handles"])
+    ]
+    styles = sorted((e.dxf.layer, e.dxf.linetype, e.dxf.color) for e in lines)
+    assert styles == [("A-SYMB-T-N", "DASHED", 3), ("M-HEAT-PIPE", "BYLAYER", 256)]
+    with pytest.raises(InvalidArgsError, match=r"extra\[0\].layer: no layer 'NOPE'"):
+        await draw_legend(
+            backend, at=(0, 0), extra=[{"label": "x", "kind": "line", "layer": "NOPE"}]
+        )
+    with pytest.raises(InvalidArgsError, match=r"extra\[0\]: give label"):
+        await draw_legend(backend, at=(0, 0), extra=[{"label": "x", "layer": "M-HEAT-PIPE"}])

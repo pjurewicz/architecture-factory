@@ -134,7 +134,7 @@ def _run_style(e) -> dict:
 def _read(backend) -> dict:
     """Items model space uses, one group each (a legend's own samples excluded):
     ``{key: row}`` with ``kind`` block / hatch / line."""
-    from engineering.annotation_record import APP_ID
+    from engineering.annotation_record import APP_ID, read_annotation
 
     doc = backend._require_doc()
     records = {id(e): p for e, p in elec.read_records(doc)}
@@ -182,12 +182,14 @@ def _read(backend) -> dict:
             angle = 0.0 if solid else round(float(e.dxf.pattern_angle), 6)
             pscale = 1.0 if solid else round(float(e.dxf.pattern_scale), 6)
             poche = solid and e.dxf.layer.upper() == wall_hatch
-            key = f"{pattern}@{angle:g}@{pscale:g}"
+            own = (read_annotation(e) or {}).get("legend")  # round 7: a zone names itself
+            key = f"{pattern}@{angle:g}@{pscale:g}" + (f"@{own}" if own else "")
             row = groups.setdefault(
                 key,
                 {
                     "kind": "hatch",
-                    "key": pattern,
+                    "key": own or pattern,
+                    **({"legend": own} if own else {}),
                     "pattern": pattern,
                     "angle": angle,
                     "scale": pscale,
@@ -265,7 +267,9 @@ def legend_rows(
     rows, skipped = [], []
     for row in groups:
         row = dict(row)
-        if row["kind"] == "hatch":
+        if row["kind"] == "hatch" and row.get("legend"):
+            row["label"], row["order"] = row["legend"], 0
+        elif row["kind"] == "hatch":
             material = _material(row["pattern"], row["angle"], row["scale"], scale)
             row["label"] = MATERIAL_LABELS[material][lang] if material else row["pattern"]
             row["order"] = 0 if material else 1
@@ -300,6 +304,8 @@ def legend_rows(
 
 
 _EXTRA_KEYS = {"label", "block", "pattern", "kind", "blocks", "keys"}
+#: round 7: kind "line" draws a line in a layer's or its own style
+_LINE_KEYS = {"layer", "linetype", "lineweight", "color"}
 _SAMPLE_KEYS = ("block", "pattern", "kind", "blocks", "keys")
 MAX_SAMPLES = 4
 
@@ -338,10 +344,12 @@ def _extra_rows(backend, extra, k: float, model_rows: list[dict]) -> tuple[list[
             raise LegendArgsError(
                 f"{where}: expected {{label, block? | pattern? | kind? | blocks? | keys?}}."
             )
-        bad = sorted(set(item) - _EXTRA_KEYS)
+        allowed = _EXTRA_KEYS | (_LINE_KEYS if item.get("kind") == "line" else set())
+        bad = sorted(set(item) - allowed)
         if bad or len(set(item) & set(_SAMPLE_KEYS)) > 1:
             raise LegendArgsError(
-                f"{where}: give label and at most one of {', '.join(_SAMPLE_KEYS)}."
+                f"{where}: give label and at most one of {', '.join(_SAMPLE_KEYS)}"
+                f" ({', '.join(sorted(_LINE_KEYS))} with kind 'line')."
             )
         label = _label_text(item["label"], f"{where}.label")
         row = {
@@ -390,7 +398,9 @@ def _extra_rows(backend, extra, k: float, model_rows: list[dict]) -> tuple[list[
             row.update(kind="hatch", pattern=str(item["pattern"]).upper(), angle=0.0, scale=k)
         elif "kind" in item:
             kind = item["kind"]
-            if kind in elec.RUN_KINDS:
+            if kind == "line":
+                row.update(kind="line", **_line_style(doc, item, where))
+            elif kind in elec.RUN_KINDS:
                 run = elec.RUN_KINDS[kind]
                 row.update(
                     kind="line",
@@ -409,6 +419,31 @@ def _extra_rows(backend, extra, k: float, model_rows: list[dict]) -> tuple[list[
             row["kind"] = "text"
         out.append(row)
     return out, taken
+
+
+def _line_style(doc, item: dict, where: str) -> dict:
+    """An extra line row's style: its layer's (which must exist) unless it names
+    its own linetype, lineweight or colour."""
+    from backends.base import parse_lineweight
+
+    layer = item.get("layer", LAYER)
+    if not isinstance(layer, str) or (layer != LAYER and layer not in doc.layers):
+        raise LegendArgsError(f"{where}.layer: no layer {layer!r} in the drawing.")
+    linetype = item.get("linetype", "BYLAYER")
+    if not isinstance(linetype, str) or not linetype.strip():
+        raise LegendArgsError(f"{where}.linetype: a linetype name, got {linetype!r}.")
+    try:
+        weight = parse_lineweight(item.get("lineweight", -1))
+    except ValueError as exc:
+        raise LegendArgsError(f"{where}.lineweight: {exc}") from None
+    return {
+        "layer": layer,
+        "linetype": linetype,
+        "lineweight": weight,
+        "color": _color_arg(item.get("color", 256), f"{where}.color"),
+        "ltscale": 0.0,
+        "item": None,
+    }
 
 
 def _ordered(rows: list[dict], order) -> list[dict]:
@@ -687,6 +722,14 @@ async def draw_legend(
         "layer": text_layer,
         "backend": backend.name,
     }
+    bare = sorted(
+        {r["key"] for r in rows if r["kind"] == "hatch" and r["label"] == r.get("pattern")}
+    )
+    if bare:
+        warnings.append(
+            f"labels: {', '.join(bare)} read as their pattern name; "
+            "give labels={pattern: text} (a zone tool's hatch names itself)"
+        )
     if skipped:
         result["left_out"] = {
             "keys": skipped,

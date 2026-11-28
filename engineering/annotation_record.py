@@ -33,17 +33,26 @@ KINDS: tuple[str, ...] = ("annotation",)
 DEFAULT_SET = "default"
 
 
-def annotation_values(tool: str, handle: str, set_name: str | None = None) -> list[str]:
-    """The chunk strings ``entity_set_xdata(handle, APP_ID, values)`` takes."""
+def annotation_values(
+    tool: str, handle: str, set_name: str | None = None, legend: str | None = None
+) -> list[str]:
+    """The chunk strings ``entity_set_xdata(handle, APP_ID, values)`` takes;
+    ``legend`` is the label ``arch_legend`` gives the entity's row (a hatch)."""
     payload = {"v": PAYLOAD_VERSION, "kind": "annotation", "tool": str(tool), "id": str(handle)}
     if set_name is not None:
         payload["set"] = str(set_name)
+    if legend:
+        payload["legend"] = str(legend)
     return to_values(payload, app_id=APP_ID, kinds=KINDS)
 
 
-async def tag_annotation(backend, handle: str, tool: str, set_name: str | None = None) -> None:
+async def tag_annotation(
+    backend, handle: str, tool: str, set_name: str | None = None, legend: str | None = None
+) -> None:
     """Write the record onto one entity the generator ``tool`` just drew."""
-    await backend.entity_set_xdata(handle, APP_ID, annotation_values(tool, handle, set_name))
+    await backend.entity_set_xdata(
+        handle, APP_ID, annotation_values(tool, handle, set_name, legend)
+    )
 
 
 def read_annotation(entity) -> dict | None:
