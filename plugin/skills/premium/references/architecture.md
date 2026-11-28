@@ -101,8 +101,15 @@ The graphics are a declared nominal convention. `arch_legend` then builds the
 legend from what model space uses - one row per item (every size of a
 wardrobe is one row), line samples for strips and tracks; furniture and wall
 poche only when `only` names them, `exclude` / `layers` filter, `extra` adds
-office rows, `columns` / `max_height` fold it - and `arch_title_block` draws
-the title block (a row `[[label, value], ...]` puts cells side by side,
-its lettering height, `label_position`, `max_height`) with the notes stacked or in
-their own `notes_box`; both report `warnings` when they leave the paper or
-cover a viewport. `titleblock_apply` stays the ISO 7200 block.
+office rows (`blocks` / `keys` put samples side by side: hot + cold water),
+`order` puts rows first, `columns` / `max_height` fold it; `title` (null:
+none), `frame` (off by default), text height, `color`, `layer`, `row_gap`;
+a `\n` in a label is a real line. `arch_title_block` draws the title block: a
+cell is `[label, value]` or `{label?, value, align?, text_height?, width?}`, a
+row of cells puts them side by side, a value keeps its `\n` lines, `height`
+stretches the rows to the sheet's (refused with the height needed); `notes`
+is a list or `{items, title, frame, text_height, color, x?, y?, width?}` (x, y:
+a box of its own). Both report `warnings` when they leave the paper or cover a
+viewport, and a rerun with the same `name` on the same space replaces the
+previous one (`replaced`) - redraw, never stack copies. `titleblock_apply`
+stays the ISO 7200 block.
