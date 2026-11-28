@@ -2046,3 +2046,18 @@ async def test_a_plan_creates_its_layer_set_and_an_arch_drawing_skips_mech(clien
         "drawing_plan", {"intent": "x", "layer_set_id": "electrical"}, raise_on_error=False
     )
     assert refused.structured_content["kind"] == "invalid_args"
+
+
+async def test_an_elevation_spec_refusal_refuses_the_batch_before_step_1(client):
+    """interior_wall_elevation's typed spec is parsed at plan time: a zone left
+    empty by the openings is refused before the first line is drawn."""
+    spec = {
+        "length": 1000,
+        "height": 2500,
+        "openings": [{"kind": "door", "x": 0, "width": 1000, "height": 2500}],
+        "zones": [{"pattern": "SOLID"}],
+    }
+    steps = [_line(), {"tool": "interior_wall_elevation", "args": {"x": 0, "y": 0, "spec": spec}}]
+    with pytest.raises(ToolError, match=r"refused all 2 steps[\s\S]*zones\[0\]: nothing"):
+        await _batch(client, steps)
+    assert await _entity_count(client) == 0

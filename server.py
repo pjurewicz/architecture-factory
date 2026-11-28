@@ -2127,6 +2127,17 @@ def _plan_legend(args: dict, deferred: frozenset) -> None:
     plan_legend(**given, extra=extra)
 
 
+def _plan_elevation(args: dict, deferred: frozenset) -> None:
+    """interior_wall_elevation: a typed spec (no ``from_plan``, which reads the
+    drawing) parsed whole - fields, overlaps, zones and their fills."""
+    from engineering.arch.elevation import parse_elevation
+
+    spec = args.get("spec")
+    if args.get("from_plan") is None and isinstance(spec, dict):
+        if not ({"spec", "lang"} & deferred) and not _batch_refs_in(spec):
+            parse_elevation(spec, lang=args.get("lang", "en"))
+
+
 # ---------------------------------------------------------------------------
 # Tool profiles (capability-aware discovery)
 # ---------------------------------------------------------------------------
@@ -15255,6 +15266,7 @@ async def arch_symbol(
 @cad_tool(
     summary="Interior wall elevation: openings, levels, fittings, finish zones, service axes, dimensions.",
     cost="mutate",
+    plan=_plan_elevation,
 )
 @mcp.tool(
     annotations={"title": "Architecture: Interior Wall Elevation", "destructiveHint": False},
