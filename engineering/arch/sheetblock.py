@@ -545,17 +545,14 @@ def parse_notes(notes, lang: str, text_height: float) -> dict | None:
     return out
 
 
-async def draw_title_block(
-    backend: AutoCADBackend,
+def plan_title_block(
     *,
     fields=None,
     notes=None,
-    layout: str | None = None,
+    layout=None,
     corner: str = "bottom_right",
     at=None,
-    size: str | None = None,
     width: float = 180.0,
-    scale: float = 50,
     lang: str = "en",
     text_height: float = VALUE_HEIGHT,
     label_position: str = "left",
@@ -563,25 +560,19 @@ async def draw_title_block(
     color: int | None = None,
     name: str = "default",
 ) -> dict:
-    """Draw the block and the notes; see the module docstring. ``at`` is the
-    corner point (default: that corner of the layout's ISO 5457 frame).
-    Refusals fire before anything is drawn or replaced."""
-    from engineering.annotation_record import replace_set
-    from engineering.sheet.frames import (
-        SHEET_LAYER,
-        SHEET_TEXT_LAYER,
-        enter_layout,
-        frame_metrics,
-        resolve_sheet,
-        sheet_fit_warnings,
-    )
-
+    """Every refusal of ``arch_title_block`` that its arguments alone decide -
+    the cells, the notes and whether they fit ``height`` - with the block laid
+    out in paper mm; reads no drawing, so ``cad_batch`` runs it at plan time."""
     if lang not in LANGS:
         raise _bad(f"lang must be one of {', '.join(LANGS)}, got {lang!r}.")
     if corner not in CORNERS:
         raise _bad(f"corner must be one of {', '.join(CORNERS)}, got {corner!r}.")
     if not isinstance(name, str) or not name.strip():
         raise _bad(f"name: a non-empty string, got {name!r}.")
+    if at is not None and None in at:
+        raise _bad("arch_title_block: give both x and y, or neither.")
+    if at is None and layout is None:
+        raise _bad("arch_title_block: give a layout (its frame's corner) or at=[x, y].")
     rows = parse_fields(fields, lang) if fields is not None else []
     if not 1.0 <= float(text_height) <= 10.0:
         raise _bad(f"text_height: {text_height!r} mm is outside 1-10 mm.")
@@ -628,10 +619,73 @@ async def draw_title_block(
             if nspec["frame"]:
                 note_prims[0] = Poly(((0, 0), (nw, 0), (nw, -notes_h), (0, -notes_h)), True)
         nspec["w"] = nw
+    return {
+        "rows": rows,
+        "width": width,
+        "prims": prims,
+        "block_h": block_h,
+        "wide": wide,
+        "nspec": nspec,
+        "note_prims": note_prims,
+        "notes_h": notes_h,
+        "stacked": stacked,
+        "color": color,
+    }
+
+
+async def draw_title_block(
+    backend: AutoCADBackend,
+    *,
+    fields=None,
+    notes=None,
+    layout: str | None = None,
+    corner: str = "bottom_right",
+    at=None,
+    size: str | None = None,
+    width: float = 180.0,
+    scale: float = 50,
+    lang: str = "en",
+    text_height: float = VALUE_HEIGHT,
+    label_position: str = "left",
+    height: float | None = None,
+    color: int | None = None,
+    name: str = "default",
+) -> dict:
+    """Draw the block and the notes; see the module docstring. ``at`` is the
+    corner point (default: that corner of the layout's ISO 5457 frame).
+    Refusals fire before anything is drawn or replaced (``plan_title_block``)."""
+    from engineering.annotation_record import replace_set
+    from engineering.sheet.frames import (
+        SHEET_LAYER,
+        SHEET_TEXT_LAYER,
+        enter_layout,
+        frame_metrics,
+        resolve_sheet,
+        sheet_fit_warnings,
+    )
+
+    plan = plan_title_block(
+        fields=fields,
+        notes=notes,
+        layout=layout,
+        corner=corner,
+        at=at,
+        width=width,
+        lang=lang,
+        text_height=text_height,
+        label_position=label_position,
+        height=height,
+        color=color,
+        name=name,
+    )
+    rows, width, prims, block_h, wide = (
+        plan[k] for k in ("rows", "width", "prims", "block_h", "wide")
+    )
+    nspec, note_prims, notes_h, stacked, color = (
+        plan[k] for k in ("nspec", "note_prims", "notes_h", "stacked", "color")
+    )
     report: dict = {}
     if at is None:
-        if layout is None:
-            raise _bad("arch_title_block: give a layout (its frame's corner) or at=[x, y].")
         drawn = await backend._async(_drawn_frame, backend, layout, readonly=True)
         if drawn is not None:  # round 7: the frame on the sheet, not ISO 5457's
             (x0, y0, x1, y1), handle = drawn

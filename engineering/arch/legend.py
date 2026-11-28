@@ -439,6 +439,53 @@ def _block_sample(doc, name, where: str) -> dict:
     return {"kind": "block", "block": name, "extents": _extents(doc, name), "layer": LAYER}
 
 
+def _extra_list(extra) -> None:
+    if not isinstance(extra, (list, tuple)):
+        raise LegendArgsError(
+            "extra: expected [{label, block? | pattern? | kind? | blocks? | keys?}]."
+        )
+
+
+def _extra_shape(item, where: str) -> None:
+    """An ``extra`` row's keys and sample lists, checked by path (no drawing read)."""
+    if not isinstance(item, dict) or "label" not in item:
+        raise LegendArgsError(
+            f"{where}: expected {{label, block? | pattern? | kind? | blocks? | keys?}}."
+        )
+    allowed = _EXTRA_KEYS | (
+        _LINE_KEYS
+        if item.get("kind") == "line"
+        else _PATTERN_KEYS
+        if "pattern" in item
+        else {"color"}
+        if "sample_of" in item
+        else set()
+    )
+    bad = sorted(set(item) - allowed)
+    if bad or len(set(item) & set(_SAMPLE_KEYS)) > 1:
+        raise LegendArgsError(
+            f"{where}: give label and at most one of {', '.join(_SAMPLE_KEYS)}"
+            f" ({', '.join(sorted(_LINE_KEYS))} with kind 'line';"
+            f" {', '.join(sorted(_PATTERN_KEYS))} with pattern; color with sample_of)."
+            + (f" Not accepted here: {', '.join(bad)}." if bad else "")
+        )
+    for many in ("blocks", "keys"):
+        if many in item:
+            names = item[many]
+            if (
+                not isinstance(names, (list, tuple))
+                or not names
+                or len(names) > MAX_SAMPLES
+                or not all(isinstance(n, str) for n in names)
+            ):
+                raise LegendArgsError(f"{where}.{many}: 1-{MAX_SAMPLES} names side by side.")
+    kind = item.get("kind")
+    if "kind" in item and kind != "line" and kind not in elec.RUN_KINDS and kind not in elec.KINDS:
+        raise elec.unknown_kind(kind, f"{where}.kind")
+    if "color" in item:
+        _color_arg(item["color"], f"{where}.color")
+
+
 def _extra_rows(backend, extra, k: float, model_rows: list[dict]) -> tuple[list[dict], set]:
     """``(extra rows, ids of model rows they take over)``: a sample from a
     block, a hatch pattern or an ``arch_services`` kind, several samples side
@@ -447,35 +494,12 @@ def _extra_rows(backend, extra, k: float, model_rows: list[dict]) -> tuple[list[
     the drawing lacks it."""
     if extra is None:
         return [], set()
-    if not isinstance(extra, (list, tuple)):
-        raise LegendArgsError(
-            "extra: expected [{label, block? | pattern? | kind? | blocks? | keys?}]."
-        )
+    _extra_list(extra)
     doc = backend._require_doc()
     out, taken = [], set()
     for i, item in enumerate(extra):
         where = f"extra[{i}]"
-        if not isinstance(item, dict) or "label" not in item:
-            raise LegendArgsError(
-                f"{where}: expected {{label, block? | pattern? | kind? | blocks? | keys?}}."
-            )
-        allowed = _EXTRA_KEYS | (
-            _LINE_KEYS
-            if item.get("kind") == "line"
-            else _PATTERN_KEYS
-            if "pattern" in item
-            else {"color"}
-            if "sample_of" in item
-            else set()
-        )
-        bad = sorted(set(item) - allowed)
-        if bad or len(set(item) & set(_SAMPLE_KEYS)) > 1:
-            raise LegendArgsError(
-                f"{where}: give label and at most one of {', '.join(_SAMPLE_KEYS)}"
-                f" ({', '.join(sorted(_LINE_KEYS))} with kind 'line';"
-                f" {', '.join(sorted(_PATTERN_KEYS))} with pattern; color with sample_of)."
-                + (f" Not accepted here: {', '.join(bad)}." if bad else "")
-            )
+        _extra_shape(item, where)
         label = _label_text(item["label"], f"{where}.label")
         row = {
             "key": label,
@@ -486,16 +510,6 @@ def _extra_rows(backend, extra, k: float, model_rows: list[dict]) -> tuple[list[
             "names": [],
             "extra": True,
         }
-        for many in ("blocks", "keys"):
-            if many in item:
-                names = item[many]
-                if (
-                    not isinstance(names, (list, tuple))
-                    or not names
-                    or len(names) > MAX_SAMPLES
-                    or not all(isinstance(n, str) for n in names)
-                ):
-                    raise LegendArgsError(f"{where}.{many}: 1-{MAX_SAMPLES} names side by side.")
         if "blocks" in item:
             samples = [
                 _block_sample(doc, n, f"{where}.blocks[{j}]") for j, n in enumerate(item["blocks"])
@@ -531,13 +545,7 @@ def _extra_rows(backend, extra, k: float, model_rows: list[dict]) -> tuple[list[
                 fills=[fill],
             )
         elif "pattern" in item:
-            from backends.ezdxf_backend import _hatch_pattern
-
-            try:
-                name = _hatch_pattern(item["pattern"])
-            except InvalidArgsError as exc:
-                raise LegendArgsError(f"{where}.pattern: {exc}") from None
-            angle, pscale = _pattern_angle_scale(item, name, k, where)
+            name, angle, pscale = _pattern_sample(item, k, where)
             fill = {
                 "solid": name == "SOLID",
                 "pattern": name,
@@ -581,6 +589,17 @@ def _hatch_of(doc, handle, where: str) -> dict:
     if entity.dxf.owner != doc.modelspace().layout_key:
         raise LegendArgsError(f"{where}: HATCH {handle} is not in model space.")
     return _fill_of(entity)
+
+
+def _pattern_sample(item: dict, k: float, where: str) -> tuple[str, float, float]:
+    """An extra pattern sample's ``(pattern name, angle, scale)``, checked."""
+    from backends.ezdxf_backend import _hatch_pattern
+
+    try:
+        name = _hatch_pattern(item["pattern"])
+    except InvalidArgsError as exc:
+        raise LegendArgsError(f"{where}.pattern: {exc}") from None
+    return (name, *_pattern_angle_scale(item, name, k, where))
 
 
 def _pattern_angle_scale(item: dict, pattern: str, k: float, where: str) -> tuple[float, float]:
@@ -655,6 +674,57 @@ def _color_arg(value, where: str) -> int | None:
     return value
 
 
+def plan_legend(
+    *,
+    lang: str = "en",
+    labels=None,
+    scale: float = 50.0,
+    columns=None,
+    max_height=None,
+    text_height: float = TEXT_HEIGHT,
+    row_gap: float = ROW_GAP,
+    frame: bool = False,
+    name: str = "default",
+    layer=None,
+    color=None,
+    extra=None,
+) -> None:
+    """Every refusal of ``arch_legend`` its arguments alone decide (an ``extra``
+    row's keys and sample lists included); reads no drawing, so ``cad_batch``
+    runs it at plan time. A block, layer or model key is checked when drawing."""
+    if lang not in LANGS:
+        raise LegendArgsError(f"lang must be one of {', '.join(LANGS)}, got {lang!r}.")
+    if labels is not None and not isinstance(labels, dict):
+        raise LegendArgsError("labels: expected {item, block or pattern name: text or null}.")
+    if not math.isfinite(k := float(scale)) or k <= 0:
+        raise LegendArgsError("scale: the plot-scale denominator must be > 0.")
+    if columns is not None and (
+        isinstance(columns, bool) or not isinstance(columns, int) or columns < 1
+    ):
+        raise LegendArgsError(f"columns: a whole number >= 1, got {columns!r}.")
+    if max_height is not None and not (isinstance(max_height, (int, float)) and max_height > 0):
+        raise LegendArgsError(f"max_height: paper mm > 0, got {max_height!r}.")
+    if isinstance(text_height, bool) or not isinstance(text_height, (int, float)):
+        raise LegendArgsError(f"text_height: paper mm, got {text_height!r}.")
+    if not 1.0 <= float(text_height) <= 10.0:
+        raise LegendArgsError(f"text_height: {text_height!r} mm is outside 1-10 mm.")
+    if isinstance(row_gap, bool) or not isinstance(row_gap, (int, float)) or not 0 <= row_gap <= 20:
+        raise LegendArgsError(f"row_gap: paper mm 0-20, got {row_gap!r}.")
+    if not isinstance(frame, bool):
+        raise LegendArgsError(f"frame: true or false, got {frame!r}.")
+    if not isinstance(name, str) or not name.strip():
+        raise LegendArgsError(f"name: a non-empty string, got {name!r}.")
+    if layer is not None and (not isinstance(layer, str) or not layer.strip()):
+        raise LegendArgsError(f"layer: a layer name, got {layer!r}.")
+    _color_arg(color, "color")
+    if extra is not None:
+        _extra_list(extra)
+        for i, item in enumerate(extra):
+            _extra_shape(item, f"extra[{i}]")
+            if "pattern" in item:
+                _pattern_sample(item, k, f"extra[{i}]")
+
+
 async def draw_legend(
     backend: AutoCADBackend,
     *,
@@ -684,31 +754,20 @@ async def draw_legend(
     from engineering.arch.draw import ensure_arch_layers
     from engineering.sheet.frames import enter_layout, sheet_fit_warnings
 
-    if lang not in LANGS:
-        raise LegendArgsError(f"lang must be one of {', '.join(LANGS)}, got {lang!r}.")
-    if labels is not None and not isinstance(labels, dict):
-        raise LegendArgsError("labels: expected {item, block or pattern name: text or null}.")
+    plan_legend(
+        lang=lang,
+        labels=labels,
+        scale=scale,
+        columns=columns,
+        max_height=max_height,
+        text_height=text_height,
+        row_gap=row_gap,
+        frame=frame,
+        name=name,
+        layer=layer,
+        color=color,
+    )
     k = float(scale)
-    if not math.isfinite(k) or k <= 0:
-        raise LegendArgsError("scale: the plot-scale denominator must be > 0.")
-    if columns is not None and (
-        isinstance(columns, bool) or not isinstance(columns, int) or columns < 1
-    ):
-        raise LegendArgsError(f"columns: a whole number >= 1, got {columns!r}.")
-    if max_height is not None and not (isinstance(max_height, (int, float)) and max_height > 0):
-        raise LegendArgsError(f"max_height: paper mm > 0, got {max_height!r}.")
-    if isinstance(text_height, bool) or not isinstance(text_height, (int, float)):
-        raise LegendArgsError(f"text_height: paper mm, got {text_height!r}.")
-    if not 1.0 <= float(text_height) <= 10.0:
-        raise LegendArgsError(f"text_height: {text_height!r} mm is outside 1-10 mm.")
-    if isinstance(row_gap, bool) or not isinstance(row_gap, (int, float)) or not 0 <= row_gap <= 20:
-        raise LegendArgsError(f"row_gap: paper mm 0-20, got {row_gap!r}.")
-    if not isinstance(frame, bool):
-        raise LegendArgsError(f"frame: true or false, got {frame!r}.")
-    if not isinstance(name, str) or not name.strip():
-        raise LegendArgsError(f"name: a non-empty string, got {name!r}.")
-    if layer is not None and (not isinstance(layer, str) or not layer.strip()):
-        raise LegendArgsError(f"layer: a layer name, got {layer!r}.")
     color = _color_arg(color, "color")
     text_layer = layer or LAYER
     heading = TITLE[lang] if title == TITLE_AUTO else (_text_or_none(title, "title"))
