@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `view_screenshot` of model space in a drawing with sheets answers `sheets`
+  (`[{layout, plot_style}]`, each paper layout holding a viewport) and a `note`:
+  model space is drawn as on screen - object colours, lineweights not at paper
+  size - while a sheet plots it with its own plot style (the bundled templates'
+  sheets: `monochrome.ctb`). Round 9 saw a dashed line red on a screenshot and
+  black in the sheet's PDF; `view_screenshot(layout=)` and
+  `drawing_export_pdf(layout=)` were already one route and agree, measured on
+  one line's colour and width in the PNG and in the PDF's content stream.
+
 - `arch_title_block(color=)`: an ACI colour (0-256) for the block's text and
   lines, the same meaning as `notes.color` and `arch_legend`'s `color`; the
   notes take it too unless `notes.color` is set. A colour outside 0-256 is

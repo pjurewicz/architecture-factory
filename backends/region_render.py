@@ -963,6 +963,36 @@ def render_layout(
         **({} if overlay is None else {"overlay": overlay["report"]}),
         **({"warnings": warnings} if warnings else {}),
         **({"fonts_substituted": subs} if (subs := font_substitutions(doc)) else {}),
+        **(sheet_note(doc) if layout.is_modelspace and not classify else {}),
+    }
+
+
+def sheet_note(doc) -> dict:
+    """Round 9: model space is drawn as on screen, which a sheet's PDF is not.
+
+    A sheet plots the model through its viewports with its own plot style (the
+    bundled templates' sheets: monochrome.ctb) and lineweights at paper size;
+    the screen keeps object colours. Said in the result, with the sheets that
+    would plot it differently, so a red line here and black in the PDF is not
+    read as a renderer fault. Empty without a paper layout holding a viewport.
+    """
+    sheets = []
+    for layout in doc.layouts:
+        if layout.is_modelspace:
+            continue
+        if any(int(vp.dxf.get("id", 0)) != 1 for vp in layout.query("VIEWPORT")):
+            sheets.append(
+                {"layout": layout.name, "plot_style": layout.get_plot_style_filename() or None}
+            )
+    if not sheets:
+        return {}
+    return {
+        "sheets": sheets,
+        "note": (
+            "Model space as on screen: object colours, lineweights not at paper size. "
+            "A sheet plots it with its plot style - view_screenshot(layout=) draws "
+            "the sheet as drawing_export_pdf does."
+        ),
     }
 
 

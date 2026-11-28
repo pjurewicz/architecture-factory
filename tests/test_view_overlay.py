@@ -201,3 +201,61 @@ async def test_a_page_scan_lands_page_on_page_without_calibration(backend, tmp_p
     assert report["overlay"]["fit"] == "page" and report["overlay"]["aspect_delta_pct"] == 0.0
     assert _reddish(_pixel(report, 390.0, 297.0 - 30.0))
     assert not _reddish(_pixel(report, 30.0, 30.0))
+
+
+def _pdf_stroke(path, y_pt: float) -> tuple[tuple[int, int, int], float]:
+    """(rgb, width mm) of the stroke group drawing at ``y_pt`` in the PDF's own
+    content stream (matplotlib's ``q ... Q`` groups: width, colour, paths)."""
+    import re
+    import zlib
+
+    data = path.read_bytes()
+    for raw in re.findall(rb"stream\r?\n(.*?)endstream", data, re.S):
+        try:
+            text = zlib.decompress(raw).decode("latin-1")
+        except zlib.error:
+            continue
+        for group in re.split(r"\bQ\b", text):
+            if f" {y_pt:.6f} m" not in group:
+                continue
+            width = float(re.findall(r"([\d.]+)\s+w\b", group)[-1])
+            rgb = re.findall(r"([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+RG\b", group)
+            grey = re.findall(r"([\d.]+)\s+G\b", group)
+            channels = [float(c) for c in rgb[-1]] if rgb else [float(grey[-1][0])] * 3
+            return tuple(round(c * 255) for c in channels), width * 25.4 / 72
+    raise AssertionError(f"no stroke at y {y_pt} pt")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("ctb", "ink"), [("monochrome.ctb", (0, 0, 0)), ("acad.ctb", (255, 0, 0))])
+async def test_a_sheet_screenshot_plots_a_line_as_its_pdf_does(backend, tmp_path, ctb, ink):
+    """Round 9 (12d): the same dashed line has one colour and one width in
+    view_screenshot(layout=) and in drawing_export_pdf(layout=); a model-space
+    screenshot (object colours, as on screen) says the sheet plots otherwise."""
+    from engineering.standards.papers import resolve_page_setup
+
+    await backend.layer_create("SRV", color=1, lineweight=50)
+    await backend.layer_modify("SRV", linetype="ACAD_ISO04W100")
+    await backend.entity_create_line(0, 900, 2000, 900, layer="SRV")
+    await backend.layout_create("A3")
+    await backend.page_setup_apply("A3", resolve_page_setup("A3", "landscape", plot_style=ctb))
+    await backend.viewport_create("A3", 210, 148, 300, 200, 1000, 500, 0.05)
+    pdf = tmp_path / "sheet.pdf"
+    await backend.drawing_export_pdf(str(pdf), layout="A3")
+    y_mm = 148 + (900 - 500) * 0.05  # the line on the paper
+    pdf_rgb, pdf_mm = _pdf_stroke(pdf, y_mm * 72 / 25.4)
+    assert pdf_rgb == ink and pdf_mm == pytest.approx(0.50, abs=0.01)
+
+    shot = await backend.view_render(layout="A3", max_px=4096)
+    ppu = shot["px_per_unit"]
+    image = Image.open(io.BytesIO(shot["png"])).convert("RGB")
+    row = int((297 - y_mm) * ppu)
+    u = int(172 * ppu)  # mid first long dash: paper x 160-184 mm
+    inked = [v for v in range(row - 20, row + 20) if image.getpixel((u, v)) != (255, 255, 255)]
+    centre = image.getpixel((u, inked[len(inked) // 2]))
+    assert centre == pdf_rgb
+    assert len(inked) / ppu == pytest.approx(pdf_mm, abs=1.5 / ppu)
+
+    model = await backend.view_render(max_px=800)
+    assert model["sheets"] == [{"layout": "A3", "plot_style": ctb}]
+    assert "view_screenshot(layout=)" in model["note"]
