@@ -14409,20 +14409,37 @@ async def arch_legend(
     ] = None,
     extra: Annotated[
         list[dict] | None,
-        Field(default=None, description="Rows not in the model: [{label, block?|pattern?|kind?}]"),
+        Field(default=None, description="Rows not in the model: [{label, block?|keys?|...}]"),
     ] = None,
+    order: Annotated[list[str] | None, Field(default=None, description="Keys first")] = None,
     columns: Annotated[int | None, Field(default=None, ge=1)] = None,
     max_height: Annotated[float | None, Field(default=None, description="Paper mm")] = None,
+    title: Annotated[
+        str | None, Field(default="auto", description="auto (in lang) | text | null")
+    ] = "auto",
+    frame: Annotated[bool, Field(default=False)] = False,
+    text_height: Annotated[float, Field(default=2.5, description="Paper mm")] = 2.5,
+    row_gap: Annotated[float, Field(default=2.0, description="Paper mm")] = 2.0,
+    color: Annotated[int | None, Field(default=None, description="ACI")] = None,
+    layer: Annotated[str | None, Field(default=None)] = None,
+    name: Annotated[str, Field(default="default", description="Rerun id: replaces")] = "default",
     ctx: Context = None,
 ) -> dict:
-    """One row per item model space uses - every size of a catalogue item and
-    every scale of a symbol is one row - with a sample (block, hatch, or a line
-    for LED strips, tracks and circuit links) and its description in `lang`.
+    """One row per item model space uses, with a sample and its description
+    in `lang`; a rerun with the same `name` on the same space replaces the
+    previous legend (`replaced`).
 
-    Keys are items (wall_light, led_strip, wardrobe), block names and hatch
-    patterns. Catalogue furniture and the wall poche are left out unless `only`
-    names them (`left_out` lists them). `warnings` reports a legend off the
-    layout's paper or over a viewport.
+    Details: keys are items (wall_light, led_strip, wardrobe), block names and
+    hatch patterns; a sample is the block, the hatch, or a line for LED
+    strips, tracks and circuit links (every catalogue size and symbol scale is
+    one row). Catalogue furniture and the wall poche are left out unless
+    `only` names them (`left_out` lists them). `extra` rows: {label, block |
+    pattern | kind | blocks: [names] | keys: [model keys]} - `blocks` / `keys`
+    put up to 4 samples side by side (hot + cold water), and a model row named
+    in `keys` moves into that row. A label keeps its "\\n" line breaks.
+    `order` lists keys or labels (* ?) to put first. Text, frame and title on
+    A-SYMB-T-N unless `layer`. `warnings` reports a legend off the layout's
+    paper or over a viewport.
     """
     from engineering.arch.legend import draw_legend
 
@@ -14439,9 +14456,19 @@ async def arch_legend(
             exclude=exclude,
             layers=layers,
             extra=extra,
+            order=order,
             columns=columns,
             max_height=max_height,
+            title=title,
+            frame=frame,
+            text_height=text_height,
+            row_gap=row_gap,
+            color=color,
+            layer=layer,
+            name=name,
         )
+    except InvalidArgsError:
+        raise
     except (ValueError, RuntimeError) as exc:
         raise ToolError(str(exc)) from exc
 

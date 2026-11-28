@@ -9,6 +9,7 @@ from engineering.arch.catalogue import insert_item
 from engineering.arch.electrical import insert_devices
 from engineering.arch.legend import draw_legend
 from engineering.arch.spec import draw_plan_from_spec
+from engineering.errors import InvalidArgsError
 from engineering.standards.papers import resolve_page_setup
 
 SPEC = {
@@ -64,7 +65,7 @@ async def test_a_paper_legend_explains_what_model_space_uses(backend):
     wc = next(e for e in mine if e.dxftype() == "INSERT" and e.dxf.name == "ARCH_WC")
     assert wc.dxf.xscale < 1 / 50  # shrunk into its 15 x 6 mm cell
     texts = [e.dxf.text for e in mine if e.dxftype() == "TEXT"]
-    assert texts[0] == "LEGENDA"
+    assert texts[0] == "OZNACZENIA"
     assert len(paper.query("*")) == len(mine)  # nothing else was drawn on the sheet
 
 
@@ -150,3 +151,73 @@ async def test_a_lighting_sheet_legend_merges_filters_folds_and_warns(backend):
     # 6 rows in 2 columns: 3 rows high
     assert result["bbox"]["min"][1] == pytest.approx(60 - (3.5 + 4 + 3 * 8 + 2))
     assert any(w.startswith("off_paper") for w in result["warnings"])
+
+
+@pytest.mark.asyncio
+async def test_title_frame_style_order_multiline_and_a_two_symbol_row(backend):
+    """Round 5 (A4): no frame by default, a title of the caller's, text height,
+    colour and layer; an explicit order; a 2-line label is two TEXTs and a
+    taller row; a row with two samples side by side takes over their rows."""
+    await _drawing(backend)
+    await backend.block_define("ZW", [{"type": "circle", "cx": 0, "cy": 0, "radius": 50}], [], 0, 0)
+    await backend.block_define("CW", [{"type": "circle", "cx": 0, "cy": 0, "radius": 50}], [], 0, 0)
+    await backend.block_insert("CW", 1500, 2000)
+    await backend.layout_create("A3")
+    result = await draw_legend(
+        backend,
+        at=(300, 280),
+        layout="A3",
+        lang="pl",
+        title="OZNACZENIA",
+        text_height=2.0,
+        color=7,
+        layer="A-ANNO-T-N",
+        only=["socket", "ANSI37", "CW"],
+        order=["socket"],
+        extra=[
+            {"label": "woda ciepła / zimna\n(pion)", "blocks": ["ZW", "CW"]},
+            {"label": "przybór", "keys": ["wc"]},
+        ],
+    )
+    keys = [r["key"] for r in result["rows"]]
+    assert keys[0] == "socket" and "wc" not in keys  # ordered; wc moved into the keys row
+    paper = backend._doc.layouts.get("A3")
+    mine = [e for e in paper if e.has_xdata(APP_ID)]
+    assert not [
+        e
+        for e in mine
+        if e.dxftype() == "LWPOLYLINE"
+        and len(e) == 4
+        and e.closed
+        and abs(e.get_points()[0][0] - 300) < 1e-6
+    ]  # no outer frame
+    texts = [e for e in mine if e.dxftype() == "TEXT"]
+    assert texts[0].dxf.text == "OZNACZENIA"
+    assert {t.dxf.layer for t in texts} == {"A-ANNO-T-N"} and {t.dxf.color for t in texts} == {7}
+    body = {t.dxf.text: t for t in texts[1:]}
+    assert body["gniazdo wtyczkowe"].dxf.height == 2.0
+    a, b = body["woda ciepła / zimna"], body["(pion)"]
+    assert a.dxf.insert.x == b.dxf.insert.x and a.dxf.insert.y > b.dxf.insert.y
+    pair = [e for e in mine if e.dxftype() == "INSERT" and e.dxf.name in ("ZW", "CW")]
+    assert len(pair) == 3  # CW in its own row, ZW + CW side by side
+    row = next(r for r in result["rows"] if r["key"] == "woda ciepła / zimna\n(pion)")
+    assert row["samples"] == ["ZW", "CW"]
+    with pytest.raises(InvalidArgsError, match=r"order\[0\]: 'sofa' names no row"):
+        await draw_legend(backend, at=(0, 0), order=["sofa"])
+    with pytest.raises(InvalidArgsError, match=r"extra\[0\]\.blocks\[1\]: no block 'Q'"):
+        await draw_legend(backend, at=(0, 0), extra=[{"label": "q", "blocks": ["ZW", "Q"]}])
+
+
+@pytest.mark.asyncio
+async def test_a_rerun_replaces_its_legend_and_another_name_coexists(backend):
+    await _drawing(backend)
+    await backend.layout_create("A3")
+    paper = backend._doc.layouts.get("A3")
+    first = await draw_legend(backend, at=(300, 280), layout="A3", frame=True)
+    count = len(paper)
+    again = await draw_legend(backend, at=(300, 280), layout="A3", frame=True)
+    assert first["replaced"] == 0 and again["replaced"] == count and len(paper) == count
+    other = await draw_legend(backend, at=(20, 280), layout="A3", only=["wc"], name="furniture")
+    assert other["replaced"] == 0 and len(paper) == count + len(other["handles"])
+    model = await draw_legend(backend, at=(9000, 4000))  # another space: nothing replaced
+    assert model["replaced"] == 0
