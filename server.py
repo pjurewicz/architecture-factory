@@ -14076,6 +14076,12 @@ async def arch_floor_zone(
     `lay` cuts every tile / plank to the zone as polylines from `start`, with a
     `takeoff` (full / cut, offcuts reused, `order_tiles` with `waste_pct`; a
     chevron's `plank_length` is its long edge, planks counted by hand A / B).
+
+    `angle` (degrees CCW) is the direction the plank lengths and rows run for
+    grid and running_bond, and the direction the zigzag axis runs for
+    herringbone and chevron. A chevron's hands are mirror images: A planks
+    (even bands) lean +`cut_angle` to the axis, B planks (odd bands) lean the
+    other way, so each is ordered separately.
     """
     from engineering.arch.floor import floor_zone
 
