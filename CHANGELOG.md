@@ -84,6 +84,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (0 = the zigzag runs along X; it was the planks' frame, 45 = the axis along
   Y), also in `interior_wall_elevation`'s `spec.tiling`. `arch_floor_zone`'s
   result no longer carries `outline` / `cutouts` (they fed the removed tool).
+- `arch_legend` reads a laid zone: its pieces carry the laying pattern in
+  their `ACADMCP_ANNOT` record (`lay`), and the zone is one row (with its
+  pattern hatch, when it has one) whose sample is that pattern cut to the
+  cell by the same engine, at the plan's printed size or smaller.
 
 ### Fixed
 

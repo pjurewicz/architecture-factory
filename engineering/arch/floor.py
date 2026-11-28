@@ -640,6 +640,10 @@ async def floor_zone(
 
     a = math.radians(angle)
     origin = tuple(start) if start is not None else (min(xs), min(ys))
+    lay_spec = lay and {  # what arch_legend's sample redraws
+        "pattern": lay, "length": float(plank[0]), "width": float(plank[1]), "gap": float(gap),
+        "angle": float(angle), "bond": float(bond), "cut": float(cut_angle),
+    }  # fmt: skip
 
     def _draw():
         doc = backend._require_doc()
@@ -706,13 +710,13 @@ async def floor_zone(
         if APP_ID not in doc.appids:
             doc.appids.add(APP_ID)
         tagged = [
-            (h, label)
+            (h, label, lay_spec if key == "pieces" else None)
             for key, v in handles.items()
             if key != "skirting"
             for h in (v if isinstance(v, list) else [v])
         ]
-        for handle, legend in [*tagged, *skirts]:
-            tags = encode_values(annotation_values(TOOL, handle, name, legend))
+        for handle, legend, spec in [*tagged, *((h, k, None) for h, k in skirts)]:
+            tags = encode_values(annotation_values(TOOL, handle, name, legend, spec))
             doc.entitydb[handle].set_xdata(APP_ID, tags)
         backend._mark_dirty()
         return handles, skirts

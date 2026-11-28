@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from engineering.annotation_record import APP_ID
@@ -410,3 +412,30 @@ async def test_gk_glass_and_demolition_walls_draw_and_each_reads_into_the_legend
     ]
     assert ("glass", "glass wall") in labels["en"]
     assert ("AR-SAND", "plasterboard partition") in labels["en"]
+
+
+@pytest.mark.asyncio
+async def test_a_laid_floor_is_one_row_sampled_by_the_same_engine(backend):
+    """Round 8: a zone's laid pieces (polylines, not a hatch) still name a row."""
+    from engineering.arch.floor import floor_zone
+
+    room = [[0, 0], [3300, 0], [3300, 2400], [0, 2400]]
+    zone = await floor_zone(
+        backend, outline=room, lay="chevron", plank=(358.79, 90), gap=0, label="jodełka", name="P"
+    )
+    assert len(zone["handles"]["pieces"]) > 50
+    await backend.layout_create("A3")
+    result = await draw_legend(backend, at=(20, 280), layout="A3", only=["jodełka"])
+    assert [(r["kind"], r["label"], r["count"]) for r in result["rows"]] == [
+        ("hatch", "jodełka", 1)
+    ]
+    mine = [e for e in backend._doc.layouts.get("A3") if e.dxf.handle in set(result["handles"])]
+    planks = [e for e in mine if e.dxftype() == "LWPOLYLINE" and e.dxf.layer == "A-FLOR-E-N"]
+    # chevron pieces, not one per piece of the plan: a 15 x 6 mm cell holds a few planks
+    assert 4 <= len(planks) < 60
+    directions = set()
+    for e in planks:  # the plan's 45° cut both ways, the ends and the cell's edges
+        pts = e.get_points("xy")
+        for (x0, y0, *_), (x1, y1, *_) in zip(pts, pts[1:] + pts[:1], strict=True):
+            directions.add(round(math.degrees(math.atan2(y1 - y0, x1 - x0)) % 180.0, 6) % 180)
+    assert {45.0, 135.0} <= directions <= {0.0, 45.0, 90.0, 135.0}

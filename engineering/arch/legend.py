@@ -166,7 +166,7 @@ def hatch_row(groups: dict, fills: list[dict], own: str | None, layer: str, poch
     """The legend row of ``fills`` (drawn over each other in one cell), made
     when missing; ``own`` is a zone's label."""
     sig = "+".join(
-        f"{f['pattern']}@{f['angle']:g}@{f['scale']:g}@{f['color']}@{f['user'] or ''}"
+        f"{f['pattern']}@{f['angle']:g}@{f['scale']:g}@{f['color']}@{f['user'] or f.get('lay') or ''}"
         for f in fills
     )
     first = fills[0]
@@ -299,6 +299,12 @@ def _read(backend) -> dict:
                 },
             )
             row["count"] += 1
+        elif kind == "LWPOLYLINE" and (tag := read_annotation(e) or {}).get("lay"):
+            zone = zones.setdefault((tag.get("legend"), tag.get("set") or e.dxf.handle), [])
+            if not any(f.get("lay") for f, _, _ in zone):  # a laid zone: one sample of its pieces
+                fill = {"solid": False, "pattern": f"LAY_{tag['lay']['pattern'].upper()}"}
+                fill |= {"angle": 0.0, "scale": 1.0, "color": e.dxf.get("color", 256)}
+                zone.append(({**fill, "user": None, "lay": tag["lay"]}, e.dxf.layer, False))
         elif kind in ("LWPOLYLINE", "LINE") and record and record["kind"] == "run":
             item = record["item"]
             row = groups.setdefault(
@@ -317,9 +323,9 @@ def _read(backend) -> dict:
             row["count"] += 1
     for (own, _zone), parts in zones.items():
         fills = []
-        for f, _, _ in sorted(parts, key=lambda t: t[0]["user"] is not None):
+        for f, _, _ in sorted(parts, key=lambda t: t[0]["user"] is not None or "lay" in t[0]):
             fills += [f] if f not in fills else []
-        count = sum(1 for f, _, _ in parts if f["user"] is None) or len(parts)
+        count = sum(1 for f, _, _ in parts if f["user"] is None and "lay" not in f) or 1
         hatch_row(groups, fills, own, parts[0][1], parts[0][2])["count"] += count
     for row in groups.values():
         if row["kind"] == "block":
@@ -894,6 +900,10 @@ async def _sample(backend, row: dict, cell, plot_scale: float, u: float) -> list
         out = []
         for fill in row["fills"]:
             colour = None if fill["color"] == 256 else fill["color"]
+            if fill.get("lay"):
+                box = (lo_x, lo_y, hi_x, hi_y)
+                out += await backend._async(_lay_sample, backend, row, fill, box, u / plot_scale)
+                continue
             if fill["user"] is not None:
                 out.append(
                     await backend._async(
@@ -970,6 +980,38 @@ def _user_sample(backend, row, fill, box, factor):
     )
     backend._mark_dirty()
     return _entity_info_dxf(hatch)
+
+
+def _lay_sample(backend, row, fill, box, factor):
+    """A laid zone's pieces (``arch_floor_zone``'s ``lay``, the same engine) cut
+    to the cell at the plan's printed size, shrunk until a plank is at most half
+    the cell's longer side; laid from the cell's centre."""
+    from backends.ezdxf_backend import _entity_info_dxf
+    from engineering.arch.tiles import layout
+
+    lay = fill["lay"]
+    lo_x, lo_y, hi_x, hi_y = box
+    f = min(factor, max(hi_x - lo_x, hi_y - lo_y) / 2.0 / lay["length"])
+    laid = layout(
+        [(lo_x, lo_y), (hi_x, lo_y), (hi_x, hi_y), (lo_x, hi_y)],
+        length=lay["length"] * f,
+        width=lay["width"] * f,
+        pattern=lay["pattern"],
+        joint=lay["gap"] * f,
+        start=((lo_x + hi_x) / 2.0, (lo_y + hi_y) / 2.0),
+        angle_deg=lay["angle"],
+        bond=lay["bond"],
+        cut_deg=lay["cut"],
+    )
+    attribs = {"layer": row["layer"], "color": fill["color"]}
+    msp = backend._msp()
+    out = [
+        _entity_info_dxf(msp.add_lwpolyline(loop, close=True, dxfattribs=attribs))
+        for piece in laid["pieces"]
+        for loop in piece.loops
+    ]
+    backend._mark_dirty()
+    return out
 
 
 def _line_sample(backend, row, lo_x, hi_x, y, u, plot_scale):

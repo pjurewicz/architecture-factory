@@ -34,15 +34,22 @@ DEFAULT_SET = "default"
 
 
 def annotation_values(
-    tool: str, handle: str, set_name: str | None = None, legend: str | None = None
+    tool: str,
+    handle: str,
+    set_name: str | None = None,
+    legend: str | None = None,
+    lay: dict | None = None,
 ) -> list[str]:
     """The chunk strings ``entity_set_xdata(handle, APP_ID, values)`` takes;
-    ``legend`` is the label ``arch_legend`` gives the entity's row (a hatch)."""
+    ``legend`` is the label ``arch_legend`` gives the entity's row (a hatch),
+    ``lay`` a floor zone's laying pattern, which its legend sample redraws."""
     payload = {"v": PAYLOAD_VERSION, "kind": "annotation", "tool": str(tool), "id": str(handle)}
     if set_name is not None:
         payload["set"] = str(set_name)
     if legend:
         payload["legend"] = str(legend)
+    if lay:
+        payload["lay"] = lay
     return to_values(payload, app_id=APP_ID, kinds=KINDS)
 
 
