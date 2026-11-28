@@ -168,7 +168,8 @@ async def test_every_off_mode_surface_that_lists_the_pointer_lists_describe_tool
             cards = {}
             for start in range(0, len(pointing), MAX_DESCRIBE_NAMES):
                 answer = await client.call_tool(
-                    "describe_tool", {"names": pointing[start : start + MAX_DESCRIBE_NAMES]}
+                    "describe_tool",
+                    {"names": pointing[start : start + MAX_DESCRIBE_NAMES], "full": True},
                 )
                 cards.update({c["name"]: c for c in answer.structured_content["tools"]})
     finally:
@@ -230,7 +231,7 @@ async def test_describe_tool_returns_the_whole_docstring_of_every_split_tool():
     async with Client(server.mcp) as client:
         for start in range(0, len(names), MAX_DESCRIBE_NAMES):
             chunk = names[start : start + MAX_DESCRIBE_NAMES]
-            answer = await client.call_tool("describe_tool", {"names": chunk})
+            answer = await client.call_tool("describe_tool", {"names": chunk, "full": True})
             cards.update({card["name"]: card for card in answer.structured_content["tools"]})
     for name in names:
         doc = _docstring(tools[name])

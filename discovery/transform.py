@@ -26,7 +26,7 @@ had no way to read a tool's optional arguments short of a failed call.
 ``describe_tool(name)`` returns one tool's full input schema, description,
 annotations, risk, cost, pack, AutoCAD commands and its docstring's
 own examples; ``describe_tool(names=[...])`` returns several in one turn
-(1.8-11). It resolves names against the same filtered catalog
+(1.8-11), as signatures since round 6 (``full=true``: whole cards). It resolves names against the same filtered catalog
 ``call_tool`` reaches, refuses a hidden or unknown name with the same
 ``Unknown tool`` refusal, and is itself refused by ``call_tool`` (and, being
 card-less, by ``cad_batch``) like the other synthetic tools.
@@ -604,43 +604,27 @@ class CadSearchTransform(BM25SearchTransform):
         return self._synthetic(self._describe_tool_name, lambda: _describe_tool_for(self))
 
 
-#: A card in a several-names answer whose input schema serialises longer than
-#: this lists its top-level parameters only (round 4: arch_plan_from_spec and
-#: entity_batch_create alone were ~6,000 tokens of nested oneOf each).
-BRIEF_SCHEMA_CHARS = 4000
-
-
-def brief_card(card: dict[str, Any]) -> dict[str, Any]:
-    """``card`` with a long input schema cut to its top-level parameters: name,
-    type (the kinds an anyOf allows), default, enum, description and the
-    required list; nested ``$defs`` / ``items`` / ``oneOf`` are left out and
-    ``schema`` says how to get them."""
-    import json
+def signature_card(card: dict[str, Any]) -> dict[str, Any]:
+    """A several-names card (round 6): the name, its first sentence, the
+    required parameters with their types and the optional ones by name - 24
+    whole cards were ~20,000 tokens. ``name=`` or ``full=true`` gives the card."""
+    from discovery.serialize import _first_paragraph, _sentences_within
 
     schema = card.get("input_schema") or {}
-    if len(json.dumps(schema, separators=(",", ":"))) <= BRIEF_SCHEMA_CHARS:
-        return card
-    props = {}
-    for key, prop in (schema.get("properties") or {}).items():
-        row: dict[str, Any] = {}
-        kinds = [p.get("type") for p in prop.get("anyOf", ()) if p.get("type")] or [
-            prop.get("type")
-        ]
-        kinds = [k for k in kinds if k]
-        if kinds:
-            row["type"] = kinds[0] if len(kinds) == 1 else kinds
-        for name in ("default", "enum", "description"):
-            if name in prop:
-                row[name] = prop[name]
-        props[key] = row
-    brief = {"type": "object", "properties": props}
-    if schema.get("required"):
-        brief["required"] = schema["required"]
+    props = schema.get("properties") or {}
+    required = list(schema.get("required") or ())
+
+    def kind(prop: dict) -> Any:
+        kinds = [p.get("type") for p in prop.get("anyOf", ()) if p.get("type") != "null"]
+        kinds = [k for k in kinds if k] or [prop.get("type") or "any"]
+        return kinds[0] if len(kinds) == 1 else kinds
+
     return {
-        **card,
-        "input_schema": brief,
-        "schema": f"brief: top-level parameters only; describe_tool(name='{card['name']}') "
-        "for the nested schema",
+        "name": card["name"],
+        "summary": _sentences_within(_first_paragraph(card.get("description")), 1),
+        "required": {key: kind(props.get(key) or {}) for key in required},
+        "optional": [key for key in props if key not in required],
+        "risk": card.get("risk"),
     }
 
 
@@ -690,7 +674,7 @@ def _describe_tool_for(transform: Any) -> Tool:
         full: bool = False,
         ctx: Context = None,  # type: ignore[assignment]
     ) -> dict[str, Any]:
-        """Full schema, risk and examples of a tool (name) or several (names)."""
+        """A tool's full schema, risk and examples; names=[...]: signatures."""
         if (name is None) == (names is None):
             raise ValueError(
                 "describe_tool: pass exactly one of `name` (one tool) or `names` "
@@ -731,9 +715,12 @@ def _describe_tool_for(transform: Any) -> Tool:
         ]
         if names is None:
             return cards[0]
-        if len(cards) > 1 and not full:
-            cards = [brief_card(card) for card in cards]
         out: dict[str, Any] = {"tools": cards}
+        if len(cards) > 1 and not full:
+            out = {
+                "tools": [signature_card(card) for card in cards],
+                "detail": "signatures; name= or full=true for the schemas",
+            }
         if unknown:
             # round 4: one wrong name no longer costs the others' cards
             out["unknown"] = [

@@ -740,7 +740,9 @@ async def test_describe_tool_takes_several_names_in_one_turn():
     server._apply_discovery_mode("search")
     async with Client(server.mcp) as client:
         both = (
-            await client.call_tool("describe_tool", {"names": ["entity_fillet", "layer_list"]})
+            await client.call_tool(
+                "describe_tool", {"names": ["entity_fillet", "layer_list"], "full": True}
+            )
         ).structured_content
         one = await _describe(client, "entity_fillet")
     assert [card["name"] for card in both["tools"]] == ["entity_fillet", "layer_list"]
@@ -761,28 +763,29 @@ async def test_describe_tool_names_keeps_the_good_cards_and_names_the_nearest():
     assert answer["unknown"][0]["nearest"][0] == "leader_create_mleader"
 
 
-async def test_several_names_brief_a_huge_schema_and_one_name_keeps_it_whole():
-    """Round 4 (A7): entity_batch_create's nested schema only on request."""
+async def test_several_names_answer_signatures_and_full_or_one_name_the_whole_card():
+    """Round 6: describe_tool(names=[24]) was ~20,000 tokens and still briefed
+    entity_batch_create; several names now answer signatures."""
     server._apply_discovery_mode("search")
+    names = ["entity_batch_create", "layer_list", "dimension_linear"]
     async with Client(server.mcp) as client:
-        both = (
-            await client.call_tool(
-                "describe_tool", {"names": ["entity_batch_create", "layer_list"]}
-            )
-        ).structured_content["tools"]
-        one = await _describe(client, "entity_batch_create")
+        sigs = (await client.call_tool("describe_tool", {"names": names})).structured_content
+        one = await _describe(client, "dimension_linear")
         whole = (
-            await client.call_tool(
-                "describe_tool", {"names": ["entity_batch_create", "layer_list"], "full": True}
-            )
+            await client.call_tool("describe_tool", {"names": names, "full": True})
         ).structured_content["tools"]
     # round 5 (A9a): full=true keeps every nested schema, no second call
-    assert whole[0]["input_schema"] == one["input_schema"] and "schema" not in whole[0]
-    batch, layers = both
-    assert batch["schema"].startswith("brief") and "schema" not in layers
-    assert set(batch["input_schema"]["properties"]) == set(one["input_schema"]["properties"])
-    assert batch["input_schema"].get("required") == one["input_schema"].get("required")
-    assert len(str(batch["input_schema"])) < len(str(one["input_schema"])) / 3
+    assert whole[2] == one and "detail" not in whole[2]
+    batch, layers, dim = sigs["tools"]
+    assert sigs["detail"].startswith("signatures")
+    assert dim["required"] == {k: "number" for k in ("x1", "y1", "x2", "y2", "dim_x", "dim_y")}
+    assert "style" in dim["optional"] and "x1" not in dim["optional"]
+    assert (
+        dim["summary"]
+        == "Create a linear dimension, optionally toleranced (ISO 129 or ISO 286 fit)."
+    )
+    assert batch["required"] == {"entities": "array"} and layers["required"] == {}
+    assert len(str(sigs)) < len(str(whole)) / 10
 
 
 @pytest.mark.parametrize(
