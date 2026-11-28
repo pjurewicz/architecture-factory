@@ -13022,52 +13022,30 @@ async def hatch_material(
 )
 async def sheet_frame(
     size: Annotated[
-        str,
-        Field(
-            default="",
-            description="ISO 216 sheet: A4, A3, A2, A1 or A0. Empty: the layout's paper, else A3.",
-        ),
+        str, Field(default="", description="A4-A0; empty: the layout's paper, else A3")
     ] = "",
     orientation: Annotated[
-        str,
-        Field(
-            default="",
-            description="'landscape' or 'portrait'. Empty: the layout's, else landscape.",
-        ),
+        str, Field(default="", description="landscape | portrait; empty: the layout's")
     ] = "",
-    zones: Annotated[
-        bool,
-        Field(
-            default=True,
-            description="Draw the ISO 5457 grid reference system: letters down the vertical "
-            "edges from the top, numbers along the horizontal edges from the left.",
-        ),
-    ] = True,
-    marks: Annotated[
-        bool,
-        Field(
-            default=True,
-            description="Draw the four centring marks and the eight corner trimming rectangles.",
-        ),
-    ] = True,
-    origin_x: Annotated[
-        float, Field(default=0.0, description="X of the sheet's lower-left corner (WCS).")
-    ] = 0.0,
-    origin_y: Annotated[
-        float, Field(default=0.0, description="Y of the sheet's lower-left corner (WCS).")
-    ] = 0.0,
+    zones: Annotated[bool, Field(default=True, description="ISO 5457 grid references")] = True,
+    marks: Annotated[bool, Field(default=True, description="Centring and trim marks")] = True,
+    origin_x: Annotated[float, Field(default=0.0, description="Sheet lower-left X")] = 0.0,
+    origin_y: Annotated[float, Field(default=0.0, description="Sheet lower-left Y")] = 0.0,
     layout: Annotated[
-        str,
-        Field(
-            default="",
-            description="Paper-space layout to draw the sheet on (create it with "
-            "layout_create). Empty draws in the current space.",
-        ),
+        str, Field(default="", description="Paper layout; empty: the current space")
     ] = "",
+    margins: Annotated[
+        float | list[float] | None,
+        Field(default=None, description="mm, or [left, right, top, bottom]; default ISO"),
+    ] = None,
+    band: Annotated[
+        float | None, Field(default=None, description="Bottom strip height (mm): a line")
+    ] = None,
     ctx: Context = None,
 ) -> dict:
     """ISO 5457 drawing frame for A4-A0: a 20 mm filing margin, 10 mm on the
-    other three edges, the grid reference system and the centring/trimming marks.
+    other three edges, the grid reference system and the centring/trimming marks;
+    `margins` draws an office frame instead, `band` a strip for the title block.
 
     Borders, rules and marks land on TITLEBLOCK; the zone lettering on TEXT.
     Refusals, all before the first entity is drawn: a size outside A4-A0 is
@@ -13090,6 +13068,8 @@ async def sheet_frame(
         marks=marks,
         origin=(origin_x, origin_y),
         layout=layout or None,
+        margins=margins,
+        band=band,
     )
 
 
@@ -14744,8 +14724,11 @@ async def arch_title_block(
     cells side by side (Date | Stage | Scale). A value keeps its "\\n" line
     breaks and wraps only a line too long for its column; a cell without a
     label spans the row. `height` stretches the rows to it; a block that needs
-    more is refused with the height it needs. `notes` as a dict: {items,
-    title (null: none), frame, text_height, color, x?, y?, width?, height?} -
+    more is refused with the height it needs; a wrapped value is in `wrapped`. The
+    anchor is the largest rectangle drawn on the layout (its frame), else ISO
+    5457's (`anchor`). `notes` as a dict: {items, title (null: none), frame,
+    text_height, color, numbering ('{n}.' '{n}/' '{n})' '-' ''), x?, y?,
+    width?, height?} -
     with x, y (bottom-left corner) the notes get a box of their own, else they
     stack on the block. Known keys are lettered in `lang`; lines on
     TITLEBLOCK, text on TEXT, every entity with an ACADMCP_ANNOT record

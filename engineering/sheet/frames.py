@@ -137,12 +137,38 @@ def zone_divisions(side: float) -> int:
     return max(int(2 * round(float(side) / (2.0 * ZONE_MODULE))), 2)
 
 
-def frame_metrics(size: str, *, orientation: str = "landscape") -> dict:
+def parse_margins(margins) -> dict[str, float] | None:
+    """``margins`` (one number, or [left, right, top, bottom], paper mm) as a
+    dict; None keeps ISO 5457's 20 / 10 / 10 / 10. Each 1-50 mm."""
+    if margins is None:
+        return None
+    values = [margins] * 4 if isinstance(margins, int | float) else margins
+    if (
+        isinstance(margins, bool)
+        or not isinstance(values, list | tuple)
+        or len(values) != 4
+        or not all(isinstance(v, int | float) and not isinstance(v, bool) for v in values)
+        or not all(1.0 <= float(v) <= 50.0 for v in values)
+    ):
+        raise ValueError(
+            f"margins: one number or [left, right, top, bottom], each 1-50 mm; got {margins!r}"
+        )
+    return dict(zip(("left", "right", "top", "bottom"), map(float, values), strict=True))
+
+
+def frame_metrics(size: str, *, orientation: str = "landscape", margins=None) -> dict:
     """Every number the frame is built from, for a caller that wants to place
-    geometry inside it without re-deriving the margins."""
+    geometry inside it without re-deriving the margins (``margins``: see
+    :func:`parse_margins`)."""
     w, h = sheet_size(size, orientation)
-    x0, y0 = FILING_MARGIN, EDGE_MARGIN
-    x1, y1 = w - EDGE_MARGIN, h - EDGE_MARGIN
+    m = parse_margins(margins) or {
+        "left": FILING_MARGIN,
+        "right": EDGE_MARGIN,
+        "top": EDGE_MARGIN,
+        "bottom": EDGE_MARGIN,
+    }
+    x0, y0 = m["left"], m["bottom"]
+    x1, y1 = w - m["right"], h - m["top"]
     columns = zone_divisions(x1 - x0)
     rows = zone_divisions(y1 - y0)
     if rows > len(_LETTERS):
@@ -151,12 +177,8 @@ def frame_metrics(size: str, *, orientation: str = "landscape") -> dict:
         "size": str(size).strip().upper(),
         "orientation": orientation,
         "sheet": [w, h],
-        "margins": {
-            "left": FILING_MARGIN,
-            "right": EDGE_MARGIN,
-            "top": EDGE_MARGIN,
-            "bottom": EDGE_MARGIN,
-        },
+        "margins": m,
+        "standard": "ISO 5457" if margins is None else "custom margins",
         "frame": [x0, y0, x1, y1],
         "drawing_area": [x1 - x0, y1 - y0],
         "centre": [w / 2.0, h / 2.0],
@@ -188,6 +210,8 @@ def frame_prims(
     orientation: str = "landscape",
     zones: bool = True,
     marks: bool = True,
+    margins=None,
+    band: float | None = None,
 ) -> tuple[Prim, ...]:
     """The ISO 5457 sheet as primitive descriptions, sheet-local, with (0, 0) at
     the lower-left corner of the trimmed sheet.
@@ -196,10 +220,13 @@ def frame_prims(
     ticks, then the zone labels, then the four centring marks, then the eight
     trimming rectangles.
     """
-    metrics = frame_metrics(size, orientation=orientation)
+    metrics = frame_metrics(size, orientation=orientation, margins=margins)
     w, h = metrics["sheet"]
     x0, y0, x1, y1 = metrics["frame"]
+    m = metrics["margins"]
     prims: list[Prim] = [_rect(0.0, 0.0, w, h), _rect(x0, y0, x1, y1)]
+    if band:  # round 7: the strip the title block and legend sit in
+        prims.append(Line(p1=(x0, y0 + band), p2=(x1, y0 + band)))
 
     if zones:
         zone = metrics["zones"]
@@ -214,13 +241,13 @@ def frame_prims(
             prims.append(Line(p1=(x1, y), p2=(w, y)))
         for i, label in enumerate(zone["numbers"]):
             cx = x0 + (i + 0.5) * cw
-            prims.append(centred_text(cx, y1 + EDGE_MARGIN / 2.0, label, ZONE_TEXT_HEIGHT))
+            prims.append(centred_text(cx, y1 + m["top"] / 2.0, label, ZONE_TEXT_HEIGHT))
             prims.append(centred_text(cx, y0 / 2.0, label, ZONE_TEXT_HEIGHT))
         for j, label in enumerate(zone["letters"]):
             # ISO 5457 4.4: rows are lettered from the top.
             cy = y1 - (j + 0.5) * rh
-            prims.append(centred_text(FILING_MARGIN / 2.0, cy, label, ZONE_TEXT_HEIGHT))
-            prims.append(centred_text(x1 + EDGE_MARGIN / 2.0, cy, label, ZONE_TEXT_HEIGHT))
+            prims.append(centred_text(m["left"] / 2.0, cy, label, ZONE_TEXT_HEIGHT))
+            prims.append(centred_text(x1 + m["right"] / 2.0, cy, label, ZONE_TEXT_HEIGHT))
 
     if marks:
         cx, cy = metrics["centre"]
@@ -393,16 +420,26 @@ async def draw_sheet_frame(
     marks: bool = True,
     origin: Pt = (0.0, 0.0),
     layout: str | None = None,
+    margins=None,
+    band: float | None = None,
 ) -> dict:
-    """Draw the ISO 5457 frame. Every refusal fires before the first entity.
+    """Draw the ISO 5457 frame (or one at ``margins``, with a bottom ``band``).
+    Every refusal fires before the first entity.
 
     An empty ``size`` / ``orientation`` is read from ``layout``'s page setup
     (``resolve_sheet``); without a layout it is A3 landscape."""
     size, orientation, report = await resolve_sheet(
         backend, size, orientation, layout, caller="sheet_frame"
     )
-    metrics = frame_metrics(size, orientation=orientation)
-    prims = frame_prims(size, orientation=orientation, zones=zones, marks=marks)
+    metrics = frame_metrics(size, orientation=orientation, margins=margins)
+    if band is not None:
+        x0, y0, x1, y1 = metrics["frame"]
+        if isinstance(band, bool) or not isinstance(band, int | float) or not 0 < band < y1 - y0:
+            raise ValueError(f"band: a height in mm inside the frame (0-{y1 - y0:g}); got {band!r}")
+        metrics["band"] = [x0, y0, x1, y0 + float(band)]
+    prims = frame_prims(
+        size, orientation=orientation, zones=zones, marks=marks, margins=margins, band=band
+    )
     previous = await enter_layout(backend, layout, caller="sheet_frame")
     try:
         handles = await draw_sheet_prims(backend, prims, origin=origin, annotation="sheet_frame")

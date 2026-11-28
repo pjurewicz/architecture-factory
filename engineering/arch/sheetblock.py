@@ -69,7 +69,11 @@ NOTES_TITLE = {"en": "NOTES", "pl": "UWAGI", "tr": "NOTLAR"}
 MAX_ROWS = 30
 MAX_NOTES = 40
 CELL_KEYS = {"label", "value", "align", "text_height", "width"}
-NOTES_KEYS = {"items", "title", "frame", "text_height", "color", "x", "y", "width", "height"}
+NOTES_KEYS = {
+    "items", "title", "frame", "text_height", "color", "x", "y", "width", "height", "numbering",
+}  # fmt: skip
+#: round 7: how a note is numbered; {n} is its number
+NUMBERING = ("{n}.", "{n}/", "{n})", "-", "")
 
 
 class TitleBlockArgsError(InvalidArgsError, ValueError):
@@ -229,11 +233,15 @@ def notes_prims(
     title: str | None,
     frame: bool = True,
     text_height: float = VALUE_HEIGHT,
+    numbering: str = "{n}.",
 ):
     """``(prims, height)``: the numbered notes box with its top-left corner at
     (0, top); each note is its lines (wrapped where too long)."""
     _lh, vh, th = _heights(text_height)
-    items = [(f"{i}.", _wrap(n, width - 4 * vh - 2 * PAD, vh)) for i, n in enumerate(notes, 1)]
+    items = [
+        (numbering.format(n=i), _wrap(n, width - 4 * vh - 2 * PAD, vh))
+        for i, n in enumerate(notes, 1)
+    ]
     lines = sum(len(body) for _n, body in items)
     head = th + 2 * PAD if title else PAD
     height = head + lines * PITCH * vh + 3 * PAD
@@ -246,7 +254,7 @@ def notes_prims(
     for number, body in items:
         for j, line in enumerate(body):
             y -= PITCH * vh
-            if j == 0:
+            if j == 0 and number:
                 prims.append(Text((PAD, y), number, vh, 0.0, "text"))
             if line:
                 prims.append(Text((PAD + 3.2 * vh, y), line, vh, 0.0, "text"))
@@ -312,6 +320,12 @@ def block_prims(
             )
             span = (width - label_w if mode == "left" else cw) - 2 * PAD
             lines = _wrap(cell["lines"], span, h)
+            if len(lines) > len(cell["lines"]):
+                need = max(text_width(line, h) for line in cell["lines"])
+                wide.append(
+                    f"fields[{r}]: wrapped to {len(lines)} lines in a {span:.1f} mm column "
+                    f"(one line needs {need:.1f} mm) - widen the block or lower text_height"
+                )
             for line in lines:
                 if (w := text_width(line, h)) > span + 1e-6:
                     wide.append(
@@ -370,6 +384,41 @@ def block_prims(
     if rows:
         prims.insert(0, Poly(((0, 0), (width, 0), (width, -block_h), (0, -block_h)), True))
     return prims, block_h, wide
+
+
+def _drawn_frame(backend, layout: str):
+    """``((x0, y0, x1, y1), handle)`` of the frame drawn on ``layout``: the
+    largest closed axis-aligned rectangle (LWPOLYLINE) smaller than the paper
+    and not one of our blocks or legends; None if there is none."""
+    from engineering.annotation_record import read_annotation
+
+    doc = backend._require_doc()
+    space = doc.layouts.get(layout)
+    paper = space.dxf_layout.dxf
+    pw, ph = float(paper.get("paper_width", 0) or 0), float(paper.get("paper_height", 0) or 0)
+    best = None
+    for e in space.query("LWPOLYLINE"):
+        pts = [(p[0], p[1]) for p in e.get_points("xy")]
+        if not e.closed or len(pts) != 4:
+            continue
+        if (read_annotation(e) or {}).get("tool") in (TOOL, "arch_legend"):
+            continue
+        xs, ys = sorted({round(x, 6) for x, _ in pts}), sorted({round(y, 6) for _, y in pts})
+        if len(xs) != 2 or len(ys) != 2:
+            continue
+        w, h = xs[1] - xs[0], ys[1] - ys[0]
+        if (
+            pw
+            and ph
+            and min(abs(w - pw), abs(w - ph)) < 0.5
+            and min(abs(h - ph), abs(h - pw)) < 0.5
+        ):
+            continue  # the trimmed sheet itself
+        if best is None or w * h > best[0]:
+            best = (w * h, (xs[0], ys[0], xs[1], ys[1]), e.dxf.handle)
+    if best is None:
+        return None
+    return best[1], best[2]
 
 
 async def _ensure_sheet_layers(backend, names) -> None:
@@ -455,7 +504,12 @@ def parse_notes(notes, lang: str, text_height: float) -> dict | None:
         "frame": True,
         "text_height": text_height,
         "color": None,
+        "numbering": "{n}.",
     }
+    if "numbering" in spec:
+        if spec["numbering"] not in NUMBERING:
+            raise _bad(f"notes.numbering: one of {NUMBERING}, got {spec['numbering']!r}.")
+        out["numbering"] = spec["numbering"]
     if "title" in spec:
         t = spec["title"]
         out["title"] = None if t is None or t == "" else _text(t, "notes.title")
@@ -554,6 +608,7 @@ async def draw_title_block(
             title=nspec["title"],
             frame=nspec["frame"],
             text_height=nspec["text_height"],
+            numbering=nspec["numbering"],
         )
         if nspec["height"] is not None:
             if notes_h > nspec["height"] + 1e-6:
@@ -569,8 +624,16 @@ async def draw_title_block(
     if at is None:
         if layout is None:
             raise _bad("arch_title_block: give a layout (its frame's corner) or at=[x, y].")
-        size, orientation, report = await resolve_sheet(backend, size, None, layout, caller=TOOL)
-        x0, y0, x1, y1 = frame_metrics(size, orientation=orientation)["frame"]
+        drawn = await backend._async(_drawn_frame, backend, layout, readonly=True)
+        if drawn is not None:  # round 7: the frame on the sheet, not ISO 5457's
+            (x0, y0, x1, y1), handle = drawn
+            report = {"anchor": {"frame": handle}}
+        else:
+            size, orientation, report = await resolve_sheet(
+                backend, size, None, layout, caller=TOOL
+            )
+            x0, y0, x1, y1 = frame_metrics(size, orientation=orientation)["frame"]
+            report["anchor"] = "iso_5457"
         at = (x1 if corner.endswith("right") else x0, y0 if corner.startswith("bottom") else y1)
     cx, cy = float(at[0]), float(at[1])
     k = 1.0 if layout is not None else float(scale)
@@ -612,7 +675,8 @@ async def draw_title_block(
         "min": [round(ox, 3), round(oy + stack_bottom * k, 3)],
         "max": [round(ox + width * k, 3), round(oy + stack_top * k, 3)],
     }
-    warnings = list(report.pop("warnings", []) or []) + wide
+    wrapped = [w for w in wide if ": wrapped to " in w]  # round 7: said, not warned
+    warnings = list(report.pop("warnings", []) or []) + [w for w in wide if w not in wrapped]
     if rows or stacked:
         warnings += await sheet_fit_warnings(backend, layout, (bbox["min"], bbox["max"]))
     out_box = None
@@ -634,6 +698,7 @@ async def draw_title_block(
         "rows": [" | ".join(c["label"] for c in cells) for cells in rows],
         "height": round(block_h, 3),
         "notes": len(nspec["items"]) if nspec else 0,
+        **({"wrapped": wrapped} if wrapped else {}),
         "handles": handles,
         "replaced": replaced,
         "bbox": bbox,

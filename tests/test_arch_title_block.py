@@ -262,3 +262,37 @@ async def test_a_narrow_source_block_is_drawn_at_its_own_width(backend):
     assert "warnings" not in fits
     with pytest.raises(ValueError, match="outside 30-400 mm"):
         await draw_title_block(backend, at=(0, 0), fields=FIELDS, width=29, scale=1, name="b")
+
+
+@pytest.mark.asyncio
+async def test_an_office_frame_with_a_band_anchors_the_block_and_notes_number_their_way(backend):
+    """Round 7: sheet_frame was ISO 5457 only (drawn, then deleted), the block
+    anchored to ISO's 20/10 frame, and notes could only be '1.'."""
+    from engineering.sheet.frames import draw_sheet_frame
+
+    await _sheet(backend)
+    frame = await draw_sheet_frame(
+        backend, layout="A3", margins=5, band=40, zones=False, marks=False
+    )
+    assert frame["metrics"]["frame"] == [5.0, 5.0, 415.0, 292.0]
+    assert frame["metrics"]["band"] == [5.0, 5.0, 415.0, 45.0]
+    assert frame["metrics"]["standard"] == "custom margins"
+    band_line = backend._doc.entitydb[frame["handles"][2]]
+    assert band_line.dxftype() == "LINE" and band_line.dxf.start.y == 45.0
+    out = await draw_title_block(
+        backend,
+        fields={"title": "RZUT: WYTYCZNE C.O."},
+        notes={"items": ["Pierwsza.", "Druga."], "numbering": "{n}/"},
+        layout="A3",
+        width=60,
+    )
+    assert out["at"] == [415.0, 5.0]  # the drawn frame's corner, not ISO's (410, 10)
+    assert out["anchor"] == {"frame": frame["inner_border"]}
+    texts = [t.dxf.text for t in _texts(backend, out["handles"])]
+    assert "1/" in texts and "2/" in texts and "1." not in texts
+    # 60 mm: the title wraps, and says how wide one line would be
+    assert any("wrapped to" in w for w in out["wrapped"]), out
+    with pytest.raises(InvalidArgsError, match="notes.numbering"):
+        await draw_title_block(backend, notes={"items": ["x"], "numbering": "#"}, layout="A3")
+    with pytest.raises(ValueError, match="margins: one number or"):
+        await draw_sheet_frame(backend, layout="A3", margins=[5, 5])
