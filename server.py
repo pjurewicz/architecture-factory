@@ -14121,7 +14121,7 @@ async def interior_tile_layout(
 
 
 @cad_tool(
-    summary="Hatch a floor zone - a room or outline minus fitted items - and measure its area.",
+    summary="Hatch a floor zone (room or outline minus fitted items), measure it, run skirting.",
     cost="mutate",
 )
 @mcp.tool(
@@ -14157,6 +14157,10 @@ async def arch_floor_zone(
     layer: Annotated[str | None, Field(default=None, description="Default A-FLOR-E-N")] = None,
     color: Annotated[int | None, Field(default=None, description="ACI")] = None,
     edge: Annotated[bool, Field(description="Also draw the zone outline")] = False,
+    skirting: Annotated[
+        str | dict[str, str] | None,
+        Field(default=None, description="applied|flush|none, or {default, <wall id>: type}"),
+    ] = None,
     dry_run: bool = False,
     ctx: Context = None,
 ) -> dict:
@@ -14167,7 +14171,8 @@ async def arch_floor_zone(
     AR-* patterns are building mm (pattern_scale only); others scale x pattern_scale.
     Each fill reports `period_mm` / `repeats`, warned below 3. `area_m2` is
     measured. `label` names the arch_legend row; `outline` / `cutouts` feed
-    interior_tile_layout.
+    interior_tile_layout. `skirting` runs along the faces, stopping at doors and
+    fitted items; its length is measured (m). pattern "none": no hatch.
     """
     from engineering.arch.floor import floor_zone
 
@@ -14189,6 +14194,7 @@ async def arch_floor_zone(
             layer=layer,
             color=color,
             edge=edge,
+            skirting=skirting,
             dry_run=dry_run,
         )
     except ValueError as exc:

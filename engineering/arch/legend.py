@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING
 
 from engineering.arch import services as elec
 from engineering.arch.catalogue import _BY_NAME, BLOCK_PREFIX, CATALOGUE_NAMES, LABEL_PL
+from engineering.arch.floor import SKIRTING_LABELS
 from engineering.arch.lang import LANGS
 from engineering.arch.layers import ARCH_ROLE_LAYER
 from engineering.arch.materials import TABLE_PLOT_SCALE, WALL_HATCH_TABLE
@@ -280,6 +281,24 @@ def _read(backend) -> dict:
                 },
             )
             row["count"] += 1
+        elif (
+            kind == "LWPOLYLINE"
+            and (skirt := (read_annotation(e) or {}).get("legend")) in SKIRTING_LABELS
+        ):
+            row = groups.setdefault(
+                skirt.upper(),
+                {
+                    "kind": "line",
+                    "key": skirt,
+                    "skirting": True,
+                    "order": 9,
+                    "default_off": False,
+                    "count": 0,
+                    "names": [skirt],
+                    **_run_style(e),
+                },
+            )
+            row["count"] += 1
         elif kind in ("LWPOLYLINE", "LINE") and record and record["kind"] == "run":
             item = record["item"]
             row = groups.setdefault(
@@ -358,6 +377,8 @@ def legend_rows(
             material = _material(row["pattern"], row["angle"], row["scale"], scale)
             row["label"] = MATERIAL_LABELS[material][lang] if material else row["pattern"]
             row["order"] = 0 if material else 1
+        elif row.get("skirting"):
+            row["label"] = SKIRTING_LABELS[row["key"]][lang]
         elif row["kind"] == "line":
             item = row["item"]
             row["label"] = (MATERIAL_LABELS.get(item) or {}).get(lang) or elec.label(item, lang)

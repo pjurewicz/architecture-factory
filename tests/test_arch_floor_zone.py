@@ -12,6 +12,7 @@ import pytest
 from engineering.annotation_record import read_annotation
 from engineering.arch.catalogue import FITTED, ITEMS, insert_items
 from engineering.arch.floor import floor_zone
+from engineering.arch.legend import draw_legend
 from engineering.arch.spec import draw_plan_from_spec
 
 SPEC = {
@@ -143,3 +144,94 @@ async def test_pattern_joints_and_edge_are_one_zone(backend):
     assert order[:3] == [e.dxf.handle for e in parts]
     again = await floor_zone(backend, outline=ROOM, pattern="AR-SAND", name="BATH", label="x")
     assert again["replaced"] == 3 and set(again["handles"]) == {"pattern"}
+
+
+# -- skirting (round 8): along the faces, stopped at doors and fitted items, measured
+
+DOOR_ROOM = {
+    **SPEC,
+    "walls": [*SPEC["walls"], {"id": "P1", "axis": [[3000, 0], [3000, 4000]], "thickness": 100}],
+    "openings": [
+        {"id": "D1", "wall": "EXT", "kind": "door", "offset": 1000, "width": 900},
+        {"id": "W1", "wall": "EXT", "kind": "window", "offset": 12500, "width": 1200,
+         "sill": 900, "height": 1200},
+    ],
+}  # fmt: skip
+# the L: axis 6 x 3 m with a 3 x 2 m arm, 200 mm centred walls; its inner face
+# has five convex corners (-200 each) and one re-entrant (+200): 22.0 - 0.8 m
+L_ROOM = {
+    "sheet": SPEC["sheet"],
+    "walls": [
+        {
+            "id": "L",
+            "axis": [[0, 0], [6000, 0], [6000, 3000], [3000, 3000], [3000, 5000], [0, 5000]],
+            "thickness": 200,
+            "closed": True,
+        }
+    ],
+}
+
+
+@pytest.mark.asyncio
+async def test_skirting_runs_on_the_face_and_stops_at_the_door(backend):
+    await draw_plan_from_spec(backend, DOOR_ROOM)
+    zone = await floor_zone(
+        backend, room=[1500, 2000], pattern="none", skirting={"P1": "flush"}, name="SK"
+    )
+    sk = zone["skirting"]
+    # room 125..2950 x 125..3875: the partition's face flush (3.75 m), the rest
+    # applied, the 0.9 m door out; the window (sill 900) does not stop it
+    assert sk["flush_m"] == pytest.approx(3.75) and sk["stops_at"] == ["D1"]
+    assert sk["applied_m"] == pytest.approx(2 * 2.825 + 3.75 - 0.9)
+    assert set(zone["handles"]) == {"skirting"}  # pattern none: no hatch
+    db = backend._doc.entitydb
+    lines = [db[h] for h in zone["handles"]["skirting"]]
+    assert {e.dxf.layer for e in lines} == {"A-FLOR-SKRT-E-N", "A-FLOR-SKRF-E-N"}
+    flush = next(e for e in lines if e.dxf.layer == "A-FLOR-SKRF-E-N")
+    assert flush.dxf.ltscale == 0.25 and flush.dxf.linetype == "BYLAYER"
+    # 0.5 paper mm inside the face at 1:50: x = 2950 - 25
+    assert {round(x) for x, _ in flush.get_points("xy")} == {2925}
+    door_gap = sorted(
+        x for e in lines if e.dxf.layer == "A-FLOR-SKRT-E-N" for x, y in e.get_points("xy")
+        if abs(y - 150) < 1
+    )  # fmt: skip
+    assert door_gap[:2] == [150, 1000] and 1900 in door_gap  # the door 1000..1900 left open
+    assert read_annotation(flush)["legend"] == "skirting_flush"
+    again = await floor_zone(backend, room=[1500, 2000], pattern="none", skirting="none",
+                             edge=True, name="SK")  # fmt: skip
+    assert again["replaced"] == len(lines) and "skirting" not in again["handles"]
+    assert not any(db[h].is_alive for h in zone["handles"]["skirting"])
+
+
+@pytest.mark.asyncio
+async def test_skirting_on_an_l_room_stops_behind_fitted_items(backend):
+    await draw_plan_from_spec(backend, L_ROOM)
+    bare = await floor_zone(backend, room=[1000, 1000], skirting="applied", dry_run=True)
+    (piece,) = bare["skirting"]["pieces"]
+    assert piece["closed"] and bare["skirting"]["applied_m"] == pytest.approx(21.2)
+    assert "skirting_openings_unknown" not in str(bare.get("warnings"))
+    await insert_items(backend, [{"name": "kitchen_counter", "x": 100, "y": 100}])
+    fitted = await floor_zone(backend, room=[1000, 1000], skirting="applied", dry_run=True)
+    # the 2400 x 600 run stands on 2.4 m of one face and 0.6 m of the other
+    assert fitted["skirting"]["applied_m"] == pytest.approx(21.2 - 3.0)
+    assert [p["closed"] for p in fitted["skirting"]["pieces"]] == [False]
+
+
+@pytest.mark.asyncio
+async def test_skirting_legend_rows_and_refusals(backend):
+    await draw_plan_from_spec(backend, DOOR_ROOM)
+    await floor_zone(backend, room=[1500, 2000], pattern="none", skirting={"P1": "flush"})
+    result = await draw_legend(backend, at=(9000, 4000), lang="pl", only=["skirting_*"])
+    assert [(r["label"], r["count"]) for r in result["rows"]] == [
+        ("cokół szczelinowy (podcięcie)", 1),
+        ("listwa przypodłogowa nakładana", 2),  # the flush wall splits it
+    ]
+    with pytest.raises(ValueError, match=r"skirting.X9: no wall 'X9'.*\['EXT', 'P1'\]"):
+        await floor_zone(backend, room=[1500, 2000], skirting={"X9": "flush"})
+    with pytest.raises(ValueError, match="skirting.default: 'glued'"):
+        await floor_zone(backend, room=[1500, 2000], skirting="glued")
+    with pytest.raises(ValueError, match="draws nothing"):
+        await floor_zone(backend, room=[1500, 2000], pattern="none")
+    typed = await floor_zone(backend, outline=ROOM, skirting="flush", dry_run=True)
+    assert typed["skirting"]["flush_m"] == pytest.approx(11.4)
+    assert "skirting_openings_unknown" in [w["code"] for w in typed["warnings"]]

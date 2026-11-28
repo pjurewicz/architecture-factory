@@ -66,6 +66,16 @@ ARCH_LAYERS: list[tuple[str, int, str, float, str]] = [
         0.13,
         "Architecture / floor finish, tile and panel layout / new",
     ),
+    # skirting (``arch_floor_zone(skirting=)``): one layer per type, so each
+    # line keeps ByLayer properties; colours and weights a repository convention
+    ("A-FLOR-SKRT-E-N", 30, "Continuous", 0.35, "Architecture / skirting, applied / new"),
+    (
+        "A-FLOR-SKRF-E-N",
+        30,
+        "ACAD_ISO02W100",
+        0.25,
+        "Architecture / skirting, flush (shadow gap) / new",
+    ),
     ("A-ELEV-E-N", 7, "Continuous", 0.50, "Architecture / interior elevation, wall outline / new"),
     (
         "A-ELEV-FIT-E-N",
@@ -116,6 +126,8 @@ ARCH_ROLE_LAYER: dict[str, str] = {
     "symbol": "A-SYMB-T-N",
     "overhead": "A-OVHD-E-N",
     "floor": "A-FLOR-E-N",
+    "skirting_applied": "A-FLOR-SKRT-E-N",
+    "skirting_flush": "A-FLOR-SKRF-E-N",
     # interior elevations (``engineering/arch/elevation.py``): never an A-WALL
     # layer, or the room finder would read an elevation's outline as walls
     "elev_outline": "A-ELEV-E-N",

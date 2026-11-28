@@ -379,7 +379,7 @@
       "name": "arch_floor_zone",
       "group": "architecture",
       "cost": "mutate",
-      "summary": "Hatch a floor zone - a room or outline minus fitted items - and measure its area.",
+      "summary": "Hatch a floor zone (room or outline minus fitted items), measure it, run skirting.",
       "acad": [],
       "synonyms": [
         "floor zone",
@@ -389,7 +389,11 @@
         "vinyl floor",
         "ogrzewanie podlogowe",
         "strefa podlogi",
-        "posadzka winyl"
+        "posadzka winyl",
+        "skirting board",
+        "baseboard",
+        "cokol listwa przypodlogowa",
+        "supurgelik"
       ],
       "tags": [
         "arch",

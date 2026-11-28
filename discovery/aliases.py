@@ -2588,6 +2588,10 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "ogrzewanie podlogowe",
             "strefa podlogi",
             "posadzka winyl",
+            "skirting board",
+            "baseboard",
+            "cokol listwa przypodlogowa",
+            "supurgelik",
         ),
     ),
     "interior_tile_layout": ToolAliases(
