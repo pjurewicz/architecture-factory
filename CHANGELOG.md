@@ -51,6 +51,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `drawing_new` answers `save_dir` (round 8, 6b) when `ALLOWED_PATHS` is set: the
+  folder a relative `drawing_save` path lands in (`system_status.files.relative_to`).
 - `arch_electrical` draws a lighting plan (round 4): ceiling, pendant, spot,
   spot pair and track-head luminaires, a motion sensor and an LED driver
   access hatch; LED strip, surface and pendant track and circuit links along

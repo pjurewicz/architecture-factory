@@ -2453,15 +2453,14 @@ async def drawing_new(
 ) -> dict:
     """Create a new drawing, optionally from a template.
 
-    A bundled name resolves to `templates/<name>.dxf`; a path is used as
-    given and read as DXF. The result carries `template: {name|path, path, source}`.
+    A bundled name resolves to `templates/<name>.dxf`; a path is read as DXF.
+    The result carries `template: {name|path, path, source}`, and `save_dir`
+    (only when ALLOWED_PATHS is set): the folder a relative save path lands in.
 
-    Refused before anything is replaced: a bare name that is not in the
-    catalogue (the message lists the six), a template path that does not
-    exist, and a path outside the allowed directories. Unless `bootstrap="none"`
-    the standard linetypes and that domain's layer set are ensured afterwards
-    (default `mech`; an architectural drawing wants `arch`) - idempotent on a
-    template that already has them.
+    Refused before anything is replaced: an unknown bare name, a missing
+    template path, a path outside the allowed directories. Unless
+    `bootstrap="none"` the standard linetypes and that domain's layer set are
+    ensured afterwards (default `mech`; an architectural drawing wants `arch`).
 
     `close_current=True` closes the previously active document and reports it
     in `closed_previous` (null when none was open); it never drops unsaved
@@ -2529,6 +2528,9 @@ async def drawing_new(
                 await anchor()
             except Exception as exc:  # a safety net never fails drawing_new
                 log.warning("drawing_new: S0 not re-anchored after the bootstrap: %s", exc)
+    roots = file_roots()
+    if roots["allowed_dirs"]:
+        result["save_dir"] = roots["relative_to"]
     # round 3 (A1): shown once; the journal keeps only its digest
     token = await backend.recovery_issue()
     if token:

@@ -124,7 +124,9 @@ async def test_drawing_save_creates_missing_folders_only_inside_the_allowed_path
     allowed.mkdir()
     monkeypatch.setattr(config.settings, "allowed_paths", [allowed.resolve()])
     async with Client(server.mcp) as client:
-        await client.call_tool("drawing_new", {})
+        made = (await client.call_tool("drawing_new", {})).structured_content
+        assert made["save_dir"] == str(allowed.resolve())  # where a relative save lands
+        assert made["recovery_token"]
         await client.call_tool("entity_create_circle", {"cx": 0, "cy": 0, "radius": 20})
 
         async def save(**args):
@@ -157,3 +159,16 @@ async def test_drawing_save_creates_missing_folders_only_inside_the_allowed_path
 
         error, _ = await save(path=str(allowed / "tpl" / "t.dwt"))
         assert error and not (allowed / "tpl").exists()
+
+
+@pytest.mark.asyncio
+async def test_drawing_new_omits_save_dir_without_allowed_paths(monkeypatch):
+    from fastmcp import Client
+
+    import config
+    import server
+
+    monkeypatch.setattr(config.settings, "allowed_paths", [])
+    async with Client(server.mcp) as client:
+        made = (await client.call_tool("drawing_new", {})).structured_content
+    assert "save_dir" not in made
