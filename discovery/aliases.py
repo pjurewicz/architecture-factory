@@ -1090,6 +1090,9 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "third angle symbol",
             "antet",
             "baslik blogu",
+            "mechanical title block",
+            "tabliczka rysunkowa",
+            "tabelka",
         ),
     ),
     "revision_add": ToolAliases(
@@ -2542,6 +2545,7 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
     "arch_title_block": ToolAliases(
         synonyms=(
             "title block architect",
+            "architect title block",
             "architectural title block with project client address stage",
             "drawing info box in the sheet corner",
             "notes box numbered notes",

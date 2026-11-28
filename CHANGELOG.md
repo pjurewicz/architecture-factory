@@ -49,6 +49,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without `rooms` (a floor or services sheet that labels none) unless the drawing
   already has a room record. `drawing_critique(sheet="services"|"interior")`
   already dropped the focus from every result form; unchanged.
+- `titleblock_apply` no longer sends an architect to `entity_create_table`:
+  its description now names `arch_title_block`, and a "title block" /
+  "tabelka" search returns both, each card saying which is the mechanical ISO
+  7200 block and which the architect's.
 - ISOCP lettering is measured and drawn at its ISO 3098 width. `isocp.shx`
   (and its TrueType twin `isocpeur.ttf`) is Autodesk's and not on the server,
   so ezdxf lettered it with the fallback face, 23 % wider on plan text

@@ -1193,3 +1193,29 @@ async def test_every_installation_trade_finds_the_one_services_tool(transform, c
     """A9(d): an agent asking for plumbing / heating / ventilation points must
     reach arch_services instead of hand-drawing its own blocks."""
     assert "arch_services" in _names(transform.rank(catalog, query, limit=5).hits)[:3]
+
+
+@pytest.mark.parametrize(
+    "query",
+    ["title block", "tabelka", "tabelka rysunkowa", "title block architect", "make a title block"],
+)
+async def test_a_title_block_search_offers_both_the_mechanical_and_the_architect_tool(
+    transform, catalog, query
+):
+    """Round 8 (6a): an agent that found only titleblock_apply drew an
+    architect's block by hand. Both tools are in the first three hits, and the
+    cards say which is which."""
+    hits = transform.rank(catalog, query, limit=5).hits
+    top = {t.name: t for t in hits[:3]}
+    assert {"arch_title_block"} <= set(top), _names(hits)
+    assert {"titleblock_apply", "titleblock_apply_iso_a3"} & set(top), _names(hits)
+    card = serialize_search_results([top["arch_title_block"]])
+    assert "architect" in card and "not ISO 7200" in card
+    for name in {"titleblock_apply", "titleblock_apply_iso_a3"} & set(top):
+        assert "mechanical ISO 7200" in serialize_search_results([top[name]])
+
+
+async def test_titleblock_apply_points_to_arch_title_block_not_to_a_generic_table(catalog):
+    tool = next(t for t in catalog if t.name == "titleblock_apply")
+    assert "arch_title_block" in tool.description
+    assert "entity_create_table" not in tool.description

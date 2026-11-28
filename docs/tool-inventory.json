@@ -792,10 +792,11 @@
       "name": "arch_title_block",
       "group": "architecture",
       "cost": "mutate",
-      "summary": "Draw an architect's title block (label / value rows) and a numbered NOTES box.",
+      "summary": "Draw an architect's title block (project / client / stage rows) and a numbered NOTES box; not ISO 7200.",
       "acad": [],
       "synonyms": [
         "title block architect",
+        "architect title block",
         "architectural title block with project client address stage",
         "drawing info box in the sheet corner",
         "notes box numbered notes",
@@ -5873,7 +5874,7 @@
       "name": "titleblock_apply",
       "group": "sheet",
       "cost": "mutate",
-      "summary": "Stamp an ISO 7200 title block (and frame) on any sheet from A4 to A0.",
+      "summary": "Stamp a mechanical ISO 7200 title block (and frame) on any sheet from A4 to A0.",
       "acad": [],
       "synonyms": [
         "title block",
@@ -5888,7 +5889,10 @@
         "first angle symbol",
         "third angle symbol",
         "antet",
-        "baslik blogu"
+        "baslik blogu",
+        "mechanical title block",
+        "tabliczka rysunkowa",
+        "tabelka"
       ],
       "tags": [
         "engineering",
@@ -5903,7 +5907,7 @@
       "name": "titleblock_apply_iso_a3",
       "group": "engineering",
       "cost": "mutate",
-      "summary": "Stamp an ISO 7200 title block and sheet frame onto an A3 drawing.",
+      "summary": "Stamp a mechanical ISO 7200 title block and sheet frame onto an A3 drawing.",
       "acad": [],
       "synonyms": [
         "title block",

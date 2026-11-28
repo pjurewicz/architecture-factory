@@ -9001,7 +9001,7 @@ async def keyway_draw_section(
 
 
 @cad_tool(
-    summary="Stamp an ISO 7200 title block and sheet frame onto an A3 drawing.",
+    summary="Stamp a mechanical ISO 7200 title block and sheet frame onto an A3 drawing.",
     cost="mutate",
 )
 @mcp.tool(
@@ -9032,7 +9032,8 @@ async def titleblock_apply_iso_a3(
     ] = "",
     ctx: Context = None,
 ) -> dict:
-    """ISO 7200 / A3 (420x297 mm) title block. Title text is used verbatim.
+    """Mechanical ISO 7200 / A3 (420x297 mm) title block.
+    Architect's block: arch_title_block.
 
     Pass `layout` to put the sheet on a paper-space layout, which is where a
     title block belongs — the border frames the printed sheet, not the model.
@@ -13118,7 +13119,7 @@ async def sheet_frame(
 
 
 @cad_tool(
-    summary="Stamp an ISO 7200 title block (and frame) on any sheet from A4 to A0.",
+    summary="Stamp a mechanical ISO 7200 title block (and frame) on any sheet from A4 to A0.",
     cost="mutate",
 )
 @mcp.tool(
@@ -13183,8 +13184,9 @@ async def titleblock_apply(
     ] = "",
     ctx: Context = None,
 ) -> dict:
-    """ISO 7200 title block, 180 mm wide, in the lower-right corner of any
-    A4-A0 sheet. The title text is used verbatim.
+    """Mechanical ISO 7200 title block, 180 mm wide, in the lower-right corner
+    of any A4-A0 sheet. An architect's project / client / stage block:
+    arch_title_block.
 
     Carries the ISO 128-30 projection-angle symbol: 'first' draws the cone on
     the left and the concentric circles on the right, 'third' is its mirror.
@@ -13192,8 +13194,7 @@ async def titleblock_apply(
     sizes are listed), an unknown orientation, a projection that is not
     'first'/'third'/'', a `layout` that does not exist. Size and orientation
     follow `layout`'s paper unless given, as in `sheet_frame`. `titleblock_apply_iso_a3`
-    is this tool with size='A3' and no symbol, kept so no caller breaks. Another
-    layout (an architect's label / value block): entity_create_table.
+    is this tool with size='A3' and no symbol.
     """
     from engineering.sheet.titleblock import TitleBlockMetadata, apply_titleblock
 
@@ -14777,7 +14778,7 @@ async def arch_legend(
 
 
 @cad_tool(
-    summary="Draw an architect's title block (label / value rows) and a numbered NOTES box.",
+    summary="Draw an architect's title block (project / client / stage rows) and a numbered NOTES box; not ISO 7200.",
     cost="mutate",
 )
 @mcp.tool(
