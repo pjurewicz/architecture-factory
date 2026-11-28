@@ -560,6 +560,10 @@ async def draw_plan_from_spec(backend: AutoCADBackend, spec: dict) -> dict:
     )
     omitted = list(drawn.get("omitted", norm["omitted"]))
     skipped = {str(item.get("element")) for item in omitted}
+    sheet_scale = (spec.get("sheet") or {}).get("scale")
+    linetypes = None
+    if sheet_scale:  # round 7: linetypes plot at their pattern size; LTSCALE stays 1
+        linetypes = await backend.sheet_linetype_scale(float(sheet_scale))
     return {
         "walls": [wall.id for wall in norm["walls"]],
         "wall_polygons": [polygon.id for polygon in norm["wall_polygons"]],
@@ -580,7 +584,8 @@ async def draw_plan_from_spec(backend: AutoCADBackend, spec: dict) -> dict:
         "layers": {"walls": ARCH_ROLE_LAYER["wall"], "poche": ARCH_ROLE_LAYER["wall_hatch"]},
         "sheet": {
             **norm["sheet"],
-            "used_for": "lettering scale + critique only; no layout is made",
+            "used_for": "lettering scale, critique, CANNOSCALE; no layout is made",
         },
+        **({"linetype_scale": linetypes} if linetypes else {}),
         "backend": backend.name,
     }

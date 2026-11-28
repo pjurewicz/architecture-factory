@@ -72,6 +72,7 @@ Advance only on the state's evidence; report the state reached, never a later on
    the `property_override` focus reports what does not follow its layer.
 9. **Read the error `kind` and `hint`, not the sentence.** Only
    `retryable: true` (nothing was written) means "send the same call again".
+10. **LTSCALE stays 1**; dashed is `ACAD_ISO02W100` at ltscale 0.25.
 
 ## 4. Call budget
 

@@ -5014,7 +5014,9 @@ async def layer_create(
         raise InvalidArgsError("layer_create: give name or layers, not both")
     if name is not None:
         await ctx.info(f"Creating layer '{name}' color={color}")
-        return _dc(await b.layer_create(name, color, linetype, lineweight))
+        made = _dc(await b.layer_create(name, color, linetype, lineweight))
+        note = await _linetype_note(b, [linetype])
+        return {**made, **note[0]} if note else made
     defaults = {"color": color, "linetype": linetype, "lineweight": lineweight}
     existing = {row.name.lower() for row in await b.layer_list()}
     specs, problems = [], []
@@ -5039,7 +5041,20 @@ async def layer_create(
         for done in made:  # all or none
             await b.layer_delete(done)
         raise
-    return {"ok": True, "created": made}
+    notes = await _linetype_note(b, sorted({str(spec["linetype"]) for spec in specs}))
+    return {"ok": True, "created": made, **({"linetypes": notes} if notes else {})}
+
+
+async def _linetype_note(b, names) -> list[dict]:
+    """Round 7: a metric drawing's DASHED / HIDDEN / CENTER answers its dash on
+    paper and its ISO equivalent (backends.ezdxf_backend.linetype_paper_note)."""
+    from backends.ezdxf_backend import linetype_paper_note
+
+    def read():
+        doc = b._require_doc()
+        return [{"linetype": n, **x} for n in names if (x := linetype_paper_note(doc, n))]
+
+    return await b._async(read, readonly=True)
 
 
 @cad_tool(summary="Remove an empty layer from the drawing.", cost="destructive")
@@ -6623,7 +6638,7 @@ def _compact_plan(result: dict) -> dict:
         "omitted": result["omitted"],
         "plan_bbox": result["plan_bbox"],
         "outer_bbox": result["outer_bbox"],
-        **{k: result[k] for k in ("layers", "sheet") if k in result},
+        **{k: result[k] for k in ("layers", "sheet", "linetype_scale") if k in result},
     }
     if result.get("critique"):
         compact["critique"] = result["critique"]
@@ -9607,6 +9622,8 @@ async def drawing_plan(
     # round 5 (A7): the plan's layer set is created, not only recorded
     applied = await _backend(ctx).drawing_apply_iso_layers(out["layer_set_id"])
     out["layers_created"] = [k for k, v in applied["layers"].items() if v == "created"]
+    # round 7: linetypes plot at their pattern size on the sheet; LTSCALE stays 1
+    out["linetype_scale"] = await _backend(ctx).sheet_linetype_scale(1.0 / float(scale))
     warnings = pid_plan_warnings(intent, layer_set_id)
     if warnings:
         out["warnings"] = warnings
@@ -10268,7 +10285,8 @@ async def viewport_create(
     entities that enter the shown window without lying inside the region.
     """
     await ctx.info(f"Creating viewport on {layout} at {scale}:1")
-    return await _backend(ctx).viewport_create(
+    b = _backend(ctx)
+    made = await b.viewport_create(
         layout,
         center_x,
         center_y,
@@ -10280,6 +10298,10 @@ async def viewport_create(
         fit_region=fit_region,
         margin_mm=margin_mm,
     )
+    if isinstance(made, dict) and made.get("ok", True) is not False:
+        # round 7: the first viewport's scale is the drawing's annotation scale
+        made["linetype_scale"] = await b.sheet_linetype_scale(1.0 / float(scale), unless_set=True)
+    return made
 
 
 @cad_tool(summary="Delete a sheet tab and everything drawn on it.", cost="destructive")

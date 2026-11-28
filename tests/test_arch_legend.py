@@ -144,7 +144,7 @@ async def test_a_lighting_sheet_legend_merges_filters_folds_and_warns(backend):
         ("czujka ruchu", "czujka ruchu", 0),
     ]
     paper = backend._doc.layouts.get("A3")
-    lines = [e for e in paper if e.dxftype() == "LINE" and e.dxf.linetype == "DASHED"]
+    lines = [e for e in paper if e.dxftype() == "LINE" and e.dxf.linetype == "ACAD_ISO02W100"]
     assert len(lines) == 1 and lines[0].dxf.lineweight == 70  # the pendant track's sample
     samples = {e.dxf.name for e in paper if e.dxftype() == "INSERT"}
     assert {"K", "ARCH_E_MOTION_SENSOR_50"} <= samples

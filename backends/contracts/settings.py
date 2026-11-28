@@ -25,6 +25,24 @@ class SettingsContract:
     # Concrete + backend-agnostic: it speaks only the bare sysvar names
     # system_get_variable / system_set_variable accept.
 
+    async def sheet_linetype_scale(self, denominator: float, *, unless_set: bool = False) -> dict:
+        """Round 7: one setting from the sheet scale, so a linetype plots at its
+        pattern size on paper without touching LTSCALE: CANNOSCALE 1:N with
+        MSLTSCALE 1 (model space scales patterns by the annotation scale) and
+        PSLTSCALE 1 (a viewport sizes them in paper units). ``unless_set``
+        keeps an annotation scale other than 1:1. Returns what it wrote."""
+        n = float(denominator)
+        if not math.isfinite(n) or n <= 0:
+            raise ValueError(f"sheet scale: a denominator > 0, got {denominator!r}")
+        current = str(await self.system_get_variable("CANNOSCALE"))
+        if unless_set and current != "1:1":
+            return {"annotation_scale": current, "set": False}
+        name = f"1:{_trim(round(n, 6))}" if n >= 1 else f"{_trim(round(1 / n, 6))}:1"
+        await self.system_set_variable("CANNOSCALE", name)
+        await self.system_set_variable("MSLTSCALE", 1)
+        await self.system_set_variable("PSLTSCALE", 1)
+        return {"annotation_scale": name, "set": True}
+
     async def drawing_settings(self, settings: dict | None = None) -> dict:
         """Read (no args) or apply (with args) common drawing settings.
 

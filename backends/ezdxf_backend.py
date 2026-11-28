@@ -425,6 +425,68 @@ _AUTOCAD_FALLBACK_LINETYPES: dict[str, tuple[str, list[float]]] = {
 }
 
 
+def _iso_pattern(*elements: float) -> list[float]:
+    return [sum(abs(e) for e in elements), *elements]
+
+
+#: acadiso.lin's ISO 128 linetypes, defined for a 1.0 mm pen (ezdxf ships
+#: none of them). An entity's ``ltscale`` is its pen width: at ``ISO_PEN``
+#: (0.25) ISO02's dash is 3 mm and its gap 0.75 mm on paper (round 7).
+_AUTOCAD_FALLBACK_LINETYPES.update(
+    {
+        f"ACAD_ISO{n:02d}W100": (f"ISO {description}", _iso_pattern(*elements))
+        for n, description, elements in (
+            (2, "dash __ __ __ __", (12, -3)),
+            (3, "dash space __    __", (12, -18)),
+            (4, "long-dash dot ____ . ____", (24, -3, 0, -3)),
+            (5, "long-dash double-dot ____ .. ____", (24, -3, 0, -3, 0, -3)),
+            (6, "long-dash triple-dot ____ ... ____", (24, -3, 0, -3, 0, -3, 0, -3)),
+            (7, "dot . . . . .", (0, -3)),
+            (8, "long-dash short-dash ____ __ ____", (24, -3, 6, -3)),
+            (9, "long-dash double-short-dash ____ __ __", (24, -3, 6, -3, 6, -3)),
+            (10, "dash dot __ . __ .", (12, -3, 0, -3)),
+            (11, "double-dash dot __ __ . __", (12, -3, 12, -3, 0, -3)),
+            (12, "dash double-dot __ . . __", (12, -3, 0, -3, 0, -3)),
+            (13, "double-dash double-dot __ __ . .", (12, -3, 12, -3, 0, -3, 0, -3)),
+            (14, "dash triple-dot __ . . . __", (12, -3, 0, -3, 0, -3, 0, -3)),
+            (15, "double-dash triple-dot __ __ . . .", (12, -3, 12, -3, 0, -3, 0, -3, 0, -3)),
+        )
+    }
+)
+#: The pen width our generators draw ISO linetypes at (their ``ltscale``).
+ISO_PEN = 0.25
+#: AutoCAD's named linetypes and the ISO 128 linetype that draws the same idea;
+#: a variant (HIDDEN2, CENTERX2) reads by its base name.
+ISO_EQUIVALENT = {
+    "DASHED": "ACAD_ISO02W100",
+    "HIDDEN": "ACAD_ISO02W100",
+    "CENTER": "ACAD_ISO04W100",
+    "PHANTOM": "ACAD_ISO05W100",
+    "DOT": "ACAD_ISO07W100",
+    "DASHDOT": "ACAD_ISO10W100",
+    "DIVIDE": "ACAD_ISO12W100",
+    "BORDER": "ACAD_ISO11W100",
+}
+
+
+def linetype_paper_note(doc, name: str) -> dict:
+    """Round 7: a named (non-ISO) linetype in a metric drawing answers its dash
+    on paper (LTSCALE x the pattern's first dash, PSLTSCALE / MSLTSCALE 1) and
+    its ISO equivalent, so DASHED's 12.7 mm is a choice, not a surprise."""
+    if doc.header.get("$MEASUREMENT", 1) != 1:
+        return {}
+    import re
+
+    iso = ISO_EQUIVALENT.get(re.sub(r"(X2|2)$", "", str(name).upper()))
+    if iso is None or name.upper() not in doc.linetypes:
+        return {}
+    dashes = [e for e in doc.linetypes.get(name).simplified_line_pattern()[::2] if e > 0]
+    if not dashes:
+        return {}
+    ltscale = float(doc.header.get("$LTSCALE", 1.0) or 1.0)
+    return {"paper_dash_mm": round(dashes[0] * ltscale, 2), "iso": iso, "iso_ltscale": ISO_PEN}
+
+
 def _standard_linetypes(doc):
     """ezdxf's standard linetypes, in the drawing's own units.
 
@@ -475,8 +537,10 @@ LINETYPE_PLOT_FACTOR_LIMIT = 5.0
 #: Round 5 (A8): one advice whatever the current state - the setting that
 #: plots every viewport's patterns at their size, at any scale.
 LINETYPE_SHEET_FIX = (
-    "the sheet setting is PSLTSCALE 1 with LTSCALE 1, at every viewport scale "
-    "(drawing_settings({ltscale: 1, psltscale: true}))"
+    "LTSCALE stays 1 with PSLTSCALE 1, at every viewport scale; the sheet scale is "
+    "CANNOSCALE 1:N with MSLTSCALE 1, set by drawing_plan, arch_plan_from_spec and "
+    "viewport_create (drawing_settings({ltscale: 1, psltscale: true})); for 3 mm dashes "
+    "use ACAD_ISO02W100 at ltscale 0.25"
 )
 
 
@@ -9139,10 +9203,14 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 f"Linetype '{name}' is not in ezdxf's standard set or the "
                 "AutoCAD fallback table. Available standards: CENTER*, DASHED*, "
                 "DASHDOT*, PHANTOM*, DOT*, DIVIDE*. Available fallbacks: "
-                "HIDDEN*, BORDER*. Load a custom .lin file in AutoCAD."
+                "HIDDEN*, BORDER*, ACAD_ISO02W100-15W100. Load a custom .lin file in AutoCAD."
             )
 
-        return await self._async(_sync)
+        result = await self._async(_sync)
+        note = await self._async(
+            lambda: linetype_paper_note(self._require_doc(), result["name"]), readonly=True
+        )
+        return {**result, **note}
 
     # ── block operations ──────────────────────────────────────────────────────
 
@@ -10865,6 +10933,8 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 return self._dictionary_variable(doc, "CANNOSCALE", "1:1")
             if key == "CANNOSCALEVALUE":
                 return scale_value(self._dictionary_variable(doc, "CANNOSCALE", "1:1"))
+            if key == "MSLTSCALE":
+                return int(self._dictionary_variable(doc, "MSLTSCALE", "1") or 1)
             if key in _UNSAVED_SYSVARS:
                 return None  # a file holds no value; the template's memory is not one
             raw = doc.header.get(f"${key}", None)
@@ -10899,6 +10969,14 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     vport.dxf.set(attr, 1 if int(value) else 0)
             elif key == "CANNOSCALE":
                 self._set_annotation_scale(doc, value)
+            elif key == "MSLTSCALE":  # a variable-dictionary entry, as CANNOSCALE
+                vardict = self._variable_dictionary(doc, create=True)
+                text = "1" if int(value) else "0"
+                entry = vardict.get("MSLTSCALE")
+                if entry is None:
+                    vardict.add_dict_var("MSLTSCALE", text)
+                else:
+                    entry.dxf.value = text
             elif key == "CANNOSCALEVALUE":
                 raise ValueError(
                     "CANNOSCALEVALUE is read-only; set CANNOSCALE (e.g. '1:50') instead."

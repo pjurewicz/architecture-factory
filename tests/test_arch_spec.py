@@ -394,7 +394,8 @@ async def test_the_reply_is_compact_unless_verbose_and_a_batch_binding_sees_it_a
             )
         ).structured_content
     assert set(compact) - {"unsaved"} == {
-        "rooms", "warnings", "omitted", "plan_bbox", "outer_bbox", "layers", "sheet"
+        "rooms", "warnings", "omitted", "plan_bbox", "outer_bbox", "layers", "sheet",
+        "linetype_scale",
     }  # fmt: skip
     assert compact["rooms"] == [
         {

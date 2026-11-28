@@ -156,7 +156,7 @@ async def test_lighting_kinds_runs_frames_and_a_project_block_carry_their_circui
     assert label.has_xdata(APP_ID)  # K has no L tag: lettered as TEXT beside it
     assert label.dxf.align_point.y < 3875 - 100  # below the symbol, in the room
     assert strip.dxftype() == "LWPOLYLINE" and strip.dxf.lineweight == 50
-    assert track.dxf.linetype == "DASHED"
+    assert (track.dxf.linetype, track.dxf.ltscale) == ("ACAD_ISO02W100", 0.25)  # 3 mm dashes
     assert result["items"][2]["length"] == 2600.0
     assert result["circuits"] == {"SALON 01": 2, "SALON 02": 1}
     frame_texts = sorted(

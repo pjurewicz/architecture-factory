@@ -59,6 +59,8 @@ from engineering.errors import InvalidArgsError
 if TYPE_CHECKING:
     from backends.base import AutoCADBackend
 
+#: The pen width an ISO linetype is drawn at (acadiso.lin is defined for 1.0 mm).
+ISO_PEN = 0.25
 APP_ID = "ACADMCP_SERVICE"
 RECORD_KINDS = ("device", "run", "frame", "dim")
 SYMBOL_BASIS = (
@@ -445,7 +447,7 @@ class Run(NamedTuple):
     role: str
     linetype: str  # loaded on demand
     lineweight: int  # 1/100 mm
-    dash: float  # paper mm the linetype's pattern should repeat over (0: continuous)
+    ltscale: float  # the entity's: an ISO linetype's pen width (0: continuous)
     en: str
     pl: str
     tr: str
@@ -469,9 +471,9 @@ RUN_KINDS: dict[str, Run] = {
         Run(
             "track_pendant",
             *_EL,
-            "DASHED",
+            "ACAD_ISO02W100",
             70,
-            4.0,
+            ISO_PEN,
             "pendant track",
             "szynoprzewód wiszący",
             "sarkıt ray",
@@ -479,9 +481,9 @@ RUN_KINDS: dict[str, Run] = {
         Run(
             "circuit_link",
             *_EL,
-            "CENTER",
+            "ACAD_ISO04W100",
             18,
-            8.0,
+            ISO_PEN,
             "circuit link (switch to luminaires)",
             "powiązanie obwodu (łącznik - oprawy)",
             "devre bağlantısı",
@@ -1301,7 +1303,6 @@ def _draw(backend, work, k: float, th: float, color) -> list[dict]:
     doc = backend._require_doc()
     msp = backend._msp()
     h, gap = th * k, LABEL_GAP * k
-    ltscale = float(doc.header.get("$LTSCALE", 1.0) or 1.0)
     out = []
     for job in work:
         row = job["row"]
@@ -1311,11 +1312,9 @@ def _draw(backend, work, k: float, th: float, color) -> list[dict]:
             run = RUN_KINDS[row["kind"]]
             attribs = {**base, "lineweight": run.lineweight}
             if run.linetype != "Continuous":
-                pattern = (
-                    sum(abs(v) for v in doc.linetypes.get(run.linetype).pattern_tags.compile())
-                    or 1.0
-                )
-                attribs.update(linetype=run.linetype, ltscale=run.dash * k / pattern / ltscale)
+                # round 7: the pattern in paper mm through CANNOSCALE / MSLTSCALE,
+                # never x the plot scale (that drew it N times too long in a viewport)
+                attribs.update(linetype=run.linetype, ltscale=run.ltscale)
             poly = msp.add_lwpolyline(row["path"], dxfattribs=attribs)
             payload = {"kind": "run", "trade": trade, "item": row["kind"], "id": poly.dxf.handle}
             if row["circuit"]:

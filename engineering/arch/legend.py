@@ -784,17 +784,22 @@ async def _sample(backend, row: dict, cell, plot_scale: float, u: float):
 
 def _line_sample(backend, row, lo_x, hi_x, y, u, plot_scale):
     """A line across the cell in the run's own layer, linetype and weight; its
-    dashes as long on the sheet as on the plan."""
+    dashes as long on the sheet as on the plan (a linetype's pattern is paper
+    mm in model space and on a layout alike, round 7)."""
     from backends.ezdxf_backend import _entity_info_dxf
 
-    doc = backend._require_doc()
-    ltscale = row["ltscale"] * u / plot_scale
-    if not ltscale and row["linetype"].upper() in doc.linetypes and row["kind"] == "line":
+    ltscale = row["ltscale"]
+    if not ltscale:
         run = elec.RUN_KINDS.get(row.get("item"))
-        pattern = sum(abs(v) for v in doc.linetypes.get(row["linetype"]).pattern_tags.compile())
-        if run and run.dash and pattern:
-            lt = float(doc.header.get("$LTSCALE", 1.0) or 1.0)
-            ltscale = run.dash * u / pattern / lt
+        if run and run.ltscale:
+            ltscale = run.ltscale
+        else:
+            linetype = str(row["linetype"])
+            doc = backend._require_doc()
+            if linetype.upper() == "BYLAYER" and row["layer"] in doc.layers:
+                linetype = doc.layers.get(row["layer"]).dxf.linetype
+            if linetype.upper().startswith("ACAD_ISO"):
+                ltscale = elec.ISO_PEN
     attribs = {
         "layer": row["layer"],
         "linetype": row["linetype"],

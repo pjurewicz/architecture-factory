@@ -600,6 +600,8 @@ def draw_layout(
     )
     # every ezdxf pen "use object"; export_mode drops the no-plot layers
     ctx = _PlotContext(doc, ctb=acadctb.new_ctb(), export_mode=export)
+    if layout.is_modelspace:  # AutoCAD's MSLTSCALE: model patterns x the annotation scale
+        ctx.linetype_scale *= model_linetype_factor(doc)
     psltscale = bool(doc.header.get("$PSLTSCALE", 1))
     frontend = _Frontend(ctx, _glyph_pipeline(out, psltscale), config=config)
     if classify:
@@ -636,6 +638,27 @@ def _class_colour(entity, properties) -> None:
 
 #: PLOTSETTINGS flag "Plot paperspace last" (DXF 70, bit 512).
 PAPERSPACE_LAST = 512
+
+
+def model_linetype_factor(doc) -> float:
+    """What model space multiplies linetype patterns by: the annotation
+    scale's denominator (CANNOSCALE 1:50 -> 50) under MSLTSCALE 1, else 1."""
+    from backends.contracts.settings import parse_scale
+
+    vardict = doc.rootdict.get("AcDbVariableDictionary")
+    if vardict is None:
+        return 1.0
+    ms = vardict.get("MSLTSCALE")
+    if ms is not None and str(ms.dxf.value).strip() == "0":
+        return 1.0
+    entry = vardict.get("CANNOSCALE")
+    if entry is None:
+        return 1.0
+    try:
+        _, paper, drawing = parse_scale(str(entry.dxf.value))
+    except ValueError:
+        return 1.0
+    return drawing / paper if paper > 0 else 1.0
 
 
 def paperspace_last(layout) -> bool:

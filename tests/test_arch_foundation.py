@@ -38,17 +38,17 @@ EXPECTED_LAYERS = {
     "P-SANR-E-N": ("Continuous", 0.25),
     "M-HEAT-E-N": ("Continuous", 0.25),
     "M-VENT-E-N": ("Continuous", 0.25),
-    "A-GRID-E-N": ("CENTER", 0.18),
+    "A-GRID-E-N": ("ACAD_ISO04W100", 0.18),
     "A-ROOM-T-N": ("Continuous", 0.25),
     "A-ROOM-E-N": ("Continuous", 0.13),
     "A-DIMEN-T-N": ("Continuous", 0.18),
     "A-SYMB-T-N": ("Continuous", 0.25),
-    "A-OVHD-E-N": ("HIDDEN", 0.18),
+    "A-OVHD-E-N": ("ACAD_ISO02W100", 0.18),
     "A-FLOR-E-N": ("Continuous", 0.13),
     "A-ELEV-E-N": ("Continuous", 0.50),
     "A-ELEV-FIT-E-N": ("Continuous", 0.25),
     "A-ELEV-TILE-E-N": ("Continuous", 0.13),
-    "A-ELEV-SRV-E-N": ("CENTER", 0.18),
+    "A-ELEV-SRV-E-N": ("ACAD_ISO04W100", 0.18),
     "A-ELEV-T-N": ("Continuous", 0.25),
     "A-CONST-E-N": ("Continuous", 0.05),
 }
@@ -116,8 +116,8 @@ async def test_apply_layer_set_arch_creates_every_layer_with_its_row(backend):
     result = await apply_layer_set(backend, "arch")
     assert all(result[name] == "created" for name in EXPECTED_LAYERS)
     layers = {lyr.name: lyr for lyr in await backend.layer_list()}
-    assert layers["A-GRID-E-N"].linetype.upper() == "CENTER"
-    assert layers["A-OVHD-E-N"].linetype.upper() == "HIDDEN"
+    assert layers["A-GRID-E-N"].linetype.upper() == "ACAD_ISO04W100"
+    assert layers["A-OVHD-E-N"].linetype.upper() == "ACAD_ISO02W100"
     assert layers["A-CONST-E-N"].color == 250
 
 
@@ -338,7 +338,7 @@ async def test_missing_architectural_layers_are_created_with_their_row(backend):
     await draw_prims(backend, [Line((0.0, 0.0), (1000.0, 0.0), "grid")], role_layer=ARCH_ROLE_LAYER)
     layers = {lyr.name: lyr for lyr in await backend.layer_list()}
     grid = layers["A-GRID-E-N"]
-    assert grid.linetype.upper() == "CENTER"
+    assert grid.linetype.upper() == "ACAD_ISO04W100"
     assert grid.color == 1
 
 

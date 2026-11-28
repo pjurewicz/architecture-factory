@@ -346,7 +346,29 @@ async def draw_prims(
         key = type(prim).__name__.lower()
         counts[key] = counts.get(key, 0) + 1
 
+    await _iso_pen(backend, handles)
     return {"handles": handles, "counts": counts}
+
+
+async def _iso_pen(backend, handles) -> None:
+    """Round 7: a line on a layer whose linetype is an ACAD_ISO one (defined
+    for a 1.0 mm pen) takes the pen width as its ltscale, so its dash is 3 mm
+    on paper (the plot scale comes from CANNOSCALE / MSLTSCALE, never here)."""
+    from engineering.arch.services import ISO_PEN
+
+    def _set():
+        doc = backend._require_doc()
+        for handle in handles:
+            e = doc.entitydb.get(handle)
+            if e is None or e.dxftype() not in ("LINE", "ARC", "CIRCLE", "LWPOLYLINE"):
+                continue
+            if e.dxf.get("linetype", "BYLAYER").upper() != "BYLAYER":
+                continue
+            layer = doc.layers.get(e.dxf.layer) if e.dxf.layer in doc.layers else None
+            if layer is not None and layer.dxf.linetype.upper().startswith("ACAD_ISO"):
+                e.dxf.ltscale = ISO_PEN
+
+    await backend._async(_set)
 
 
 async def _ensure_layers(backend, names) -> tuple[str, ...]:
