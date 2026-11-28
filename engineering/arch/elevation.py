@@ -11,9 +11,16 @@ the drawing with its floor-left corner at ``at``. It carries:
   to their head), as frames; a door given a ``hinge`` gets the opening triangle
   whose apex is on the hinge side;
 * the **fittings**: ``skirting`` (along the whole wall by default, interrupted
-  by every opening that comes down into it), ``worktop``, ``base_cabinet``,
-  ``wall_cabinet``, ``mirror``, ``panel``, ``socket`` and ``switch`` (a box of
-  ``size`` x ``size`` per gang around its centre);
+  by every opening that comes down into it), ``worktop``, ``shelf``,
+  ``base_cabinet``, ``wall_cabinet``, ``mirror``, ``panel``, ``niche``,
+  ``socket`` and ``switch`` (a box of ``size`` x ``size`` per gang around its
+  centre). They may overlap: list order is the z-order, and a later fitting
+  hides the lines, circles and labels an earlier one draws inside its box;
+* the **finish zones** (``zones``): rectangles behind every fitting, filled
+  with ``arch_floor_zone``'s engine (:func:`engineering.arch.floor.fill_hatches`,
+  :func:`engineering.arch.tiles.layout`), each the rectangle minus the
+  openings, its ``cut_around`` fittings and every later zone - measured, never
+  typed; every part carries the zone's label as its ``arch_legend`` row;
 * the **service axes**: a centre-line cross at each connection point (water,
   waste, gas, power, data, heating), with its short label;
 * the **dimensions**, as real DIMENSIONs: on the right a chain of every level
@@ -21,7 +28,9 @@ the drawing with its floor-left corner at ``at``. It carries:
   mirror, sills and heads, socket and service centres) and the floor-to-ceiling
   overall; below, a chain of the jambs, the socket and switch centres and the
   service axes, and the overall length. A chain that would only restate the
-  overall one is not drawn (ISO 129-1: each measurement once).
+  overall one is not drawn (ISO 129-1: each measurement once). Zone edges
+  join both chains. ``dimensions``: ``none``, ``cm`` (the drawing's
+  ``arch-cm`` style) or a style name; default the current style.
 
 The wall can be typed (``length`` and ``openings``) or read from the plan: a
 wall drawn with ``arch_wall`` / ``arch_opening``, one of its axis segments and
@@ -61,6 +70,8 @@ FITTING_KINDS: tuple[str, ...] = (
     "wall_cabinet",
     "mirror",
     "panel",
+    "shelf",
+    "niche",
     "socket",
     "switch",
 )
@@ -163,19 +174,26 @@ class Service:
 
 
 @dataclass(frozen=True)
-class Tiling:
-    """Wall tiling: ``tiles.layout`` arguments over the band ``bottom``..``top``.
+class Zone:
+    """A finish zone: a rectangle of the wall and how it is filled.
 
-    ``cut_around`` are the ids the tiles stop at: every opening and, unless the
-    caller names them, every worktop, cabinet and panel (a mirror, a socket and
-    a switch sit on the tiles; a skirting is below ``bottom`` when the caller
-    starts the band on it).
+    ``fill`` holds ``pattern`` (a predefined name or None), ``pattern_scale``,
+    ``angle``, ``joints`` (``[along, across]`` or None) and ``lay`` (the
+    ``tiles.layout`` arguments, or None). ``cut_around`` are the fitting ids
+    the zone stops at; openings and every later zone always cut it.
     """
 
+    id: str
+    x: float
+    width: float
     bottom: float
     top: float
+    label: str | None
+    fill: dict
     cut_around: tuple[str, ...]
-    layout: dict
+    edge: bool = False
+    layer: str | None = None
+    color: int | None = None
 
 
 @dataclass(frozen=True)
@@ -187,7 +205,9 @@ class Elevation:
     fittings: tuple[Fitting, ...]
     services: tuple[Service, ...]
     title: str | None = None
-    tiling: Tiling | None = None
+    zones: tuple[Zone, ...] = ()
+    #: None: the current dimension style; "none": no dimensions; else a style name
+    dimensions: str | None = None
 
 
 # -- field readers ---------------------------------------------------------------
@@ -273,28 +293,40 @@ SPEC_FIELDS = (
     "fittings",
     "services",
     "title",
-    "tiling",
+    "zones",
+    "dimensions",
 )
-#: ``spec.tiling`` fields: the band, what it stops at, and the laying engine's
-#: (``engineering.arch.tiles.layout``) arguments (``start_x`` / ``start_y`` elevation-local).
-TILING_FIELDS = (
+#: ``spec.zones[]`` fields: the rectangle, its legend label, what it stops at, and
+#: ``arch_floor_zone``'s fill fields (``start`` elevation-local).
+ZONE_FIELDS = (
+    "id",
+    "x",
+    "width",
     "bottom",
     "top",
+    "label",
     "cut_around",
-    "tile_length",
-    "tile_width",
+    "edge",
+    "layer",
+    "color",
     "pattern",
-    "joint",
-    "start_x",
-    "start_y",
-    "angle_deg",
+    "pattern_scale",
+    "angle",
+    "joints",
+    "start",
+    "lay",
+    "plank_length",
+    "plank_width",
+    "gap",
     "bond",
+    "cut_angle",
     "waste_pct",
-    "offcut_reuse",
     "kerf",
 )
-#: Fittings the tiles stop at unless ``cut_around`` names others.
-TILE_AROUND_KINDS: tuple[str, ...] = ("worktop", "base_cabinet", "wall_cabinet", "panel")
+_LAY_ARGS = ("plank_length", "plank_width", "gap", "bond", "cut_angle", "waste_pct", "kerf")
+#: Fittings a zone stops at unless ``cut_around`` names others (a mirror, a
+#: niche, a socket and a switch sit on the finish).
+CUT_AROUND_KINDS: tuple[str, ...] = ("worktop", "base_cabinet", "wall_cabinet", "panel", "shelf")
 
 
 def _opening(d, where: str, length: float, height: float, index: int) -> ElevOpening:
@@ -330,6 +362,7 @@ def _fitting(d, where: str, length: float, height: float, index: int) -> Fitting
     allowed = {
         "skirting": {"x", "width", "top"},
         "worktop": {"x", "width", "top", "thickness"},
+        "shelf": {"x", "width", "top", "thickness"},
         "socket": {"x", "y", "size", "gangs"},
         "switch": {"x", "y", "size", "gangs"},
     }.get(kind, {"x", "width", "bottom", "top"}) | {"id", "kind", "label"}
@@ -347,17 +380,18 @@ def _fitting(d, where: str, length: float, height: float, index: int) -> Fitting
         width = _number(d.get("width", length - x), f"{where}.width", minimum=0.0, strict=True)
         bottom = 0.0
         top = _number(_required(d, "top", where), f"{where}.top", minimum=0.0, strict=True)
-    elif kind == "worktop":
+    elif kind in ("worktop", "shelf"):
         x = _number(_required(d, "x", where), f"{where}.x", minimum=0.0)
         width = _number(_required(d, "width", where), f"{where}.width", minimum=0.0, strict=True)
         top = _number(_required(d, "top", where), f"{where}.top", minimum=0.0, strict=True)
-        thickness = _number(
-            d.get("thickness", WORKTOP_THICKNESS), f"{where}.thickness", minimum=0.0, strict=True
-        )
+        thick = d.get("thickness", WORKTOP_THICKNESS if kind == "worktop" else None)
+        if thick is None:
+            raise ValueError(f"{where}.thickness: required for a shelf")
+        thickness = _number(thick, f"{where}.thickness", minimum=0.0, strict=True)
         bottom = top - thickness
         if bottom < -_EPS:
             raise ValueError(
-                f"{where}: a {thickness:g} thick worktop cannot have its top at {top:g}"
+                f"{where}: a {thickness:g} thick {kind} cannot have its top at {top:g}"
             )
     elif kind in ("socket", "switch"):
         cx = _number(_required(d, "x", where), f"{where}.x", minimum=0.0)
@@ -446,11 +480,6 @@ def parse_elevation(spec, *, lang: str = "en") -> Elevation:
         for b in openings[i + 1 :]:
             if a.x < b.x + b.width - _EPS and b.x < a.x + a.width - _EPS:
                 raise ValueError(f"openings: {a.id} and {b.id} overlap along the wall")
-    solid = [f for f in fittings if f.kind != "skirting"]
-    for i, a in enumerate(solid):
-        for b in solid[i + 1 :]:
-            if _overlap(_box(a), _box(b)):
-                raise ValueError(f"fittings: {a.id} and {b.id} overlap")
     for opening in openings:
         box = _box(opening)
         for fitting in fittings:
@@ -460,67 +489,179 @@ def parse_elevation(spec, *, lang: str = "en") -> Elevation:
             if box[0] < service.x < box[1] and box[2] < service.y < box[3]:
                 raise ValueError(f"services: {service.id} lies inside opening {opening.id}")
     title = _label(spec.get("title"), "spec.title")
-    tiling = None
-    if spec.get("tiling") is not None:
-        tiling = _tiling(spec["tiling"], length, height, openings, fittings)
-    return Elevation(length, height, floor_level, openings, fittings, services, title, tiling)
+    zones_in = _list(spec.get("zones"), "spec.zones")
+    zones = tuple(
+        _zone(d, f"zones[{i}]", length, height, fittings, i) for i, d in enumerate(zones_in)
+    )
+    for i, zone in enumerate(zones):
+        if zone.id in seen:
+            raise ValueError(f"zones[{i}].id: {zone.id!r} is already used by {seen[zone.id]}")
+        seen[zone.id] = f"zones[{i}]"
+    dims = spec.get("dimensions")
+    if dims is not None and (not isinstance(dims, str) or not dims.strip()):
+        raise ValueError(f"spec.dimensions: none, cm or a dimension style name, got {dims!r}")
+    model = Elevation(
+        length, height, floor_level, openings, fittings, services, title, zones,
+        dims.strip() if dims else None,
+    )  # fmt: skip
+    for i in range(len(zones)):
+        zone_fill(model, i, scale=1.0)  # refuses an empty zone or a bad lay before drawing
+    return model
 
 
-def _tiling(d, length: float, height: float, openings, fittings) -> Tiling:
-    where = "spec.tiling"
-    _known(d, where, TILING_FIELDS)
+def _zone(d, where: str, length: float, height: float, fittings, index: int) -> Zone:
+    """One ``spec.zones[]`` row; the fill is checked by :func:`zone_fill`."""
+    from backends.ezdxf_backend import _hatch_pattern
+    from engineering.arch.floor import check_joints
+    from engineering.arch.tiles import PATTERNS
+
+    _known(d, where, ZONE_FIELDS)
+    x = _number(d.get("x", 0.0), f"{where}.x", minimum=0.0)
+    width = _number(d.get("width", length - x), f"{where}.width", minimum=0.0, strict=True)
     bottom = _number(d.get("bottom", 0.0), f"{where}.bottom", minimum=0.0)
     top = _number(d.get("top", height), f"{where}.top", minimum=0.0)
-    if top > height + _EPS:
-        raise ValueError(f"{where}.top: {top:g} is above the {height:g} ceiling")
     if top <= bottom + _EPS:
         raise ValueError(f"{where}: top {top:g} must be above bottom {bottom:g}")
-    ids = {f.id: f for f in fittings}
+    if x + width > length + _EPS or top > height + _EPS:
+        raise ValueError(f"{where}: runs past the {length:g} x {height:g} wall")
+    ids = {f.id for f in fittings}
     if d.get("cut_around") is None:
-        around = [f.id for f in fittings if f.kind in TILE_AROUND_KINDS]
+        around = tuple(f.id for f in fittings if f.kind in CUT_AROUND_KINDS)
     else:
-        around = []
-        for i, name in enumerate(_list(d["cut_around"], f"{where}.cut_around")):
+        around = tuple(_list(d["cut_around"], f"{where}.cut_around"))
+        for i, name in enumerate(around):
             if name not in ids:
                 raise ValueError(
                     f"{where}.cut_around[{i}]: {name!r} is not a fitting; the fittings are "
-                    f"{', '.join(ids) or 'none'} (openings are always cut around)"
+                    f"{', '.join(sorted(ids)) or 'none'} (openings are always cut around)"
                 )
-            around.append(name)
-    for key in ("tile_length", "tile_width"):
-        _required(d, key, where)
-    args = {k: d[k] for k in TILING_FIELDS[3:] if k in d and k not in ("start_x", "start_y")}
-    args["length"] = args.pop("tile_length")
-    args["width"] = args.pop("tile_width")
-    if ("start_x" in d) != ("start_y" in d):
-        raise ValueError(f"{where}.start_x / start_y: give both or neither")
-    if "start_x" in d:
-        args["start"] = (d["start_x"], d["start_y"])
-    band = (0.0, length, bottom, top)
-    cutouts = []
-    for item in (*openings, *(ids[name] for name in around)):
-        b = _box(item)
-        x0, x1 = max(b[0], band[0]), min(b[1], band[1])
-        y0, y1 = max(b[2], band[2]), min(b[3], band[3])
-        if x1 - x0 > _EPS and y1 - y0 > _EPS:
-            cutouts.append({"points": [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], "label": item.id})
-    args["cutouts"] = cutouts
-    args["outline"] = [[0.0, bottom], [length, bottom], [length, top], [0.0, top]]
-    tiling = Tiling(bottom, top, tuple(around), args)
-    tile_pieces(tiling)  # refuses a bad size, pattern or count now, before anything is drawn
-    return tiling
+    pattern = d.get("pattern")
+    if isinstance(pattern, str) and pattern.strip().lower() == "none":
+        pattern = None
+    elif pattern is not None:
+        try:
+            pattern = _hatch_pattern(pattern)
+        except Exception as exc:  # the backend's invalid_args, named by path here
+            raise ValueError(f"{where}.pattern: {exc}") from None
+    joints = check_joints(d.get("joints"), f"{where}.joints")
+    start = d.get("start")
+    if start is not None:
+        if not isinstance(start, (list, tuple)) or len(start) != 2:
+            raise ValueError(f"{where}.start: give [x, y], elevation-local mm")
+        start = tuple(_number(v, f"{where}.start") for v in start)
+    lay = d.get("lay")
+    fill = {
+        "pattern": pattern,
+        "pattern_scale": _number(d.get("pattern_scale", 1.0), f"{where}.pattern_scale",
+                                 minimum=0.0, strict=True),
+        "angle": _number(d.get("angle", 0.0), f"{where}.angle"),
+        "joints": joints,
+        "start": start,
+        "lay": None,
+    }  # fmt: skip
+    if lay is not None:
+        lay = _choice(lay, f"{where}.lay", PATTERNS)
+        if joints is not None:
+            raise ValueError(f"{where}.joints: lay draws the joints of its pieces; give one")
+        for key in ("plank_length", "plank_width"):
+            _required(d, key, where)
+        fill["lay"] = {"pattern": lay, **{k: d[k] for k in _LAY_ARGS if k in d}}
+    else:
+        extra = sorted(k for k in _LAY_ARGS if k in d)
+        if extra:
+            raise ValueError(f"{where}.{extra[0]}: only with lay")
+    edge = bool(d.get("edge", False))
+    if pattern is None and joints is None and lay is None and not edge:
+        raise ValueError(f"{where}: give pattern, joints, lay or edge; it draws nothing")
+    color = d.get("color")
+    if color is not None and (isinstance(color, bool) or not isinstance(color, int)):
+        raise ValueError(f"{where}.color: an ACI number, got {color!r}")
+    return Zone(
+        _label(d.get("id"), f"{where}.id") or f"Z{index + 1}",
+        x, width, bottom, top,
+        _label(d.get("label"), f"{where}.label"),
+        fill, around, edge,
+        _label(d.get("layer"), f"{where}.layer"),
+        color,
+    )  # fmt: skip
 
 
-def tile_pieces(tiling: Tiling) -> dict:
-    """``engineering.arch.tiles.layout`` over the band; refusals named under ``spec.tiling``."""
-    from engineering.arch.tiles import layout
+def _rect_pts(box) -> tuple[Pt, ...]:
+    x0, x1, y0, y1 = box
+    return ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
 
-    args = dict(tiling.layout)
-    outline = args.pop("outline")
-    try:
-        return layout(outline, **args)
-    except ValueError as exc:
-        raise ValueError(f"spec.tiling.{exc}") from None
+
+def zone_fill(model: Elevation, index: int, *, scale: float) -> dict:
+    """What zone ``index`` fills: its rectangle minus the openings, the
+    ``cut_around`` fittings and every later zone, measured by the tiles engine.
+
+    ``{zone, loops, area, cutouts, pattern, joints, lay, warnings}``: ``pattern``
+    ``{name, hatch_scale, period_mm, repeats}``, ``joints`` ``{spacing_mm,
+    period_mm, repeats}``, ``lay`` the ``tiles.layout`` result plus its ``args``.
+    """
+    from engineering.arch.floor import _LAY_NAMES, _fill_report, fill_period, hatch_scale
+    from engineering.arch.tiles import Region, clip, layout
+
+    zone = model.zones[index]
+    where = f"zones[{index}]"
+    box = (zone.x, zone.x + zone.width, zone.bottom, zone.top)
+    fittings = {f.id: f for f in model.fittings}
+    covers = [
+        *((o.id, _box(o)) for o in model.openings),
+        *((name, _box(fittings[name])) for name in zone.cut_around),
+        *((z.id, (z.x, z.x + z.width, z.bottom, z.top)) for z in model.zones[index + 1 :]),
+    ]
+    cutouts, labels = [], []
+    for name, b in covers:
+        cut = (max(b[0], box[0]), min(b[1], box[1]), max(b[2], box[2]), min(b[3], box[3]))
+        if cut[1] - cut[0] > _EPS and cut[3] - cut[2] > _EPS:
+            cutouts.append(_rect_pts(cut))
+            labels.append(name)
+    outline = _rect_pts(box)
+    pad = 1.0 + max(zone.width, zone.top - zone.bottom)
+    cover = _rect_pts((box[0] - pad, box[1] + pad, box[2] - pad, box[3] + pad))
+    area, loops = clip(cover, Region.of(outline, cutouts))
+    if area <= _EPS or not loops:
+        raise ValueError(f"{where}: nothing of it is left once {', '.join(labels)} cut it")
+    side = min(zone.width, zone.top - zone.bottom)
+    fill = zone.fill
+    out = {"zone": zone, "loops": loops, "area": area, "cutouts": labels, "warnings": []}
+    if fill["pattern"] not in (None, "SOLID"):
+        from ezdxf.tools.pattern import ISO_PATTERN
+
+        name = fill["pattern"]
+        pscale = hatch_scale(name, scale, fill["pattern_scale"])
+        row, warn = _fill_report(name, fill_period(ISO_PATTERN[name], pscale), side)
+        out["pattern"] = {"name": name, "hatch_scale": pscale, **row}
+        out["warnings"] += [warn] if warn else []
+    elif fill["pattern"] == "SOLID":
+        out["pattern"] = {"name": "SOLID", "hatch_scale": 1.0}
+    if fill["joints"] is not None:
+        row, warn = _fill_report("joints", max(fill["joints"]), side)
+        out["joints"] = {"spacing_mm": fill["joints"], **row}
+        out["warnings"] += [warn] if warn else []
+    if fill["lay"] is not None:
+        lay = fill["lay"]
+        args = {
+            "length": lay["plank_length"], "width": lay["plank_width"], "pattern": lay["pattern"],
+            "joint": lay.get("gap", 3.0), "start": fill["start"], "angle_deg": fill["angle"],
+            "bond": lay.get("bond", 0.5), "cut_deg": lay.get("cut_angle", 45.0),
+            "waste_pct": lay.get("waste_pct", 10.0), "kerf": lay.get("kerf", 3.0),
+            "cutouts": [{"points": c, "label": n} for c, n in zip(cutouts, labels, strict=True)],
+        }  # fmt: skip
+        try:
+            laid = layout(outline, **args)
+        except ValueError as exc:
+            text = str(exc)
+            for old, new in _LAY_NAMES:
+                text = text.replace(old, new)
+            raise ValueError(f"{where}.{text}") from None
+        out["lay"] = {**laid, "args": args}
+    if not zone.label and (fill["pattern"] or fill["joints"] or fill["lay"]):
+        out["warnings"].append(
+            {"code": "no_label", "message": f"{where}: no label: arch_legend shows the pattern"}
+        )
+    return out
 
 
 # -- from the plan ---------------------------------------------------------------
@@ -647,13 +788,13 @@ def elevation_levels(model: Elevation) -> list[dict]:
         if f.centre is not None:
             found.append((f.centre, f"{f.id}.centre"))
             continue
-        if f.bottom > _LEVEL_TOL and f.kind != "worktop":
+        if f.bottom > _LEVEL_TOL and f.kind not in ("worktop", "shelf"):
             found.append((f.bottom, f"{f.id}.bottom"))
         found.append((f.top, f"{f.id}.top"))
     for s in model.services:
         found.append((s.y, f"{s.id}.axis"))
-    if model.tiling is not None:
-        found += [(model.tiling.bottom, "tiling.bottom"), (model.tiling.top, "tiling.top")]
+    for z in model.zones:
+        found += [(z.bottom, f"{z.id}.bottom"), (z.top, f"{z.id}.top")]
     levels: list[dict] = []
     for value, source in sorted(found, key=lambda pair: pair[0]):
         if levels and value - levels[-1]["level"] <= _LEVEL_TOL:
@@ -671,6 +812,8 @@ def _positions(model: Elevation) -> list[float]:
         if f.kind in ("socket", "switch"):
             xs.append(f.x + f.width / 2.0)
     xs += [s.x for s in model.services]
+    for z in model.zones:
+        xs += [z.x, z.x + z.width]
     out: list[float] = []
     for x in sorted(xs):
         if not out or x - out[-1] > _LEVEL_TOL:
@@ -686,6 +829,8 @@ def elevation_dimensions(model: Elevation, *, scale: float) -> tuple[DimIntent, 
     its overall row is not emitted.
     """
     k = _number(scale, "scale", minimum=0.0, strict=True)
+    if model.dimensions is not None and model.dimensions.lower() == "none":
+        return ()
     first, step = FIRST_OFFSET_PAPER_MM * k, STEP_PAPER_MM * k
     L, H = model.length, model.height
     intents: list[DimIntent] = []
@@ -748,6 +893,62 @@ def _skirting_pieces(f: Fitting, openings) -> list[tuple[float, float]]:
     return pieces
 
 
+def _inside_box(p: Pt, b) -> bool:
+    return b[0] + _EPS < p[0] < b[1] - _EPS and b[2] + _EPS < p[1] < b[3] - _EPS
+
+
+def _visible(p: Pt, q: Pt, boxes) -> list[tuple[Pt, Pt]]:
+    """The parts of segment p-q outside the interior of every box (Liang-Barsky)."""
+    spans = [(0.0, 1.0)]
+    dx, dy = q[0] - p[0], q[1] - p[1]
+    for b in boxes:
+        t0, t1 = 0.0, 1.0
+        for d, lo, hi, o in ((dx, b[0], b[1], p[0]), (dy, b[2], b[3], p[1])):
+            if abs(d) < 1e-12:  # along the box: hidden only strictly inside it
+                if not lo + _EPS < o < hi - _EPS:
+                    t0, t1 = 1.0, 0.0
+                continue
+            a, c = (lo - o) / d, (hi - o) / d
+            t0, t1 = max(t0, min(a, c)), min(t1, max(a, c))
+        if t1 - t0 <= 1e-9:
+            continue
+        spans = [
+            piece
+            for s0, s1 in spans
+            for piece in ((s0, min(s1, t0)), (max(s0, t1), s1))
+            if piece[1] - piece[0] > 1e-9
+        ]
+    if spans == [(0.0, 1.0)]:
+        return [(p, q)]
+    return [
+        ((p[0] + dx * s0, p[1] + dy * s0), (p[0] + dx * s1, p[1] + dy * s1)) for s0, s1 in spans
+    ]
+
+
+def _hidden(prims, boxes) -> list[Prim]:
+    """``prims`` with what lies inside a later fitting's box taken out (z-order)."""
+    if not boxes:
+        return list(prims)
+    out: list[Prim] = []
+    for prim in prims:
+        if isinstance(prim, (Line, Poly)):
+            pts = (prim.p1, prim.p2) if isinstance(prim, Line) else prim.points
+            n = len(pts) if isinstance(prim, Poly) and prim.closed else len(pts) - 1
+            edges = [(pts[i], pts[(i + 1) % len(pts)]) for i in range(n)]
+            kept = [(e, _visible(*e, boxes)) for e in edges]
+            if isinstance(prim, Poly) and all(v == [e] for e, v in kept):
+                out.append(prim)
+                continue
+            out += [Line(a, b, prim.role) for _e, v in kept for a, b in v]
+        elif isinstance(prim, (Circle, Text)):
+            at = prim.center if isinstance(prim, Circle) else prim.at
+            if not any(_inside_box(at, b) for b in boxes):
+                out.append(prim)
+        else:
+            out.append(prim)
+    return out
+
+
 def elevation_prims(model: Elevation, *, lang: str = "en", scale: float = 20) -> tuple[Prim, ...]:
     """The outline, level marks, openings, fittings, service axes and title - elevation-local."""
     k = _number(scale, "scale", minimum=0.0, strict=True)
@@ -771,22 +972,25 @@ def elevation_prims(model: Elevation, *, lang: str = "en", scale: float = 20) ->
             mid = (op.sill + op.head) / 2.0
             prims.append(Line((fx, op.sill), (hx, mid), "elev_fitting"))
             prims.append(Line((hx, mid), (fx, op.head), "elev_fitting"))
+    groups: list[tuple[tuple, list[Prim]]] = []  # per fitting, in z-order
     for f in model.fittings:
         box = _box(f)
+        own: list[Prim] = []
+        groups.append((box, own))
         if f.kind == "skirting":
             for lo, hi in _skirting_pieces(f, model.openings):
-                prims.append(_rect(lo, 0.0, hi, f.top, "elev_fitting"))
+                own.append(_rect(lo, 0.0, hi, f.top, "elev_fitting"))
             continue
-        prims.append(_rect(box[0], box[2], box[1], box[3], "elev_fitting"))
+        own.append(_rect(box[0], box[2], box[1], box[3], "elev_fitting"))
         if f.kind in ("socket", "switch"):
             size = f.width / f.gangs
             for g in range(f.gangs):
                 cx = f.x + size * (g + 0.5)
                 if f.kind == "socket":
-                    prims.append(Circle((cx, f.centre), 0.3 * size, "elev_fitting"))
+                    own.append(Circle((cx, f.centre), 0.3 * size, "elev_fitting"))
                 else:
                     q = 0.2 * size
-                    prims.append(
+                    own.append(
                         _rect(
                             cx - q, f.centre - 1.5 * q, cx + q, f.centre + 1.5 * q, "elev_fitting"
                         )
@@ -796,11 +1000,13 @@ def elevation_prims(model: Elevation, *, lang: str = "en", scale: float = 20) ->
             d = min(w, t) / 4.0
             for i in (1, 2):
                 ox = box[0] + w * (0.15 + 0.1 * i)
-                prims.append(
+                own.append(
                     Line((ox, box[3] - t * 0.15 - d), (ox + d, box[3] - t * 0.15), "elev_fitting")
                 )
         if f.label and box[1] - box[0] > (len(f.label) * 0.6 + 1.0) * h and box[3] - box[2] > 2 * h:
-            prims.append(_label_in(box, f.label, h))
+            own.append(_label_in(box, f.label, h))
+    for i, (_box_i, own) in enumerate(groups):
+        prims += _hidden(own, [b for b, _ in groups[i + 1 :]])
     arm = SERVICE_ARM_PAPER_MM * k
     r = SERVICE_RADIUS_PAPER_MM * k
     for s in model.services:

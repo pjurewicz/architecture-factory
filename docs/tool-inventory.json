@@ -3923,7 +3923,7 @@
       "name": "interior_wall_elevation",
       "group": "architecture",
       "cost": "mutate",
-      "summary": "Draw an interior wall elevation at 1:20 / 1:25: openings, levels, fittings, service axes, height dimensions.",
+      "summary": "Interior wall elevation: openings, levels, fittings, finish zones, service axes, dimensions.",
       "acad": [],
       "synonyms": [
         "interior elevation",
@@ -3932,6 +3932,8 @@
         "kitchen elevation",
         "bathroom elevation",
         "tiling elevation",
+        "wall finish zones",
+        "fluted panel",
         "height dimensions of sockets and worktop",
         "service connection axes",
         "klad sciany",

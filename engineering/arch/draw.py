@@ -778,14 +778,74 @@ async def draw_chains(
     }
 
 
-async def draw_dimension_intents(backend, intents, *, scale=50) -> tuple[list[str], list[dict]]:
+def dimstyle_for(doc, wanted: str | None) -> str | None:
+    """The dimension style ``wanted`` names: None (the current one), ``cm`` (the
+    style made from the ``arch-cm`` preset - DIMLFAC 0.1, DIMRND 0.5, DIMDEC 1 -
+    the current one first) or a style name; refused with the styles there are."""
+    if wanted is None:
+        return None
+    styles = {s.dxf.name: s for s in doc.dimstyles}
+    if wanted.lower() == "cm":
+        from engineering.standards.dimstyles import ARCH_CM
+
+        def cm(s):
+            return all(
+                math.isclose(float(s.dxf.get(k.lower(), 0) or 0), float(ARCH_CM[k]))
+                for k in ("DIMLFAC", "DIMRND", "DIMDEC")
+            )
+
+        found = sorted(name for name, s in styles.items() if cm(s))
+        current = doc.header.get("$DIMSTYLE", "")
+        if current in found:
+            return current
+        if len(found) == 1:
+            return found[0]
+        raise ValueError(
+            "spec.dimensions: cm needs one dimension style from the arch-cm preset; "
+            + (f"several are ({', '.join(found)}): name one" if found else
+               "there is none: dimstyle_create(name, preset='arch-cm') first")
+        )  # fmt: skip
+    match = next((n for n in styles if n.lower() == wanted.lower()), None)
+    if match is None:
+        raise ValueError(
+            f"spec.dimensions: {wanted!r} is not none, cm or a dimension style; the styles "
+            f"are {', '.join(sorted(styles))}"
+        )
+    return match
+
+
+async def draw_dimension_intents(
+    backend, intents, *, scale=50, dimstyle: str | None = None
+) -> tuple[list[str], list[dict]]:
     """Linear ``DimIntent`` rows (``feature`` = ``"<side>:<row>"``) as real DIMENSIONs.
 
     Drawn on the dimension layer at DIMSCALE = ``scale``, the drawing's own
     DIMSCALE put back afterwards; the texts are placed by
     ``chain_text_positions``. Shared by the plan chains and the interior
-    elevations. Returns the handles and one row per dimension.
+    elevations. Returns the handles and one row per dimension. ``dimstyle``
+    draws them with that style, the current style and every ``$DIM*`` header
+    variable put back afterwards.
     """
+    if dimstyle is None:
+        return await _draw_dimension_intents(backend, intents, scale=scale)
+
+    def header(saved=None):
+        h = backend._require_doc().header
+        if saved is None:
+            return {k: h.get(k) for k in h.varnames() if k.startswith("$DIM")}
+        for k, v in saved.items():
+            h[k] = v
+        return saved
+
+    saved = await backend._async(header, readonly=True)
+    await backend.dimstyle_set_current(dimstyle)
+    try:
+        return await _draw_dimension_intents(backend, intents, scale=scale)
+    finally:
+        await backend._async(lambda: header(saved))
+
+
+async def _draw_dimension_intents(backend, intents, *, scale=50):
     layer = ARCH_ROLE_LAYER["dim"]
     await ensure_arch_layers(backend, [layer])
     factor = float(scale)
@@ -807,6 +867,7 @@ async def draw_dimension_intents(backend, intents, *, scale=50) -> tuple[list[st
                 "dimdsep",
                 "dimrnd",
                 "dimpost",
+                "dimlfac",
             )
         }
         texts = chain_text_positions(
@@ -912,23 +973,21 @@ async def draw_interior_elevation(
     model = elev.parse_elevation(spec, lang=lang)
     prims = translate(elev.elevation_prims(model, lang=lang, scale=scale), ox, oy)
     intents = elev.shift_intents(elev.elevation_dimensions(model, scale=scale), ox, oy)
-    tiles = elev.tile_pieces(model.tiling) if model.tiling is not None else None
-    tile_layer = ARCH_ROLE_LAYER["elev_tile"]
+    fills = [elev.zone_fill(model, i, scale=scale) for i in range(len(model.zones))]
+    style = None
+    if intents:
+        style = dimstyle_for(backend._require_doc(), model.dimensions)
 
     async def job():
         drawn = await draw_prims(
             backend, prims, role_layer=ARCH_ROLE_LAYER, annotation="interior_wall_elevation"
         )
-        tile_handles: list[str] = []
-        if tiles is not None:
-            tile_handles = await draw_tile_pieces(
-                backend, tiles["pieces"], tile_layer, offset=(ox, oy), what="spec.tiling"
-            )
-        dims, rows = await draw_dimension_intents(backend, intents, scale=scale)
-        return drawn, tile_handles, dims, rows
+        zone_handles = await draw_zone_fills(backend, fills, offset=(ox, oy)) if fills else []
+        dims, rows = await draw_dimension_intents(backend, intents, scale=scale, dimstyle=style)
+        return drawn, zone_handles, dims, rows
 
     if dry_run:
-        drawn, tile_handles, dims = {"handles": [], "counts": {}}, [], []
+        drawn, zone_handles, dims = {"handles": [], "counts": {}}, [{} for _ in fills], []
         rows = [
             {
                 "row": i.feature,
@@ -939,9 +998,11 @@ async def draw_interior_elevation(
             for i in intents
         ]
     else:
-        drawn, tile_handles, dims, rows = await guarded_transaction(
+        drawn, zone_handles, dims, rows = await guarded_transaction(
             backend, job, what="interior_wall_elevation", done="drawn"
         )
+    zone_rows = [zone_summary(f, h) for f, h in zip(fills, zone_handles, strict=True)]
+    zone_layers = {row["layer"] for row in zone_rows}
     result = {
         "dry_run": bool(dry_run),
         "ok": True,
@@ -956,25 +1017,27 @@ async def draw_interior_elevation(
             for o in model.openings
         ],
         "dimensions": rows,
+        **({"dimstyle": style} if style else {}),
         "handles": drawn["handles"],
         "dimension_handles": dims,
-        "counts": {**drawn["counts"], "dimension": len(dims), "tile_piece": len(tile_handles)},
+        "counts": {
+            **drawn["counts"],
+            "dimension": len(dims),
+            "zone_part": sum(len(h.get("all", ())) for h in zone_handles),
+        },
         "layers": sorted(
-            {
-                ARCH_ROLE_LAYER[r]
-                for r in ("elev_outline", "elev_fitting", "elev_text", "symbol", "dim")
-            }
+            {ARCH_ROLE_LAYER[r] for r in ("elev_outline", "elev_fitting", "elev_text", "symbol")}
+            | ({ARCH_ROLE_LAYER["dim"]} if intents else set())
             | ({ARCH_ROLE_LAYER["elev_service"]} if model.services else set())
-            | ({tile_layer} if tiles is not None else set())
+            | zone_layers
         ),
         "backend": backend.name,
     }
-    if tiles is not None:
-        result["tiling"] = {
-            **tile_summary(tiles, model.tiling.layout, layer=tile_layer, handles=tile_handles),
-            "bottom": model.tiling.bottom,
-            "top": model.tiling.top,
-        }
+    if zone_rows:
+        result["zones"] = zone_rows
+        warnings = [w for f in fills for w in f["warnings"]]
+        if warnings:
+            result["warnings"] = warnings
     if stretch is not None:
         result["plan"] = {
             "wall": from_plan["wall"],
@@ -987,55 +1050,118 @@ async def draw_interior_elevation(
     return result
 
 
-# -- wall tiles ----------------------------------------------------------------------
+# -- wall finish zones ---------------------------------------------------------------
 
 
-def tile_summary(result: dict, args: dict, *, layer: str, handles: list[str]) -> dict:
-    """The tile keys an elevation's wall tiling answers with, drawn or dry run alike.
-
-    ``result`` is ``engineering.arch.tiles.layout``'s, ``args`` the arguments
-    it was called with; ``start`` is elevation-local, ``cutouts`` names what
-    the tiles stop at.
-    """
-    cut = [p for p in result["pieces"] if not p.full]
-    tile_area = float(args["length"]) * float(args["width"])
-    return {
-        "layer": layer,
-        "start": list(result["origin"]),
-        "pattern": args.get("pattern", "grid"),
-        "cutouts": result["cutout_labels"],
-        "takeoff": result["takeoff"],
-        "smallest_cut_share": round(min(p.area for p in cut) / tile_area, 4) if cut else None,
-        "handles": list(handles),
-        "count": len(handles),
+def zone_summary(fill: dict, handles: dict) -> dict:
+    """A zone's result row, drawn or dry run alike: measured area, fills,
+    the lay takeoff (``start`` elevation-local), what cuts it and its handles."""
+    zone = fill["zone"]
+    row = {
+        "id": zone.id,
+        **({"label": zone.label} if zone.label else {}),
+        "layer": zone.layer or ARCH_ROLE_LAYER["elev_tile"],
+        "area_m2": round(fill["area"] / 1e6, 4),
+        "cutouts": fill["cutouts"],
     }
+    for key in ("pattern", "joints"):
+        if key in fill:
+            row[key] = fill[key]
+    if "lay" in fill:
+        laid, args = fill["lay"], fill["lay"]["args"]
+        cut = [p for p in laid["pieces"] if not p.full]
+        tile_area = float(args["length"]) * float(args["width"])
+        row["lay"] = {
+            "pattern": args["pattern"],
+            "start": list(laid["origin"]),
+            "takeoff": laid["takeoff"],
+            "smallest_cut_share": round(min(p.area for p in cut) / tile_area, 4) if cut else None,
+        }
+    row["handles"] = {k: v for k, v in handles.items() if k != "all"}
+    return row
 
 
-async def draw_tile_pieces(
-    backend, pieces, layer: str, *, offset=(0.0, 0.0), what: str
-) -> list[str]:
-    """Every loop of every tile piece as a closed polyline on ``layer``, in one batch.
+async def draw_zone_fills(backend, fills, *, offset=(0.0, 0.0)) -> list[dict]:
+    """Every zone's fills (``arch_floor_zone``'s engine: pattern and joints
+    HATCHes, laid pieces, edge) at ``offset``, each part tagged ``ACADMCP_ANNOT``
+    with the zone's label as its ``legend`` (``arch_legend``'s row) and the
+    zone as its ``set``; sent to the back of the draw order. Inside the caller's
+    transaction. One handles dict per zone, ``all`` listing every part."""
+    from backends.xdata_specs import encode_values
+    from engineering.annotation_record import APP_ID, annotation_values
+    from engineering.arch.floor import fill_hatches
 
-    The wall tiling of an interior elevation calls it inside a transaction, so
-    a piece that fails raises and the rollback takes back everything drawn.
-    """
     dx, dy = float(offset[0]), float(offset[1])
-    await ensure_arch_layers(backend, [layer])
-    made = await backend.entity_batch_create(
-        [
-            {
-                "type": "polyline",
-                "points": [[x + dx, y + dy] for x, y in loop],
-                "closed": True,
-                "layer": layer,
-            }
-            for piece in pieces
-            for loop in piece.loops
-        ]
+    await ensure_arch_layers(
+        backend, sorted({ARCH_ROLE_LAYER["elev_tile"]} - {f["zone"].layer for f in fills})
     )
-    if made["errors"]:
-        raise ValueError(
-            f"{what}: {len(made['errors'])} piece(s) failed to draw: "
-            f"{made['errors'][:3]}; nothing was drawn"
-        )
-    return [row["handle"] for row in made["entities"]]
+    for f in fills:
+        if f["zone"].layer:
+            from engineering.arch.catalogue import _ensure_layer
+
+            await _ensure_layer(backend, f["zone"].layer)
+
+    def move(loop):
+        return [(x + dx, y + dy) for x, y in loop]
+
+    def _draw():
+        doc = backend._require_doc()
+        msp = doc.modelspace()
+        if APP_ID not in doc.appids:
+            doc.appids.add(APP_ID)
+        out = []
+        for f in fills:
+            zone, fill = f["zone"], f["zone"].fill
+            attribs = {"layer": zone.layer or ARCH_ROLE_LAYER["elev_tile"]}
+            if zone.color is not None:
+                attribs["color"] = zone.color
+            loops = [move(loop) for loop in f["loops"]]
+            start = fill["start"] or (zone.x, zone.bottom)
+            handles = fill_hatches(
+                msp,
+                loops,
+                attribs,
+                pattern=fill["pattern"],
+                pscale=f.get("pattern", {}).get("hatch_scale"),
+                angle=fill["angle"],
+                joints=fill["joints"],
+                origin=(start[0] + dx, start[1] + dy),
+            )
+            lay_spec = None
+            if "lay" in f:
+                args = f["lay"]["args"]
+                lay_spec = {  # what arch_legend's sample redraws
+                    "pattern": args["pattern"], "length": float(args["length"]),
+                    "width": float(args["width"]), "gap": float(args["joint"]),
+                    "angle": float(args["angle_deg"]), "bond": float(args["bond"]),
+                    "cut": float(args["cut_deg"]),
+                }  # fmt: skip
+                handles["pieces"] = [
+                    msp.add_lwpolyline(move(loop), close=True, dxfattribs=attribs).dxf.handle
+                    for piece in f["lay"]["pieces"]
+                    for loop in piece.loops
+                ]
+            if zone.edge:
+                handles["edge"] = [
+                    msp.add_lwpolyline(loop, close=True, dxfattribs=attribs).dxf.handle
+                    for loop in loops
+                ]
+            parts = [
+                (h, key) for key, v in handles.items() for h in (v if isinstance(v, list) else [v])
+            ]
+            group = parts[0][0]  # one zone, one legend row: its parts share a set
+            for h, key in parts:
+                tags = annotation_values(
+                    "interior_wall_elevation", h, f"zone:{group}", zone.label,
+                    lay_spec if key == "pieces" else None,
+                )  # fmt: skip
+                doc.entitydb[h].set_xdata(APP_ID, encode_values(tags))
+            out.append({**handles, "all": [h for h, _ in parts]})
+        backend._mark_dirty()
+        return out
+
+    out = await backend._async(_draw)
+    drawn = [h for row in out for h in row["all"]]
+    if drawn:
+        await backend.draw_order(drawn, "send_to_back")
+    return out

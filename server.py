@@ -15253,7 +15253,7 @@ async def arch_symbol(
 
 
 @cad_tool(
-    summary="Draw an interior wall elevation at 1:20 / 1:25: openings, levels, fittings, service axes, height dimensions.",
+    summary="Interior wall elevation: openings, levels, fittings, finish zones, service axes, dimensions.",
     cost="mutate",
 )
 @mcp.tool(
@@ -15261,20 +15261,18 @@ async def arch_symbol(
     tags={"arch", "create"},
 )
 async def interior_wall_elevation(
-    x: Annotated[float, Field(description="WCS X of the elevation's floor-left corner")],
-    y: Annotated[float, Field(description="WCS Y of the elevation's floor-left corner")],
+    x: Annotated[float, Field(description="WCS X of the floor-left corner")],
+    y: Annotated[float, Field(description="WCS Y of the floor-left corner")],
     spec: Annotated[
         dict,
         Field(
             description=(
-                "{length, height (floor to ceiling, mm), floor_level (m, default 0), title, "
-                "openings:[{id, kind:door|window, x, width, height, sill (windows), hinge:left|right}], "
-                "fittings:[{id, kind:skirting{top}|worktop{x,width,top,thickness}|base_cabinet|"
-                "wall_cabinet|mirror|panel{x,width,bottom,top}|socket|switch{x,y,size,gangs}, label}], "
-                "services:[{id, kind:cold_water|hot_water|waste|gas|power|data|heating|generic, x, y, "
-                "label}], tiling:{tile_length, tile_width, pattern, joint, bottom, top, cut_around:[fitting "
-                "ids], start_x, start_y, angle_deg, bond, waste_pct, offcut_reuse, kerf}} - x from the "
-                "wall's left end as seen, y up from the floor (mm)"
+                "{length, height, floor_level (m), title, dimensions:none|cm|<dimstyle>, "
+                "openings:[{id, kind:door|window, x, width, height, sill, hinge}], "
+                "fittings (list order = z-order):[{id, kind, x, width, bottom, top, label}], "
+                "services:[{id, kind, x, y, label}], zones (a later one covers an earlier):"
+                "[{id, x, width, bottom, top, label, cut_around, edge, + arch_floor_zone's "
+                "fill fields}]} - mm, x from the wall's left end as seen, y up from the floor"
             )
         ),
     ],
@@ -15282,24 +15280,14 @@ async def interior_wall_elevation(
         dict | None,
         Field(
             default=None,
-            description=(
-                "Read length and openings from a drawn arch wall instead of typing them: "
-                "{wall, segment (default 0), side:left|right (the room side looking along the axis), "
-                "at (distance from the segment start picking the stretch between junctions), "
-                "heights:{<opening id>: {height, sill}}}"
-            ),
+            description="Length and openings from a drawn arch wall: "
+            "{wall, segment, side:left|right, at, heights:{<opening id>: {height, sill}}}",
         ),
     ] = None,
     lang: Annotated[str, Field(default="en", description="en | tr | pl")] = "en",
-    scale: Annotated[
-        float,
-        Field(default=20.0, gt=0, description="Plot-scale denominator: 20 = 1:20, 25 = 1:25"),
-    ] = 20.0,
+    scale: Annotated[float, Field(default=20.0, gt=0, description="Plot-scale denominator")] = 20.0,
     dry_run: Annotated[
-        bool,
-        Field(
-            default=False, description="Levels, dimension rows and tile takeoff only; draw nothing"
-        ),
+        bool, Field(default=False, description="Levels, dimensions, zones; draw nothing")
     ] = False,
     ctx: Context = None,
 ) -> dict:
@@ -15307,32 +15295,35 @@ async def interior_wall_elevation(
 
     Details:
 
-    The outline (floor, ceiling, wall ends) with floor and ceiling level marks;
-    doors and windows as frames; skirting interrupted at the openings, worktops,
-    cabinets, mirrors, sockets and switches; a centre-line cross at every service
-    connection. Dimensions are real DIMENSIONs: a chain on the right through every
-    height the elements define (skirting, worktop, cabinet bottoms and tops,
-    mirror, sills, heads, socket and service centres) plus floor to ceiling, and a
-    chain below through the jambs, socket and service axes plus the length. The
-    result lists every `level` with what sets it.
+    The outline with floor and ceiling level marks; doors and windows as
+    frames; fittings: skirting{top} (broken at openings), worktop / shelf{top,
+    thickness - a shelf's required}, base_cabinet, wall_cabinet, mirror, panel,
+    niche{bottom, top}, socket / switch{y, size, gangs}. Fittings may overlap: a
+    later one hides what an earlier one draws inside its box. Service kinds:
+    cold_water, hot_water, waste, gas, power, data, heating, generic (a
+    centre-line cross).
 
-    `spec.tiling` tiles the wall between `bottom` and `top` with arch_floor_zone's
-    laying engine (its takeoff) on `A-ELEV-TILE-E-N`: the tiles stop at every
-    opening and at the worktops, cabinets and panels (`cut_around` names others).
-    The result's `tiling`: `layer`, `start`, `pattern`, `cutouts`, `takeoff`,
-    `smallest_cut_share`, `handles`, `count`, `bottom`, `top`.
+    `zones` are finish rectangles (default the whole wall) behind every
+    fitting, filled with arch_floor_zone's engine: `pattern` (+ pattern_scale,
+    angle), `joints` [along, across] mm (0 drops a family: [20, 0] = vertical
+    flutes 20 apart), or `lay` grid | running_bond | herringbone | chevron of
+    plank_length x plank_width with `gap`, `start` and a takeoff. A zone stops
+    at openings, at later zones and at its `cut_around` fittings (default
+    worktops, cabinets, panels, shelves). Each part carries the zone's `label`
+    as its arch_legend row; `area_m2` is measured.
 
-    No height is assumed: every height comes from `spec` or the plan. With
-    `from_plan` the length is the clear face between junctions measured off the
-    wall engine, and the openings are the hosted ones, mirrored as the viewer
-    sees them; a plan opening without a height (or a window without a sill) is
-    refused by id until `heights` gives it.
+    Dimensions are real DIMENSIONs: a chain on the right through every height
+    the elements define plus floor to ceiling, a chain below through jambs,
+    sockets, services and zone edges plus the length; `dimensions` none draws
+    none, cm uses the drawing's arch-cm style (dimstyle_create preset arch-cm),
+    a name that style; default the current one. The result lists every
+    `level` with what sets it.
 
-    Refused before anything is drawn, by path: an unknown field or kind, a
-    non-positive length or height, an element outside the wall or above the
-    ceiling, two openings over the same stretch, a fitting or service inside an
-    opening, a duplicate id, a typed length or openings with `from_plan`, an
-    undrawn wall, a segment, side or `at` that names no face.
+    No height is assumed. With `from_plan` the length is the clear face between
+    junctions and the openings are the hosted ones, mirrored as seen; a plan
+    opening without a height (or a window without a sill) is refused by id until
+    `heights` gives it. Every refusal fires before anything is drawn and names
+    its path.
     """
     from engineering.arch.draw import draw_interior_elevation
 

@@ -99,6 +99,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `dimension_chain`'s `overall` is `false` by default (it was `true`, and agents
   switched it off in every call since round 4); `overall=True` draws the
   overall row one row out as before. `plan_chain` / `draw_chain` default alike.
+- `interior_wall_elevation`: `spec.tiling` is gone; `spec.zones[]` takes its
+  place - finish rectangles (`x`, `width`, `bottom`, `top`, default the whole
+  wall) filled with `arch_floor_zone`'s engine (`pattern`, `joints`, `lay` with
+  `plank_length` / `plank_width` / `gap` / `start`, the same names), a later
+  zone covering an earlier one, each part carrying its `label` as an
+  `arch_legend` row; the result's `tiling` became `zones[]` (`area_m2`,
+  `cutouts`, `pattern` / `joints` / `lay.takeoff`, `handles`). Fittings may
+  overlap: list order is the z-order and a later fitting hides what an earlier
+  one draws inside its box. New fittings `shelf` (`thickness` required) and
+  `niche`. `spec.dimensions`: `none`, `cm` (the drawing's `arch-cm` style) or a
+  style name. `joints` (both tools) takes 0 to drop a family: `[20, 0]` is
+  vertical flutes 20 mm apart. A zone's or floor zone's `color` now reaches its
+  hatches (it was overridden by ByLayer).
 - A curtain wall's mullions stand square to the wall, spaced over the stretch
   both faces share; in a corner gap they were drawn slanted.
 - `arch_legend`'s `gypsum_board` row reads "plasterboard partition" /

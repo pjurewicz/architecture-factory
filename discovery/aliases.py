@@ -2656,6 +2656,8 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "kitchen elevation",
             "bathroom elevation",
             "tiling elevation",
+            "wall finish zones",
+            "fluted panel",
             "height dimensions of sockets and worktop",
             "service connection axes",
             "klad sciany",
