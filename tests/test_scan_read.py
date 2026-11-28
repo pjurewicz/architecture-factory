@@ -311,6 +311,31 @@ async def test_a_page_at_one_to_n_or_two_points_and_a_length_calibrate_in_one_ca
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["map", "grid", "rects", "blobs", "snap", "compare"])
+async def test_the_sheet_shortcut_calibrates_every_mode(client, tmp_path, mode):
+    # round 7: rects took the scan's pixel size for its `size` argument
+    if mode == "compare":
+        pytest.importorskip("matplotlib")
+    page = tmp_path / "a4.png"
+    image = Image.new("RGB", (1169, 827), "white")  # A4 landscape at 100 dpi
+    ImageDraw.Draw(image).rectangle([200, 200, 399, 239], fill=(153, 153, 153))
+    image.save(page)
+    args = {"align": {"sheet": "A4", "scale": 50}, "image": str(page), "mode": mode}
+    if mode in ("rects", "blobs"):
+        args["color"] = "#999999"
+    if mode in ("map", "snap"):
+        args["pixels"] = [[200, 200]]
+    out = await client.call_tool("scan_read", args, raise_on_error=False)
+    assert not out.is_error, out.content
+    data = out.structured_content
+    assert data["calibration"]["align"][0][:2] == [0, 827]
+    if mode in ("rects", "blobs"):
+        (row,) = data[mode]
+        # 200 px of a 1169 px page across 297 mm at 1:50
+        assert row["size"][0] == pytest.approx(200 * 297 / 1169 * 50, rel=1e-3)
+
+
+@pytest.mark.asyncio
 async def test_compare_counts_coloured_lines_and_grey_fills_of_the_source(client, tmp_path):
     """Round 6: a luminance threshold (< 128) lost orange lines and a grey poche,
     so a correctly drawn one counted as extra. Synthetic source, known truth."""

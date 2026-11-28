@@ -14842,8 +14842,8 @@ async def scan_read(
             raise ValueError("align: the calibration pairs or a shortcut (see Details).")
         calibration = None
         if isinstance(align, dict):  # round 6: a shortcut, answered as align to paste
-            size = None if path is None or "sheet" not in align else sr.image_size(path)
-            calibration = sr.calibrate(align, size)
+            scan_px = None if path is None or "sheet" not in align else sr.image_size(path)
+            calibration = sr.calibrate(align, scan_px)
             align = calibration["align"]
         if mode == "map":
             if calibration is not None and not pixels and not points:
@@ -14875,7 +14875,7 @@ async def scan_read(
             return out if calibration is None else {**out, "calibration": calibration}
         if mode in ("rects", "blobs"):
             finder = sr.find_rects if mode == "rects" else sr.find_blobs
-            return await asyncio.to_thread(
+            out = await asyncio.to_thread(
                 finder,
                 path,
                 align,
@@ -14885,6 +14885,7 @@ async def scan_read(
                 limit=limit,
                 **window,
             )
+            return out if calibration is None else {**out, "calibration": calibration}
         b = _backend(ctx)
         sheet = {"layout": layout} if layout else {}
         if align is None and layout:  # the page fitted to the sheet, as view_screenshot does
@@ -14905,6 +14906,8 @@ async def scan_read(
                 "compare needs matplotlib to render the drawing (pip install matplotlib)."
             )
         report = await asyncio.to_thread(sr.compare, src, render, max_px=max_px)
+        if calibration is not None:
+            report["calibration"] = calibration
         return _view_image_result(report, "Compare picture not available.")
     except ValueError as exc:
         raise InvalidArgsError(str(exc)) from exc
