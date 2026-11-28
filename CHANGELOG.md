@@ -201,6 +201,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is at most `size[1]` wide (default 16 px, wider bands are fills); `limit`
   caps the rows. Round 9 read the stations and flute pitch of a wall
   elevation off a grid crop by eye.
+- `scan_read` `compare` (round 9) tells an absent line from a width
+  difference: `missing` `{line_absent_px, wider_px}` and `extra`
+  `{line_absent_px, thicker_px}` - missing (extra) ink joined through ink to a
+  matched line within 6 px is a width difference, the rest a line one side
+  lacks - with `stroke_width_px` `{source, drawing}` (median); each region
+  carries `width_px` and absent lines rank first; the picture draws width in
+  orange / light blue. Round 9's flute zone had ~10k missing px with the phase
+  right, and the agent could not tell what to fix. `save_path` (grid, compare)
+  also writes the PNG, answered as `path` + `download_url` over HTTP, as
+  `view_screenshot(save_path=)` (a `.png`, `validate_path(kinds=)`).
 - `scan_read` mode `grid` (round 9): the x labels are centred on their line
   like the y labels (they started on it and read 10-20 mm off); the automatic
   grid colour is chosen from the window's ink read at full resolution (a

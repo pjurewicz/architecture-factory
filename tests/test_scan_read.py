@@ -758,7 +758,42 @@ def test_lines_on_a_turned_scan_are_read_along_wcs(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_lines_through_the_tool(client, tmp_path):
+async def test_compare_tells_an_absent_line_from_a_thicker_one(client, tmp_path):
+    """Round 9: a source line drawn thinner read as ~10k missing px, the same
+    word as a line never drawn."""
+    pytest.importorskip("matplotlib")
+    image = Image.new("RGB", (400, 300), "white")
+    pen = ImageDraw.Draw(image)
+    pen.rectangle([20, 46, 379, 54], fill="black")  # 9 px thick, v 46-55
+    pen.line([(20, 150), (379, 150)], fill="black", width=3)  # never drawn
+    scan = tmp_path / "thick.png"
+    image.save(scan)
+    (x1, y1), (x2, y2) = wcs(20, 50), wcs(380, 50)
+    await client.call_tool(
+        "entity_create_line", {"x1": x1, "y1": y1, "x2": x2, "y2": y2, "layer": "0"}
+    )
+    saved = tmp_path / "out" / "diff.png"
+    result = await client.call_tool(
+        "scan_read",
+        {"align": ALIGN, "image": str(scan), "mode": "compare", "save_path": str(saved)},
+    )
+    out = result.structured_content
+    # the undrawn line is 3 x 360 px; the thick one's rows beyond the tolerance are width
+    assert out["missing"]["line_absent_px"] == pytest.approx(3 * 360, rel=0.1)
+    # drawn 1 px wide, matched within 2 px: 4 of the 9 rows are a width difference
+    assert out["missing"]["wider_px"] == pytest.approx(4 * 360, rel=0.15)
+    assert out["stroke_width_px"]["source"] == pytest.approx(9, abs=1)
+    assert out["stroke_width_px"]["drawing"] < 4
+    # the absent line's cells rank before the width cells: y = 5000 - 1500
+    for row in out["regions"]:
+        assert row["box"][1] <= 3500 <= row["box"][3] and row["width_px"] == 0
+    # the picture is written as returned
+    assert saved.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n" and out["path"] == str(saved)
+    assert saved.stat().st_size > 0
+
+
+@pytest.mark.asyncio
+async def test_lines_and_save_path_through_the_tool(client, tmp_path):
     scan = _elevation_scan(tmp_path)
     lines = await client.call_tool(
         "scan_read",
@@ -767,9 +802,19 @@ async def test_lines_through_the_tool(client, tmp_path):
     out = lines.structured_content
     assert out["calibration"]["units_per_px"] == 10
     assert out["vertical"]["pitch"]["median"] == pytest.approx(200, abs=0.01)
-    bad = await client.call_tool(
+    grid_png = tmp_path / "g.png"
+    grid = await client.call_tool(
         "scan_read",
-        {"align": ALIGN, "image": scan, "mode": "lines", "gap": 10},
-        raise_on_error=False,
+        {"align": ALIGN, "image": scan, "mode": "grid", "save_path": str(grid_png)},
     )
-    assert bad.is_error and "gap" in bad.structured_content["message"]
+    assert grid.structured_content["path"] == str(grid_png) and grid_png.stat().st_size > 0
+    for args, word in (
+        ({"mode": "lines", "save_path": str(tmp_path / "l.png")}, "save_path:"),
+        ({"mode": "grid", "save_path": str(tmp_path / "g.txt")}, ".png"),
+        ({"mode": "lines", "gap": 10}, "gap"),
+    ):
+        bad = await client.call_tool(
+            "scan_read", {"align": ALIGN, "image": scan, **args}, raise_on_error=False
+        )
+        assert bad.is_error, args
+        assert word in bad.structured_content["message"], bad.structured_content

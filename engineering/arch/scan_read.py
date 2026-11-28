@@ -56,6 +56,9 @@ INK_CHANNEL = 191
 SKIP_REACH_PX = 32
 #: Compare: a line pixel counts as matched within this many pixels.
 COMPARE_TOLERANCE_PX = 2
+#: Compare: missing (extra) ink joined through ink to a matched line within this
+#: many px is a width difference, not an absent line (round 9).
+COMPARE_WIDTH_REACH_PX = 6
 #: Compare: the regions of largest difference returned.
 COMPARE_REGIONS = 8
 #: Compare never enlarges the scan more than this by default.
@@ -1731,6 +1734,35 @@ def _erode(mask, r: int):
     return ~_dilate(~mask, r)
 
 
+def _grow_within(seed, inside, steps: int):
+    """``seed`` grown one pixel (8-neighbours) at a time inside ``inside``, ``steps`` times."""
+    out = seed & inside
+    for _ in range(steps):
+        out = _dilate(out, 1) & inside
+    return out
+
+
+def _stroke_width(mask, where) -> float | None:
+    """Median stroke width in px of ``mask`` over the pixels ``where``: at each
+    pixel the shorter of its horizontal and vertical ink run."""
+    import numpy as np
+
+    sel = mask & where
+    if not sel.any():
+        return None
+
+    def run_len(m):  # the run of True through each pixel, along the rows
+        def fwd(a):
+            c = np.cumsum(a, axis=1)
+            return c - np.maximum.accumulate(np.where(a, 0, c), axis=1)
+
+        a = m.astype(np.int32)
+        return fwd(a) + fwd(a[:, ::-1])[:, ::-1] - 1
+
+    width = np.minimum(run_len(mask), run_len(mask.T).T)
+    return float(np.median(width[sel]))
+
+
 def compare(window: dict, render: dict, *, max_px: int = 1568) -> dict:
     """The source's ink against the drawing's, in the scan's pixels.
 
@@ -1783,7 +1815,20 @@ def compare(window: dict, render: dict, *, max_px: int = 1568) -> dict:
     by_fill_only = source & near_drawn & ~covered
     missing = source & ~covered  # in the source, nothing drawn near it
     extra = drawn & ~near_source  # drawn, nothing in the source near it
+    # round 9: ink beside a matched line, joined to it through ink, is a width
+    # difference (pen, lineweight); the rest is a line one side does not have
+    reach = COMPARE_WIDTH_REACH_PX
+    matched_drawn = drawn & near_source
+    wider = missing & _grow_within(covered, source, reach)
+    thicker = extra & _grow_within(matched_drawn, drawn, reach)
     n_src, n_drw = int(source.sum()), int(drawn.sum())
+    n_miss, n_wider, n_extra, n_thicker = (int(m.sum()) for m in (missing, wider, extra, thicker))
+    stroke_lines = drawn & (drawn_kind != 2)
+    widths = {
+        # a thick line is "fill" by the core test: read every ink pixel a drawn stroke matches
+        "source": _stroke_width(source, (source & near_strokes) | wider),
+        "drawing": _stroke_width(stroke_lines, near_source),
+    }
 
     def pct(part, whole):
         return None if whole == 0 else round(100.0 * part / whole, 1)
@@ -1809,9 +1854,10 @@ def compare(window: dict, render: dict, *, max_px: int = 1568) -> dict:
         padded[:h, :w] = m
         return padded.reshape(gh, cell, gw, cell).sum(axis=(1, 3))
 
-    miss_c, extra_c = cells(missing), cells(extra)
+    miss_c, extra_c, width_c = cells(missing), cells(extra), cells(wider | thicker)
     score = miss_c + extra_c
-    order = np.argsort(-score, axis=None, kind="stable")
+    # absent lines first, width differences after them
+    order = np.lexsort(((-width_c).ravel(), (width_c - score).ravel()))
     regions = []
     for flat in order[:COMPARE_REGIONS]:
         gy, gx = divmod(int(flat), gw)
@@ -1827,6 +1873,7 @@ def compare(window: dict, render: dict, *, max_px: int = 1568) -> dict:
                 ],
                 "missing_px": int(miss_c[gy, gx]),
                 "extra_px": int(extra_c[gy, gx]),
+                "width_px": int(width_c[gy, gx]),
             }
         )
 
@@ -1835,7 +1882,9 @@ def compare(window: dict, render: dict, *, max_px: int = 1568) -> dict:
     pic[source] = (190, 190, 190)
     pic[drawn & near_source] = (0, 130, 0)
     pic[missing] = (230, 0, 0)
+    pic[wider] = (255, 150, 0)
     pic[extra] = (0, 70, 255)
+    pic[thicker] = (120, 190, 255)
     image = Image.fromarray(pic)
     scale = min(MAX_AUTO_ZOOM, max_px / max(image.size))
     if scale > 1:
@@ -1856,6 +1905,9 @@ def compare(window: dict, render: dict, *, max_px: int = 1568) -> dict:
         "drawing_line_px": n_drw,
         "source": source_parts,
         "drawing": classes,
+        "missing": {"line_absent_px": n_miss - n_wider, "wider_px": n_wider},
+        "extra": {"line_absent_px": n_extra - n_thicker, "thicker_px": n_thicker},
+        "stroke_width_px": widths,
         "regions": regions,
         "scan": _scan_report(window["path"], cal, window["size"], (u0, v0), k, arr),
         "px": list(image.size),
@@ -1874,8 +1926,14 @@ def compare(window: dict, render: dict, *, max_px: int = 1568) -> dict:
             "text": "the render's font is not the scan's, so text on_source_pct stays low "
             "even for lettering placed right; judge text by regions, not by the score",
             "tolerance_px": tol,
-            "regions": f"cells of {cell} scan px, ranked by missing + extra",
-            "picture": "grey source, green matched drawing, red source not drawn, "
-            "blue drawn not in source",
+            "width": "missing (extra) ink joined through ink to a matched line within "
+            f"{reach} px is wider_px (thicker_px): the lines differ in width - or sit under "
+            f"{reach} px apart - not in presence; line_absent_px is the rest; "
+            "stroke_width_px = median of the shorter of each matched stroke pixel's "
+            "horizontal and vertical run",
+            "regions": f"cells of {cell} scan px with missing + extra, absent lines first; "
+            "width_px is their width part",
+            "picture": "grey source, green matched drawing, red source not drawn, orange "
+            "source wider than drawn, blue drawn not in source, light blue drawn thicker",
         },
     }

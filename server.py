@@ -14980,6 +14980,7 @@ async def scan_read(
         str | None, "compare: this paper layout, the scan fitted page to page without align"
     ] = None,
     max_px: Annotated[int, Field(description="Image long side", ge=64, le=4096)] = 1568,
+    save_path: Annotated[str | None, "grid/compare: also write the PNG here"] = None,
     ctx: Context = None,
 ):
     """Read a scan through its overlay_align calibration (pixel origin top-left,
@@ -15044,7 +15045,12 @@ async def scan_read(
     `source` {strokes, fills: px, covered_pct}, `drawing` {lines, text, fills:
     drawn_px, on_source_pct}, `regions` (boxes with the most missing + extra)
     and a PNG: grey source, green matched, red not drawn, blue not in the
-    source. `method` states the thresholds.
+    source. `missing` / `extra` split that ink into `line_absent_px` (a line
+    one side lacks) and `wider_px` / `thicker_px` (beside a matched line: a
+    width difference, orange / light blue), with `stroke_width_px` {source,
+    drawing}. `method` states the thresholds.
+
+    `save_path` (grid, compare) also writes the PNG; `download_url` over HTTP.
 
     Without Pillow every file mode is refused, capability `scan_image`.
     """
@@ -15053,6 +15059,22 @@ async def scan_read(
 
     try:
         path = None if image is None else str(validate_path(image))
+        if save_path is not None and mode not in ("grid", "compare"):
+            raise ValueError(f"save_path: grid and compare write a PNG; mode {mode!r} does not.")
+        target = (
+            None
+            if save_path is None
+            else validate_path(save_path, allow_write=True, kinds=KINDS_PNG, create_parents=True)
+        )
+
+        async def picture(report: dict, unavailable: str) -> ToolResult:
+            if calibration is not None:
+                report["calibration"] = calibration
+            if target is not None and report.get("png") is not None:
+                await asyncio.to_thread(target.write_bytes, report["png"])
+                report = artifact_links.add_link({**report, "path": str(target)}, target)
+            return _view_image_result(report, unavailable)
+
         if align is None and not (layout and mode == "compare"):
             raise ValueError("align: the calibration pairs or a shortcut (see Details).")
         calibration = None
@@ -15082,9 +15104,7 @@ async def scan_read(
                 color=color,
                 **window,
             )
-            if calibration is not None:
-                report["calibration"] = calibration
-            return _view_image_result(report, "Scan crop not available.")
+            return await picture(report, "Scan crop not available.")
         if mode == "snap":
             out = await asyncio.to_thread(sr.snap_points, path, align, pixels=pixels, limit=limit)
             return out if calibration is None else {**out, "calibration": calibration}
@@ -15150,9 +15170,7 @@ async def scan_read(
                 "compare needs matplotlib to render the drawing (pip install matplotlib)."
             )
         report = await asyncio.to_thread(sr.compare, src, render, max_px=max_px)
-        if calibration is not None:
-            report["calibration"] = calibration
-        return _view_image_result(report, "Compare picture not available.")
+        return await picture(report, "Compare picture not available.")
     except ValueError as exc:
         raise InvalidArgsError(str(exc)) from exc
 
