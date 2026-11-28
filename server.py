@@ -14100,10 +14100,11 @@ async def arch_floor_zone(
     minus_handles: Annotated[
         list[str] | None, Field(default=None, description="Further entities cut out")
     ] = None,
-    pattern: Annotated[str, Field(description="Predefined hatch pattern")] = "ANSI37",
+    pattern: Annotated[
+        str | None, Field(default=None, description="Hatch pattern (default ANSI37 w/o joints)")
+    ] = None,
     joints: Annotated[
-        list[float] | None,
-        Field(default=None, description="[along, across] joint spacing, mm; replaces pattern"),
+        list[float] | None, Field(default=None, description="[along, across] joint spacing, mm")
     ] = None,
     angle: Annotated[float, Field(description="Pattern / joint angle, degrees")] = 0.0,
     start: Annotated[list[float] | None, Field(default=None, description="Joint origin")] = None,
@@ -14113,15 +14114,18 @@ async def arch_floor_zone(
     name: Annotated[str | None, Field(default=None, description="Rerun replaces it")] = None,
     layer: Annotated[str | None, Field(default=None, description="Default A-FLOR-E-N")] = None,
     color: Annotated[int | None, Field(default=None, description="ACI")] = None,
+    edge: Annotated[bool, Field(description="Also draw the zone outline")] = False,
     dry_run: bool = False,
     ctx: Context = None,
 ) -> dict:
-    """One HATCH over a room (its wall face or boundary) or an outline, minus cutouts.
+    """Pattern and/or joints HATCH over a room (wall face or boundary) or an outline.
 
     Cut out: the face's holes, catalogue items by class (`fitted` = joinery,
     appliances, sanitary; `movable` = furniture) or name, and `minus_handles`.
-    `area_m2` is measured from the cut region, never typed. `label` names the
-    arch_legend row. The result's `outline` / `cutouts` feed interior_tile_layout.
+    AR-* patterns are building mm (pattern_scale only); others scale x pattern_scale.
+    Each fill reports `period_mm` / `repeats`, warned below 3. `area_m2` is
+    measured. `label` names the arch_legend row; `outline` / `cutouts` feed
+    interior_tile_layout.
     """
     from engineering.arch.floor import floor_zone
 
@@ -14142,6 +14146,7 @@ async def arch_floor_zone(
             name=name,
             layer=layer,
             color=color,
+            edge=edge,
             dry_run=dry_run,
         )
     except ValueError as exc:

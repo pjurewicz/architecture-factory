@@ -23,6 +23,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `regions` with the largest difference and a PNG; `method` states the
   thresholds. The image is read through `validate_path`. Without Pillow
   every file mode is refused with the new capability `scan_image`.
+- `arch_floor_zone` draws the `AR-*` patterns in building millimetres, as
+  acadiso.pat defines them: their hatch scale is `pattern_scale` alone, no
+  longer `scale x pattern_scale` (AR-HBONE at 1:55 hatched 55 times its
+  brick, one stroke in a 3.3 x 2.4 m room). Other patterns keep the plot
+  scale. The result's `pattern` / `joints` report `period_mm` and `repeats`
+  across the zone's narrower side, warned `fill_period_exceeds_zone` (under
+  one) or `fill_few_repeats` (under three). `pattern` and `joints` now combine
+  into one zone (two HATCHes), `edge=True` adds the outline polylines, and the
+  result's `handle` is `handles {pattern, joints, edge}`; `pattern` defaults
+  to ANSI37 only when `joints` is not given.
 
 ### Fixed
 

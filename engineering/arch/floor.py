@@ -13,13 +13,24 @@ given by handle. An INSERT's footprint is its WIPEOUT mask when its block has
 one, else its block extents turned with it; a closed polyline or a hatch is
 its outline.
 
-The fill is one HATCH on ``A-FLOR-E-N``: a predefined pattern at ``scale`` x
-``pattern_scale`` (so it prints at its .pat size at 1:scale), or ``joints``
-lines at a real spacing (a board or tile division). It carries an
-``ACADMCP_ANNOT`` record whose ``legend`` is the zone's label, which is how
-``arch_legend`` names the row, and its ``set`` the zone name: a rerun with the
-same name replaces the zone. It goes to the back of the draw order, so the
-masks of furniture inserted before it still cover it.
+The zone is drawn on ``A-FLOR-E-N`` as up to three parts, in this order: a
+predefined ``pattern`` HATCH, a ``joints`` HATCH (``_USER`` lines at a real
+spacing - a board or tile division) and, with ``edge``, the zone's loops as
+closed polylines - a tile with dots, its joints and its outline in one call.
+A pattern's size follows acadiso.pat: the ``AR-*`` patterns are drawn in
+building millimetres (a brick of AR-HBONE is 101.6 x 304.8 mm), so their hatch
+scale is ``pattern_scale`` alone; every other pattern is a sheet pattern drawn
+at ``scale`` x ``pattern_scale``, so it prints at its .pat size at 1:scale.
+Each fill reports its period in mm (:func:`fill_period`) and how often it
+repeats across the zone, and warns when the zone holds less than
+:data:`MIN_REPEATS` periods - a pattern that plots as a stray stroke or a few
+dots says so instead of passing silently.
+
+Every part carries an ``ACADMCP_ANNOT`` record whose ``legend`` is the zone's
+label, which is how ``arch_legend`` names the row, and its ``set`` the zone
+name: a rerun with the same name replaces the zone. The parts go to the back
+of the draw order, so the masks of furniture inserted before them still cover
+them.
 """
 
 from __future__ import annotations
@@ -33,6 +44,45 @@ TOOL = "arch_floor_zone"
 CLASSES = ("fitted", "movable")
 #: Vertices of a circle's footprint polygon.
 CIRCLE_SIDES = 32
+#: Fewer periods than this across the zone's narrower side is a warning.
+MIN_REPEATS = 3
+
+
+def hatch_scale(pattern: str, scale: float, pattern_scale: float) -> float:
+    """The HATCH scale of ``pattern``: AR-* are building mm, the rest sheet patterns."""
+    return pattern_scale if pattern.startswith("AR-") else scale * pattern_scale
+
+
+def fill_period(definition, hatch_scale: float = 1.0) -> float:
+    """The period of a hatch definition in drawing units: over its line families,
+    the longest of a family's spacing and its dash cycle, times ``hatch_scale``.
+
+    ``definition`` is ezdxf's ``[angle, base, offset, dashes]`` per family, the
+    offset in the pattern's frame (as :data:`ezdxf.tools.pattern.ISO_PATTERN`).
+    """
+    period = 0.0
+    for angle, _base, (ox, oy), dashes in definition:
+        a = math.radians(angle)
+        spacing = abs(-ox * math.sin(a) + oy * math.cos(a))
+        period = max(period, spacing, sum(abs(d) for d in dashes))
+    return period * hatch_scale
+
+
+def _fill_report(kind: str, period: float, side: float) -> tuple[dict, dict | None]:
+    """``(row, warning)`` for one fill of period ``period`` across ``side`` mm."""
+    repeats = side / period
+    row = {"period_mm": round(period, 1), "repeats": round(repeats, 1)}
+    if repeats >= MIN_REPEATS:
+        return row, None
+    code = "fill_period_exceeds_zone" if repeats < 1 else "fill_few_repeats"
+    return row, {
+        "code": code,
+        "message": (
+            f"{kind}: period {period:.0f} mm against the zone's {side:.0f} mm side - "
+            f"{repeats:.1f} repeats (fewer than {MIN_REPEATS}); it plots as a few strokes "
+            "or dots: lower pattern_scale (or the joint spacing)"
+        ),
+    }
 
 
 def _footprints(entity) -> list[list[tuple[float, float]]]:
@@ -138,7 +188,7 @@ async def floor_zone(
     outline=None,
     minus=("fitted",),
     minus_handles=(),
-    pattern: str = "ANSI37",
+    pattern: str | None = None,
     joints=None,
     angle: float = 0.0,
     start=None,
@@ -148,6 +198,7 @@ async def floor_zone(
     name: str | None = None,
     layer: str | None = None,
     color: int | None = None,
+    edge: bool = False,
     dry_run: bool = False,
 ) -> dict:
     """Measure, and unless ``dry_run`` draw, one floor zone; see the module docstring."""
@@ -165,8 +216,8 @@ async def floor_zone(
         if min(joints) <= 0:
             raise ValueError("joints: spacings must be > 0 mm")
         joints = joints * 2 if len(joints) == 1 else joints
-    else:
-        pattern = _hatch_pattern(pattern)
+    if pattern is not None or joints is None:
+        pattern = _hatch_pattern(pattern or "ANSI37")
     floor, holes, source = await _outline(backend, room, outline)
     layer = layer or ARCH_ROLE_LAYER["floor"]
 
@@ -232,12 +283,27 @@ async def floor_zone(
         "outline": [list(p) for p in floor],
         "cutouts": [[list(p) for p in c] for c in cutouts],
     }
+    from ezdxf.tools.pattern import ISO_PATTERN
+
+    side = min(max(xs) - min(xs), max(ys) - min(ys))
+    warnings = []
+    if pattern not in (None, "SOLID"):
+        pscale = hatch_scale(pattern, scale, pattern_scale)
+        row, warn = _fill_report(pattern, fill_period(ISO_PATTERN[pattern], pscale), side)
+        result["pattern"] = {"name": pattern, "hatch_scale": pscale, **row}
+        warnings += [warn] if warn else []
+    if joints is not None:
+        row, warn = _fill_report("joints", max(joints), side)
+        result["joints"] = {"spacing_mm": joints, **row}
+        warnings += [warn] if warn else []
     if label:
         result["legend"] = label
     else:
-        result["warnings"] = [
+        warnings.append(
             {"code": "no_label", "message": "no label: arch_legend shows the pattern name"}
-        ]
+        )
+    if warnings:
+        result["warnings"] = warnings
     if dry_run:
         return result
 
@@ -252,39 +318,59 @@ async def floor_zone(
 
     def _draw():
         msp = backend._require_doc().modelspace()
-        hatch = msp.add_hatch(color=256, dxfattribs={"layer": layer})
+        attribs = {"layer": layer, **({"color": int(color)} if color is not None else {})}
+
+        def _hatch():
+            hatch = msp.add_hatch(color=256, dxfattribs=attribs)
+            for loop in loops:
+                flag = 1 if signed_area(loop) > 0 else 0
+                hatch.paths.add_polyline_path(list(loop), is_closed=True, flags=flag)
+            return hatch
+
+        handles = {}
+        if pattern == "SOLID":
+            hatch = _hatch()
+            hatch.set_solid_fill(color=hatch.dxf.color)
+            handles["pattern"] = hatch.dxf.handle
+        elif pattern is not None:
+            hatch = _hatch()
+            hatch.set_pattern_fill(
+                pattern,
+                color=hatch.dxf.color,
+                scale=hatch_scale(pattern, scale, pattern_scale),
+                angle=float(angle),
+            )
+            handles["pattern"] = hatch.dxf.handle
         if joints is not None:
             along, across = joints
+            hatch = _hatch()
             hatch.set_pattern_fill(
                 "_USER",
-                color=256,
+                color=hatch.dxf.color,
                 pattern_type=dxfconst.HATCH_TYPE_USER_DEFINED,
                 definition=[
                     [angle, origin, (-across * math.sin(a), across * math.cos(a)), []],
                     [angle + 90.0, origin, (along * math.cos(a), along * math.sin(a)), []],
                 ],
             )
-        elif pattern == "SOLID":
-            hatch.set_solid_fill(color=256)
-        else:
-            hatch.set_pattern_fill(
-                pattern, color=256, scale=scale * pattern_scale, angle=float(angle)
-            )
-        for loop in loops:
-            flag = 1 if signed_area(loop) > 0 else 0
-            hatch.paths.add_polyline_path(list(loop), is_closed=True, flags=flag)
-        if color is not None:
-            hatch.dxf.color = int(color)
+            handles["joints"] = hatch.dxf.handle
+        if edge:
+            handles["edge"] = [
+                msp.add_lwpolyline(loop, close=True, dxfattribs=attribs).dxf.handle
+                for loop in loops
+            ]
         backend._mark_dirty()
-        return hatch.dxf.handle
+        return handles
 
     async def job():
         replaced = await replace_set(backend, None, TOOL, name) if name else 0
         await _ensure_layer(backend, layer)
-        handle = await backend._async(_draw)
-        await tag_annotation(backend, handle, TOOL, set_name=name, legend=label)
-        await backend.draw_order([handle], "send_to_back")
-        return handle, replaced
+        handles = await backend._async(_draw)
+        drawn = [h for v in handles.values() for h in (v if isinstance(v, list) else [v])]
+        for handle in drawn:
+            await tag_annotation(backend, handle, TOOL, set_name=name, legend=label)
+        await backend.draw_order(drawn, "send_to_back")
+        return handles, replaced
 
-    handle, replaced = await guarded_transaction(backend, job, what=TOOL, done="drawn")
-    return {**result, "handle": handle, "replaced": replaced}
+    handles, replaced = await guarded_transaction(backend, job, what=TOOL, done="drawn")
+    return {**result, "handles": handles, "replaced": replaced}
