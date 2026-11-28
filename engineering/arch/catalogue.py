@@ -874,6 +874,55 @@ def _sink_bowl(w, d):
     return (_rect(0, 0, w, d), _rect(40, 40, w - 40, d - 40), _circle(w / 2, d / 2, 30))
 
 
+def _wall_mirror(w, d):
+    """A mirror hung on the wall: a thin slab and the glass plane along its middle."""
+    return (_rect(0, 0, w, d), _line(0.05 * w, d / 2.0, 0.95 * w, d / 2.0))
+
+
+def _open_shelving(w, d):
+    """Open shelving: the carcass sides and back 20 mm, a divider every bay of up to 800 mm."""
+    wall = min(20.0, d / 4.0, w / 4.0)
+    bays = max(1, math.ceil(w / 800.0))
+    return (
+        _rect(0, 0, w, d),
+        _rect(wall, wall, w - wall, d - wall),
+        *(_line(w * k / bays, wall, w * k / bays, d - wall) for k in range(1, bays)),
+    )
+
+
+def _wall_cabinet(w, d):
+    """A wall-hung cabinet in plan: above the cut plane, so its outline and front are dashed."""
+    front = d - min(20.0, d / 4.0)
+    return (
+        *_dashed_line(0, 0, w, 0),
+        *_dashed_line(w, 0, w, d),
+        *_dashed_line(w, d, 0, d),
+        *_dashed_line(0, d, 0, 0),
+        *_dashed_line(0, front, w, front),
+    )
+
+
+def _bar_cabinet(w, d):
+    """A drinks cabinet: the front panel, a door seam and a row of bottles inside."""
+    front = d - 20.0
+    count = max(1, int((w - 60.0) // 90.0))
+    return (
+        _rect(0, 0, w, d),
+        _line(0, front, w, front),
+        _line(w / 2.0, front, w / 2.0, d),
+        *(
+            _circle(w / 2.0 + 90.0 * (k - (count - 1) / 2.0), front / 2.0, 30.0)
+            for k in range(count)
+        ),
+    )
+
+
+def _tv(w, d):
+    """A television: the slab and its screen face along the front."""
+    face = d - min(15.0, d / 4.0)
+    return (_rect(0, 0, w, d), _line(0, face, w, face))
+
+
 def _item(
     name,
     family,
@@ -1016,7 +1065,7 @@ ITEMS: tuple[CatalogueItem, ...] = (
         600,
         900,
         (600, 6000),
-        (500, 700),
+        (500, 1200),
         _counter,
     ),
     _item(
@@ -1515,6 +1564,84 @@ ITEMS: tuple[CatalogueItem, ...] = (
         _niche_mask,
         tier="wall",
     ),
+    _item(
+        "mirror",
+        "furniture",
+        "mirror",
+        "ayna",
+        800,
+        30,
+        1000,
+        (200, 2400),
+        (10, 100),
+        _wall_mirror,
+        NO_MASK,
+        tier="decor",
+    ),
+    _item(
+        "open_shelving",
+        "furniture",
+        "open shelving unit",
+        "açık raf ünitesi",
+        1000,
+        400,
+        1800,
+        (400, 3000),
+        (250, 600),
+        _open_shelving,
+    ),
+    _item(
+        "kitchen_tall_unit",
+        "furniture",
+        "kitchen tall unit (larder)",
+        "mutfak boy dolabı",
+        600,
+        600,
+        2100,
+        (300, 900),
+        (450, 650),
+        _tall_unit,
+    ),
+    _item(
+        "wall_cabinet",
+        "furniture",
+        "wall cabinet",
+        "mutfak üst dolabı",
+        600,
+        320,
+        720,
+        (200, 1200),
+        (250, 450),
+        _wall_cabinet,
+        NO_MASK,
+        tier="decor",
+    ),
+    _item(
+        "bar_cabinet",
+        "furniture",
+        "drinks cabinet",
+        "bar dolabı",
+        800,
+        400,
+        1100,
+        (300, 1500),
+        (250, 600),
+        _bar_cabinet,
+    ),
+    _item(
+        "tv",
+        "furniture",
+        "TV (television)",
+        "televizyon",
+        1200,
+        80,
+        700,
+        (500, 2000),
+        (30, 300),
+        _tv,
+        NO_MASK,
+        tier="decor",
+    ),
 )
 
 #: The height a SIZE attribute may carry: it does not change the plan symbol.
@@ -1550,6 +1677,8 @@ FITTED: frozenset[str] = frozenset(
         "boiler",
         "dhw_tank",
         "washer_dryer_column",
+        "kitchen_tall_unit",
+        "wall_cabinet",
     }
 )
 _BY_NAME: dict[str, CatalogueItem] = {item.name: item for item in ITEMS}
@@ -1606,6 +1735,12 @@ LABEL_PL: dict[str, str] = {
     "boiler": "kocioł wiszący",
     "dhw_tank": "zasobnik c.w.u.",
     "washer_dryer_column": "pralka z suszarką w słupku",
+    "mirror": "lustro",
+    "open_shelving": "regał otwarty",
+    "kitchen_tall_unit": "słupek kuchenny",
+    "wall_cabinet": "szafka wisząca",
+    "bar_cabinet": "barek",
+    "tv": "telewizor",
 }
 
 _FOLD = str.maketrans(

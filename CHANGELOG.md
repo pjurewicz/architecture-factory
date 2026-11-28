@@ -87,6 +87,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Six catalogue items (round 8, 12; 54 in all): `mirror`, `tv` and `wall_cabinet`
+  (hung above what stands under them, so drawn on top and without wipeouts; the
+  cabinet dashed), `open_shelving`, `bar_cabinet` and `kitchen_tall_unit`
+  (the last, with `wall_cabinet`, is `fitted`). `kitchen_counter` takes a depth up
+  to 1200 mm (was 700): a 900 mm worktop or an island. The curtain was already
+  there (`curtain`).
 - `drawing_new` answers `save_dir` (round 8, 6b) when `ALLOWED_PATHS` is set: the
   folder a relative `drawing_save` path lands in (`system_status.files.relative_to`).
 - `entity_batch_create(defaults={layer, color, style, height})` (round 8): the

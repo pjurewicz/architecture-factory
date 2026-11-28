@@ -14528,10 +14528,10 @@ async def arch_catalogue_list(
 
     Sizes are nominal catalogue dimensions - what a furniture or appliance
     catalogue lists as a common size - and every row says so in `size_basis`;
-    they are not standards values. Forty-three items: twenty-nine furniture,
-    fourteen sanitary. Each row carries its `height`, the `size_range` and any
-    `options` arch_catalogue_insert accepts, and its draw-order `tier`. Refusals: a `family` other than furniture/sanitary and a `lang`
-    other than en/tr/pl, each with the list.
+    they are not standards values. Each row carries its `height`, the `size_range`,
+    any `options` arch_catalogue_insert accepts, its draw-order `tier` and
+    whether it is `fitted`. Refusals: a `family` other than furniture/sanitary
+    and a `lang` other than en/tr/pl, each with the list.
     """
     from engineering.arch.catalogue import FAMILIES, FRONT_DIR, ORIGIN, SIZE_BASIS, catalogue
 

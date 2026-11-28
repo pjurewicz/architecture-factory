@@ -43,12 +43,15 @@ def _spec_points(spec: dict) -> list[tuple[float, float]]:
 #: of a wardrobe, a niche's mask over the wall face line.
 BEYOND = {"wardrobe", "wall_niche"}
 
+#: Items drawn without wipeouts: dashed inside a wall, or hung above other items.
+UNMASKED = {"concealed_wc_frame", "mirror", "wall_cabinet", "tv"}
 
-def test_the_catalogue_holds_forty_eight_items_in_two_families():
-    assert len(ITEMS) == 48
-    assert len(set(CATALOGUE_NAMES)) == 48
+
+def test_the_catalogue_holds_fifty_four_items_in_two_families():
+    assert len(ITEMS) == 54
+    assert len(set(CATALOGUE_NAMES)) == 54
     assert FAMILIES == ("furniture", "sanitary")
-    assert sum(item.family == "furniture" for item in ITEMS) == 31
+    assert sum(item.family == "furniture" for item in ITEMS) == 37
     assert sum(item.family == "sanitary" for item in ITEMS) == 17
     assert {
         "single_bed",
@@ -123,8 +126,9 @@ def test_every_block_starts_with_its_wipeouts(name):
     """Inside a block a WIPEOUT hides only what is drawn before it."""
     kinds = [entity["type"] for entity in block_spec(name)["entities"]]
     masks = kinds.count("wipeout")
-    # the concealed WC frame is drawn dashed inside the pre-wall: it masks nothing
-    assert (masks >= 1) != (name == "concealed_wc_frame"), name
+    # a concealed frame is dashed inside the pre-wall and a hung item (mirror, wall
+    # cabinet, TV) sits above what stands under it: neither masks anything
+    assert (masks >= 1) != (name in UNMASKED), name
     assert kinds[:masks] == ["wipeout"] * masks, name
 
 
@@ -244,7 +248,7 @@ def test_family_filter_and_the_label_language():
     assert row["size"] == [600.0, 650.0]
     assert row["size_basis"] == SIZE_BASIS
     assert row["block"] == "ARCH_FRIDGE"
-    assert len(catalogue()) == 48
+    assert len(catalogue()) == 54
 
 
 def test_polish_labels_cover_every_item_and_are_searchable_without_diacritics():
@@ -604,3 +608,55 @@ async def test_against_wall_turns_the_item_to_the_room_and_mask_false_drops_the_
     assert not [e for e in block if e.dxftype() == "WIPEOUT"]
     (refused,) = out["refused"]
     assert refused["i"] == 2 and "no wall face within 1000 mm" in refused["message"]
+
+
+# -- round 8 (item 12): the items the catalogue lacked ---------------------------
+
+ROUND_8 = {
+    "mirror": ("lustro", "ayna", "decor", False),
+    "open_shelving": ("regał otwarty", "açık raf", "furniture", False),
+    "kitchen_tall_unit": ("słupek kuchenny", "boy dolabı", "furniture", True),
+    "wall_cabinet": ("szafka wisząca", "üst dolabı", "decor", True),
+    "bar_cabinet": ("barek", "bar dolabı", "furniture", False),
+    "tv": ("telewizor", "televizyon", "decor", False),
+}
+
+
+@pytest.mark.parametrize("name", ROUND_8)
+def test_round_8_items_are_found_in_every_language_with_their_class(name):
+    pl, tr, tier, fitted = ROUND_8[name]
+    for query in (pl, tr, name.replace("_", " ")):
+        assert name in [row["name"] for row in catalogue(query)], (name, query)
+    (row,) = catalogue(name.replace("_", " "), lang="pl")
+    assert row["label"] == pl
+    assert (row["tier"], row["fitted"], row["family"]) == (tier, fitted, "furniture")
+    assert any("TV" in r["label_en"] for r in catalogue("tv"))
+
+
+def test_a_kitchen_counter_may_be_deeper_than_700():
+    assert block_spec("kitchen_counter", 3000, 900)["size"] == [3000.0, 900.0]  # worktop 900
+    assert block_spec("kitchen_counter", 2400, 1200)["size"] == [2400.0, 1200.0]  # island
+    with pytest.raises(ValueError, match="kitchen_counter depth 1300 mm is outside 500-1200"):
+        block_spec("kitchen_counter", depth=1300)
+
+
+@pytest.mark.asyncio
+async def test_a_wall_cabinet_hangs_over_its_counter_without_hiding_it(backend):
+    from engineering.arch.catalogue import insert_items
+
+    out = await insert_items(
+        backend,
+        [
+            {"name": "kitchen_counter", "x": 0, "y": 0, "width": 1800, "depth": 900},
+            {"name": "wall_cabinet", "x": 0, "y": 0, "width": 1200},
+            {"name": "tv", "x": 3000, "y": 0},
+        ],
+    )
+    assert out["warnings"] == [] and out["refused"] == []
+    counter, cabinet, _tv = out["inserted"]
+    order = _order(backend)
+    assert order.index(counter["handle"]) < order.index(cabinet["handle"])
+    # no wipeouts in either: the counter shows through the cabinet's dashed outline
+    doc = backend._doc
+    for block in ("ARCH_WALL_CABINET_1200x320", "ARCH_TV"):
+        assert not [e for e in doc.blocks.get(block) if e.dxftype() == "WIPEOUT"], block
