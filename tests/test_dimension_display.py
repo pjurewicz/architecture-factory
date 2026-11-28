@@ -348,6 +348,12 @@ async def test_a_style_dimlfac_is_one_info_row_and_the_lone_error_leads_the_summ
         scaled.append((await backend.dimension_linear(x, 0, x + 40, 0, x + 20, -10)).handle)
     _posts(msp, 2000.0, 2040.0)
     lie = await backend.dimension_linear(2000, 0, 2040, 0, 2020, -10, text_override="99")
+    # "X=<>" shows the measurement, so DIMLFAC scales it as it does a plain value
+    _posts(msp, 3000.0, 3040.0)
+    noted = await backend.dimension_linear(
+        3000, 0, 3040, 0, 3020, -10, text_override="ZABUDOWA GK NA GOTOWO=<>"
+    )
+    scaled.append(noted.handle)
     rows = [i.to_dict() for i in await run_critique(backend, FOCUS)]
     by_code = [r for r in rows if r["detail"]["code"] == "dim_dimlfac_scaled"]
     assert len(by_code) == 1 and by_code[0]["severity"] == "info"

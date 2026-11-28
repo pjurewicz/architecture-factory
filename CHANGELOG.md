@@ -91,6 +91,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `dimension_truth`: a text override with `<>` (`ZABUDOWA GK NA GOTOWO=<>`) under
+  DIMLFAC (the `arch-cm` preset) is the style's `dim_dimlfac_scaled` info row, not a
+  `dim_override_disagrees` error; a literal wrong text is still an error.
+
 - `arch_legend` no longer refuses the drawing of an `arch_floor_zone` with
   `joints` (`hatch pattern '_USER' is not one of the 172 predefined ones`,
   which rolled back the whole sheet batch). A zone is one row whatever its

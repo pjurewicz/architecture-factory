@@ -710,10 +710,13 @@ def bind_dimension(
         if unclaimed:
             pass
         elif shown is None or abs(shown - geometric) > allowance:
-            if override and override != "<>":
+            if shown_by.source == "override":
                 findings.append("text_override_disagrees_with_geometry")
             elif dimlfac not in (None, 1.0):
+                # "X=<>" shows the measurement, so DIMLFAC scales it as AutoCAD does
                 findings.append("dimlfac_scales_the_displayed_value")
+            elif override and override != "<>":
+                findings.append("text_override_disagrees_with_geometry")
             else:
                 findings.append("displayed_value_disagrees_with_geometry")
         if measurement is None or abs(float(measurement) - geometric) > epsilon:
