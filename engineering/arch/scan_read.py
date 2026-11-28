@@ -58,8 +58,12 @@ SKIP_REACH_PX = 32
 COMPARE_TOLERANCE_PX = 2
 #: Compare: the regions of largest difference returned.
 COMPARE_REGIONS = 8
-#: Grid mode never enlarges the scan more than this by default.
+#: Compare never enlarges the scan more than this by default.
 MAX_AUTO_ZOOM = 4.0
+#: Grid mode enlarges a small window up to this by default (max_px still caps the picture).
+MAX_GRID_ZOOM = 16.0
+#: Grid colour: ink pixels sampled from the window at full resolution.
+GRID_INK_SAMPLE = 20000
 
 
 def pillow_available() -> bool:
@@ -1241,24 +1245,33 @@ GRID_COLOURS = ((230, 0, 0), (0, 90, 255), (200, 0, 200), (0, 160, 0), (0, 170, 
 
 
 def _grid_colour(image, color) -> tuple[int, int, int]:
-    """``color`` when given, else the :data:`GRID_COLOURS` entry the scan's ink
-    is farthest from (round 6: a red grid over red dimension lines)."""
+    """``color`` when given, else the :data:`GRID_COLOURS` entry the window's ink
+    is farthest from. Ink is read at full resolution (a thumbnail washes thin
+    coloured lines out to paper and leaves the first colour, red on red)."""
     import numpy as np
 
     if color is not None:
         return parse_color(color)
-    small = image.copy()
-    small.thumbnail((256, 256))
-    arr = np.asarray(small, dtype=np.int16).reshape(-1, 3)
-    paper = np.median(arr, axis=0)
-    ink = arr[np.abs(arr - paper).max(axis=1) > SOURCE_INK_DISTANCE]
+    arr = np.asarray(image.convert("RGB"))
+    paper = np.median(
+        arr[:: max(1, arr.shape[0] // 256), :: max(1, arr.shape[1] // 256)].reshape(-1, 3), axis=0
+    )
+    rows = max(1, 2_000_000 // max(1, arr.shape[1]))
+    found = []
+    for r in range(0, arr.shape[0], rows):
+        block = arr[r : r + rows].reshape(-1, 3).astype(np.int16)
+        found.append(block[np.abs(block - paper).max(axis=1) > SOURCE_INK_DISTANCE])
+    ink = np.concatenate(found)
     if not len(ink):
         return GRID_COLOURS[0]
+    if len(ink) > GRID_INK_SAMPLE:
+        ink = ink[:: len(ink) // GRID_INK_SAMPLE]
 
-    def near(c):  # the share of ink within reach of this colour
-        return float((np.abs(ink - np.array(c)).max(axis=1) < 110).mean())
+    def gap(c):  # (the share of ink within reach of this colour, its mean distance away)
+        dist = np.abs(ink - np.array(c)).max(axis=1)
+        return float((dist < 110).mean()), -float(dist.mean())
 
-    return min(GRID_COLOURS, key=near)
+    return min(GRID_COLOURS, key=gap)
 
 
 def grid_crop(
@@ -1276,7 +1289,7 @@ def grid_crop(
     span_px = max(x1 - x0, y1 - y0) / cal.upp  # the window's long side in scan pixels
     fit = max_px / span_px
     if zoom is None:
-        zoom = min(MAX_AUTO_ZOOM, fit)
+        zoom = min(MAX_GRID_ZOOM, fit)
     else:
         if isinstance(zoom, bool) or not isinstance(zoom, int | float) or not zoom > 0:
             raise ValueError(f"zoom: output pixels per scan pixel, > 0, got {zoom!r}.")
@@ -1331,12 +1344,12 @@ def grid_crop(
     font = _font(12)
     for x in xs:
         label = _fmt(x)
-        px = round((x - x0) * ppu) + 2
-        box = pen.textbbox((px, 1), label, font=font)
+        # centred on its line, like the y labels (a start on the line read 10-20 mm off)
+        px = round((x - x0) * ppu)
+        box = pen.textbbox((px, 1), label, font=font, anchor="mt")
         pen.rectangle(box, fill=(255, 255, 255, 200))
-        pen.text((px, 1), label, fill=(*rgb, 255), font=font)
+        pen.text((px, 1), label, fill=(*rgb, 255), font=font, anchor="mt")
     for y in ys:
-        # round 6: centred on its line, not above it (read 50-100 mm off)
         label = f"{_fmt(y)} -"
         py = round((y1 - y) * ppu)
         left, top, right, bottom = pen.textbbox((0, 0), label, font=font, anchor="lm")
@@ -1361,7 +1374,7 @@ def grid_crop(
             "rotation_deg": round(cal.rotation, 4) + 0.0,
         },
         "read": f"lines in {'#{:02x}{:02x}{:02x}'.format(*rgb)} every grid.step, labelled "
-        "in drawing units (x on top, y at the left, centred on its line); pixel (X, Y) "
+        "in drawing units (x on top, y at the left, both centred on their line); pixel (X, Y) "
         "is WCS (x0 + X/ppu, y1 - Y/ppu)",
     }
     if note:

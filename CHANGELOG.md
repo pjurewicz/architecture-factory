@@ -104,6 +104,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   DIMLFAC (the `arch-cm` preset) is the style's `dim_dimlfac_scaled` info row, not a
   `dim_override_disagrees` error; a literal wrong text is still an error.
 
+- `scan_read` mode `grid` (round 9): the x labels are centred on their line
+  like the y labels (they started on it and read 10-20 mm off); the automatic
+  grid colour is chosen from the window's ink read at full resolution (a
+  thumbnail washed thin coloured lines out on a big scan and left red on red),
+  farthest from the ink, ties by mean distance; a small window is enlarged up to
+  16x by default (was 4x: 200 mm gave 378 px), `max_px` still caps the picture.
+  `compare` keeps its 4x.
 - `arch_legend` no longer refuses the drawing of an `arch_floor_zone` with
   `joints` (`hatch pattern '_USER' is not one of the 172 predefined ones`,
   which rolled back the whole sheet batch). A zone is one row whatever its

@@ -14899,7 +14899,7 @@ async def scan_read(
     `grid`: the window (`region` WCS or `region_px`; default the whole scan)
     resampled into WCS axes with a labelled grid in drawing units (every
     `grid.step`, auto when `grid` is omitted, fainter minor lines; `color`, by
-    default one the scan's ink does not use; y labels centred on their line),
+    default one the window's ink does not use; labels centred on their line),
     PNG + report; `warning` when the scan is drawn below its resolution.
 
     `snap`: each of `pixels` (scan px, e.g. read off a grid) to the nearest

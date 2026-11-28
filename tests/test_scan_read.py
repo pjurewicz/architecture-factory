@@ -415,6 +415,45 @@ def test_the_grid_avoids_the_scan_colour_and_letters_y_on_its_line(tmp_path):
         assert min(inked) < py < max(inked), y  # the label straddles its line
 
 
+def test_the_x_labels_are_centred_on_their_line(tmp_path):
+    blank = tmp_path / "blank.png"
+    Image.new("RGB", (400, 300), "white").save(blank)
+    report = sr.grid_crop(str(blank), ALIGN, grid=500, zoom=2)
+    pic = Image.open(io.BytesIO(report["png"])).convert("RGB")
+    x0, ppu = report["region"][0], report["px_per_unit"]
+    for x in (2500, 3000, 3500):
+        px = round((x - x0) * ppu)
+        cols = [
+            i for i in range(px - 40, px + 40)
+            if any(min(pic.getpixel((i, j))) < 150 for j in range(2, 11))
+        ]  # fmt: skip
+        assert (min(cols) + max(cols)) / 2 == pytest.approx(px, abs=2), x  # was 10-20 mm right
+
+
+@pytest.mark.parametrize("size, width", [((400, 300), 1), ((4000, 3000), 1), ((4000, 3000), 2)])
+def test_the_grid_colour_is_read_from_the_full_resolution_ink(tmp_path, size, width):
+    # a thumbnail washes thin lines on a big scan out to paper: red on red again
+    image = Image.new("RGB", size, "white")
+    pen = ImageDraw.Draw(image)
+    for v in range(20, size[1], 40):
+        pen.line([(0, v), (size[0] - 1, v)], fill=(220, 0, 0), width=width)
+    for u in range(20, size[0], 40):
+        pen.line([(u, 0), (u, size[1] - 1)], fill=(0, 90, 250), width=width)
+    path = tmp_path / "ink.png"
+    image.save(path)
+    align = [[0, 0, 0, size[1] * 10], [size[0], size[1], size[0] * 10, 0]]
+    read = sr.grid_crop(str(path), align, grid=500, zoom=1, max_px=1200)["read"]
+    assert "e60000" not in read and "005aff" not in read  # neither colour the scan uses
+
+
+def test_a_small_window_is_enlarged_to_read(tmp_path):
+    scan = _scan(tmp_path)
+    big = sr.grid_crop(scan, ALIGN, region_px=[0, 0, 100, 50])  # 1000 mm: was 4x, 400 px
+    assert big["zoom"] == pytest.approx(15.68) and max(big["px"]) == 1568
+    tiny = sr.grid_crop(scan, ALIGN, region_px=[0, 0, 20, 20])  # the default stops at 16x
+    assert tiny["zoom"] == 16 and tiny["px"] == [320, 320]
+
+
 def test_a_downsampled_strip_warns_and_says_how_to_split(tmp_path):
     strip = tmp_path / "strip.png"
     Image.new("RGB", (5600, 900), "white").save(strip)
