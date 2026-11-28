@@ -82,10 +82,17 @@ office = [
     # CSV and refuses XLSX with the `xlsx_write` capability, naming this extra.
     "openpyxl>=3.1",
 ]
+pdfread = [
+    # pdf_read: a PDF page's texts, lines, rectangles and fills. pypdf is BSD
+    # and pure Python (no native parser); without it pdf_read refuses with the
+    # `pdf_read` capability, naming this extra.
+    "pypdf>=6.0",
+]
 full = [
     "Pillow>=10.0",
     "matplotlib>=3.8",
     "openpyxl>=3.1",
+    "pypdf>=6.0",
 ]
 
 [project.scripts]

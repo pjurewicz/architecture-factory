@@ -197,6 +197,29 @@ def test_sniff_reads_each_format():
     assert uploads.sniff(b"  0\r\nSECTION\r\n") == "dxf"
     assert uploads.sniff(b"  0\nLINE\n") is None
     assert uploads.sniff(b"MZ\x90\x00") is None
+    assert uploads.sniff(b"%PDF-1.7\n...") == "pdf"
+    assert uploads.sniff(b"\xef\xbb\xbf [{") == "json"
+
+
+@pytest.mark.asyncio
+async def test_a_pdf_and_a_json_list_upload_and_a_mislabelled_one_is_refused(monkeypatch, tmp_path):
+    """B6: .pdf by its %PDF- header, .json by parsing the whole file (size and depth capped)."""
+    async with _served(monkeypatch, tmp_path) as (_mcp, http):
+        pdf = await _post(http, "plan.pdf", b"%PDF-1.4\n%%EOF\n")
+        assert pdf.status_code == 201 and pdf.json()["format"] == "pdf"
+        steps = await _post(http, "steps.json", json.dumps([{"tool": "drawing_info"}]).encode())
+        assert steps.status_code == 201 and steps.json()["format"] == "json"
+        for name, body in (
+            ("plan.pdf", b"\x89PNG\r\n\x1a\n a png really"),
+            ("plan.pdf", b"<html>%PDF-1.4</html>"),
+            ("steps.json", b'[{"tool": '),  # starts like JSON, does not parse
+            ("steps.json", b"[" * 100 + b"]" * 100),  # deeper than MAX_DEPTH
+        ):
+            refused = await _post(http, name, body)
+            assert refused.status_code == 422, (name, body)
+            assert refused.json()["reason"] == "content_mismatch"
+    kept = sorted(p.suffix for p in (tmp_path / "uploads").iterdir())
+    assert kept == [".json", ".pdf"]
 
 
 def _age(path) -> None:

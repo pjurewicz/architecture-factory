@@ -3,14 +3,14 @@
   "schema_version": 2,
   "package_version": "1.8.0",
   "totals": {
-    "tools": 250,
+    "tools": 251,
     "resources": 13,
     "prompts": 5,
     "groups": 27
   },
   "groups": {
     "analysis": 12,
-    "architecture": 20,
+    "architecture": 21,
     "batch": 3,
     "blocks": 9,
     "corner_ops": 4,
@@ -4829,6 +4829,30 @@
       ],
       "annotations": {
         "title": "List Page Setups",
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "pdf_read",
+      "group": "architecture",
+      "cost": "read",
+      "summary": "Read a PDF page's texts, lines, rectangles and fills, in WCS.",
+      "acad": [
+        "PDFIMPORT"
+      ],
+      "synonyms": [
+        "import pdf vectors",
+        "read pdf texts lines rectangles",
+        "pdf plan to drawing coordinates",
+        "vector pdf underlay",
+        "odczyt pdf wektorowy"
+      ],
+      "tags": [
+        "arch",
+        "query"
+      ],
+      "annotations": {
+        "title": "Read PDF Vectors",
         "readOnlyHint": true
       }
     },

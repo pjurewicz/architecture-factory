@@ -34,8 +34,11 @@ Rules (each refusal names its reason):
   inside ``ALLOWED_PATHS`` and every tool accepts it unchanged.
 * **The content must be what the extension says**: PNG / JPEG / TIFF by their
   magic bytes, a DWG by its ``AC10xx`` version string, a DXF by its first
-  ``0 / SECTION`` pair (or the binary DXF sentinel). Anything else is 422
-  ``invalid_args``, nothing kept.
+  ``0 / SECTION`` pair (or the binary DXF sentinel), a PDF (for ``pdf_read``)
+  by ``%PDF-`` at byte 0, and a ``.json`` (a ``cad_batch(steps_path=)`` /
+  ``entity_batch_create(entities_path=)`` list) by parsing the whole file
+  within ``engineering.batch_file``'s ``MAX_BYTES`` (16 MiB) and ``MAX_DEPTH``.
+  Anything else is 422 ``invalid_args``, nothing kept.
 * **Bounded.** The body must declare its ``Content-Length`` (411 without), at
   most ``UPLOAD_MAX_BYTES`` (256 MiB, clamped to 2 GiB; ``0`` turns uploads
   off); ``http_guard.HttpGuard`` applies that limit to this path instead of
@@ -100,6 +103,8 @@ FORMATS: dict[str, str] = {
     ".tiff": "tiff",
     ".dxf": "dxf",
     ".dwg": "dwg",
+    ".pdf": "pdf",
+    ".json": "json",
 }
 
 #: A name this module wrote (the only files the retention sweep deletes).
@@ -213,6 +218,10 @@ def sniff(head: bytes) -> str | None:
         return "tiff"
     if _DWG.match(head):
         return "dwg"
+    if head.startswith(b"%PDF-"):
+        return "pdf"
+    if head.removeprefix(b"\xef\xbb\xbf").lstrip()[:1] in (b"[", b"{"):
+        return "json"  # the head only; upload() parses the whole file
     if head.startswith(_BINARY_DXF):
         return "dxf"
     text = head.removeprefix(b"\xef\xbb\xbf").decode("latin-1")
@@ -225,6 +234,19 @@ def sniff(head: bytes) -> str | None:
             continue
         return "dxf" if code == "0" and value.upper() == "SECTION" else None
     return None
+
+
+def _check_json(part: Path, total: int) -> str | None:
+    """ "json" when the stored ``part`` parses as JSON within the batch file's limits."""
+    from engineering import batch_file
+
+    if total > batch_file.MAX_BYTES:
+        return None
+    try:
+        batch_file.parse(part.read_bytes(), "upload")
+    except ValueError:
+        return None
+    return "json"
 
 
 def _transport_refusal(status: int, error: str, message: str, **headers) -> Response:
@@ -462,6 +484,8 @@ async def upload(server, request: Request, ticket: str | None = None) -> Respons
         )
     expected = FORMATS[suffix]
     found = sniff(head)
+    if found == "json" == expected:
+        found = _check_json(part, total)
     if found != expected:
         part.unlink(missing_ok=True)
         return _refusal(

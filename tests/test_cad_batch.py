@@ -1810,3 +1810,45 @@ async def test_entity_batch_create_draws_every_type_on_the_layout_it_names(clien
         await client.call_tool("entity_create_line", {"x1": 0, "y1": 0, "x2": 1, "y2": 1})
     ).structured_content
     assert line["handle"] in await handles("model")
+
+
+async def test_steps_and_entities_from_a_file_run_as_the_inline_list(client, tmp_path):
+    """B6: a .json path stands for the inline list - same result, same plan-time checks."""
+    steps = [_line(bind="a"), _line(0, 5, 10, 5), {"tool": "entity_get", "args": {"handle": "$a"}}]
+    (tmp_path / "steps.json").write_text(json.dumps(steps))
+    inline = await _batch(client, steps)
+    from_file = (
+        await client.call_tool("cad_batch", {"steps_path": str(tmp_path / "steps.json")})
+    ).structured_content
+    shape = [(r["i"], r["tool"], r["status"]) for r in inline["results"]]
+    assert shape == [(r["i"], r["tool"], r["status"]) for r in from_file["results"]]
+    assert from_file["ok"] and from_file["executed"] == inline["executed"] == 3
+
+    before = await _entity_count(client)
+    bad = [*steps[:2], _line(x1="left")]
+    (tmp_path / "bad.json").write_text(json.dumps(bad))
+    refused = await client.call_tool(
+        "cad_batch", {"steps_path": str(tmp_path / "bad.json")}, raise_on_error=False
+    )
+    assert refused.is_error and "steps_path 'bad.json'[2]" in refused.content[0].text
+    for args in ({}, {"steps": steps, "steps_path": str(tmp_path / "steps.json")}):
+        neither = await client.call_tool("cad_batch", args, raise_on_error=False)
+        assert neither.is_error and neither.structured_content["kind"] == "invalid_args"
+
+    items = [{"type": "circle", "cx": i, "cy": 0, "radius": 1} for i in range(75)]
+    (tmp_path / "items.json").write_text(json.dumps(items))
+    made = (
+        await client.call_tool(
+            "entity_batch_create", {"entities_path": str(tmp_path / "items.json")}
+        )
+    ).structured_content
+    assert made["ok"] and made["created"] == 75
+    items[40] = {"type": "circle", "cx": 0, "cy": 0, "radius": 1, "colour": 3}
+    (tmp_path / "items.json").write_text(json.dumps(items))
+    refused = await client.call_tool(
+        "entity_batch_create",
+        {"entities_path": str(tmp_path / "items.json")},
+        raise_on_error=False,
+    )
+    assert refused.is_error and "entities_path 'items.json'[40].colour" in refused.content[0].text
+    assert await _entity_count(client) == before + 75  # neither refusal drew anything

@@ -2538,6 +2538,16 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "pomiar z rastra",
         ),
     ),
+    "pdf_read": ToolAliases(
+        acad=("PDFIMPORT",),
+        synonyms=(
+            "import pdf vectors",
+            "read pdf texts lines rectangles",
+            "pdf plan to drawing coordinates",
+            "vector pdf underlay",
+            "odczyt pdf wektorowy",
+        ),
+    ),
     "interior_tile_layout": ToolAliases(
         acad=(),
         synonyms=(

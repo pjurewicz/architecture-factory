@@ -2378,6 +2378,12 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     if find_spec("openpyxl") is not None
                     else FeatureCapability(False, reason="optional_dependency_missing:openpyxl")
                 ),
+                # B6: pdf_read's vector reader, the `pdfread` extra.
+                "pdf_read": (
+                    FeatureCapability(True, "pypdf")
+                    if find_spec("pypdf") is not None
+                    else FeatureCapability(False, reason="optional_dependency_missing:pypdf")
+                ),
             },
         )
 

@@ -2241,6 +2241,7 @@ PACK_TOOL_NAMES: dict[str, frozenset[str]] = {
             "arch_legend",
             "arch_title_block",
             "image_map",
+            "pdf_read",
             "arch_dimension_chains",
             "arch_plan_from_spec",
             "arch_plan_patch",
@@ -6649,6 +6650,26 @@ def _batch_atomicity(*, transaction: bool = False, **fields) -> dict:
     return block
 
 
+def _inline_or_file(tool: str, inline, path, arg: str) -> tuple[list, str]:
+    """``inline``, or the JSON list in ``path`` (B6), and how refusals name it.
+
+    Exactly one of them; the list from a file then meets the same checks as
+    the inline one (``engineering/batch_file.py``)."""
+    from engineering.batch_file import load_list
+
+    if (inline is None) == (path is None):
+        raise InvalidArgsError(
+            f"{tool}: give `{arg}` or `{arg}_path`, not "
+            + ("both." if inline is not None else "neither.")
+        )
+    if path is None:
+        return inline, arg
+    try:
+        return load_list(validate_path(path), f"{arg}_path")
+    except ValueError as exc:
+        raise InvalidArgsError(f"{tool}: {exc}") from exc
+
+
 @cad_tool(
     summary="Run an ordered list of tool calls in one round trip, binding results between steps.",
     cost="destructive",
@@ -6662,21 +6683,18 @@ async def cad_batch(
         list[dict],
         Field(
             description=(
-                "Ordered steps. Each: {'tool': <tool name>, 'args': {...}, "
-                "'bind': <optional name>}. 'bind' names this step's result so a later "
-                "step can reference it as '$name' (its handle), '$name.field' or "
-                "'$name.list.0'. '$$' is a literal dollar sign."
+                "Ordered {'tool', 'args', 'bind'?}; a later step reads a bound result as "
+                "'$name' (its handle), '$name.field', '$name.list.0'; '$$' is a literal $."
             )
         ),
-    ],
+    ] = None,
+    steps_path: Annotated[str | None, "Or: a .json file of the steps"] = None,
     on_error: Annotated[
         str,
         Field(
             description=(
-                "auto (default) = all or nothing: rollback when a step mutates, stop when "
-                "every step reads. 'stop' halts at the first failure and keeps what ran; "
-                "'continue' runs every step; 'rollback' opens a checkpoint and undoes on "
-                "failure (the returned `atomicity` block says what that is worth here)."
+                "auto: all or nothing when a step mutates; 'stop' keeps what ran before a "
+                "failure; 'continue' runs every step; 'rollback' undoes on failure."
             )
         ),
     ] = "auto",
@@ -6694,8 +6712,7 @@ async def cad_batch(
             default=None,
             ge=0,
             description=(
-                "Run only if the document's content revision is still this one (a dry "
-                "run's `preview.revision`); otherwise refused stale_revision, no step run."
+                "Run only at this revision (a dry run's `preview.revision`), else stale_revision."
             ),
         ),
     ] = None,
@@ -6704,9 +6721,8 @@ async def cad_batch(
         Field(
             default=None,
             description=(
-                "A dry run's `preview.preconditions` ({handle, fingerprint} per literal "
-                "handle): run only if every entity is exactly as previewed; otherwise "
-                "refused stale_revision, no step run."
+                "A dry run's `preview.preconditions`: run only if every entity is as "
+                "previewed, else stale_revision."
             ),
         ),
     ] = None,
@@ -6714,11 +6730,8 @@ async def cad_batch(
         str | None,
         Field(
             description=(
-                "Your own id for this batch (1-128 printable characters). Sent again with the "
-                "same steps it returns the recorded result (replayed: true) instead of running "
-                "twice; with other steps it is refused (operation_conflict); after a run whose "
-                "outcome is unknown (cancelled or timed out mid-write) it is refused "
-                "(requires_reconcile). Held in memory only: a server restart forgets it."
+                "Your id for a safe retry (1-128 chars): the same steps replay the recorded "
+                "result, other steps are refused operation_conflict."
             )
         ),
     ] = None,
@@ -6756,7 +6769,9 @@ async def cad_batch(
     executed 0. A literal handle after a step that opens, switches or restores
     a document (drawing_open, drawing_undo, ...) is checked when its step runs.
     `on_error` governs run-time failures only. dry_run=True returns that
-    validation report and executes nothing.
+    validation report and executes nothing. A guarded run (expected_revision,
+    preconditions) that finds anything moved is refused stale_revision and
+    runs no step.
 
     ERRORS are typed, never text: each failed step carries error.kind - one of
     unsupported (with the backend `capability`), invalid_args, refused, failed,
@@ -6780,7 +6795,14 @@ async def cad_batch(
     (drawing_history lists them). Pass `operation_id` (or the
     request's `_meta.operation_id`) to make a retry safe: the same id with the
     same steps replays the recorded result instead of drawing twice, also
-    after a restart.
+    after a restart; after a run whose outcome is unknown (cancelled or timed
+    out mid-write) it is refused requires_reconcile.
+
+    STEPS FROM A FILE: `steps_path` names a .json file (an upload: POST
+    /files?name=steps.json) holding the list `steps` would; give one of the
+    two. It meets every check above, and a refusal names
+    `steps_path '<name>'[index]`. A retry with `operation_id` is matched on
+    the path, not on the file's content.
 
     ATOMICITY is reported, not assumed. The default on_error="auto" makes a batch with at least one mutating
     step all or nothing: a run-time failure restores a full document
@@ -6809,6 +6831,7 @@ async def cad_batch(
         raise ToolError(
             f"cad_batch: on_error must be one of {BATCH_ON_ERROR_MODES}, got {on_error!r}."
         )
+    steps, where = _inline_or_file("cad_batch", steps, steps_path, "steps")
     if not steps:
         raise ToolError("cad_batch: `steps` is empty; there is nothing to run.")
     if len(steps) > MAX_BATCH_STEPS:
@@ -6837,7 +6860,9 @@ async def cad_batch(
         def _invalid(kind: str, message: str, row: dict = row, index: int = index) -> None:
             row["status"] = "invalid"
             row["error"] = annotate({"kind": kind, "message": message}, "refused")
-            problems.append(f"step {index}: {message}")
+            problems.append(
+                f"{where}[{index}]: {message}" if steps_path else f"step {index}: {message}"
+            )
 
         if not isinstance(step, dict):
             _invalid("malformed_step", f"step {index} is {type(step).__name__}, not an object")
@@ -6879,7 +6904,11 @@ async def cad_batch(
             row["status"] = "invalid"
             row["error"] = annotate(classify(policy_refused), "refused")
             row["_policy"] = policy_refused
-            problems.append(f"step {index}: {row['error']['message']}")
+            problems.append(
+                f"{where}[{index}]: {row['error']['message']}"
+                if steps_path
+                else f"step {index}: {row['error']['message']}"
+            )
         else:
             tool = await ctx.fastmcp.get_tool(name)
             card = (getattr(tool, "meta", None) or {}).get("cad") or {}
@@ -7611,7 +7640,8 @@ async def entity_batch_create(
                 "'line_spacing'. A whole part: dimension_auto, not dimension_linear per feature.",
             }
         ),
-    ],
+    ] = None,
+    entities_path: Annotated[str | None, "Or: a .json file of the entities"] = None,
     verbose: Annotated[
         bool,
         "True: also return each entity's full record; default {ok, created, handles, errors}.",
@@ -7635,16 +7665,17 @@ async def entity_batch_create(
     from engineering.errors import InvalidArgsError
 
     b = _backend(ctx)
+    entities, where = _inline_or_file("entity_batch_create", entities, entities_path, "entities")
     known = (*b.BATCH_CREATE_TYPES, *b.BATCH_CREATE_ALIASES)
     bad = [
-        f"{i}: {spec.get('type')!r}"
+        f"{i}: {spec.get('type') if isinstance(spec, dict) else spec!r}"
         for i, spec in enumerate(entities)
-        if str(spec.get("type") or "").lower() not in known
+        if not isinstance(spec, dict) or str(spec.get("type") or "").lower() not in known
     ]
     if bad:
         raise InvalidArgsError(
-            f"invalid_args: unknown or missing entity type at index {', '.join(bad[:10])} - "
-            f"nothing was drawn. Types: {', '.join(known)}"
+            f"invalid_args: unknown or missing entity type in {where} at index "
+            f"{', '.join(bad[:10])} - nothing was drawn. Types: {', '.join(known)}"
         )
     # Every item against the schema this tool advertises, before anything is drawn.
     problems = []
@@ -7654,12 +7685,12 @@ async def entity_batch_create(
         except ValidationError as exc:
             kind = str(spec["type"]).lower()
             for err in exc.errors():
-                where = f"entities[{i}].{'.'.join(map(str, err['loc'][1:]))}"
+                at = f"{where}[{i}].{'.'.join(map(str, err['loc'][1:]))}"
                 if err["type"] == "extra_forbidden":
                     allowed = ", ".join(sorted(_batch_item_keys(kind)))
-                    problems.append(f"{where}: unknown key for type={kind}; allowed: {allowed}")
+                    problems.append(f"{at}: unknown key for type={kind}; allowed: {allowed}")
                 else:
-                    problems.append(f"{where}: {err['msg']}")
+                    problems.append(f"{at}: {err['msg']}")
     if problems:
         raise InvalidArgsError(f"invalid_args: {'; '.join(problems[:10])} - nothing was drawn")
     total = len(entities)
@@ -13339,7 +13370,7 @@ async def file_upload_url(
     name: Annotated[
         str,
         "The local file's name, e.g. scan.png; its extension (.png .jpg .jpeg .tif .tiff "
-        ".dxf .dwg) fixes what may be uploaded; a PDF: rasterise its page to PNG first",
+        ".dxf .dwg .pdf .json) fixes what may be uploaded",
     ],
     ctx: Context = None,
 ) -> dict:
@@ -13377,6 +13408,16 @@ async def file_upload_url(
         result["measure"] = (
             "To measure on this scan: view_screenshot(overlay_image=, overlay_align=) "
             "to calibrate, then image_map(align, pixels, measure=True) - lengths in drawing units."
+        )
+    elif str(name).lower().endswith(".pdf"):
+        result["read"] = (
+            "pdf_read(path, align=[[u, v, x, y], ...]) reads its texts, lines and rectangles "
+            "(u, v in page mm, origin top-left); view_screenshot overlays need a PNG of the page."
+        )
+    elif str(name).lower().endswith(".json"):
+        result["read"] = (
+            "Pass the path as cad_batch(steps_path=) or entity_batch_create(entities_path=): "
+            "the file holds the list the inline argument would."
         )
     return result
 
@@ -13469,7 +13510,7 @@ async def data_extract(
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 25: Architecture (20 tools) ────────────────────────────────────
+# ── SECTION 25: Architecture (21 tools) ────────────────────────────────────
 # ---------------------------------------------------------------------------
 
 
@@ -14528,6 +14569,43 @@ async def image_map(
         return run(align, pixels=pixels, points=points, measure=measure)
     except ValueError as exc:
         raise InvalidArgsError(str(exc)) from exc
+
+
+@cad_tool(summary="Read a PDF page's texts, lines, rectangles and fills, in WCS.", cost="read")
+@mcp.tool(
+    annotations={"title": "Read PDF Vectors", "readOnlyHint": True},
+    tags={"arch", "query"},
+)
+async def pdf_read(
+    path: Annotated[str, "A .pdf (an upload's path)"],
+    page: int = 1,
+    align: Annotated[list[list[float]] | None, "[[u, v, x, y], ...] page mm -> WCS"] = None,
+    region: Annotated[list[float] | None, "[x0, y0, x1, y1] in the output units"] = None,
+    kinds: list[Literal["text", "line", "rect", "fill"]] | None = None,
+    limit: int = 2000,
+) -> dict:
+    """A PDF page's vectors in page mm (u, v: origin top-left, v down), or WCS with `align`.
+
+    Details:
+
+    `align` is image_map's / overlay_align's list with page mm in place of
+    pixels: 2 pairs exact (`fit.controlled: false`), 3+ least squares with
+    residuals. Objects: text {text, u, v, x, y, height, rotation}, rect
+    {corners, stroke, fill, width} (any closed right-angled 4-corner path),
+    line {points, closed, curved, stroke, width}, fill {points, fill}. Read
+    only; a page of at most `limit` objects (MAX_OBJECTS 20000) and 20 s wall
+    clock, else `truncated` names the limit; a file over 64 MiB or 2000 pages
+    is refused. Needs the `pdfread` extra (capability `pdf_read`).
+    """
+    from engineering.pdfread import read_pdf
+
+    resolved = validate_path(path)
+    try:
+        return await asyncio.to_thread(
+            read_pdf, resolved, page=page, align=align, region=region, kinds=kinds, limit=limit
+        )
+    except ValueError as exc:
+        raise InvalidArgsError(f"pdf_read: {exc}") from exc
 
 
 @cad_tool(

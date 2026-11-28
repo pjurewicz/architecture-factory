@@ -27,11 +27,11 @@ Headless through ezdxf on any OS: DXF natively, DWG through the ODA File Convert
 
 </div>
 
-> **v1.8 release snapshot:** 250 tools · 13 resources · 5 prompt templates.
-> 250 is the **registered** count. Since 1.8.0 a default install lists six over `tools/list`
+> **v1.8 release snapshot:** 251 tools · 13 resources · 5 prompt templates.
+> 251 is the **registered** count. Since 1.8.0 a default install lists six over `tools/list`
 > (`DISCOVERY_MODE=search`: `search_tools`, `describe_tool`, `call_tool` and the three
 > `DISCOVERY_PINNED` tools), and every tool the profile and packs allow stays callable by name;
-> `DISCOVERY_MODE=off` lists 251: the 250 a default profile enables plus `describe_tool`. `system_about` is the runtime authority.
+> `DISCOVERY_MODE=off` lists 252: the 251 a default profile enables plus `describe_tool`. `system_about` is the runtime authority.
 
 ## What's new in 1.8
 
@@ -216,7 +216,7 @@ It works with Claude Desktop, Cursor, or any stdio MCP host. For HTTP, run `auto
 | Security | `READ_ONLY`, `TOOL_ALLOWLIST` / `TOOL_DENYLIST` and `MAX_TOOL_COST` narrow what a client may reach: a refused tool is not advertised, and a call to it - direct, through `call_tool`, or as a `cad_batch` step - is refused `policy_refused` before anything runs (`system_status.policy` says what is in force). Every writer accepts only its own extensions and none writes a file AutoCAD or Windows loads (`acad*.lsp`, `.fas`, `.scr`, `.dll`, `acad.pgp`, ...), even inside `ALLOWED_PATHS`. Over HTTP, an unknown Origin is 403, a foreign Host 421, a body over 8 MiB 413, tokens are compared in constant time, and `MCP_AUTH_TOKEN_READONLY` issues a read-only token. |
 | Session metrics | `system_status(metrics=True)` reports this connection's calls, `by_tool`, `result_bytes`, `errors_by_kind` and p50 / p95 ms; off by default. `system_status.operations` is a short summary (`{count, last, unknown_commit}`); `drawing_history` lists the calls |
 
-<sub>250 tools in 27 groups. <code>TOOL_PACKS=core</code> hides these from a client that needs none of them: the ten <code>pid_*</code> tools, the 16 environment tools, the 15 mechanical tools, the 20 architectural tools and the two plant takeoffs. <code>TOOL_PACKS=core,mech</code> keeps the mechanical ones, <code>TOOL_PACKS=core,arch</code> the architectural ones, and <code>TOOL_PACKS=core,plant</code> the takeoffs. There are also 13 resources that cost nothing in the tool budget (<code>autocad://drawing/info</code>, <code>layers</code>, <code>blocks</code>, <code>entities/stats</code>, <code>entities/{layer_name}</code>, <code>system/status</code>, <code>pid/symbols</code>, <code>pid/project/last</code>, <code>standards/isa51</code>, <code>standards/coverage</code>, <code>critique/focuses</code>, and the task recipes <code>recipes/index</code> and <code>recipes/{recipe_id}</code> - seven recipes, among them <code>layer_cleanup</code> and <code>dimension_part</code>, each one <code>cad_batch</code>) and 5 prompt templates.</sub>
+<sub>251 tools in 27 groups. <code>TOOL_PACKS=core</code> hides these from a client that needs none of them: the ten <code>pid_*</code> tools, the 16 environment tools, the 15 mechanical tools, the 21 architectural tools and the two plant takeoffs. <code>TOOL_PACKS=core,mech</code> keeps the mechanical ones, <code>TOOL_PACKS=core,arch</code> the architectural ones, and <code>TOOL_PACKS=core,plant</code> the takeoffs. There are also 13 resources that cost nothing in the tool budget (<code>autocad://drawing/info</code>, <code>layers</code>, <code>blocks</code>, <code>entities/stats</code>, <code>entities/{layer_name}</code>, <code>system/status</code>, <code>pid/symbols</code>, <code>pid/project/last</code>, <code>standards/isa51</code>, <code>standards/coverage</code>, <code>critique/focuses</code>, and the task recipes <code>recipes/index</code> and <code>recipes/{recipe_id}</code> - seven recipes, among them <code>layer_cleanup</code> and <code>dimension_part</code>, each one <code>cad_batch</code>) and 5 prompt templates.</sub>
 
 **Three rules worth knowing.**
 
@@ -417,7 +417,7 @@ Nothing loads a `.env` file — export these, or set them in your MCP client's `
 | `HTTP_ALLOWED_HOSTS` | *(empty)* | Host headers accepted besides the bound host:port and the loopback names; any other is refused 421. `*` allows all |
 | `HTTP_KEEPALIVE_S` | `120` | Seconds an idle HTTP connection stays open. Keep it above your reverse proxy's upstream idle timeout, or the proxy reuses a socket the server is closing and answers a transient 502 |
 | `MAX_HTTP_BODY_BYTES` | `8388608` | An HTTP request body over this (8 MiB) is refused 413, counted on chunked bodies too; `0` disables. `POST /files` uses `UPLOAD_MAX_BYTES` instead |
-| `UPLOAD_MAX_BYTES` | `268435456` | Over HTTP, `POST /files?name=<file>` stores a client's file (PNG / JPG / TIFF, DXF, DWG) and answers its server path; at most this many bytes (256 MiB, clamped to 2 GiB), with a `Content-Length`. `0` turns uploads off. Needs `MCP_AUTH_TOKEN` (a read-only token is refused) |
+| `UPLOAD_MAX_BYTES` | `268435456` | Over HTTP, `POST /files?name=<file>` stores a client's file (PNG / JPG / TIFF, DXF, DWG, PDF, JSON batch lists) and answers its server path; at most this many bytes (256 MiB, clamped to 2 GiB), with a `Content-Length`. `0` turns uploads off. Needs `MCP_AUTH_TOKEN` (a read-only token is refused) |
 | `UPLOAD_RETAIN_S` | `86400` | Uploads older than this (5 min to 30 days) are deleted at the next upload. No work is lost with them: a save into the uploads folder (in place included) is refused `path_refused` (`reason: upload_folder`, save with `drawing_save(path=...)`), and `image_attach` / `xref_attach` reference a copy in `uploads/kept/`, which is never deleted |
 | `UPLOAD_DIR` | `<first ALLOWED_PATHS>/uploads` | Where uploads are stored (a temp folder without `ALLOWED_PATHS`); must be inside `ALLOWED_PATHS` |
 

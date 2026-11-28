@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `pdf_read` (pack `arch`, read only): a vector PDF page's texts, lines,
+  rectangles and fills in page mm (origin top-left, v down) or, through
+  `align` - `overlay_align`'s `[u, v, x, y]` pairs - in WCS. pypdf, the new
+  `pdfread` extra (capability `pdf_read` without it); size, page, wall-clock
+  and object limits each named. Uploads take `.pdf` (`%PDF-` header) and
+  `.json` (parsed whole, 16 MiB, 64 levels).
+- `cad_batch(steps_path=)` and `entity_batch_create(entities_path=)`: the list
+  read from a `.json` file, checked exactly as the inline one; a refusal names
+  `<arg>_path '<file>'[index]`. See `docs/notes/b6-pdf-and-batch-files.md`.
+
+### Changed
+
+- `cad_batch(steps)` and `entity_batch_create(entities)` are optional now
+  (one of the list or its `_path`); `cad_batch`'s parameter descriptions are
+  shorter, their detail moved into the docstring.
+
 ### Fixed
 
 - ISOCP lettering is measured and drawn at its ISO 3098 width. `isocp.shx`
