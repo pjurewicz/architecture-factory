@@ -14700,11 +14700,16 @@ async def arch_legend(
     pattern (+ color) | kind | blocks: [names] | keys: [model keys]} - `blocks`
     / `keys` put up to 4 samples side by side (hot + cold water), and a model
     row named in `keys` moves into that row; kind 'line' takes layer /
-    linetype / lineweight / color. A zone's pattern + joints are one row; a
-    bare pattern name is warned. A label keeps its "\\n" line breaks.
-    `order` lists keys or labels (* ?) to put first. Text, frame and title on
-    A-SYMB-T-N unless `layer`. `warnings` reports a legend off the layout's
-    paper or over a viewport.
+    linetype / lineweight / color; a pattern takes color / angle / scale (as
+    entity_create_hatch, default angle 0), `sample_of: <hatch handle>` copies
+    a model hatch's pattern, angle and scale. `only: []` keeps no model row
+    (extra rows alone). `scale` is the plan's plot scale, also on a layout (it
+    sizes samples and names wall hatches); `warnings` flags one that differs
+    from the viewports'. A zone's pattern + joints are one row; a bare pattern
+    name is warned. A label keeps its "\\n" line breaks. `order` lists keys or
+    labels (* ?) to put first. Text, frame and title go on A-SYMB-T-N unless
+    `layer`, in `color`; hatch sample outlines stay ByLayer.
+    `warnings` reports a legend off the layout's paper or over a viewport.
     """
     from engineering.arch.legend import draw_legend
 

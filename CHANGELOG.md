@@ -40,9 +40,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   millimetres read in centimetres - ISO-25 with `DIMLFAC` 0.1, `DIMDEC` 1,
   decimal comma, `DIMRND` 0.5 (a tie rounds up, as AutoCAD does), `_ARCHTICK`
   and `DIMDLE` 2.
+- `arch_legend` `extra` pattern rows take `angle` and `scale` (the plan hatch's
+  own values, as `entity_create_hatch`), and `sample_of: <HATCH handle>` copies
+  a model hatch's pattern, angle and scale, so a knurled sample is no longer
+  drawn at 0 degrees; a refusal names the keys it does not accept. A
+  `scale` that differs from the layout's viewports is warned (`scale: ...`).
 
 ### Changed (breaking)
 
+- `arch_legend(only=[])` keeps no model row (extra rows alone); it used to
+  mean "no filter" and drew every row. A hatch sample's outline is ByLayer, no
+  longer tinted by `color` (the lettering, frame and title still are).
 - A curtain wall's mullions stand square to the wall, spaced over the stretch
   both faces share; in a corner gap they were drawn slanted.
 - `arch_legend`'s `gypsum_board` row reads "plasterboard partition" /

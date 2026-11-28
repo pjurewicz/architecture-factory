@@ -439,3 +439,52 @@ async def test_a_laid_floor_is_one_row_sampled_by_the_same_engine(backend):
         for (x0, y0, *_), (x1, y1, *_) in zip(pts, pts[1:] + pts[:1], strict=True):
             directions.add(round(math.degrees(math.atan2(y1 - y0, x1 - x0)) % 180.0, 6) % 180)
     assert {45.0, 135.0} <= directions <= {0.0, 45.0, 90.0, 135.0}
+
+
+@pytest.mark.asyncio
+async def test_only_empty_keeps_extra_rows_alone_and_a_hatch_sample_inherits_angle_scale(backend):
+    await _drawing(backend)
+    knurl = await backend.entity_create_hatch(
+        "ANSI31", [[0, 5000], [900, 5000], [900, 5600], [0, 5600]], scale=30, angle=45
+    )
+    result = await draw_legend(
+        backend,
+        at=(9000, 4000),
+        layout=None,
+        only=[],
+        title=None,
+        color=1,
+        extra=[
+            {"label": "copy", "sample_of": knurl.handle},
+            {"label": "own", "pattern": "ANSI31", "angle": 90, "scale": 25},
+        ],
+    )
+    assert [r["label"] for r in result["rows"]] == ["copy", "own"]  # no model row at all
+    mine = [e for e in backend._doc.modelspace() if e.dxf.handle in set(result["handles"])]
+    hatches = sorted(
+        (e.dxf.pattern_angle, e.dxf.pattern_scale) for e in mine if e.dxftype() == "HATCH"
+    )
+    assert hatches == [(45.0, 30.0), (90.0, 25.0)]  # the plan's own values, model space
+    outlines = [e for e in mine if e.dxftype() == "LWPOLYLINE"]
+    assert len(outlines) == 2 and all(e.dxf.get("color", 256) == 256 for e in outlines)
+    texts = [e for e in mine if e.dxftype() == "TEXT"]
+    assert texts and all(e.dxf.color == 1 for e in texts)  # color still tints the lettering
+    for bad, match in (
+        ({"label": "x", "sample_of": "FFFF"}, r"extra\[0\].sample_of"),
+        ({"label": "x", "sample_of": knurl.handle, "angle": 0}, r"Not accepted here: angle"),
+        ({"label": "x", "pattern": "ANSI31", "scale": 0}, r"extra\[0\].scale"),
+        ({"label": "x", "pattern": "SOLID", "angle": 3}, r"SOLID sample"),
+    ):
+        with pytest.raises(InvalidArgsError, match=match):
+            await draw_legend(backend, at=(0, 0), only=[], extra=[bad])
+
+
+@pytest.mark.asyncio
+async def test_a_legend_scale_that_differs_from_the_viewports_is_warned(backend):
+    await _drawing(backend)
+    await backend.layout_create("A3")
+    await backend.viewport_create("A3", 110, 150, 200, 150, 2500, 2000, 0.02)
+    ok = await draw_legend(backend, at=(300, 280), layout="A3", only=["socket"], scale=50)
+    assert not any(w.startswith("scale:") for w in ok.get("warnings", []))
+    off = await draw_legend(backend, at=(300, 280), layout="A3", only=["socket"], scale=25)
+    assert any(w.startswith("scale: 25") and "1:50" in w for w in off["warnings"])

@@ -361,6 +361,7 @@ def legend_rows(
     """``(rows in order, keys left out by default)``: materials and other
     hatches, runs, then blocks; ``labels`` overrides a label or drops a row
     (``None``) by key or block / pattern name, case-insensitively."""
+    only_given = only is not None  # only=[] keeps no model row: extra rows alone
     only, exclude, layers = (
         _globs(only, "only"),
         _globs(exclude, "exclude"),
@@ -394,7 +395,7 @@ def legend_rows(
             row["label"] = _catalogue_label(row["item"], lang)
         else:
             row["label"] = row["key"]
-        if only:
+        if only_given:
             if not _match(row, only):
                 continue
         elif row["default_off"]:
@@ -416,11 +417,11 @@ def legend_rows(
     return rows, sorted(set(skipped))
 
 
-_EXTRA_KEYS = {"label", "block", "pattern", "kind", "blocks", "keys"}
+_EXTRA_KEYS = {"label", "block", "pattern", "kind", "blocks", "keys", "sample_of"}
 #: round 7: kind "line" draws a line in a layer's or its own style; a pattern takes a colour
 _LINE_KEYS = {"layer", "linetype", "lineweight", "color"}
-_PATTERN_KEYS = {"color"}
-_SAMPLE_KEYS = ("block", "pattern", "kind", "blocks", "keys")
+_PATTERN_KEYS = {"color", "angle", "scale"}
+_SAMPLE_KEYS = ("block", "pattern", "kind", "blocks", "keys", "sample_of")
 MAX_SAMPLES = 4
 
 
@@ -463,13 +464,17 @@ def _extra_rows(backend, extra, k: float, model_rows: list[dict]) -> tuple[list[
             if item.get("kind") == "line"
             else _PATTERN_KEYS
             if "pattern" in item
+            else {"color"}
+            if "sample_of" in item
             else set()
         )
         bad = sorted(set(item) - allowed)
         if bad or len(set(item) & set(_SAMPLE_KEYS)) > 1:
             raise LegendArgsError(
                 f"{where}: give label and at most one of {', '.join(_SAMPLE_KEYS)}"
-                f" ({', '.join(sorted(_LINE_KEYS))} with kind 'line')."
+                f" ({', '.join(sorted(_LINE_KEYS))} with kind 'line';"
+                f" {', '.join(sorted(_PATTERN_KEYS))} with pattern; color with sample_of)."
+                + (f" Not accepted here: {', '.join(bad)}." if bad else "")
             )
         label = _label_text(item["label"], f"{where}.label")
         row = {
@@ -514,6 +519,17 @@ def _extra_rows(backend, extra, k: float, model_rows: list[dict]) -> tuple[list[
             row.update(kind=samples[0]["kind"], samples=samples[: MAX_SAMPLES * 2])
         elif "block" in item:
             row.update(_block_sample(doc, item["block"], f"{where}.block"))
+        elif "sample_of" in item:
+            fill = _hatch_of(doc, item["sample_of"], f"{where}.sample_of")
+            if "color" in item:
+                fill["color"] = _color_arg(item["color"], f"{where}.color")
+            row.update(
+                kind="hatch",
+                pattern=fill["pattern"],
+                angle=fill["angle"],
+                scale=fill["scale"],
+                fills=[fill],
+            )
         elif "pattern" in item:
             from backends.ezdxf_backend import _hatch_pattern
 
@@ -521,15 +537,16 @@ def _extra_rows(backend, extra, k: float, model_rows: list[dict]) -> tuple[list[
                 name = _hatch_pattern(item["pattern"])
             except InvalidArgsError as exc:
                 raise LegendArgsError(f"{where}.pattern: {exc}") from None
+            angle, pscale = _pattern_angle_scale(item, name, k, where)
             fill = {
                 "solid": name == "SOLID",
                 "pattern": name,
-                "angle": 0.0,
-                "scale": k,
+                "angle": angle,
+                "scale": pscale,
                 "color": _color_arg(item.get("color", 256), f"{where}.color"),
                 "user": None,
             }
-            row.update(kind="hatch", pattern=name, angle=0.0, scale=k, fills=[fill])
+            row.update(kind="hatch", pattern=name, angle=angle, scale=pscale, fills=[fill])
         elif "kind" in item:
             kind = item["kind"]
             if kind == "line":
@@ -553,6 +570,36 @@ def _extra_rows(backend, extra, k: float, model_rows: list[dict]) -> tuple[list[
             row["kind"] = "text"
         out.append(row)
     return out, taken
+
+
+def _hatch_of(doc, handle, where: str) -> dict:
+    """The fill (pattern, angle, scale, colour) of the model-space HATCH
+    ``handle``: a sample that inherits what the plan draws."""
+    entity = doc.entitydb.get(str(handle)) if isinstance(handle, str) else None
+    if entity is None or entity.dxftype() != "HATCH" or entity.doc is None:
+        raise LegendArgsError(f"{where}: {handle!r} is not the handle of a HATCH.")
+    if entity.dxf.owner != doc.modelspace().layout_key:
+        raise LegendArgsError(f"{where}: HATCH {handle} is not in model space.")
+    return _fill_of(entity)
+
+
+def _pattern_angle_scale(item: dict, pattern: str, k: float, where: str) -> tuple[float, float]:
+    """An extra pattern sample's ``(angle, scale)``: the plan hatch's own values
+    (``scale`` as ``entity_create_hatch`` takes it, printed at ``scale / k`` of
+    the sheet); by default angle 0 and 1 paper mm of pattern per unit."""
+    if pattern == "SOLID" and ("angle" in item or "scale" in item):
+        raise LegendArgsError(f"{where}: a SOLID sample has no angle or scale.")
+    angle, pscale = item.get("angle", 0.0), item.get("scale", k)
+    for key, value in (("angle", angle), ("scale", pscale)):
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+        ):
+            raise LegendArgsError(f"{where}.{key}: a number, got {value!r}.")
+    if pscale <= 0:
+        raise LegendArgsError(f"{where}.scale: the plan hatch's scale, > 0, got {pscale!r}.")
+    return float(angle), float(pscale)
 
 
 def _line_style(doc, item: dict, where: str) -> dict:
@@ -750,6 +797,14 @@ async def draw_legend(
         return x0 + x * u, y0 - y * u
 
     warnings += await sheet_fit_warnings(backend, layout, (p(0, height), p(width, 0)))
+    if layout is not None:
+        plotted = await backend._async(_viewport_scales, backend, layout, readonly=True)
+        if plotted and all(abs(v - k) > 1e-6 * k for v in plotted):
+            warnings.append(
+                f"scale: {k:g} is the plan's plot scale (it sizes the samples and names the wall "
+                f"hatches), but the layout's viewports plot at 1:{', 1:'.join(f'{v:g}' for v in plotted)}; "
+                "set scale to the plan's"
+            )
     for row in rows:
         for s in row["samples"]:
             if s.get("define") and s["block"] not in {b.name for b in await backend.block_list()}:
@@ -815,7 +870,7 @@ async def draw_legend(
                     if s["kind"] == "hatch":
                         await keep(
                             await backend.entity_create_polyline(
-                                points=cell, closed=True, layer=text_layer, color=color
+                                points=cell, closed=True, layer=text_layer
                             )
                         )
                 # the label's lines centred on the row: cap of the first to the last baseline
@@ -878,6 +933,17 @@ async def draw_legend(
     if warnings:
         result["warnings"] = warnings
     return result
+
+
+def _viewport_scales(backend, layout: str) -> list[float]:
+    """The scale denominators (view height / paper height) of the layout's model
+    viewports, without its overall one."""
+    out = []
+    for vp in backend._require_doc().paperspace(layout).query("VIEWPORT"):
+        height, view = vp.dxf.get("height", 0.0), vp.dxf.get("view_height", 0.0)
+        if int(vp.dxf.get("id", 0)) != 1 and height and view:
+            out.append(round(view / height, 6))
+    return sorted(set(out))
 
 
 def _text_or_none(value, where: str) -> str | None:
