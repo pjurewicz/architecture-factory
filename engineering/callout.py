@@ -104,7 +104,7 @@ def _content(text, number) -> tuple[str, list[str] | str]:
     return "number", label
 
 
-def _wrap(lines: list[str], limit: float, h: float) -> tuple[list[str], tuple[str, ...]]:
+def _wrap(lines: list[str], limit: float, h: float, measure) -> tuple[list[str], tuple[str, ...]]:
     """Each line broken at ASCII spaces into lines no wider than ``limit``
     (a no-break space U+00A0 keeps "18 mm" together), and the words wider
     than ``limit`` on their own, which stand alone on a line, never split."""
@@ -115,10 +115,10 @@ def _wrap(lines: list[str], limit: float, h: float) -> tuple[list[str], tuple[st
         for word in line.split(" "):
             if not word:
                 continue
-            if text_width(word, h) > limit:
+            if measure(word, h) > limit:
                 overflow.append(word)
             trial = f"{current} {word}" if current else word
-            if current and text_width(trial, h) > limit:
+            if current and measure(trial, h) > limit:
                 out.append(current)
                 current = word
             else:
@@ -140,8 +140,13 @@ def plan_callout(
     max_width: float | None = None,
     shelf: str = "end",
     align: str = "auto",
+    measure=text_width,
 ) -> CalloutPlan:
     """Every vertex of one callout, or ``ValueError`` naming what is wrong.
+
+    ``measure(text, height)`` is a line's width (default: the Standard face at
+    width factor 1); the backend passes the note's text style's
+    (`engineering.annotation.style_text_width`), the box `text_overlap` reads.
 
     ``max_width`` (drawing units, like ``text_height``) wraps a note at spaces
     into explicit MTEXT lines; the MTEXT keeps width 0, so AutoCAD's own font
@@ -171,7 +176,7 @@ def plan_callout(
             limit = math.nan
         if not (math.isfinite(limit) and limit > 0):
             raise ValueError(f"max_width must be positive; got {max_width!r}")
-        body, overflow = _wrap(body, limit, h)
+        body, overflow = _wrap(body, limit, h, measure)
     else:
         overflow = ()
 
@@ -190,7 +195,7 @@ def plan_callout(
     margin = GAP * h
     if kind == "text":
         lines = body
-        width = max(text_width(line, h) for line in lines)
+        width = max(measure(line, h) for line in lines)
         block = h * (1.0 + (len(lines) - 1) * LINE_PITCH)
     run = width + 2 * margin if kind == "text" and shelf == "under" else SHELF * h
     sx, sy = lx + d * run, ly
@@ -225,7 +230,7 @@ def plan_callout(
         outline = ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
     else:
         content = body
-        radius = max(h, 0.5 * text_width(content, h) + 0.4 * h)
+        radius = max(h, 0.5 * measure(content, h) + 0.4 * h)
         centre = (sx + d * radius, sy)
         circle = (centre, radius)
         content_at = centre

@@ -38,6 +38,23 @@ def text_width(text: str, height: float) -> float:
     return _font().text_width(str(text)) * float(height) if text else 0.0
 
 
+def style_text_width(style):
+    """``text_width`` for lettering in the text style ``style`` (a STYLE table
+    entry): its font as the renderer resolves it (the ISO 3098 width for an
+    ISOCP this machine lacks, ``backends/shx_substitute.py``) times its width
+    factor, measured as ``mtext_size`` measures an MTEXT line - the box
+    ``text_overlap`` and ``viewport_clip`` read."""
+    from ezdxf.tools.text import estimate_mtext_content_extents
+
+    def measure(text: str, height: float) -> float:
+        if not text:
+            return 0.0
+        font = style.make_font(float(height))
+        return estimate_mtext_content_extents(str(text), font, 0.0, 1.0)[0]
+
+    return measure
+
+
 def cell_padding(text_height: float, row_height: float) -> float:
     """The cell margin: scales with the lettering, never more than 15 % of the row."""
     return min(0.4 * float(text_height), 0.15 * float(row_height))

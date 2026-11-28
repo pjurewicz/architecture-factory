@@ -6766,26 +6766,11 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
     ) -> dict:
         from ezdxf.enums import TextEntityAlignment
 
+        from engineering.annotation import style_text_width
         from engineering.annotation_record import APP_ID as ANNOT_APP_ID
         from engineering.annotation_record import annotation_values
         from engineering.callout import GROUP_DESCRIPTION, plan_callout
 
-        try:
-            plan = plan_callout(
-                target,
-                landing,
-                text=text,
-                number=number,
-                style=style,
-                mask=bool(mask),
-                text_height=text_height,
-                side=str(side or "auto"),
-                max_width=max_width,
-                shelf=str(shelf or "end"),
-                align=str(align or "auto"),
-            )
-        except ValueError as exc:
-            raise InvalidArgsError(f"invalid_args: callout: {exc}") from exc
         if color is not None and (
             isinstance(color, bool) or not isinstance(color, int) or not 0 <= color <= 256
         ):
@@ -6800,6 +6785,24 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     f"invalid_args: callout: no text style {text_style!r}; "
                     f"the drawing has {', '.join(s.dxf.name for s in doc.styles)}"
                 )
+            try:
+                plan = plan_callout(
+                    target,
+                    landing,
+                    text=text,
+                    number=number,
+                    style=style,
+                    mask=bool(mask),
+                    text_height=text_height,
+                    side=str(side or "auto"),
+                    max_width=max_width,
+                    shelf=str(shelf or "end"),
+                    align=str(align or "auto"),
+                    # measured in the note's text style: its font and width factor
+                    measure=style_text_width(doc.styles.get(text_style or "Standard")),
+                )
+            except ValueError as exc:
+                raise InvalidArgsError(f"invalid_args: callout: {exc}") from exc
             if dry_run:
                 return {"ok": True, "dry_run": True}
             if layer not in doc.layers:
@@ -6832,9 +6835,9 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                         )
                     sheet_order = {"paperspace_last": True, "set": not was}
                 # First, so the leader and the lettering lie on top of it.
-                mask = space.add_wipeout(plan.mask, dxfattribs=attribs)
-                mask.dxf.layer = layer  # ezdxf's set_masking_area resets it to "0"
-                parts["mask"] = mask.dxf.handle
+                wipeout = space.add_wipeout(plan.mask, dxfattribs=attribs)
+                wipeout.dxf.layer = layer  # ezdxf's set_masking_area resets it to "0"
+                parts["mask"] = wipeout.dxf.handle
 
             parts["leader"] = space.add_lwpolyline(plan.leader, dxfattribs=attribs).dxf.handle
             if plan.tick is not None:

@@ -9,10 +9,15 @@ import math
 import pytest
 import pytest_asyncio
 
-from engineering.annotation import text_width
+from engineering.annotation import style_text_width
 from engineering.errors import InvalidArgsError
 
 pytestmark = pytest.mark.asyncio
+
+
+def _width(backend, text, h, style="Standard"):
+    """A line's width in ``style``, as the callout measures it."""
+    return style_text_width(backend._doc.styles.get(style))(text, h)
 
 
 def _entity(backend, handle):
@@ -43,7 +48,7 @@ async def test_note_sits_past_the_shelf_over_a_mask_drawn_first(backend):
     wipeout = _entity(backend, result["parts"]["mask"])
     xs = [p.x for p in wipeout.boundary_path_wcs()]
     ys = [p.y for p in wipeout.boundary_path_wcs()]
-    width = text_width("second line", h)
+    width = _width(backend, "second line", h)
     assert min(xs) == pytest.approx(35.0)
     assert max(xs) >= 35.0 + 0.5 * h + width
     two_lines = h * (1 + 5 / 3)
@@ -67,7 +72,7 @@ async def test_landing_left_of_target_turns_the_callout_round(backend):
     assert result["leader"][-1] == [35.0, 10.0]
     assert note.dxf.attachment_point == 6  # middle_right
     xs = [p.x for p in _entity(backend, result["parts"]["mask"]).boundary_path_wcs()]
-    assert max(xs) == pytest.approx(35.0) and min(xs) < 35.0 - text_width("LEFT", 2.5)
+    assert max(xs) == pytest.approx(35.0) and min(xs) < 35.0 - _width(backend, "LEFT", 2.5)
     # a dot: a filled circle on the target
     dot = _entity(backend, result["parts"]["terminator"])
     (edge,) = dot.paths[0].edges
@@ -80,7 +85,7 @@ async def test_number_circle_is_tangent_to_the_shelf_and_fully_masked(backend):
     numeral = _entity(backend, result["parts"]["text"])
     r = circle.dxf.radius
     # three digits do not fit the minimum circle of one text height
-    assert r > 3.5 and r >= text_width("128", 3.5) / 2
+    assert r > 3.5 and r >= _width(backend, "128", 3.5) / 2
     shelf_end = result["leader"][-1]
     assert tuple(circle.dxf.center)[:2] == pytest.approx((shelf_end[0] + r, shelf_end[1]))
     assert numeral.dxf.text == "128" and numeral.dxf.height == 3.5
@@ -225,24 +230,24 @@ async def test_max_width_wraps_the_note_and_the_mask_follows(backend):
     # 1:50: 2.5 mm lettering is 125 units, a 50 mm column 2500
     h, limit = 125.0, 2500.0
     text = "PŁYTA LAMIN. 18\u00a0mm DĄB BIELONY + ABS 2\u00a0mm\nKRAWĘDŹ"
-    one_line = text_width(text.split("\n")[0], h)
+    one_line = _width(backend, text.split("\n")[0], h)
     assert one_line > limit  # wrapping is actually needed
     result = await backend.callout([0, 0], [1000, 1000], text=text, text_height=h, max_width=limit)
 
     lines = result["text"].split("\n")
     assert result["lines"] == len(lines) >= 3 and lines[-1] == "KRAWĘDŹ"
-    assert all(text_width(line, h) <= limit for line in lines)
+    assert all(_width(backend, line, h) <= limit for line in lines)
     # no word lost or split, the no-break spaces kept "18 mm" and "2 mm" whole
     assert " ".join(lines[:-1]).split(" ") == text.split("\n")[0].split(" ")
     assert any("18\u00a0mm" in line for line in lines) and result["overflow"] == []
     # greedy: the next word would not have fitted on any line
     words = [line.split(" ") for line in lines[:-1]]
     for line, nxt in zip(lines[:-2], words[1:], strict=True):
-        assert text_width(f"{line} {nxt[0]}", h) > limit
+        assert _width(backend, f"{line} {nxt[0]}", h) > limit
     note = _entity(backend, result["parts"]["text"])
     assert not note.dxf.get("width")  # explicit breaks only: AutoCAD never re-wraps
     xs = [p[0] for p in result["mask"]]
-    widest = max(text_width(line, h) for line in lines)
+    widest = max(_width(backend, line, h) for line in lines)
     assert max(xs) - min(xs) == pytest.approx(widest + 2 * 0.5 * h)
     ys = [p[1] for p in result["mask"]]
     assert max(ys) - min(ys) == pytest.approx(h * (1 + (len(lines) - 1) * 5 / 3) + h)
@@ -270,7 +275,7 @@ async def test_tick_none_under_shelf_right_aligned_with_style_and_bounds(backend
         [0, 0], [10, 10], text=note, style="tick", shelf="under", align="right",
         text_style="ARCH", mask=False, color=3,
     )  # fmt: skip
-    width = max(text_width(line, h) for line in note.split("\n"))
+    width = max(_width(backend, line, h, "ARCH") for line in note.split("\n"))
     # the shelf runs under the whole note, from the landing
     assert under["leader"][1:] == [[10.0, 10.0], [pytest.approx(10.0 + width + h), 10.0]]
     mtext = _entity(backend, under["parts"]["text"])
@@ -288,6 +293,27 @@ async def test_tick_none_under_shelf_right_aligned_with_style_and_bounds(backend
         await backend.callout([0, 0], [10, 10], text="X", text_style="NOPE")
     with pytest.raises(InvalidArgsError, match="shelf 'under'"):
         await backend.callout([0, 0], [10, 10], number=1, shelf="under")
+
+
+async def test_width_comes_from_the_text_style_width_factor_included(backend):
+    """Round 9: after textstyle_modify(width_factor=0.72) the shelf and bounds
+    stayed at width factor 1 (5294.14 both times), the shelf 40 % past the note."""
+    from engineering.viewport_clip import mtext_box
+
+    await backend.textstyle_create("OPIS", font="isocp.shx")
+    h, note = 125.0, "SUFIT PODWIESZANY G-K 12,5\u00a0mm"
+    call = {"text": note, "text_height": h, "text_style": "OPIS", "shelf": "under", "mask": False}
+    ends = []
+    for factor in (1.0, 0.72):
+        await backend.textstyle_modify("OPIS", width_factor=factor)
+        result = await backend.callout([0, 0], [4000, 1000], **call)
+        # the box text_overlap reads (mtext_size), not the plan's own number
+        right = max(x for x, _ in mtext_box(_entity(backend, result["parts"]["text"])))
+        end = result["leader"][-1][0]
+        assert end == pytest.approx(right + 0.5 * h, abs=1e-6)
+        assert result["bounds"]["max"][0] == pytest.approx(end)
+        ends.append(end - 4000)
+    assert ends[1] / ends[0] == pytest.approx(0.72, abs=0.02)
 
 
 @pytest_asyncio.fixture

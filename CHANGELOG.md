@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `callout` measured every note in the Standard face at width factor 1: after
+  `textstyle_modify(width_factor=0.72)` its shelf and `bounds` did not move
+  and ran 40 % past the note. Widths now come from the note's text style
+  (font - ISOCP at its ISO 3098 width - and width factor), the box
+  `text_overlap` reads.
+
 ### Added
 
 - `draw_order(action="above"|"under", reference=<handle>)`: AutoCAD's
