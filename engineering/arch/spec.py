@@ -439,7 +439,7 @@ async def draw_plan_from_spec(backend: AutoCADBackend, spec: dict) -> dict:
     were drawn (an opening the wall engine could not cut is in ``omitted``, not
     in ``openings``), each drawing step's own result (``drawn`` is
     ``draw_walls``'), and the three ``arch_*`` critique focuses run over the
-    committed drawing.
+    committed drawing (``arch_room_unlabelled`` only when the spec or the drawing has a room).
     """
     from engineering.arch.critique import ARCH_FOCUSES, build_index, issues_for
 
@@ -549,7 +549,14 @@ async def draw_plan_from_spec(backend: AutoCADBackend, spec: dict) -> dict:
     await backend.transaction_commit()
 
     index = await build_index(backend)
-    critique = [issue.to_dict() for focus in ARCH_FOCUSES for issue in issues_for(focus, index)]
+    # a sheet that labels no room (a floor or services plan) is not told every face is unlabelled
+    unlabelled_is_noise = not norm["rooms"] and not index["rooms"]
+    critique = [
+        issue.to_dict()
+        for focus in ARCH_FOCUSES
+        if not (unlabelled_is_noise and focus == "arch_room_unlabelled")
+        for issue in issues_for(focus, index)
+    ]
     drawn = result["walls"] or {}
     plan_handles = [
         *drawn.get("handles", ()),

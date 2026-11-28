@@ -382,6 +382,34 @@ async def test_a_stair_core_wall_turning_into_a_partition_at_a_cross_wall(backen
     assert areas == pytest.approx(expected, abs=1.0)
 
 
+@pytest.mark.parametrize("labelled, expected", [(False, 0), (True, 2)])
+@pytest.mark.asyncio
+async def test_arch_plan_from_spec_reports_unlabelled_faces_only_when_it_labels_rooms(
+    backend, labelled, expected
+):
+    # Three faces: a floor sheet with no rooms gets no arch_room_unlabelled row;
+    # label one room and the other two faces are reported.
+    from engineering.arch.spec import draw_plan_from_spec
+
+    spec = {
+        "walls": [
+            {
+                "id": "EXT",
+                "axis": [[0, 0], [9000, 0], [9000, 4000], [0, 4000]],
+                "thickness": 200,
+                "closed": True,
+            },
+            {"id": "P1", "axis": [[3000, 0], [3000, 4000]], "thickness": 100},
+            {"id": "P2", "axis": [[6000, 0], [6000, 4000]], "thickness": 100},
+        ],
+    }
+    if labelled:
+        spec["rooms"] = [{"id": "R1", "name": "A", "number": "01", "at": [1500, 2000]}]
+    result = await draw_plan_from_spec(backend, spec)
+    rows = [i for i in result["critique"] if i["focus"] == "arch_room_unlabelled"]
+    assert len(rows) == expected
+
+
 @pytest.mark.asyncio
 async def test_a_plan_in_model_space_is_read_while_a_paper_sheet_is_current(backend):
     # arch_plan_from_spec draws into model space; a sheet made current

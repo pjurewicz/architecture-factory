@@ -45,6 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `changes` keep each step's own `truncated` count (84 created + 1 was
   `truncated: {added: 1}`, now 35), and a capped list is `truncated`, not
   `complete: false`.
+- `arch_plan_from_spec` no longer returns `arch_room_unlabelled` rows for a spec
+  without `rooms` (a floor or services sheet that labels none) unless the drawing
+  already has a room record. `drawing_critique(sheet="services"|"interior")`
+  already dropped the focus from every result form; unchanged.
 - ISOCP lettering is measured and drawn at its ISO 3098 width. `isocp.shx`
   (and its TrueType twin `isocpeur.ttf`) is Autodesk's and not on the server,
   so ezdxf lettered it with the fallback face, 23 % wider on plan text
