@@ -3796,7 +3796,7 @@ async def dimension_chain(
     ] = None,
     chains: Annotated[
         list[dict] | None,
-        Field(default=None, description="Many chains: [{points, offset, ...}], the rest shared"),
+        Field(default=None, description="Many chains: [{points, offset?, ...}] over the rest"),
     ] = None,
     ctx: Context = None,
 ) -> dict:
@@ -3804,7 +3804,7 @@ async def dimension_chain(
     steps, a detail, polyline vertices), sharing one dimension line, plus the
     overall size. Points are projected on the chain direction and sorted; points
     on one station are merged (`merged`). `chains=[{points, offset, ...}]` draws
-    many in one call, the other arguments shared.
+    many in one call; the arguments beside it (offset too) are each chain's defaults.
 
     Details:
 
@@ -3870,19 +3870,22 @@ async def _dimension_chains(backend, chains, shared: dict, points, offset, dry_r
     and is named by its index."""
     from engineering.dimension_chain import draw_chain
 
-    if points is not None or offset is not None:
-        raise InvalidArgsError("invalid_args: give points / offset inside each chain, not beside")
+    if points is not None:
+        raise InvalidArgsError("invalid_args: give points inside each chain, not beside")
     if not isinstance(chains, list) or not chains:
         raise InvalidArgsError("invalid_args: chains: give at least one {points, offset}")
     allowed = {"points", "offset", *shared}
     jobs = []
     for i, chain in enumerate(chains):
-        if not isinstance(chain, dict) or not {"points", "offset"} <= set(chain):
-            raise InvalidArgsError(f"invalid_args: chains[{i}]: expected {{points, offset, ...}}")
+        if not isinstance(chain, dict) or "points" not in chain:
+            raise InvalidArgsError(f"invalid_args: chains[{i}]: expected {{points, offset?, ...}}")
         extra = sorted(set(chain) - allowed)
         if extra:
             raise InvalidArgsError(f"invalid_args: chains[{i}]: unknown key(s) {extra}")
-        jobs.append({**shared, **chain})
+        job = {**shared, "offset": offset, **chain}  # round 7: the arguments beside are defaults
+        if job["offset"] is None:
+            raise InvalidArgsError(f"invalid_args: chains[{i}]: no offset, here or beside chains")
+        jobs.append(job)
     for i, job in enumerate(jobs):
         try:
             await draw_chain(backend, **{**job, "dry_run": True})

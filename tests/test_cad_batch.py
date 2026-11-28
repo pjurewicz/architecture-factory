@@ -1808,6 +1808,42 @@ async def test_many_chains_in_one_call_share_their_parameters(client):
     assert await _entity_count(client) == before + done["count"]
 
 
+async def test_arguments_beside_chains_are_each_chains_defaults(client):
+    """Round 7: offset beside chains was refused and 62 chains were sent again."""
+    done = (
+        await client.call_tool(
+            "call_tool",
+            {
+                "name": "dimension_chain",
+                "arguments": {
+                    "offset": 30,
+                    "overall": False,
+                    "chains": [
+                        {"points": [[0, 0], [100, 0]]},
+                        {"points": [[0, 0], [0, 100]], "offset": -15},
+                    ],
+                },
+            },
+        )
+    ).structured_content
+
+    async def defpoint(handle):
+        got = await client.call_tool(
+            "call_tool", {"name": "entity_get", "arguments": {"handle": handle}}
+        )
+        return got.structured_content["properties"]["defpoint"]
+
+    (first,), (second,) = (row["handles"] for row in done["chains"])
+    assert await defpoint(first) == [0.0, 30.0], "the offset beside chains"
+    assert (await defpoint(second))[0] == -15.0, "the chain's own offset wins"
+    bad = await client.call_tool(
+        "call_tool",
+        {"name": "dimension_chain", "arguments": {"chains": [{"points": [[0, 0], [9, 0]]}]}},
+        raise_on_error=False,
+    )
+    assert bad.is_error and "chains[0]: no offset" in bad.content[0].text
+
+
 async def test_entity_batch_create_draws_every_type_on_the_layout_it_names(client):
     """Round 4 (A9e): only mtext took a layout; a line or a circle went to paper
     only after layout_set_current."""
