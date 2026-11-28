@@ -1067,7 +1067,7 @@ def _lifespan(srv: Any) -> dict[str, Any]:
 
 async def _cell_status_rows(client: Any, srv: Any) -> dict[str, Any]:
     """``system_status`` with 1,000 journal rows, against the same call at none."""
-    await client.call_tool("drawing_new", {"bootstrap": False})
+    await client.call_tool("drawing_new", {"bootstrap": "none"})
     empty = await client.call_tool("system_status", {})
     journal = _lifespan(srv).get("operations") or srv._FALLBACK_OPERATIONS
     document = {"document_id": "token-suite", "revision": 1}
@@ -1088,7 +1088,7 @@ async def _cell_status_rows(client: Any, srv: Any) -> dict[str, Any]:
 
 async def _cell_critique_summary(client: Any, srv: Any) -> dict[str, Any]:
     """``drawing_critique(summary=True)`` over 500 ``duplicate_entities`` issues."""
-    await client.call_tool("drawing_new", {"bootstrap": False})
+    await client.call_tool("drawing_new", {"bootstrap": "none"})
     msp = _lifespan(srv)["backend"]._doc.modelspace()
     for _ in range(501):
         msp.add_line((0, 0), (10, 0))
@@ -1129,7 +1129,7 @@ async def _cell_finalize_coverage(client: Any, counter: Any, folder: Path) -> di
 
 async def _cell_error_envelope(client: Any, counter: Any) -> dict[str, Any]:
     """The envelope fields per error, the largest of three provoked errors."""
-    await client.call_tool("drawing_new", {"bootstrap": False})
+    await client.call_tool("drawing_new", {"bootstrap": "none"})
     probes = []
     for tool, arguments in ENVELOPE_PROBES:
         result = await client.call_tool(tool, arguments, raise_on_error=False)

@@ -1810,3 +1810,25 @@ async def test_entity_batch_create_draws_every_type_on_the_layout_it_names(clien
         await client.call_tool("entity_create_line", {"x1": 0, "y1": 0, "x2": 1, "y2": 1})
     ).structured_content
     assert line["handle"] in await handles("model")
+
+
+async def test_a_plan_creates_its_layer_set_and_an_arch_drawing_skips_mech(client):
+    """Round 5 (A7): drawing_plan(layer_set_id=...) answered ok and created no
+    layer; drawing_new(bootstrap="arch") starts on the architectural set."""
+
+    async def layers():
+        rows = (await client.call_tool("layer_list", {})).structured_content
+        rows = rows.get("result", rows) if isinstance(rows, dict) else rows
+        return {row["name"] for row in rows}
+
+    plan = (
+        await client.call_tool("drawing_plan", {"intent": "plan", "layer_set_id": "iso13567"})
+    ).structured_content
+    assert plan["layers_created"] and set(plan["layers_created"]) <= await layers()
+    await client.call_tool("drawing_new", {"bootstrap": "arch"})
+    names = await layers()
+    assert any(name.startswith("A-WALL") for name in names) and "GEOMETRY" not in names
+    refused = await client.call_tool(
+        "drawing_plan", {"intent": "x", "layer_set_id": "electrical"}, raise_on_error=False
+    )
+    assert refused.structured_content["kind"] == "invalid_args"

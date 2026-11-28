@@ -2434,13 +2434,12 @@ async def drawing_new(
         "(a .dwt is refused: dwt_read).",
     ] = None,
     bootstrap: Annotated[
-        bool,
+        Literal["mech", "arch", "pid", "iso13567", "none"],
         Field(
-            description="Auto-load CENTER/HIDDEN/PHANTOM linetypes and create standard "
-            "engineering layers (GEOMETRY, DIM, CENTER, HIDDEN, PHANTOM, "
-            "HATCH, TEXT, TITLEBLOCK). Disable for vanilla DXF.",
+            description="Layer set created with the standard linetypes: mech (GEOMETRY, DIM, "
+            "CENTER, HIDDEN, ...), arch (A-WALL, A-DOOR, ...), pid, iso13567, or none.",
         ),
-    ] = True,
+    ] = "mech",
     close_current: Annotated[
         bool,
         "Close the document that was active, as document_close would: refused, before "
@@ -2455,9 +2454,10 @@ async def drawing_new(
 
     Refused before anything is replaced: a bare name that is not in the
     catalogue (the message lists the six), a template path that does not
-    exist, and a path outside the allowed directories. With `bootstrap=True`
-    (default) the standard engineering linetypes and layers are ensured
-    afterwards — idempotent on a template that already has them.
+    exist, and a path outside the allowed directories. Unless `bootstrap="none"`
+    the standard linetypes and that domain's layer set are ensured afterwards
+    (default `mech`; an architectural drawing wants `arch`) - idempotent on a
+    template that already has them.
 
     `close_current=True` closes the previously active document and reports it
     in `closed_previous` (null when none was open); it never drops unsaved
@@ -2495,7 +2495,7 @@ async def drawing_new(
     result = dict(raw) if isinstance(raw, dict) else {"result": raw}
     if template_info is not None:
         result["template"] = template_info
-    if bootstrap:
+    if bootstrap != "none":
         try:
             from engineering import (
                 ensure_engineering_layers,
@@ -2503,8 +2503,16 @@ async def drawing_new(
             )
 
             lt_status = await ensure_standard_linetypes(backend)
-            layer_status = await ensure_engineering_layers(backend)
-            result["bootstrap"] = {"ok": True, "linetypes": lt_status, "layers": layer_status}
+            if bootstrap == "mech":
+                layer_status = await ensure_engineering_layers(backend)
+            else:
+                layer_status = (await backend.drawing_apply_iso_layers(bootstrap))["layers"]
+            result["bootstrap"] = {
+                "ok": True,
+                "standard": bootstrap,
+                "linetypes": lt_status,
+                "layers": layer_status,
+            }
         except Exception as exc:
             await ctx.warning(f"Engineering bootstrap failed: {exc}")
             result["bootstrap"] = {"ok": False, "error": str(exc)}
@@ -9400,7 +9408,8 @@ async def drawing_plan(
         float, Field(default=1.0, gt=0, description="Drawing scale (1.0 = 1:1, 0.1 = 1:10, etc).")
     ] = 1.0,
     layer_set_id: Annotated[
-        str, Field(default="mech", description="Layer set to bootstrap: mech / pid / iso13567.")
+        str,
+        Field(default="mech", description="Layer set it creates: mech / pid / iso13567 / arch."),
     ] = "mech",
     view_count: Annotated[int, Field(default=1, ge=1)] = 1,
     dim_style: Annotated[
@@ -9443,6 +9452,13 @@ async def drawing_plan(
     typed `items` nor a legacy `dimensions` object ("nothing to read"). A
     refusal stores nothing and commits no plan.
     """
+    from engineering.layers import LAYER_SET_REGISTRY
+
+    if layer_set_id not in LAYER_SET_REGISTRY:
+        raise InvalidArgsError(
+            f"invalid_args: layer_set_id {layer_set_id!r} is not one of "
+            f"{', '.join(sorted(LAYER_SET_REGISTRY))}"
+        )
     plan = await _backend(ctx).drawing_plan(
         intent,
         sheet_size,
@@ -9458,6 +9474,9 @@ async def drawing_plan(
     from engineering.preflight import pid_plan_warnings
 
     out = _dc(plan)
+    # round 5 (A7): the plan's layer set is created, not only recorded
+    applied = await _backend(ctx).drawing_apply_iso_layers(out["layer_set_id"])
+    out["layers_created"] = [k for k, v in applied["layers"].items() if v == "created"]
     warnings = pid_plan_warnings(intent, layer_set_id)
     if warnings:
         out["warnings"] = warnings
@@ -11157,9 +11176,7 @@ async def page_setup_apply(
     plot_style: Annotated[
         str, "Plot style table, e.g. monochrome.ctb, acad.ctb, Grayscale.ctb (plot_style_list)."
     ] = "monochrome.ctb",
-    scale: Annotated[
-        str, "fit | 1:1 | 1:2 | 1:5 | 1:10 | 1:20 | 1:50 | 1:100 | 2:1 | 5:1 | 10:1"
-    ] = "fit",
+    scale: Annotated[str, "fit | any N:M ratio (1:50, 1:55, 2:1)"] = "fit",
     plot_area: Annotated[str, "layout | extents"] = "layout",
     device: Annotated[str, "Plotter configuration (.pc3) or printer name."] = "DWG To PDF.pc3",
     margins_mm: Annotated[

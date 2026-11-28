@@ -512,3 +512,21 @@ async def test_a_linetype_scale_set_after_the_viewport_warns_where_it_is_set(bac
     assert warning.startswith(f"viewport {viewport['handle']} ") and "50x" in warning
     settings = await backend.drawing_settings({"psltscale": False, "ltscale": 1.0})
     assert any("PSLTSCALE 0" in w for w in settings["warnings"])
+
+
+async def test_the_linetype_advice_is_one_setting_whatever_the_state(backend):
+    """Round 5 (A8): LTSCALE 55 / PSLTSCALE 1 said "keep LTSCALE 1", PSLTSCALE 0 /
+    LTSCALE 8 said "LTSCALE 1 (or LTSCALE 55)": both now name the same setting."""
+    from backends.ezdxf_backend import LINETYPE_SHEET_FIX, _linetype_scale_warnings
+
+    await backend.layout_create("A3")
+    await backend.viewport_create("A3", 200, 150, 380, 270, 5000, 5000, 1 / 55)
+    doc = backend._doc
+    advice = []
+    for ltscale, psl in ((55.0, 1), (8.0, 0)):
+        doc.header["$LTSCALE"], doc.header["$PSLTSCALE"] = ltscale, psl
+        (warning,) = _linetype_scale_warnings(doc, doc.layouts.get("A3"))
+        advice.append(warning.split("; ", 1)[1])
+    assert advice == [LINETYPE_SHEET_FIX, LINETYPE_SHEET_FIX]
+    doc.header["$LTSCALE"], doc.header["$PSLTSCALE"] = 1.0, 1
+    assert _linetype_scale_warnings(doc, doc.layouts.get("A3")) == []

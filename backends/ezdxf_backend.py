@@ -471,6 +471,12 @@ def _normalise_linetype_units(doc) -> list[str]:
 #: A viewport plotting its linetype patterns at more than this many times their
 #: defined size, or under its inverse, is warned (``_linetype_scale_warnings``).
 LINETYPE_PLOT_FACTOR_LIMIT = 5.0
+#: Round 5 (A8): one advice whatever the current state - the setting that
+#: plots every viewport's patterns at their size, at any scale.
+LINETYPE_SHEET_FIX = (
+    "the sheet setting is PSLTSCALE 1 with LTSCALE 1, at every viewport scale "
+    "(drawing_settings({ltscale: 1, psltscale: true}))"
+)
 
 
 def _linetype_scale_warnings(doc, layout) -> list[str]:
@@ -493,15 +499,10 @@ def _linetype_scale_warnings(doc, layout) -> list[str]:
         factor = ltscale * (1.0 if paper_units else height / view_height)
         if 1 / LINETYPE_PLOT_FACTOR_LIMIT <= factor <= LINETYPE_PLOT_FACTOR_LIMIT:
             continue
-        fix = (
-            "with PSLTSCALE 1 keep LTSCALE 1"
-            if paper_units
-            else f"set PSLTSCALE 1 and LTSCALE 1 (or LTSCALE {view_height / height:g})"
-        )
         warnings.append(
             f"viewport {vp.dxf.handle} (1:{view_height / height:g}) plots linetype patterns at "
             f"{factor:g}x their size (LTSCALE {ltscale:g}, PSLTSCALE {int(paper_units)}): "
-            f"dashed lines may plot solid; {fix}"
+            f"dashed lines may plot solid; {LINETYPE_SHEET_FIX}"
         )
     return warnings
 

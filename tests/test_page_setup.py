@@ -224,7 +224,8 @@ def test_dxf_standard_scale_codes_are_the_enum_autocad_writes():
     [
         ({"paper": "ISO_A9"}, "paper"),
         ({"paper": "ISO_A3", "orientation": "sideways"}, "orientation"),
-        ({"paper": "ISO_A3", "scale": "1:3"}, "scale"),
+        ({"paper": "ISO_A3", "scale": "1/55"}, "scale"),
+        ({"paper": "ISO_A3", "scale": "0:55"}, "scale"),
         ({"paper": "ISO_A3", "plot_area": "window"}, "plot_area"),
         ({"paper": "ISO_A3", "device": ""}, "device"),
         ({"paper": "ISO_A3", "plot_style": ""}, "plot_style"),
@@ -237,6 +238,16 @@ def test_dxf_standard_scale_codes_are_the_enum_autocad_writes():
 def test_resolve_page_setup_refuses_naming_the_field(kwargs, field):
     with pytest.raises(ValueError, match=field):
         resolve_page_setup(**kwargs)
+
+
+def test_any_ratio_is_a_plot_scale():
+    """Round 5 (A7): 1:55 was refused; a catalogue ratio keeps its standard code."""
+    custom = resolve_page_setup("ISO_A3", scale="1:55")
+    assert (custom["scale"], custom["scale_ratio"]) == ("1:55", [1.0, 55.0])
+    assert custom["dxf_standard_scale_type"] is None
+    assert abs(custom["scale_factor"] - 1 / 55) < 1e-12
+    assert resolve_page_setup("ISO_A3", scale="2:100")["scale"] == "1:50"
+    assert resolve_page_setup("ISO_A3", scale="1:50")["dxf_standard_scale_type"] is not None
 
 
 def test_unknown_ctb_is_allowed_but_flagged():

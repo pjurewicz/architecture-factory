@@ -55,7 +55,7 @@ async def test_bootstrapped_drawing_puts_annotation_on_text(client):
 
 
 async def test_bare_drawing_uses_layer_0_and_creates_no_text_layer(client):
-    await client.call_tool("drawing_new", {"bootstrap": False})
+    await client.call_tool("drawing_new", {"bootstrap": "none"})
     assert "TEXT" not in await _layers(client)
     assert set((await _primitives(client)).values()) == {"0"}
     assert "TEXT" not in await _layers(client), "no layer is created unasked"

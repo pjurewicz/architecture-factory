@@ -286,7 +286,7 @@ async def test_a_match_older_than_one_page_of_rows_is_still_found():
     """The durable journal is read newest first a page at a time (50 rows at
     limit 10): a filter whose match lies beyond the first page reads on."""
     async with Client(server.mcp) as client:
-        await client.call_tool("drawing_new", {"bootstrap": False})
+        await client.call_tool("drawing_new", {"bootstrap": "none"})
         first = await _call(client, "entity_create_line", {"x1": 0, "y1": 0, "x2": 5, "y2": 0})
         for index in range(1, 70):
             await client.call_tool(
@@ -429,7 +429,7 @@ async def test_status_operations_is_a_summary_and_detail_operations_the_old_list
 @pytest.mark.asyncio
 async def test_status_with_1000_journal_rows_is_at_most_300_bytes_larger():
     async with Client(server.mcp) as client:
-        await client.call_tool("drawing_new", {"bootstrap": False})
+        await client.call_tool("drawing_new", {"bootstrap": "none"})
         empty = await client.call_tool("system_status", {})
         journal = server._FALLBACK_OPERATIONS
         for lifespan_journal in _lifespan_journals():

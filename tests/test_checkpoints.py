@@ -316,7 +316,7 @@ async def test_without_a_store_no_journal_row_names_a_checkpoint(tmp_path, monke
     """JOURNAL_DURABLE=off is the 1.7 mode: no checkpoints, so no checkpoint fields."""
     monkeypatch.setenv("JOURNAL_DURABLE", "off")
     async with Client(server.mcp) as client:
-        await client.call_tool("drawing_new", {"bootstrap": False})
+        await client.call_tool("drawing_new", {"bootstrap": "none"})
         await client.call_tool("entity_create_line", {"x1": 0, "y1": 0, "x2": 5, "y2": 0})
         status = (
             await client.call_tool("system_status", {"detail": "operations"})
@@ -469,7 +469,7 @@ async def test_an_edit_after_the_crossing_abandons_the_set_aside_branch(backend,
 async def test_an_evicted_checkpoint_is_refused_by_kind_through_the_server(tmp_path, monkeypatch):
     monkeypatch.setenv("CHECKPOINT_KEEP", "1")
     async with Client(server.mcp) as client:
-        await client.call_tool("drawing_new", {"bootstrap": False})
+        await client.call_tool("drawing_new", {"bootstrap": "none"})
         path = str(tmp_path / "e.dxf")
         for y in range(3):
             await client.call_tool("entity_create_line", {"x1": 0, "y1": y, "x2": 5, "y2": y})

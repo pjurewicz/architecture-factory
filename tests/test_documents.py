@@ -670,8 +670,8 @@ async def test_disconnect_drops_every_document_and_its_snapshots(monkeypatch):
 async def test_document_list_tool_over_the_wire(monkeypatch):
     monkeypatch.setenv("AUTOCAD_MCP_BACKEND", "ezdxf")
     async with Client(server.mcp) as client:
-        await client.call_tool("drawing_new", {"bootstrap": False})
-        await client.call_tool("drawing_new", {"bootstrap": False})
+        await client.call_tool("drawing_new", {"bootstrap": "none"})
+        await client.call_tool("drawing_new", {"bootstrap": "none"})
         payload = (await client.call_tool("document_list", {})).structured_content
         assert payload["count"] == 2 and payload["active"] == "untitled-2"
         closed = (
@@ -691,9 +691,9 @@ async def test_document_activate_accepts_a_lowercase_drive_over_the_wire(monkeyp
     spelled = str(path)
     lowered_drive = spelled[0].lower() + spelled[1:]
     async with Client(server.mcp) as client:
-        await client.call_tool("drawing_new", {"bootstrap": False})
+        await client.call_tool("drawing_new", {"bootstrap": "none"})
         await client.call_tool("drawing_save", {"path": spelled})
-        await client.call_tool("drawing_new", {"bootstrap": False})
+        await client.call_tool("drawing_new", {"bootstrap": "none"})
         activated = (
             await client.call_tool("document_activate", {"name_or_path": lowered_drive})
         ).structured_content
@@ -712,7 +712,7 @@ async def test_hard_link_over_the_wire_is_one_document(monkeypatch, tmp_path):
     target = tmp_path / "gear.dxf"
     link = tmp_path / "gear_link.dxf"
     async with Client(server.mcp) as client:
-        await client.call_tool("drawing_new", {"bootstrap": False})
+        await client.call_tool("drawing_new", {"bootstrap": "none"})
         await client.call_tool("drawing_save", {"path": str(target)})
         _hard_link(str(target), str(link))
         await client.call_tool("entity_create_line", {"x1": 0, "y1": 0, "x2": 1, "y2": 1})

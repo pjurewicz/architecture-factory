@@ -429,7 +429,7 @@ async def client(monkeypatch):
     async with Client(server.mcp) as connected:
         status = (await connected.call_tool("system_status", {})).structured_content or {}
         assert status.get("backend") == "ezdxf", "these tests must never touch live AutoCAD"
-        await connected.call_tool("drawing_new", {"bootstrap": False})
+        await connected.call_tool("drawing_new", {"bootstrap": "none"})
         yield connected
 
 

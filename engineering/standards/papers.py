@@ -621,10 +621,16 @@ def resolve_page_setup(
     if not style:
         raise ValueError("plot_style: must name a .ctb/.stb file (e.g. monochrome.ctb)")
 
-    label = str(scale or "").strip()
-    if label not in SCALES:
-        raise ValueError(f"scale: must be one of {', '.join(SCALES)}, got {scale!r}")
-    ratio = (1.0, 1.0) if label == "fit" else scale_ratio(label)
+    label = str(scale or "").strip().lower()
+    if label == "fit":
+        ratio = (1.0, 1.0)
+    else:
+        # any N:M ratio (1:55, 1:75, 3:1); a catalogue ratio keeps its label
+        try:
+            ratio = scale_ratio(label)
+        except ValueError:
+            raise ValueError(f"scale: 'fit' or an N:M ratio such as 1:55, got {scale!r}") from None
+        label = scale_label(*ratio)
 
     if plot_area not in PLOT_AREAS:
         raise ValueError(f"plot_area: must be one of {', '.join(PLOT_AREAS)}, got {plot_area!r}")
@@ -680,7 +686,7 @@ def resolve_page_setup(
         "plot_style": style,
         "plot_style_known": plot_style_known(style),
         "scale": label,
-        "scale_factor": SCALES[label],
+        "scale_factor": None if label == "fit" else ratio[0] / ratio[1],
         "scale_ratio": [ratio[0], ratio[1]],
         "dxf_standard_scale_type": DXF_STANDARD_SCALE_TYPE.get(label),
         "plot_area": plot_area,

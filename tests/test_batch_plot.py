@@ -311,7 +311,7 @@ async def test_page_setup_apply_tool_refuses_before_writing(backend):
     ctx = _Ctx(backend)
     await backend.layout_create("A3")
     with pytest.raises(ToolError, match="scale"):
-        await server.page_setup_apply("A3", "ISO_A3", scale="1:3", ctx=ctx)
+        await server.page_setup_apply("A3", "ISO_A3", scale="1/3", ctx=ctx)
     with pytest.raises(ToolError, match="Model"):
         await server.page_setup_apply("Model", "ISO_A3", ctx=ctx)
     row = (await backend.page_setup_list("A3"))[0]
