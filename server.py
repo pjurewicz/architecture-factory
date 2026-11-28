@@ -3240,95 +3240,9 @@ async def entity_create_table(
     return _dc(result)
 
 
-@cad_tool(
-    summary="Add callouts: leader with tick, dot, arrow or none, then a note or numbered circle.",
-    cost="mutate",
-)
-@mcp.tool(
-    annotations={"title": "Create Callout", "readOnlyHint": False},
-    tags={"entity", "create", "annotation", "leader"},
-)
-async def callout(
-    target: Annotated[
-        list[float] | None, Field(default=None, description="[x, y] the terminator touches")
-    ] = None,
-    landing: Annotated[
-        list[float] | None, Field(default=None, description="[x, y] of the knee")
-    ] = None,
-    text: Annotated[
-        str | None, Field(default=None, description="Note; newlines make lines")
-    ] = None,
-    number: Annotated[
-        int | str | None, Field(default=None, description="Item number in a circle (or text)")
-    ] = None,
-    style: Annotated[
-        Literal["none", "tick", "dot", "arrow"], Field(default="dot", description="Terminator")
-    ] = "dot",
-    mask: Annotated[bool, Field(default=True, description="WIPEOUT under the note")] = True,
-    side: Annotated[
-        Literal["auto", "left", "right"], Field(default="auto", description="Shelf direction")
-    ] = "auto",
-    shelf: Annotated[
-        Literal["end", "under"],
-        Field(default="end", description="Note past the shelf end, or the shelf under it"),
-    ] = "end",
-    align: Annotated[Literal["auto", "left", "right"], Field(default="auto")] = "auto",
-    text_height: Annotated[float, Field(default=2.5, gt=0)] = 2.5,
-    text_style: Annotated[str | None, Field(default=None)] = None,
-    max_width: Annotated[
-        float | None, Field(default=None, gt=0, description="Wrap the note at spaces")
-    ] = None,
-    color: Annotated[int | None, Field(default=None, description="ACI; default ByLayer")] = None,
-    layer: Annotated[str, Field(default="DIM")] = "DIM",
-    layout: Annotated[str, Field(default="", description="Layout name; '' = current space")] = "",
-    items: Annotated[
-        list[dict] | None,
-        Field(default=None, description="Many: [{target, landing, text, ...}] over the rest"),
-    ] = None,
-    ctx: Context = None,
-) -> dict:
-    """Technical callouts: a terminator at `target`, a leader to `landing`, a
-    horizontal shelf, then a note or a numbered circle; `items` draws many in
-    one call, the arguments beside it each item's defaults.
-
-    Details:
-
-    `style` none | tick (45 degrees) | dot | arrow (filled). `shelf` end: the
-    shelf runs 2 text heights away from the target and the note starts past
-    it; under: the shelf runs under the note, as long as it, the note on top.
-    `align` left | right sets the note's lines (auto: away from the target).
-    With `mask` a WIPEOUT is drawn first under the note or the circle, so
-    geometry beneath is hidden in model space, through a viewport and on a
-    layout (WIPEOUTFRAME 0 when the drawing never set it, `wipeout_frame`;
-    "Plot paperspace last" switched on, `sheet_order`). Native entities in one
-    GROUP (`group`): entity_delete of any part erases them all. `max_width`
-    breaks the note into lines no wider than it (drawing units, like
-    `text_height`); a word wider stands alone in `overflow`; U+00A0 keeps
-    "18 mm" whole. `bounds` covers the leader and the note.
-    Refused before drawing (every item planned first): both or neither of
-    text / number, a leader not longer than its terminator, an unknown layout
-    or text style, max_width or shelf under on a numbered callout.
-    """
-    shared = {
-        "target": target,
-        "landing": landing,
-        "text": text,
-        "number": number,
-        "style": style,
-        "mask": mask,
-        "side": side,
-        "shelf": shelf,
-        "align": align,
-        "text_height": text_height,
-        "text_style": text_style,
-        "max_width": max_width,
-        "color": color,
-        "layer": layer,
-        "layout": layout,
-    }
-    b = _backend(ctx)
-    if items is None:
-        return await b.callout(**{**shared, "layout": layout or None})
+def _callout_jobs(shared: dict, items) -> list[dict]:
+    """callout's ``items``, each over ``shared``: an item's note (text /
+    number) and its leader (target / targets / leader) replace the shared ones."""
     if not isinstance(items, list) or not items:
         raise InvalidArgsError("invalid_args: items: give at least one {target, landing, text}")
     jobs = []
@@ -3337,10 +3251,132 @@ async def callout(
         if extra is None or extra:
             raise InvalidArgsError(f"invalid_args: items[{i}]: unknown key(s) {extra or item!r}")
         job = {**shared, **item}
-        if "text" in item or "number" in item:  # an item's note replaces the shared one
-            job["text"], job["number"] = item.get("text"), item.get("number")
-        job["layout"] = job["layout"] or None
+        for keys in (("text", "number"), ("target", "targets", "leader")):
+            if set(keys) & set(item):
+                job.update({key: item.get(key) for key in keys})
+        if "leader" in item:
+            job["landing"] = item.get("landing")
         jobs.append(job)
+    return jobs
+
+
+#: callout's arguments plan_callout decides; the rest are the drawing's.
+_CALLOUT_PLAN_KEYS = (
+    "target", "landing", "targets", "leader", "text", "number", "style", "side",
+    "shelf", "shelf_end", "align", "text_height", "line_spacing", "max_width",
+)  # fmt: skip
+
+
+def _plan_callout(args: dict, deferred: frozenset) -> None:
+    """callout: every item's leader, note and shelf (``plan_callout``), widths
+    left to the run, which measures them in the drawing's text style."""
+    from engineering.callout import plan_callout
+
+    if deferred & {*_CALLOUT_PLAN_KEYS, "items"}:
+        return
+    shared = {
+        key: args.get(key)
+        for key in (*_CALLOUT_PLAN_KEYS, "mask", "text_style", "color", "layer", "layout")
+    }
+    jobs = [shared] if args.get("items") is None else _callout_jobs(shared, args["items"])
+    for i, job in enumerate(jobs):
+        given = {k: job[k] for k in _CALLOUT_PLAN_KEYS if job.get(k) is not None}
+        try:
+            plan_callout(**given, measure=lambda text, height: 0.0)
+        except ValueError as exc:
+            where = "" if args.get("items") is None else f"items[{i}]: "
+            raise ValueError(f"{where}{exc}") from None
+
+
+@cad_tool(
+    summary="Add callouts: leader with tick, dot, arrow or none, then a note or numbered circle.",
+    cost="mutate",
+    plan=_plan_callout,
+)
+@mcp.tool(
+    annotations={"title": "Create Callout", "readOnlyHint": False},
+    tags={"entity", "create", "annotation", "leader"},
+)
+async def callout(
+    target: Annotated[list[float] | None, Field(default=None)] = None,
+    landing: Annotated[list[float] | None, Field(default=None)] = None,
+    targets: Annotated[list[list[float]] | None, Field(default=None)] = None,
+    leader: Annotated[list[list[float]] | None, Field(default=None)] = None,
+    text: Annotated[str | None, Field(default=None)] = None,
+    number: Annotated[int | str | None, Field(default=None)] = None,
+    style: Annotated[Literal["none", "tick", "dot", "arrow"], Field(default="dot")] = "dot",
+    mask: Annotated[bool, Field(default=True)] = True,
+    side: Annotated[Literal["auto", "left", "right"], Field(default="auto")] = "auto",
+    shelf: Annotated[Literal["end", "under", "over"], Field(default="end")] = "end",
+    shelf_end: Annotated[float | None, Field(default=None)] = None,
+    align: Annotated[Literal["auto", "left", "right"], Field(default="auto")] = "auto",
+    text_height: Annotated[float, Field(default=2.5, gt=0)] = 2.5,
+    text_style: Annotated[str | None, Field(default=None)] = None,
+    line_spacing: Annotated[float, Field(default=1.0, ge=0.25, le=4.0)] = 1.0,
+    max_width: Annotated[float | None, Field(default=None, gt=0)] = None,
+    color: Annotated[int | None, Field(default=None)] = None,
+    layer: Annotated[str, Field(default="DIM")] = "DIM",
+    layout: Annotated[str, Field(default="")] = "",
+    items: Annotated[list[dict] | None, Field(default=None)] = None,
+    ctx: Context = None,
+) -> dict:
+    """Callouts: a terminator per target, a leader to the knee, a shelf, a note
+    or numbered circle; `items`: many.
+
+    Details:
+
+    One of `target` + `landing` (the knee), `targets` + `landing` (one branch
+    per target, one shelf) or `leader` (points, target first, knee last: a
+    broken leader, e.g. vertical then horizontal). `style`: the terminator,
+    tick at 45 degrees, arrow filled. `side` / `shelf_end` (an x): where the
+    shelf runs. `shelf` end: the shelf runs 2 text heights (or to
+    `shelf_end`) and the note starts past it; under / over: the shelf under /
+    over the note, as long as it, or to `shelf_end` with the note at that end
+    (it must fit). `text`: the note, newlines make lines; `number`: a circled
+    item number. `items`: [{target, landing, text, ...}], each over the
+    other arguments. `layout`: '' = current space. `align` left | right sets
+    the note's lines. Widths come from the text style's font and width factor,
+    the box text_overlap reads. With `mask` a WIPEOUT is drawn first under
+    the note or the circle, so geometry beneath is hidden in model space,
+    through a viewport and on a layout (WIPEOUTFRAME 0 when the drawing never
+    set it, `wipeout_frame`; "Plot paperspace last" switched on,
+    `sheet_order`). Native entities in one GROUP (`group`): entity_delete of
+    any part erases them all. `max_width` wraps the note at spaces into lines
+    no wider (drawing units); a word wider stands alone in `overflow`; U+00A0
+    keeps "18 mm" whole. `bounds` covers the leaders and the note.
+    Refused before drawing (every item planned first): both or neither of
+    text / number, not exactly one of target / targets / leader, a leader not
+    longer than its terminator, a note longer than its `shelf_end` shelf, an
+    unknown layout or text style, max_width, line_spacing or shelf under /
+    over on a numbered callout.
+    """
+    shared = {
+        "target": target,
+        "landing": landing,
+        "targets": targets,
+        "leader": leader,
+        "text": text,
+        "number": number,
+        "style": style,
+        "mask": mask,
+        "side": side,
+        "shelf": shelf,
+        "shelf_end": shelf_end,
+        "align": align,
+        "text_height": text_height,
+        "text_style": text_style,
+        "line_spacing": line_spacing,
+        "max_width": max_width,
+        "color": color,
+        "layer": layer,
+        "layout": layout,
+    }
+    b = _backend(ctx)
+    if items is None:
+        return await b.callout(**{**shared, "layout": layout or None})
+    jobs = _callout_jobs(shared, items)
+    for job in jobs:
+        job["layout"] = job["layout"] or None
     for i, job in enumerate(jobs):
         try:
             await b.callout(**job, dry_run=True)

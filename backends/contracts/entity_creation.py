@@ -309,8 +309,8 @@ class EntityCreationContract(ABC):
     @abstractmethod
     async def callout(
         self,
-        target: list[float],
-        landing: list[float],
+        target: list[float] | None = None,
+        landing: list[float] | None = None,
         text: str | None = None,
         number: int | str | None = None,
         style: str = "dot",
@@ -324,18 +324,25 @@ class EntityCreationContract(ABC):
         align: str = "auto",
         text_style: str | None = None,
         color: int | None = None,
+        targets: list[list[float]] | None = None,
+        leader: list[list[float]] | None = None,
+        shelf_end: float | None = None,
+        line_spacing: float = 1.0,
         dry_run: bool = False,
     ) -> dict:
         """One technical callout (``engineering/callout.py``): no terminator, a
-        tick, a dot or a filled arrow on ``target``, a leader to ``landing``
-        and a horizontal shelf (``shelf="under"``: under the note),
-        then a note (``text``) or a numbered circle (``number``), over a WIPEOUT
-        mask when ``mask``; ``side`` ("auto" | "left" | "right") is where the
-        shelf runs from the landing; ``max_width`` wraps the note at spaces.
-        Drawn into ``layout`` (None: the current
-        space) in one call, its parts held in one GROUP so deleting any part
-        deletes the callout; every refusal fires before the first entity, and
-        ``dry_run`` runs only the refusals."""
+        tick, a dot or a filled arrow on each target, a leader to the knee -
+        ``target`` -> ``landing``, the ``leader`` points (target first, knee
+        last) or one branch per ``targets`` point to ``landing`` - and a
+        horizontal shelf (``shelf`` "under" / "over" the note, or the note past
+        its end), to ``side`` or ``shelf_end`` (an x), then a note (``text``)
+        or a numbered circle (``number``), over a WIPEOUT mask when ``mask``.
+        Widths are measured in ``text_style`` (font and width factor);
+        ``max_width`` wraps the note at spaces, ``line_spacing`` is the MTEXT
+        factor. Drawn into ``layout`` (None: the current space) in one call,
+        its parts held in one GROUP so deleting any part deletes the callout;
+        every refusal fires before the first entity, and ``dry_run`` runs only
+        the refusals."""
         ...
 
     @abstractmethod

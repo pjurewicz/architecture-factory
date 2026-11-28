@@ -556,6 +556,18 @@ async def test_a_sheet_tool_refusal_refuses_the_batch_before_step_1(client):
         assert row["error"]["hint"].startswith("Refused before any write")
 
 
+async def test_a_callout_refusal_refuses_the_batch_before_step_1(client):
+    """Round 9: a callout's leader and shelf are planned before step 1, an
+    item's index named; widths wait for the run's text style."""
+    bad = {"items": [{"target": [0, 0], "landing": [20, 10], "text": "A"},
+                     {"targets": [[0, 0]], "leader": [[0, 0], [5, 5]], "text": "B"}]}  # fmt: skip
+    steps = [_line(y1=i, y2=i) for i in range(3)] + [{"tool": "callout", "args": bad}]
+    with pytest.raises(ToolError, match="refused all 4 steps") as excinfo:
+        await _batch(client, steps)
+    assert "items[1]: pass exactly one of target, targets or leader" in str(excinfo.value)
+    assert await _entity_count(client) == 0
+
+
 async def test_a_plan_check_refuses_alike_on_every_route_and_writes_nothing(client):
     """The plan check is the body's own first call: a direct call, a dry run
     and a real batch carry the same kind and message, and none moves the

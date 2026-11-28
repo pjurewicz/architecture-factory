@@ -6747,8 +6747,8 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
 
     async def callout(
         self,
-        target,
-        landing,
+        target=None,
+        landing=None,
         text=None,
         number=None,
         style="dot",
@@ -6762,6 +6762,10 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         align="auto",
         text_style=None,
         color=None,
+        targets=None,
+        leader=None,
+        shelf_end=None,
+        line_spacing=1.0,
         dry_run=False,
     ) -> dict:
         from ezdxf.enums import TextEntityAlignment
@@ -6786,9 +6790,12 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     f"the drawing has {', '.join(s.dxf.name for s in doc.styles)}"
                 )
             try:
+                # measured in the style the note is lettered in: its font and width factor
                 plan = plan_callout(
                     target,
                     landing,
+                    targets=targets,
+                    leader=leader,
                     text=text,
                     number=number,
                     style=style,
@@ -6797,8 +6804,9 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     side=str(side or "auto"),
                     max_width=max_width,
                     shelf=str(shelf or "end"),
+                    shelf_end=shelf_end,
                     align=str(align or "auto"),
-                    # measured in the note's text style: its font and width factor
+                    line_spacing=1.0 if line_spacing is None else line_spacing,
                     measure=style_text_width(doc.styles.get(text_style or "Standard")),
                 )
             except ValueError as exc:
@@ -6840,21 +6848,30 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 parts["mask"] = wipeout.dxf.handle
 
             parts["leader"] = space.add_lwpolyline(plan.leader, dxfattribs=attribs).dxf.handle
-            if plan.tick is not None:
-                parts["terminator"] = space.add_line(*plan.tick, dxfattribs=attribs).dxf.handle
-            elif plan.arrow is not None or plan.dot is not None:
+            for i, branch in enumerate(plan.branches, start=2):
+                parts[f"branch_{i}"] = space.add_lwpolyline(branch, dxfattribs=attribs).dxf.handle
+            for i, geometry in enumerate(plan.terminators, start=1):
+                key = "terminator" if i == 1 else f"terminator_{i}"
+                if geometry is None:
+                    continue
+                if plan.style == "tick":
+                    parts[key] = space.add_line(*geometry, dxfattribs=attribs).dxf.handle
+                    continue
                 fill = space.add_hatch(dxfattribs=attribs)
                 fill.set_solid_fill(color=attribs.get("color", 256))
-                if plan.arrow is not None:
-                    fill.paths.add_polyline_path(plan.arrow, is_closed=True)
+                if plan.style == "arrow":
+                    fill.paths.add_polyline_path(geometry, is_closed=True)
                 else:
-                    (cx, cy), radius = plan.dot
+                    (cx, cy), radius = geometry
                     fill.paths.add_edge_path().add_arc((cx, cy), radius, 0.0, 360.0)
-                parts["terminator"] = fill.dxf.handle
+                parts[key] = fill.dxf.handle
 
             if plan.kind == "text":
+                spacing = (
+                    {} if plan.line_spacing == 1.0 else {"line_spacing_factor": plan.line_spacing}
+                )
                 note = space.add_mtext(
-                    plan.content, dxfattribs={**lettering, "char_height": plan.height}
+                    plan.content, dxfattribs={**lettering, "char_height": plan.height, **spacing}
                 )
                 note.set_location(plan.content_at, attachment_point=MTEXT_ALIGN[plan.content_align])
                 parts["text"] = note.dxf.handle
@@ -6879,8 +6896,8 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             group.extend(doc.entitydb[h] for h in parts.values())
             self._mark_dirty()
 
-            xs = [p[0] for p in plan.leader] + [p[0] for p in plan.box]
-            ys = [p[1] for p in plan.leader] + [p[1] for p in plan.box]
+            drawn = [*plan.leader, *(p for branch in plan.branches for p in branch), *plan.box]
+            xs, ys = [p[0] for p in drawn], [p[1] for p in drawn]
             if plan.circle is not None:
                 (cx, cy), radius = plan.circle
                 xs += [cx - radius, cx + radius]
@@ -6892,6 +6909,8 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 "style": plan.style,
                 "side": plan.side,
                 "shelf": shelf,
+                "shelf_end": plan.leader[-1][0],
+                "line_spacing": plan.line_spacing,
                 "text": plan.content.replace("\\P", "\n"),
                 "lines": plan.content.count("\\P") + 1,
                 "overflow": list(plan.overflow),
@@ -6902,6 +6921,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 "handles": list(parts.values()),
                 "group": group.dxf.handle,
                 "leader": [list(p) for p in plan.leader],
+                "branches": [[list(p) for p in branch] for branch in plan.branches],
                 "mask": None if plan.mask is None else [list(p) for p in plan.mask],
                 "wipeout_frame": frame,
                 "sheet_order": sheet_order,

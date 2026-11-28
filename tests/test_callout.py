@@ -316,6 +316,85 @@ async def test_width_comes_from_the_text_style_width_factor_included(backend):
     assert ends[1] / ends[0] == pytest.approx(0.72, abs=0.02)
 
 
+async def test_long_shelf_over_the_note_to_its_end_from_three_targets(backend):
+    """The source's layout: a long shelf from a knee by the targets, the note
+    under it set against the shelf's end, three branches to one knee."""
+    from engineering.viewport_clip import mtext_box
+
+    h, note = 2.5, "TYNK GIPSOWY"
+    targets = [[0, 0], [5, -8], [-6, -4]]
+    result = await backend.callout(
+        targets=targets, landing=[2, 10], text=note, style="dot", shelf="over", shelf_end=60
+    )
+    assert result["leader"] == [[0.0, 0.0], [2.0, 10.0], [60.0, 10.0]]
+    assert result["branches"] == [[[5.0, -8.0], [2.0, 10.0]], [[-6.0, -4.0], [2.0, 10.0]]]
+    parts = result["parts"]
+    assert {"branch_2", "branch_3", "terminator", "terminator_2", "terminator_3"} <= set(parts)
+    centres = [
+        tuple(_entity(backend, parts[k]).paths[0].edges[0].center)[:2]
+        for k in ("terminator", "terminator_2", "terminator_3")
+    ]
+    assert centres == [pytest.approx(tuple(t)) for t in targets]
+    mtext = _entity(backend, parts["text"])
+    assert mtext.dxf.attachment_point == 3  # top_right: under the shelf, at its end
+    box = mtext_box(mtext)
+    assert max(x for x, _ in box) == pytest.approx(60.0 - 0.5 * h, abs=1e-6)
+    assert max(y for _, y in box) == pytest.approx(10.0 - 0.5 * h, abs=1e-6)
+    # the mask is round the note, not the whole shelf
+    assert min(x for x, _ in result["mask"]) == pytest.approx(min(x for x, _ in box) - 0.5 * h)
+    assert result["bounds"]["min"] == [-6.0, -8.0]
+
+    before = len(backend._doc.entitydb)
+    with pytest.raises(InvalidArgsError, match="the note needs"):
+        await backend.callout([0, 0], [2, 10], text=note, shelf="over", shelf_end=10)
+    assert len(backend._doc.entitydb) == before
+
+
+async def test_broken_leader_vertical_then_horizontal(backend):
+    result = await backend.callout(
+        leader=[[0, 0], [0, 50], [10, 50]], text="ŚCIANA", style="arrow", mask=False
+    )
+    assert result["side"] == "right"
+    assert result["leader"] == [[0.0, 0.0], [0.0, 50.0], [10.0, 50.0], [15.0, 50.0]]
+    tip, *base = _entity(backend, result["parts"]["terminator"]).paths[0].vertices
+    assert tuple(tip)[:2] == pytest.approx((0.0, 0.0))
+    assert all(v[1] == pytest.approx(2.5) for v in base)  # along the vertical leg
+
+
+async def test_line_spacing_sets_the_mtext_and_the_mask_height(backend):
+    from engineering.viewport_clip import mtext_box
+
+    h = 2.5
+    result = await backend.callout([0, 0], [20, 10], text="A\nB\nC", line_spacing=1.5)
+    mtext = _entity(backend, result["parts"]["text"])
+    assert mtext.dxf.line_spacing_factor == 1.5 and result["line_spacing"] == 1.5
+    ys = [y for _, y in result["mask"]]
+    box = [y for _, y in mtext_box(mtext)]
+    assert max(ys) - min(ys) == pytest.approx(max(box) - min(box) + h, rel=1e-3)
+    assert max(ys) - min(ys) == pytest.approx(h * (1 + 2 * 5 / 3 * 1.5) + h)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "words"),
+    [
+        ({"target": [0, 0], "targets": [[1, 1]], "landing": [20, 10]}, "exactly one of target"),
+        ({"leader": [[0, 0], [20, 10]], "landing": [20, 10]}, "drop landing"),
+        ({"targets": [[0, 0]]}, "landing"),
+        ({"leader": [[0, 0]]}, "at least 2"),
+        ({"target": [0, 0], "landing": [20, 10], "side": "left", "shelf_end": 40}, "not both"),
+        ({"target": [0, 0], "landing": [20, 10], "shelf_end": 20}, "other than the knee"),
+        ({"target": [0, 0], "landing": [20, 10], "line_spacing": 9}, "line_spacing"),
+    ],
+)
+async def test_leader_refusals_draw_nothing(backend, kwargs, words):
+    before = len(backend._doc.entitydb)
+    with pytest.raises(InvalidArgsError, match=words):
+        await backend.callout(text="A", **kwargs)
+    with pytest.raises(InvalidArgsError, match="line_spacing"):
+        await backend.callout([0, 0], [20, 10], number=1, line_spacing=1.5)
+    assert len(backend._doc.entitydb) == before
+
+
 @pytest_asyncio.fixture
 async def client():
     from fastmcp import Client
@@ -375,8 +454,10 @@ async def test_items_draw_many_callouts_and_a_bad_one_draws_none(client):
                     {"type": "callout", "target": [0, 0], "landing": [30, 20], "text": "C",
                      "style": "arrow", "tag": "c"},
                     {"type": "line", "x1": 0, "y1": 0, "x2": 5, "y2": 0},
+                    {"type": "callout", "targets": [[0, 0], [9, 0]], "landing": [4, 20],
+                     "text": "D", "shelf": "over", "shelf_end": 40, "line_spacing": 1.2},
                 ]
             },
         )
     ).structured_content  # fmt: skip
-    assert batch["ok"] and batch["created"] == 2 and "c" in batch["tags"]
+    assert batch["ok"] and batch["created"] == 3 and "c" in batch["tags"]

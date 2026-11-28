@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (font - ISOCP at its ISO 3098 width - and width factor), the box
   `text_overlap` reads.
 
+### Changed
+
+- `callout`: `target` and `landing` are optional (one of `target`, `targets`,
+  `leader`); a parameter's description moved into the tool's Details.
+
 ### Added
 
 - `draw_order(action="above"|"under", reference=<handle>)`: AutoCAD's
@@ -26,6 +31,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `entity_list(fields=[..., "draw_index"])`: each row's place in its layout's
   draw order (0 drawn first), a projection-only field - the rows keep creation
   order and the default row is unchanged. Round 9.
+
+- `callout`: `targets=[[x, y], ...]` (one branch each to one knee and one
+  shelf), `leader=[[x, y], ...]` (a broken leader, e.g. vertical then
+  horizontal; its last point is the knee, no `landing`), `shelf="over"` (the
+  note under the shelf), `shelf_end` (an x: a long shelf with the note at its
+  end) and `line_spacing`; the same keys on an `entity_batch_create` callout
+  item, and its plan check refuses a bad item before a `cad_batch`'s step 1.
+  Round 9 redrew 7 of 9 notes by hand for these layouts.
 
 - `entity_create_hatch(holes=[...])`: islands in the same call, each a polygon
   `[[x, y], ...]` or a disc `[cx, cy, r]` - `block_define`'s hatch schema, so
