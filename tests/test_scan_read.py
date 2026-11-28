@@ -507,3 +507,27 @@ async def test_scan_walls_paste_into_arch_plan_from_spec(client, tmp_path):
         "scan_read", {**args, "mode": "blobs", "skip": "#ff0000"}, raise_on_error=False
     )
     assert bad.is_error and "rects and walls only" in bad.structured_content["message"]
+
+
+@pytest.mark.asyncio
+async def test_compare_does_not_let_a_dense_hatch_cover_the_lines_under_it(client, tmp_path):
+    """Round 7: within the 2 px tolerance a dense drawing hatch reached every
+    furniture line under it, so an undrawn sofa scored as drawn."""
+    pytest.importorskip("matplotlib")
+    image = Image.new("RGB", (400, 300), "white")
+    pen = ImageDraw.Draw(image)
+    for v in (120, 160, 200):  # three furniture lines, never drawn
+        pen.line([(120, v), (280, v)], fill="black", width=1)
+    scan = tmp_path / "under.png"
+    image.save(scan)
+    box = [wcs(100, 220), wcs(300, 220), wcs(300, 100), wcs(100, 100)]
+    await client.call_tool(
+        "entity_create_hatch",
+        {"boundary_points": box, "pattern": "ANSI31", "scale": 0.5, "layer": "0"},
+    )
+    out = (
+        await client.call_tool("scan_read", {"align": ALIGN, "image": str(scan), "mode": "compare"})
+    ).structured_content
+    assert out["source_covered_pct"] < 10
+    assert out["source_covered_by_fills_only_pct"] > 50
+    assert "font" in out["method"]["text"]

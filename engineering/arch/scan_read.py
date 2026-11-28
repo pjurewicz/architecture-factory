@@ -1138,7 +1138,13 @@ def compare(window: dict, render: dict, *, max_px: int = 1568) -> dict:
 
     tol = COMPARE_TOLERANCE_PX
     near_drawn, near_source = _dilate(drawn, tol), _dilate(source, tol)
-    missing = source & ~near_drawn  # in the source, nothing drawn near it
+    # a dense drawing hatch lies within tol of the furniture and dimensions under
+    # it: a source stroke counts as drawn only near a drawing line or text, and
+    # what only a drawing fill reaches is reported apart (round 7)
+    near_strokes = _dilate(drawn & (drawn_kind != 2), tol)
+    covered = (src_stroke & near_strokes) | (src_fill & near_drawn)
+    by_fill_only = source & near_drawn & ~covered
+    missing = source & ~covered  # in the source, nothing drawn near it
     extra = drawn & ~near_source  # drawn, nothing in the source near it
     n_src, n_drw = int(source.sum()), int(drawn.sum())
 
@@ -1153,7 +1159,7 @@ def compare(window: dict, render: dict, *, max_px: int = 1568) -> dict:
     source_parts = {
         name: {
             "px": int(part.sum()),
-            "covered_pct": pct(int((part & near_drawn).sum()), int(part.sum())),
+            "covered_pct": pct(int((part & covered).sum()), int(part.sum())),
         }
         for name, part in (("strokes", src_stroke), ("fills", src_fill))
     }
@@ -1207,6 +1213,7 @@ def compare(window: dict, render: dict, *, max_px: int = 1568) -> dict:
         "applied": True,
         "ok": True,
         "source_covered_pct": pct(n_src - int(missing.sum()), n_src),
+        "source_covered_by_fills_only_pct": pct(int(by_fill_only.sum()), n_src),
         "drawing_on_source_pct": pct(n_drw - int(extra.sum()), n_drw),
         "source_line_px": n_src,
         "drawing_line_px": n_drw,
@@ -1224,6 +1231,11 @@ def compare(window: dict, render: dict, *, max_px: int = 1568) -> dict:
             "classes": "drawing: text = TEXT / MTEXT / ATTRIB / MULTILEADER, fills = HATCH / "
             "SOLID, lines = the rest (dimensions too); source: fills = ink with ink all round "
             f"within {FILL_CORE_PX} px, strokes = the rest",
+            "covered": "a source stroke near a drawing line or text, a source fill near any "
+            "drawing ink; source_covered_by_fills_only_pct is the source ink only a drawing "
+            "fill reaches (a matching hatch, or furniture under one)",
+            "text": "the render's font is not the scan's, so text on_source_pct stays low "
+            "even for lettering placed right; judge text by regions, not by the score",
             "tolerance_px": tol,
             "regions": f"cells of {cell} scan px, ranked by missing + extra",
             "picture": "grey source, green matched drawing, red source not drawn, "
