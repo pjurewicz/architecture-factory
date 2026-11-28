@@ -7,6 +7,7 @@ Split out of the single 1854-line ``AutoCADBackend`` ABC in v1.5.0 (M7).
 
 from __future__ import annotations
 
+import math
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
@@ -29,6 +30,22 @@ def linear_rotation(x1, y1, x2, y2, dim_x, dim_y, rotation=None) -> float:
     beside_x = not min(x1, x2) <= dim_x <= max(x1, x2)
     within_y = min(y1, y2) <= dim_y <= max(y1, y2)
     return 90.0 if beside_x and within_y else 0.0
+
+
+def readable_order(x1, y1, x2, y2, angle: float) -> tuple[float, float, float, float, float]:
+    """``(x1, y1, x2, y2, angle)`` with the angle in (-90, 90] and the points
+    in the order that direction reads, so the text side follows the style
+    (DIMTAD) alone, as in AutoCAD, never the order the points were given.
+
+    ezdxf writes the text "above" the line as seen from p1 to p2: given in
+    reverse, a horizontal dimension's text went below its line and a vertical
+    one's to the right.
+    """
+    angle = 90.0 - (90.0 - float(angle)) % 180.0
+    ux, uy = math.cos(math.radians(angle)), math.sin(math.radians(angle))
+    if (float(x2) - float(x1)) * ux + (float(y2) - float(y1)) * uy < -1e-12:
+        x1, y1, x2, y2 = x2, y2, x1, y1
+    return x1, y1, x2, y2, angle
 
 
 class DimensionContract(ABC):

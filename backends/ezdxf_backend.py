@@ -7352,9 +7352,11 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         dimvars=None,
     ) -> EntityInfo:
         prepared = prepare_xdata(xdata)
-        from backends.contracts.dimensions import linear_rotation
+        from backends.contracts.dimensions import linear_rotation, readable_order
 
         rotation = linear_rotation(x1, y1, x2, y2, dim_x, dim_y, rotation)
+        first = (x1, y1)
+        x1, y1, x2, y2, rotation = readable_order(x1, y1, x2, y2, rotation)
 
         def _sync():
             from engineering.tolerances import build_dim_override
@@ -7396,7 +7398,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 _dim_block_ltscale(self._require_doc(), ent)
             self._attach_xdata(ent, prepared)
             self._mark_dirty()
-            return _dimension_drawn(ent, x1, y1)
+            return _dimension_drawn(ent, *first)
 
         return await self._async(_sync)
 
@@ -7412,6 +7414,11 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         xdata=None,
     ) -> EntityInfo:
         prepared = prepare_xdata(xdata)
+        from backends.contracts.dimensions import readable_order
+
+        first = (x1, y1)
+        along = math.degrees(math.atan2(float(y2) - float(y1), float(x2) - float(x1)))
+        x1, y1, x2, y2, _ = readable_order(x1, y1, x2, y2, along)
 
         def _sync():
             dx, dy = float(x2) - float(x1), float(y2) - float(y1)
@@ -7435,7 +7442,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             self._put_dimension_on(ent, layer)
             self._attach_xdata(ent, prepared)
             self._mark_dirty()
-            return _dimension_drawn(ent, x1, y1)
+            return _dimension_drawn(ent, *first)
 
         return await self._async(_sync)
 
@@ -8388,6 +8395,16 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                             old[2] if len(old) > 2 else 0.0,
                         ),
                     )
+                from backends.contracts.dimensions import readable_order
+
+                p2, p3 = ent.dxf.defpoint2, ent.dxf.defpoint3
+                along = (
+                    float(ent.dxf.get("angle", 0.0))
+                    if kind == 0
+                    else math.degrees(math.atan2(p3.y - p2.y, p3.x - p2.x))
+                )
+                if readable_order(p2.x, p2.y, p3.x, p3.y, along)[:2] != (p2.x, p2.y):
+                    ent.dxf.defpoint2, ent.dxf.defpoint3 = p3, p2  # the text side, as created
                 try:
                     self._rerender_sync([handle], False)
                 except DimensionRenderError:

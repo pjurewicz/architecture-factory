@@ -142,3 +142,46 @@ async def test_dimension_linear_reports_the_rounded_text(backend):
     assert info.properties["measurement"] == pytest.approx(132.5)
     assert info.properties["text"] in ("132", "133")  # what the sheet shows, not the value
     assert info.properties["offset"] == pytest.approx(-20)
+
+
+async def test_the_text_side_follows_the_style_not_the_point_order():
+    # round 6: given in reverse, ezdxf put a horizontal dimension's text below its
+    # line and a vertical one's to the right; with DIMTAD 1 it stands above /
+    # left (reading from the bottom), whichever point comes first
+    from fastmcp import Client
+
+    import server
+
+    cases = {
+        "vertical": ((6500, 2000), (6500, 3000), (6600, 2500), 90),
+        "horizontal": ((2000, 500), (3000, 500), (2500, 600), 0),
+        "aligned": ((0, 0), (400, 300), (-60, 80), None),
+    }
+    async with Client(server.mcp) as client:
+        await client.call_tool("drawing_new", {})
+        await client.call_tool("drawing_apply_standard", {"standard": "iso"})
+        seen = {}
+        for name, (a, b, at, rotation) in cases.items():
+            for p, q in ((a, b), (b, a)):
+                tool = "dimension_aligned" if rotation is None else "dimension_linear"
+                args = {
+                    "x1": p[0],
+                    "y1": p[1],
+                    "x2": q[0],
+                    "y2": q[1],
+                    "dim_x": at[0],
+                    "dim_y": at[1],
+                }
+                if rotation is not None:
+                    args["rotation"] = rotation
+                made = await client.call_tool(tool, args)
+                got = await client.call_tool(
+                    "entity_get", {"handle": made.structured_content["handle"]}
+                )
+                seen.setdefault(name, []).append(
+                    got.structured_content["properties"]["text_position"]
+                )
+    for name, (first, second) in seen.items():
+        assert first == pytest.approx(second), name
+    assert seen["vertical"][0][0] < 6600  # left of the dimension line
+    assert seen["horizontal"][0][1] > 600  # above it
