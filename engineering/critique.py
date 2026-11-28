@@ -258,6 +258,11 @@ async def _plot_scale_rows(backend: AutoCADBackend, shared: dict, ledger) -> lis
                             "minimum": ISO_3098_MIN_TEXT_MM,
                             "smallest_mm": round(small[0][0], 4),
                             "count": len(small),
+                            # round 7: what a sheet= critique (1.8 mm) still reports
+                            "count_under_1_8": sum(1 for h, _r in small if h < 1.8 - 1e-9),
+                            "sheet_handles": [r.handle for h, r in small if h < 1.8 - 1e-9][
+                                :_PLOTTED_HANDLES
+                            ],
                             "repairable": False,
                         },
                     )

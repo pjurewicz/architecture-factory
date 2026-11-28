@@ -9721,6 +9721,10 @@ async def drawing_critique(
     rows = [_dc(i) for i in issues]
     if sheet is not None:
         rows = [_sheet_row(row) for row in rows if not _sheet_noise(row)]
+    else:
+        for row in rows:
+            for key in ("count_under_1_8", "sheet_handles"):
+                (row.get("detail") or {}).pop(key, None)
     # round 6: the bare list is worst first too, the visible defects first
     rows.sort(key=_critique_rank)
     paged = summary or limit is not None or severity is not None
@@ -9766,6 +9770,21 @@ def _sheet_row(row: dict) -> dict:
     )
     if copied and row.get("severity") == "warning":
         return {**row, "severity": "info"}
+    if detail.get("code") == "plotted_text_too_small" and "count_under_1_8" in detail:
+        # round 7: only the lettering under the sheet's 1.8 mm, not all under 2.5
+        n = detail["count_under_1_8"]
+        message = (
+            f"Viewport {detail['viewport']} on '{detail['layout']}': {n} model lettering "
+            f"entit{'y' if n == 1 else 'ies'} below {_SHEET_MIN_TEXT_MM} mm (smallest "
+            f"{detail['smallest_mm']:.2f} mm); {detail['count']} under 2.5 mm are a sheet's own."
+        )
+        keep = {k: v for k, v in detail.items() if k not in ("count_under_1_8", "sheet_handles")}
+        return {
+            **row,
+            "message": message,
+            "handles": detail["sheet_handles"],
+            "detail": {**keep, "count": n, "minimum": _SHEET_MIN_TEXT_MM},
+        }
     return row
 
 

@@ -420,6 +420,27 @@ def test_a_services_sheet_drops_room_labels_and_letters_down_to_1_8_mm():
     assert not _sheet_noise({"focus": "arch_wall_gap", "detail": {"code": "gap"}})
 
 
+def test_a_services_sheet_counts_only_the_lettering_under_1_8_mm():
+    """Round 7: one 1.5 mm text kept the row of all 172 under 2.5 mm as a warning."""
+    from server import _sheet_row
+
+    row = {
+        "focus": "iso128",
+        "severity": "warning",
+        "handles": ["A", "B", "C"],
+        "detail": {
+            "code": "plotted_text_too_small", "layout": "A3", "viewport": "2F",
+            "smallest_mm": 1.5, "count": 172, "count_under_1_8": 1, "sheet_handles": ["A"],
+            "minimum": 2.5,
+        },
+    }  # fmt: skip
+    out = _sheet_row(row)
+    assert out["detail"]["count"] == 1 and out["handles"] == ["A"]
+    assert (
+        out["detail"]["minimum"] == 1.8 and "1 model lettering entity below 1.8" in out["message"]
+    )
+
+
 @pytest.mark.asyncio
 async def test_an_interior_sheet_lists_the_overlap_first_and_copied_styles_as_info():
     # round 6: on a faithful tracing 15 of 20 rows were copied styles, and the
