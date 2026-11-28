@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import contextvars
 import functools
 import json
@@ -3526,6 +3527,7 @@ async def dimension_linear(
         "Text middle [x, y]; the dimension line stays at dim_x, dim_y (no leader). "
         "Omitted = the style places it",
     ] = None,
+    style: Annotated[str | None, "Dimension style (default: current)"] = None,
     ctx: Context = None,
 ) -> dict:
     """Create a linear dimension, optionally toleranced (ISO 129 or ISO 286 fit).
@@ -3538,22 +3540,23 @@ async def dimension_linear(
     tol_upper, tol_lower, tol_mode, text_override = _fit_to_tolerances(
         fit, nominal, tol_upper, tol_lower, tol_mode, text_override
     )
-    result = await _backend(ctx).dimension_linear(
-        x1,
-        y1,
-        x2,
-        y2,
-        dim_x,
-        dim_y,
-        rotation,
-        layer,
-        tol_upper,
-        tol_lower,
-        tol_mode,
-        text_override,
-        text_at=text_at,
-    )
+    b = _backend(ctx)
+    args = (x1, y1, x2, y2, dim_x, dim_y, rotation, layer, tol_upper, tol_lower, tol_mode)
+    async with _dimstyle(b, style):
+        result = await b.dimension_linear(*args, text_override, text_at=text_at)
     return _own_layer_note(ctx, layer, _dc(result))
+
+
+@contextlib.asynccontextmanager
+async def _dimstyle(b, style: str | None):
+    """``style`` current for the body (``dimstyle_scope``); None: the current one."""
+    async with contextlib.AsyncExitStack() as stack:
+        if style is not None:
+            try:
+                await stack.enter_async_context(b.dimstyle_scope(style))
+            except ValueError as exc:  # no such style: nothing drawn
+                raise InvalidArgsError(str(exc)) from exc
+        yield
 
 
 @cad_tool(summary="Dimension the true distance between two points, along a slope.", cost="mutate")
@@ -3569,11 +3572,14 @@ async def dimension_aligned(
     dim_x: Annotated[float, "A point the dimension line passes through, X"],
     dim_y: Annotated[float, "A point the dimension line passes through, Y"],
     layer: Annotated[str | None, "Layer name"] = None,
+    style: Annotated[str | None, "Dimension style (default: current)"] = None,
     ctx: Context = None,
 ) -> dict:
     """Create an aligned dimension that measures the true distance between two points.
     Returns `measurement`, the shown `text` and the line's signed `offset`."""
-    result = await _backend(ctx).dimension_aligned(x1, y1, x2, y2, dim_x, dim_y, layer)
+    b = _backend(ctx)
+    async with _dimstyle(b, style):
+        result = await b.dimension_aligned(x1, y1, x2, y2, dim_x, dim_y, layer)
     return _own_layer_note(ctx, layer, _dc(result))
 
 
@@ -6543,10 +6549,18 @@ async def _batch_rollback_evidence(
 
 
 def _compact_batch_create(result: dict) -> dict:
-    """``entity_batch_create``'s result with its EntityInfo rows as ``handles``."""
+    """``entity_batch_create``'s result with its EntityInfo rows as ``handles``,
+    plus ``dim_texts`` {handle: shown text} for the dimensions it drew."""
+    rows = result.get("entities", [])
+    texts = {
+        row["handle"]: row["properties"]["text"]
+        for row in rows
+        if row.get("type") == "DIMENSION" and "text" in (row.get("properties") or {})
+    }
     return {
         **{key: value for key, value in result.items() if key != "entities"},
-        "handles": [row["handle"] for row in result.get("entities", [])],
+        "handles": [row["handle"] for row in rows],
+        **({"dim_texts": texts} if texts else {}),
     }
 
 
@@ -7679,8 +7693,8 @@ async def entity_batch_create(
                 "items": _inline_json_schema(_batch_create_adapter().json_schema()),
                 "description": "One item per entity: 'type' and that create's arguments, plus "
                 "an optional 'lineweight' (hundredths of a mm, or 'ByLayer' = -1, 'ByBlock' = -2, "
-                "'Default' = -3 - not ByLayer) and 'linetype'; text / mtext take 'style', mtext "
-                "'line_spacing'. A whole part: dimension_auto, not dimension_linear per feature.",
+                "'Default' = -3 - not ByLayer), 'linetype' and 'tag' (answered in tags {tag: "
+                "handle}); text / mtext take 'style', mtext 'line_spacing'.",
             }
         ),
     ],
@@ -7719,8 +7733,12 @@ async def entity_batch_create(
             f"nothing was drawn. Types: {', '.join(known)}"
         )
     # Every item against the schema this tool advertises, before anything is drawn.
-    problems = []
+    problems, seen = [], set()
     for i, spec in enumerate(entities):
+        if (tag := spec.get("tag")) is not None:
+            if not str(tag).strip() or tag in seen:
+                problems.append(f"entities[{i}].tag: non-empty and unique; got {tag!r}")
+            seen.add(tag)
         try:
             _batch_create_adapter().validate_python({**spec, "type": str(spec["type"]).lower()})
         except ValidationError as exc:

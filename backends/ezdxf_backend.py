@@ -74,6 +74,7 @@ from .entity_fields import (
     DIMTYPE_NAMES,
     dimension_fields,
     dimension_props,
+    dimension_rendered,
     entity_extents,
     hatch_loops,
     hatch_props,
@@ -1618,13 +1619,9 @@ def _dimension_drawn(ent, x1, y1) -> EntityInfo:
     the signed distance of the dimension line (``defpoint``) from the first
     point, + to the left of the measured direction.
     """
-    from backends.entity_fields import dimension_rendered
-
-    info = _entity_info_dxf(ent)
+    info = _entity_info_dxf(ent)  # measurement and text come with every DIMENSION row
     angle = math.radians(float(ent.dxf.get("angle", 0.0)))
     base = ent.dxf.defpoint
-    info.properties["measurement"] = round(float(ent.get_measurement()), 9)
-    info.properties["text"] = dimension_rendered(ent)[0]
     offset = (float(base.y) - float(y1)) * math.cos(angle) - (float(base.x) - float(x1)) * math.sin(
         angle
     )
@@ -1833,6 +1830,15 @@ def _entity_info_dxf(ent, *, detail: bool = False) -> EntityInfo:
                     props["text_position"] = _pt(tm)  # group code 11 — OCS
             except Exception:
                 pass
+            # round 6: what it measures and what it shows, on every row, so a list
+            # checks a sheet's dimensions against the source in one call
+            try:
+                measured = ent.get_measurement()
+                if isinstance(measured, int | float):
+                    props["measurement"] = round(float(measured), 9)
+            except Exception:  # noqa: BLE001 - an ordinate measures nothing here
+                pass
+            props["text"] = dimension_rendered(ent)[0]
             if detail:
                 props["dimension"] = dimension_props(dimension_fields(ent))
     except Exception as exc:

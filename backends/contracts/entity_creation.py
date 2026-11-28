@@ -74,6 +74,7 @@ def batch_create_adapter():
     shapes = {target: params(target) for target in EntityCreationContract.BATCH_CREATE_TYPES}
     # batch_create_spec resolves an ISO 286 fit into the tol_* arguments
     shapes["dimension_linear"]["fit"] = (str | None, None)
+    shapes["dimension_linear"]["style"] = (str | None, None)  # a dimension style, for this item
     for alias, target in EntityCreationContract.BATCH_CREATE_ALIASES.items():
         # batch_create_spec rewrites x1, y1, x2, y2 or x, y, width, height into the
         # target's points / closed, and refuses a spec with neither set by name
@@ -86,6 +87,7 @@ def batch_create_adapter():
     for kind, fields in shapes.items():
         fields.setdefault("linetype", (str | None, None))
         fields.setdefault("color", (int | None, None))
+        fields["tag"] = (str | None, None)  # answered in tags {tag: handle}
         if kind in ("text", "mtext"):
             fields["style"] = (str | None, None)
         if kind == "mtext":
@@ -122,9 +124,14 @@ def inline_json_schema(schema: dict) -> dict:
             return walk(defs[node["$ref"].rsplit("/", 1)[-1]])
         options = node.get("anyOf")
         if isinstance(options, list) and {"type": "null"} in options and "default" in node:
-            # an optional argument: its default stands for "not given", so null is noise
+            # an optional argument: its default stands for "not given", so null is
+            # noise - in the type and, being the default, as the default too
             kept = [option for option in options if option != {"type": "null"}]
-            rest = {key: value for key, value in node.items() if key != "anyOf"}
+            rest = {
+                key: value
+                for key, value in node.items()
+                if key != "anyOf" and not (key == "default" and value is None)
+            }
             node = rest | (kept[0] if len(kept) == 1 else {"anyOf": kept})
         return {
             key: (walk(value) if key != "properties" else {k: walk(v) for k, v in value.items()})
@@ -452,7 +459,9 @@ class EntityCreationContract(ABC):
         created ``EntityInfo`` as dicts, in spec order. ``progress(i, total)``
         is awaited before each spec when given. The specs are not modified.
         ``layout`` (round 4) draws every item there - an mtext's own ``layout``
-        still wins - and puts the current space back.
+        still wins - and puts the current space back. An item's ``tag`` (round
+        6) is answered in ``tags`` {tag: handle}; a dimension_linear's ``style``
+        draws that item in that dimension style.
         """
         if layout is not None:
             previous = str((await self.layout_list()).get("current") or "Model")
@@ -469,11 +478,13 @@ class EntityCreationContract(ABC):
 
         results: list[dict] = []
         errors: list[dict] = []
+        tags: dict[str, str] = {}
         total = len(specs)
         for index, raw in enumerate(specs):
             if progress is not None:
                 await progress(index, total)
             spec = dict(raw)
+            tag = spec.pop("tag", None)
             kind = spec.pop("type", None)
             if not kind:
                 errors.append({"index": index, "error": "Missing 'type' key"})
@@ -498,7 +509,12 @@ class EntityCreationContract(ABC):
                     if target in ("text", "mtext") and (value := spec.pop(key, None)) is not None
                 }
                 spec = self.batch_create_spec(name, spec)
-                info = await creator(**spec)
+                dimstyle = spec.pop("style", None) if target == "dimension_linear" else None
+                if dimstyle is None:
+                    info = await creator(**spec)
+                else:
+                    async with self.dimstyle_scope(str(dimstyle)):
+                        info = await creator(**spec)
                 try:
                     if weight is not None or linetype is not None or color is not None:
                         await self.entity_set_properties(
@@ -516,9 +532,16 @@ class EntityCreationContract(ABC):
                     await self.entity_delete(info.handle)  # nothing half-styled stays
                     raise
                 results.append(asdict(info))
+                if tag is not None:
+                    tags[str(tag)] = info.handle
             except Exception as exc:
                 errors.append({"index": index, "type": kind, "error": str(exc)})
-        return {"created": len(results), "errors": errors, "entities": results}
+        return {
+            "created": len(results),
+            "errors": errors,
+            "entities": results,
+            **({"tags": tags} if tags else {}),
+        }
 
     async def entity_delete_many(
         self, handles: list[str], *, progress=None, stop_on_error: bool = False

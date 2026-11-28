@@ -225,3 +225,61 @@ async def test_edit_text_sets_height_and_style(backend):
     assert (ent.dxf.height, ent.dxf.style) == (2.0, "ISO")
     with pytest.raises(Exception, match="line_spacing"):
         await backend.entity_edit_text(info.handle, line_spacing=1.5)
+
+
+async def test_a_batch_answers_tags_and_dimension_texts_and_a_list_reads_them_back():
+    # round 6: 64 dimensions came back as handles only, the agent counted indices
+    # to find 29 of them, and entity_list refused properties.text / .measurement
+    from fastmcp import Client
+
+    import server
+
+    async with Client(server.mcp) as client:
+        await client.call_tool("drawing_new", {})
+        await client.call_tool(
+            "dimstyle_create", {"name": "CM", "overrides": {"DIMLFAC": 0.1, "DIMDEC": 0}}
+        )
+        dim = {"type": "dimension_linear", "x1": 0, "y1": 0, "x2": 2500, "y2": 0, "dim_x": 0}
+        made = await client.call_tool(
+            "entity_batch_create",
+            {
+                "entities": [
+                    {"type": "line", "x1": 0, "y1": 0, "x2": 10, "y2": 0},
+                    dim | {"dim_y": 300, "tag": "wall-a", "style": "CM"},
+                    dim | {"dim_y": 600},
+                ]
+            },
+        )
+        out = made.structured_content
+        lines, cm, mm = out["handles"]
+        assert out["tags"] == {"wall-a": cm}  # only the tagged item
+        assert out["dim_texts"] == {cm: "250", mm: out["dim_texts"][mm]}
+        assert out["dim_texts"][mm] != "250"  # the current style, not CM
+        listed = await client.call_tool(
+            "entity_list",
+            {
+                "type_filter": "DIMENSION",
+                "fields": ["handle", "properties.text", "properties.measurement"],
+            },
+        )
+        rows = {row["handle"]: row for row in listed.structured_content["result"]}
+        assert rows[cm]["properties.text"] == "250"
+        assert rows[cm]["properties.measurement"] == pytest.approx(2500)
+        # a duplicate tag is refused before anything is drawn
+        twice = await client.call_tool(
+            "entity_batch_create",
+            {"entities": [dim | {"dim_y": 900, "tag": "t"}, dim | {"dim_y": 990, "tag": "t"}]},
+            raise_on_error=False,
+        )
+        assert twice.is_error and "tag" in twice.content[0].text
+        aligned = await client.call_tool(
+            "dimension_aligned",
+            {"x1": 0, "y1": 0, "x2": 3000, "y2": 4000, "dim_x": -100, "dim_y": 100, "style": "CM"},
+        )
+        assert aligned.structured_content["properties"]["text"] == "500"
+        nope = await client.call_tool(
+            "dimension_linear",
+            {"x1": 0, "y1": 0, "x2": 1, "y2": 0, "dim_x": 0, "dim_y": 1, "style": "NOPE"},
+            raise_on_error=False,
+        )
+        assert nope.is_error and "invalid_args" in nope.content[0].text

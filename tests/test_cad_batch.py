@@ -1693,7 +1693,8 @@ async def test_layer_and_chain_steps_answer_names_counts_and_handles(client):
     assert set(l2) == {"name", "color", "linetype", "lineweight"}
     chain = rows[3]
     assert chain["count"] == 3 and len(chain["handles"]) == 3 and "dimensions" not in chain
-    assert rows[4] == {"handle": chain["handles"][0]}  # the bind saw the rows
+    # the bind saw the rows; a dimension's row says what it shows (round 6)
+    assert rows[4] == {"handle": chain["handles"][0], "text": "120"}
     linear = {"x1": 0, "y1": 0, "x2": 132.5, "y2": 0, "dim_x": 50, "dim_y": -20}
     (row,) = (await _batch(client, [{"tool": "dimension_linear", "args": linear}]))["results"]
     assert set(row["result"]) == {"handle", "text"} and row["result"]["text"] == "132.5"
