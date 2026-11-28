@@ -9659,7 +9659,8 @@ async def drawing_critique(
     ] = None,
     sheet: Annotated[
         Literal["services", "interior"] | None,
-        "A trade or interior sheet: no room-label rows, lettering down to 1.8 mm",
+        "A trade or interior sheet: no room-label rows, lettering down to 1.8 mm, "
+        "copied styles info",
     ] = None,
     ctx: Context = None,
 ) -> list[dict] | dict:
@@ -9696,7 +9697,9 @@ async def drawing_critique(
     issues = await _backend(ctx).drawing_critique(focus, shared=shared)
     rows = [_dc(i) for i in issues]
     if sheet is not None:
-        rows = [row for row in rows if not _sheet_noise(row)]
+        rows = [_sheet_row(row) for row in rows if not _sheet_noise(row)]
+    # round 6: the bare list is worst first too, the visible defects first
+    rows.sort(key=_critique_rank)
     paged = summary or limit is not None or severity is not None
     if not (report or paged):
         return rows
@@ -9718,6 +9721,31 @@ async def drawing_critique(
 _SHEET_MIN_TEXT_MM = 1.8
 
 
+#: Focuses whose rows are something a reader sees on the plot (a collision, a
+#: cut, a mask): listed before the drafting-convention rows of their severity.
+_VISIBLE_FOCUSES = ("text_overlap", "dim_overlap", "viewport_clip", "wipeout_mask")
+
+
+def _critique_rank(row: dict) -> tuple[int, int]:
+    from engineering.qa_coverage import SEVERITY_RANK
+
+    severity = SEVERITY_RANK.get(str(row.get("severity")), len(SEVERITY_RANK))
+    return severity, 0 if row.get("focus") in _VISIBLE_FOCUSES else 1
+
+
+def _sheet_row(row: dict) -> dict:
+    """On a ``sheet=`` drawing (round 6) a style a tracing copies from its source -
+    an entity's own lineweight / linetype / colour, a layer lineweight outside
+    ISO 128 - is info, not a warning: the sheet follows its source."""
+    detail = row.get("detail") or {}
+    copied = row.get("focus") == "property_override" or (
+        row.get("focus") == "iso128" and "lineweight" in detail and "layer" in detail
+    )
+    if copied and row.get("severity") == "warning":
+        return {**row, "severity": "info"}
+    return row
+
+
 def _sheet_noise(row: dict) -> bool:
     """A critique row ``sheet="services"|"interior"`` leaves out (round 5, A9c):
     an unlabelled room - a services sheet labels its points, not the rooms -
@@ -9725,6 +9753,8 @@ def _sheet_noise(row: dict) -> bool:
     if row.get("focus") == "arch_room_unlabelled":
         return True
     detail = row.get("detail") or {}
+    if "dimtxt" in detail and float(detail["dimtxt"]) >= _SHEET_MIN_TEXT_MM - 1e-9:
+        return True  # the document's DIMTXT at 1.8 mm or more
     return (
         detail.get("code") == "plotted_text_too_small"
         and float(detail.get("smallest_mm") or 0.0) >= _SHEET_MIN_TEXT_MM - 1e-9

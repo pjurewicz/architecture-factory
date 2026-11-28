@@ -418,3 +418,34 @@ def test_a_services_sheet_drops_room_labels_and_letters_down_to_1_8_mm():
     assert _sheet_noise(text(1.8)) and _sheet_noise(text(2.2))
     assert not _sheet_noise(text(1.5))
     assert not _sheet_noise({"focus": "arch_wall_gap", "detail": {"code": "gap"}})
+
+
+@pytest.mark.asyncio
+async def test_an_interior_sheet_lists_the_overlap_first_and_copied_styles_as_info():
+    # round 6: on a faithful tracing 15 of 20 rows were copied styles, and the
+    # two text overlaps came last
+    from fastmcp import Client
+
+    import server
+
+    wall = {"type": "line", "x1": 0, "x2": 3000, "layer": "A-WALL-E-N"}
+    ents = [
+        wall | {"y1": i * 300, "y2": i * 300, "lineweight": 50, "linetype": "DASHED"}
+        for i in range(4)
+    ]
+    ents += [
+        {"type": "text", "text": "SALON", "x": 500, "y": 500, "height": 100},
+        {"type": "text", "text": "KUCHNIA", "x": 520, "y": 520, "height": 100},
+    ]
+    async with Client(server.mcp) as client:
+        await client.call_tool("drawing_new", {"bootstrap": "arch"})
+        await client.call_tool("entity_batch_create", {"entities": ents})
+        plain = (await client.call_tool("drawing_critique", {})).structured_content["result"]
+        sheet = (
+            await client.call_tool("drawing_critique", {"sheet": "interior"})
+        ).structured_content["result"]
+    assert plain[0]["focus"] == "text_overlap"  # visible defects first among warnings
+    assert sheet[0]["focus"] == "text_overlap" and sheet[0]["severity"] == "warning"
+    copied = [r for r in sheet if r["focus"] == "property_override"]
+    assert copied and {r["severity"] for r in copied} == {"info"}
+    assert {r["severity"] for r in plain if r["focus"] == "property_override"} == {"warning"}
