@@ -509,6 +509,18 @@ def test_merge_changes_nets_a_batch_and_stays_honest_about_completeness():
     assert merged["counts"] == {"Model": {"added": 3, "deleted": 2}}
     assert merged["complete"] is True
     assert merge_changes([first, None])["complete"] is False, "a step with no summary"
+    # round 8: a step whose own list was capped keeps its overflow, and a cap
+    # is `truncated`, not incomplete (84 created + 1 read 50 / 1 before)
+    big = {
+        "added": [f"{n:X}" for n in range(0x100, 0x100 + 50)],
+        "deleted": [],
+        "counts": {"Model": {"added": 84}},
+        "complete": True,
+        "truncated": {"added": 34},
+    }
+    merged = merge_changes([big, second])
+    assert len(merged["added"]) == 50 and merged["truncated"] == {"added": 35}
+    assert merged["counts"]["Model"]["added"] == 85 and merged["complete"] is True
     assert merge_changes([]) is None
 
 

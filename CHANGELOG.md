@@ -26,6 +26,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `cad_batch`: a `$reference` nested in an item of a `oneOf` / `anyOf`
+  argument (`entity_batch_create.entities[i].points: "$z.properties.points"`)
+  validates as a wildcard, as a top-level one always did: the item's branch
+  failing only on references no longer refuses the batch, and a message never
+  shows the internal sentinel (a reference prints as `$reference`). A refusal
+  counts every step sent, the trailing `view_screenshot` included. A batch's
+  `changes` keep each step's own `truncated` count (84 created + 1 was
+  `truncated: {added: 1}`, now 35), and a capped list is `truncated`, not
+  `complete: false`.
 - ISOCP lettering is measured and drawn at its ISO 3098 width. `isocp.shx`
   (and its TrueType twin `isocpeur.ttf`) is Autodesk's and not on the server,
   so ezdxf lettered it with the fallback face, 23 % wider on plan text

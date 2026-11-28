@@ -110,7 +110,12 @@ def empty_changes(*, complete: bool = True, **extra: Any) -> dict:
 
 
 def _finish(
-    added: list[str], deleted: list[str], counts: Mapping[str, dict], complete: bool, **extra
+    added: list[str],
+    deleted: list[str],
+    counts: Mapping[str, dict],
+    complete: bool,
+    hidden: Mapping[str, int] | None = None,
+    **extra,
 ) -> dict:
     out: dict[str, Any] = {
         "added": added[:LIST_CAP],
@@ -122,11 +127,12 @@ def _finish(
         },
         "complete": bool(complete),
     }
+    # ``hidden``: what the merged parts' own lists had already left out.
     truncated = {
-        side: len(rows) - LIST_CAP
+        side: max(len(rows) - LIST_CAP, 0) + (hidden or {}).get(side, 0)
         for side, rows in (("added", added), ("deleted", deleted))
-        if len(rows) > LIST_CAP
     }
+    truncated = {side: n for side, n in truncated.items() if n}
     if truncated:
         out["truncated"] = truncated
     out.update(extra)
@@ -143,7 +149,8 @@ def merge_changes(parts: Iterable[dict | None]) -> dict | None:
 
     A handle added then deleted inside the run is neither; a handle deleted
     then added again (a restore) is both. ``complete`` only when every part
-    was; None when no part had a summary.
+    was (a capped list is ``truncated``, not incomplete: ``counts`` still
+    cover it); None when no part had a summary.
     """
     parts = list(parts)
     seen = [p for p in parts if isinstance(p, dict)]
@@ -153,7 +160,7 @@ def merge_changes(parts: Iterable[dict | None]) -> dict | None:
     deleted: dict[str, None] = {}
     counts: dict[str, dict] = {}
     features: dict[str, None] = {}
-    truncated = False
+    hidden = {"added": 0, "deleted": 0}
     for part in seen:
         for token in part.get("features") or ():
             if len(features) < FEATURE_CAP:
@@ -169,10 +176,12 @@ def merge_changes(parts: Iterable[dict | None]) -> dict | None:
             for side in ("added", "deleted"):
                 if row.get(side):
                     _bump(counts, owner, side, int(row[side]))
-        truncated = truncated or bool(part.get("truncated"))
-    complete = len(seen) == len(parts) and all(p.get("complete") for p in seen) and not truncated
+        for side, n in (part.get("truncated") or {}).items():
+            if side in hidden:
+                hidden[side] += int(n)
+    complete = len(seen) == len(parts) and all(p.get("complete") for p in seen)
     extra = {"features": list(features)} if features else {}
-    return _finish(list(added), list(deleted), counts, complete, **extra)
+    return _finish(list(added), list(deleted), counts, complete, hidden, **extra)
 
 
 def summary_from_result(result: Any) -> dict | None:

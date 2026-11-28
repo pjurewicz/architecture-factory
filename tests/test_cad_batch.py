@@ -423,6 +423,64 @@ async def test_a_reference_does_not_excuse_the_rest_of_the_step(client):
     assert result["results"][1]["error"]["kind"] == "invalid_args"
 
 
+async def test_a_reference_nested_in_a_batch_create_item_resolves(client):
+    """Round 8: ``entities[i].points: "$g..."`` sits under the items' ``oneOf``,
+    whose error is reported on the item, not on the reference - it was refused
+    with the sentinel in the message. A literal mistake beside it still is."""
+    steps = [
+        {"tool": "entity_create_polyline", "args": {"points": [[0, 0], [10, 0], [10, 5]]}},
+        {"tool": "entity_get", "args": {"handle": "$z"}, "bind": "g"},
+        {
+            "tool": "entity_batch_create",
+            "args": {
+                "entities": [
+                    {"type": "polyline", "points": "$g.properties.points", "closed": True},
+                    {"type": "circle", "cx": "$g.properties.points.1.0", "cy": 0, "radius": 1},
+                ]
+            },
+            "bind": "made",
+        },
+        {"tool": "entity_get", "args": {"handle": "$made.entities.0.handle"}, "bind": "copy"},
+    ]
+    steps[0]["bind"] = "z"
+    assert (await _batch(client, steps, dry_run=True))["ok"] is True
+    result = await _batch(client, steps)
+    assert result["ok"] is True, result["results"]
+    made = (
+        await client.call_tool(
+            "entity_get", {"handle": result["results"][2]["result"]["handles"][1]}
+        )
+    ).structured_content
+    assert made["properties"]["center"][0] == 10.0, made
+    copy = (
+        await client.call_tool(
+            "entity_get", {"handle": result["results"][2]["result"]["handles"][0]}
+        )
+    ).structured_content
+    assert copy["properties"]["points"] == [[0.0, 0.0], [10.0, 0.0], [10.0, 5.0]]
+
+    steps[2]["args"]["entities"][1]["colour"] = 1  # a typo next to the reference
+    bad = await _batch(client, steps[:3], dry_run=True)
+    message = bad["results"][2]["error"]["message"]
+    assert bad["results"][2]["error"]["kind"] == "invalid_args" and "colour" in message
+    assert "\x00" not in message and "unresolved-reference" not in message
+
+
+async def test_a_refusal_counts_the_screenshot_step_too(client):
+    with pytest.raises(ToolError) as excinfo:
+        await client.call_tool(
+            "cad_batch",
+            {
+                "steps": [
+                    _line(),
+                    {"tool": "entity_move", "args": {"handle": "1", "dx": "far", "dy": 0}},
+                    {"tool": "view_screenshot", "args": {}},
+                ]
+            },
+        )
+    assert "refused all 3 steps" in str(excinfo.value)
+
+
 async def test_an_unknown_dimension_variable_refuses_the_batch_before_step_1(client):
     """A dimstyle override name the schema (a free dict) cannot check is still
     refused at plan time: a batch that opens a document runs without a rollback,

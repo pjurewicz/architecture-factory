@@ -6246,9 +6246,7 @@ def _validate_batch_args(schema: dict, args: dict) -> str | None:
     try:
         validator = jsonschema.Draft202012Validator(schema)
         problems = [
-            error
-            for error in validator.iter_errors(instance)
-            if error.instance != _BATCH_REF_SENTINEL
+            error for error in validator.iter_errors(instance) if not _batch_ref_only(error)
         ]
     except Exception as exc:  # a malformed schema must not take the batch down
         log.debug("schema validation skipped: %s", exc)
@@ -6258,7 +6256,12 @@ def _validate_batch_args(schema: dict, args: dict) -> str | None:
     problems.sort(key=lambda error: list(error.absolute_path))
     first = _batch_branch_error(problems[0])
     where = "/".join(str(part) for part in first.absolute_path)
-    detail = " ".join(str(first.message).split())
+    # a message that prints an argument tree shows a reference as one, never the sentinel
+    detail = (
+        " ".join(str(first.message).split())
+        .replace(repr(_BATCH_REF_SENTINEL), "'$reference'")
+        .replace(_BATCH_REF_SENTINEL, "$reference")
+    )
     if first.validator == "additionalProperties" and isinstance(first.instance, dict):
         allowed = sorted(first.schema.get("properties", {}))
         extra = sorted(set(first.instance) - set(allowed))
@@ -6274,6 +6277,22 @@ def _validate_batch_args(schema: dict, args: dict) -> str | None:
     return text[:_BATCH_MESSAGE_CHARS]
 
 
+def _batch_ref_only(error) -> bool:
+    """True when ``$reference`` wildcards alone explain a schema error: it is
+    reported against the sentinel, or it is a ``oneOf`` / ``anyOf`` with a
+    branch that fails only on them (an ``entity_batch_create`` item whose
+    ``points`` is a reference: the item's own branch fails on the sentinel,
+    the error sits on the item)."""
+    if error.instance == _BATCH_REF_SENTINEL:
+        return True
+    if error.validator not in ("oneOf", "anyOf") or not error.context:
+        return False
+    branches: dict = {}
+    for sub in error.context:
+        branches.setdefault(sub.relative_schema_path[0], []).append(sub)
+    return any(all(_batch_ref_only(sub) for sub in subs) for subs in branches.values())
+
+
 def _batch_branch_error(error):
     """A ``oneOf`` / ``anyOf`` failure narrowed to the branch the item meant:
     the one whose ``type`` const is the item's own ``type`` (entity_batch_create
@@ -6286,6 +6305,7 @@ def _batch_branch_error(error):
             sub
             for sub in error.context
             if isinstance(kind, str)
+            and not _batch_ref_only(sub)
             and sub.relative_schema_path
             and isinstance(sub.relative_schema_path[0], int)
             and sub.relative_schema_path[0] < len(branches)
@@ -6922,6 +6942,8 @@ async def cad_batch(
     shot = None
     if steps and isinstance(steps[-1], dict) and steps[-1].get("tool") in _BATCH_IMAGE_TOOLS:
         shot, steps = steps[-1], steps[:-1]
+    # what the refusals count: every step sent, the screenshot included
+    sent = len(steps) + (shot is not None)
     if not steps:
         raise ToolError("cad_batch: `steps` is empty; there is nothing to run.")
     if len(steps) > MAX_BATCH_STEPS:
@@ -7131,7 +7153,7 @@ async def cad_batch(
         # step (kind policy_refused, its policy / tool / allowed_cost), naming
         # every problem; nothing ran.
         raise policy.PolicyRefusedError(
-            f"cad_batch refused all {len(steps)} steps - nothing was executed. "
+            f"cad_batch refused all {sent} steps - nothing was executed. "
             + "; ".join(problems[:5])
             + ("" if len(problems) <= 5 else f" (+{len(problems) - 5} more)"),
             policy=first_policy.policy,
@@ -7141,7 +7163,7 @@ async def cad_batch(
         ) from None
     if problems:
         raise ToolError(
-            f"cad_batch refused all {len(steps)} steps - nothing was executed. "
+            f"cad_batch refused all {sent} steps - nothing was executed. "
             + "; ".join(problems[:5])
             + ("" if len(problems) <= 5 else f" (+{len(problems) - 5} more)")
         )
@@ -7158,7 +7180,7 @@ async def cad_batch(
         handles_before = await require_handles(
             backend,
             handle_refs,
-            subject=f"cad_batch refused all {len(steps)} steps - nothing was executed",
+            subject=f"cad_batch refused all {sent} steps - nothing was executed",
             executed=0,
             steps=len(steps),
         )
