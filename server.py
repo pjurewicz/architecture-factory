@@ -14775,11 +14775,11 @@ async def arch_legend(
     strips, tracks and circuit links (every catalogue size and symbol scale is
     one row). Catalogue furniture and the wall poche are left out unless
     `only` names them (`left_out` lists them). `extra` rows: {label, block |
-    pattern | kind | blocks: [names] | keys: [model keys]} - `blocks` / `keys`
-    put up to 4 samples side by side (hot + cold water), and a model row named
-    in `keys` moves into that row; kind 'line' takes layer / linetype /
-    lineweight / color. A hatch read as its bare pattern is warned; a zone
-    tool's hatch carries its own label. A label keeps its "\\n" line breaks.
+    pattern (+ color) | kind | blocks: [names] | keys: [model keys]} - `blocks`
+    / `keys` put up to 4 samples side by side (hot + cold water), and a model
+    row named in `keys` moves into that row; kind 'line' takes layer /
+    linetype / lineweight / color. A zone's pattern + joints are one row; a
+    bare pattern name is warned. A label keeps its "\\n" line breaks.
     `order` lists keys or labels (* ?) to put first. Text, frame and title on
     A-SYMB-T-N unless `layer`. `warnings` reports a legend off the layout's
     paper or over a viewport.

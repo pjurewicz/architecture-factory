@@ -293,3 +293,64 @@ async def test_a_line_row_and_hatches_that_name_themselves(backend):
         )
     with pytest.raises(InvalidArgsError, match=r"extra\[0\]: give label"):
         await draw_legend(backend, at=(0, 0), extra=[{"label": "x", "layer": "M-HEAT-PIPE"}])
+
+
+@pytest.mark.asyncio
+async def test_a_zone_with_joints_is_one_row_with_a_joined_sample(backend):
+    """A zone's pattern and its ``_USER`` joints were two rows, and the joints one
+    refused the batch ('_USER is not one of the predefined patterns')."""
+    from engineering.arch.floor import floor_zone
+
+    await _drawing(backend)
+    room = [[300, 300], [2700, 300], [2700, 2000], [300, 2000]]
+    await floor_zone(
+        backend, outline=room, pattern="AR-SAND", joints=[600, 300], label="płytka", name="BATH"
+    )
+    await backend.layout_create("A3")
+    result = await draw_legend(backend, at=(20, 280), layout="A3", lang="pl", only=["płytka"])
+    assert [(r["kind"], r["label"], r["count"]) for r in result["rows"]] == [("hatch", "płytka", 1)]
+    mine = [e for e in backend._doc.layouts.get("A3") if e.dxf.handle in set(result["handles"])]
+    fills = [e for e in mine if e.dxftype() == "HATCH"]
+    assert [e.dxf.pattern_name for e in fills] == ["AR-SAND", "_USER"]  # pattern, then its joints
+    # 600 x 300 mm joints at 1:50 are 12 x 6 mm: too wide for the 15 x 6 mm cell, so both
+    # spacings shrink together until a family has two lines across it (3 and 6 mm)
+    spacings = sorted(abs(ln.offset[0]) + abs(ln.offset[1]) for ln in fills[1].pattern.lines)
+    assert spacings == pytest.approx([3.0, 6.0])
+    # joints alone, and a zone left unlabelled, read as their own rows without refusing
+    await floor_zone(backend, outline=room, joints=[600], name="J")
+    again = await draw_legend(backend, at=(9000, 8000), only=["_USER"], name="two")  # model space
+    assert sorted(r["label"] for r in again["rows"]) == ["_USER", "płytka"]
+
+
+@pytest.mark.asyncio
+async def test_extra_pattern_colour_dashes_and_columns(backend):
+    await _drawing(backend)
+    result = await draw_legend(
+        backend,
+        at=(9000, 4000),
+        only=["wc"],
+        extra=[
+            {"label": "a", "pattern": "ANSI37", "color": 1},
+            {"label": "b", "pattern": "SOLID", "color": 3},
+            {"label": "c", "kind": "line", "linetype": "DASHED"},
+            {"label": "d", "kind": "line", "linetype": "ACAD_ISO04W100"},
+        ],
+        order=["d", "a"],
+        columns=4,
+        title=None,
+    )
+    assert [r["label"] for r in result["rows"]][:2] == ["d", "a"]
+    mine = [e for e in backend._doc.modelspace() if e.dxf.handle in set(result["handles"])]
+    hatches = {e.dxf.pattern_name: e.dxf.color for e in mine if e.dxftype() == "HATCH"}
+    assert hatches["ANSI37"] == 1 and hatches["SOLID"] == 3
+    # a sample holds >= 3 periods of its linetype: 12 mm of paper at 1:50 in model space
+    by_type = {e.dxf.linetype: e for e in mine if e.dxftype() == "LINE"}
+    for name, entity in by_type.items():
+        period = sum(backend._doc.linetypes.get(name).simplified_line_pattern())
+        assert 3 * period * entity.dxf.ltscale <= 12.0 + 1e-6, name
+    xs = {round(e.dxf.insert.x) for e in mine if e.dxftype() == "TEXT"}
+    assert len(xs) == 4  # exactly the four columns asked for
+    with pytest.raises(InvalidArgsError, match=r"extra\[0\].pattern"):
+        await draw_legend(backend, at=(0, 0), extra=[{"label": "x", "pattern": "_USER"}])
+    with pytest.raises(InvalidArgsError, match=r"extra\[0\]: give label"):
+        await draw_legend(backend, at=(0, 0), extra=[{"label": "x", "block": "K", "color": 1}])

@@ -131,6 +131,57 @@ def _run_style(e) -> dict:
     }
 
 
+def _fill_of(e) -> dict:
+    """One HATCH's fill: pattern name, angle, scale, colour and, for a user-defined
+    one (the ``_USER`` joints of a floor zone), its line families."""
+    solid = bool(e.dxf.solid_fill)
+    user = None
+    if not solid and e.dxf.pattern_name.upper() == "_USER":
+        user = [
+            (
+                round(float(ln.angle), 6),
+                tuple(round(float(v), 6) for v in ln.offset),
+                tuple(float(d) for d in ln.dash_length_items),
+            )
+            for ln in (e.pattern.lines if e.pattern is not None else ())
+        ]
+    return {
+        "solid": solid,
+        "pattern": "SOLID" if solid else e.dxf.pattern_name.upper(),
+        "angle": 0.0 if solid or user else round(float(e.dxf.pattern_angle), 6),
+        "scale": 1.0 if solid or user else round(float(e.dxf.pattern_scale), 6),
+        "color": e.dxf.get("color", 256),
+        "user": user,
+    }
+
+
+def hatch_row(groups: dict, fills: list[dict], own: str | None, layer: str, poche: bool) -> dict:
+    """The legend row of ``fills`` (drawn over each other in one cell), made
+    when missing; ``own`` is a zone's label."""
+    sig = "+".join(
+        f"{f['pattern']}@{f['angle']:g}@{f['scale']:g}@{f['color']}@{f['user'] or ''}"
+        for f in fills
+    )
+    first = fills[0]
+    return groups.setdefault(
+        f"{sig}@{own or ''}",
+        {
+            "kind": "hatch",
+            "key": own or first["pattern"],
+            **({"legend": own} if own else {}),
+            "fills": fills,
+            "pattern": first["pattern"],
+            "angle": first["angle"],
+            "scale": first["scale"],
+            "order": 0,
+            "default_off": poche,
+            "count": 0,
+            "names": list(dict.fromkeys(f["pattern"] for f in fills)),
+            "layer": layer,
+        },
+    )
+
+
 def _read(backend) -> dict:
     """Items model space uses, one group each (a legend's own samples excluded):
     ``{key: row}`` with ``kind`` block / hatch / line."""
@@ -140,6 +191,11 @@ def _read(backend) -> dict:
     records = {id(e): p for e, p in elec.read_records(doc)}
     wall_hatch = ARCH_ROLE_LAYER["wall_hatch"].upper()
     groups: dict[str, dict] = {}
+    zones: dict[tuple, list] = {}
+
+    def poche_of(e) -> bool:
+        return bool(e.dxf.solid_fill) and e.dxf.layer.upper() == wall_hatch
+
     for e in doc.modelspace():
         if e.has_xdata(APP_ID) and TOOL in str(e.get_xdata(APP_ID)):
             continue
@@ -177,29 +233,14 @@ def _read(backend) -> dict:
             if off and name.upper() == f"{BLOCK_PREFIX}{item.upper()}":
                 row["block"] = name  # the nominal size samples the item
         elif kind == "HATCH":
-            solid = bool(e.dxf.solid_fill)
-            pattern = "SOLID" if solid else e.dxf.pattern_name.upper()
-            angle = 0.0 if solid else round(float(e.dxf.pattern_angle), 6)
-            pscale = 1.0 if solid else round(float(e.dxf.pattern_scale), 6)
-            poche = solid and e.dxf.layer.upper() == wall_hatch
-            own = (read_annotation(e) or {}).get("legend")  # round 7: a zone names itself
-            key = f"{pattern}@{angle:g}@{pscale:g}" + (f"@{own}" if own else "")
-            row = groups.setdefault(
-                key,
-                {
-                    "kind": "hatch",
-                    "key": own or pattern,
-                    **({"legend": own} if own else {}),
-                    "pattern": pattern,
-                    "angle": angle,
-                    "scale": pscale,
-                    "order": 0,
-                    "default_off": poche,
-                    "count": 0,
-                    "names": [pattern],
-                    "layer": e.dxf.layer,
-                },
-            )
+            fill = _fill_of(e)
+            tag = read_annotation(e) or {}
+            own = tag.get("legend")  # round 7: a zone names itself
+            if own:  # one zone = one row: its pattern and joints hatches are fills of it
+                zone = zones.setdefault((own, tag.get("set") or e.dxf.handle), [])
+                zone.append((fill, e.dxf.layer, poche_of(e)))
+                continue
+            row = hatch_row(groups, [fill], None, e.dxf.layer, poche_of(e))
             row["count"] += 1
         elif kind in ("LWPOLYLINE", "LINE") and record and record["kind"] == "run":
             item = record["item"]
@@ -217,6 +258,12 @@ def _read(backend) -> dict:
                 },
             )
             row["count"] += 1
+    for (own, _zone), parts in zones.items():
+        fills = []
+        for f, _, _ in sorted(parts, key=lambda t: t[0]["user"] is not None):
+            fills += [f] if f not in fills else []
+        count = sum(1 for f, _, _ in parts if f["user"] is None) or len(parts)
+        hatch_row(groups, fills, own, parts[0][1], parts[0][2])["count"] += count
     for row in groups.values():
         if row["kind"] == "block":
             row["extents"] = _extents(doc, row["block"])
@@ -304,8 +351,9 @@ def legend_rows(
 
 
 _EXTRA_KEYS = {"label", "block", "pattern", "kind", "blocks", "keys"}
-#: round 7: kind "line" draws a line in a layer's or its own style
+#: round 7: kind "line" draws a line in a layer's or its own style; a pattern takes a colour
 _LINE_KEYS = {"layer", "linetype", "lineweight", "color"}
+_PATTERN_KEYS = {"color"}
 _SAMPLE_KEYS = ("block", "pattern", "kind", "blocks", "keys")
 MAX_SAMPLES = 4
 
@@ -344,7 +392,13 @@ def _extra_rows(backend, extra, k: float, model_rows: list[dict]) -> tuple[list[
             raise LegendArgsError(
                 f"{where}: expected {{label, block? | pattern? | kind? | blocks? | keys?}}."
             )
-        allowed = _EXTRA_KEYS | (_LINE_KEYS if item.get("kind") == "line" else set())
+        allowed = _EXTRA_KEYS | (
+            _LINE_KEYS
+            if item.get("kind") == "line"
+            else _PATTERN_KEYS
+            if "pattern" in item
+            else set()
+        )
         bad = sorted(set(item) - allowed)
         if bad or len(set(item) & set(_SAMPLE_KEYS)) > 1:
             raise LegendArgsError(
@@ -395,7 +449,21 @@ def _extra_rows(backend, extra, k: float, model_rows: list[dict]) -> tuple[list[
         elif "block" in item:
             row.update(_block_sample(doc, item["block"], f"{where}.block"))
         elif "pattern" in item:
-            row.update(kind="hatch", pattern=str(item["pattern"]).upper(), angle=0.0, scale=k)
+            from backends.ezdxf_backend import _hatch_pattern
+
+            try:
+                name = _hatch_pattern(item["pattern"])
+            except InvalidArgsError as exc:
+                raise LegendArgsError(f"{where}.pattern: {exc}") from None
+            fill = {
+                "solid": name == "SOLID",
+                "pattern": name,
+                "angle": 0.0,
+                "scale": k,
+                "color": _color_arg(item.get("color", 256), f"{where}.color"),
+                "user": None,
+            }
+            row.update(kind="hatch", pattern=name, angle=0.0, scale=k, fills=[fill])
         elif "kind" in item:
             kind = item["kind"]
             if kind == "line":
@@ -569,8 +637,13 @@ async def draw_legend(
     header = title_h + 2 * PAD if heading else 0.0
     warnings: list[str] = []
     if columns is not None:
-        per = math.ceil(len(rows) / columns)
-        columns_rows = [rows[i : i + per] for i in range(0, len(rows), per)]
+        n_cols = min(columns, len(rows))  # exactly as many columns as asked, evenly filled
+        each, more = divmod(len(rows), n_cols)
+        columns_rows, i = [], 0
+        for c in range(n_cols):
+            size = each + (c < more)
+            columns_rows.append(rows[i : i + size])
+            i += size
     elif max_height is not None:
         room = float(max_height) - header - 2 * PAD
         columns_rows, col, used = [], [], 0.0
@@ -671,7 +744,8 @@ async def draw_legend(
                     cx0 = left + PAD + j * (CELL_W + SAMPLE_GAP)
                     cell = [p(cx0, cy0), p(cx0 + CELL_W, cy0), p(cx0 + CELL_W, cy0 + CELL_H)]
                     cell.append(p(cx0, cy0 + CELL_H))
-                    await keep(await _sample(backend, s, cell, k, u))
+                    for info in await _sample(backend, s, cell, k, u):
+                        await keep(info)
                     if s["kind"] == "hatch":
                         await keep(
                             await backend.entity_create_polyline(
@@ -751,23 +825,40 @@ def _text_or_none(value, where: str) -> str | None:
         raise LegendArgsError(str(exc)) from None
 
 
-async def _sample(backend, row: dict, cell, plot_scale: float, u: float):
-    """The row's sample inside ``cell`` (four corners, drawing units)."""
+async def _sample(backend, row: dict, cell, plot_scale: float, u: float) -> list:
+    """The row's sample inside ``cell`` (four corners, drawing units): one entity,
+    or one per fill of a hatch row (a zone's pattern, then its joints)."""
     (x0, y0), (x1, _), (_, y1), _ = cell
     lo_x, hi_x, lo_y, hi_y = min(x0, x1), max(x0, x1), min(y0, y1), max(y0, y1)
     if row["kind"] == "hatch":
-        printed = row["scale"] * u / plot_scale  # the same density on the sheet
-        return await backend.entity_create_hatch(
-            "SOLID" if row["pattern"] == "SOLID" else row["pattern"],
-            [list(c) for c in cell],
-            scale=printed,
-            angle=row["angle"],
-            layer=row["layer"],
-        )
+        out = []
+        for fill in row["fills"]:
+            colour = None if fill["color"] == 256 else fill["color"]
+            if fill["user"] is not None:
+                out.append(
+                    await backend._async(
+                        _user_sample, backend, row, fill, (lo_x, lo_y, hi_x, hi_y), u / plot_scale
+                    )
+                )
+                continue
+            printed = fill["scale"] * u / plot_scale  # the same density on the sheet
+            out.append(
+                await backend.entity_create_hatch(
+                    fill["pattern"],
+                    [list(c) for c in cell],
+                    scale=printed,
+                    angle=fill["angle"],
+                    layer=row["layer"],
+                    color=colour,
+                )
+            )
+        return out
     if row["kind"] == "line":
-        return await backend._async(
-            _line_sample, backend, row, lo_x, hi_x, (lo_y + hi_y) / 2.0, u, plot_scale
-        )
+        return [
+            await backend._async(
+                _line_sample, backend, row, lo_x, hi_x, (lo_y + hi_y) / 2.0, u, plot_scale
+            )
+        ]
     extents = row.get("extents")
     true = u / plot_scale  # the block's plotted size
     if extents is None:
@@ -777,9 +868,48 @@ async def _sample(backend, row: dict, cell, plot_scale: float, u: float):
         s = min(true, 0.9 * (hi_x - lo_x) / bw, 0.9 * (hi_y - lo_y) / bh)
         bx, by = (extents[0] + extents[2]) / 2.0, (extents[1] + extents[3]) / 2.0
     cx, cy = (lo_x + hi_x) / 2.0, (lo_y + hi_y) / 2.0
-    return await backend.block_insert(
-        row["block"], cx - s * bx, cy - s * by, s, s, 0.0, None, row["layer"]
+    return [
+        await backend.block_insert(
+            row["block"], cx - s * bx, cy - s * by, s, s, 0.0, None, row["layer"]
+        )
+    ]
+
+
+def _user_sample(backend, row, fill, box, factor):
+    """A zone's joints (a user-defined hatch: its line families as stored) in the
+    cell, spaced at the plan's printed density (``factor`` = sheet per drawing
+    unit) but never wider than half the cell across a family, so a 1200 mm
+    board still shows its joints; the pattern origin is the cell's centre."""
+    from ezdxf.lldxf import const as dxfconst
+
+    from backends.ezdxf_backend import _entity_info_dxf
+
+    lo_x, lo_y, hi_x, hi_y = box
+    w, h = hi_x - lo_x, hi_y - lo_y
+    for angle, offset, _dashes in fill["user"]:
+        a = math.radians(angle)
+        gap = abs(offset[1] * math.cos(a) - offset[0] * math.sin(a))  # across the family
+        room = abs(w * math.sin(a)) + abs(h * math.cos(a))
+        if gap * factor > room / 2.0:
+            factor = room / 2.0 / gap
+    centre = ((lo_x + hi_x) / 2.0, (lo_y + hi_y) / 2.0)
+    definition = [
+        [angle, centre, (offset[0] * factor, offset[1] * factor), [d * factor for d in dashes]]
+        for angle, offset, dashes in fill["user"]
+    ]
+    colour = 256 if fill["color"] is None else fill["color"]
+    hatch = backend._msp().add_hatch(color=colour, dxfattribs={"layer": row["layer"]})
+    hatch.set_pattern_fill(
+        "_USER",
+        color=colour,
+        pattern_type=dxfconst.HATCH_TYPE_USER_DEFINED,
+        definition=definition,
     )
+    hatch.paths.add_polyline_path(
+        [(lo_x, lo_y), (hi_x, lo_y), (hi_x, hi_y), (lo_x, hi_y)], is_closed=True
+    )
+    backend._mark_dirty()
+    return _entity_info_dxf(hatch)
 
 
 def _line_sample(backend, row, lo_x, hi_x, y, u, plot_scale):
@@ -800,6 +930,7 @@ def _line_sample(backend, row, lo_x, hi_x, y, u, plot_scale):
                 linetype = doc.layers.get(row["layer"]).dxf.linetype
             if linetype.upper().startswith("ACAD_ISO"):
                 ltscale = elec.ISO_PEN
+    ltscale = _fitted_ltscale(backend._require_doc(), row, ltscale, (hi_x - lo_x) * 0.8 / u)
     attribs = {
         "layer": row["layer"],
         "linetype": row["linetype"],
@@ -812,3 +943,22 @@ def _line_sample(backend, row, lo_x, hi_x, y, u, plot_scale):
     line = backend._msp().add_line((lo_x + pad, y), (hi_x - pad, y), dxfattribs=attribs)
     backend._mark_dirty()
     return _entity_info_dxf(line)
+
+
+#: Pattern periods a line sample must hold, so a dashed row reads as dashed.
+SAMPLE_PERIODS = 3
+
+
+def _fitted_ltscale(doc, row: dict, ltscale: float, paper_mm: float) -> float:
+    """``ltscale``, lowered when the linetype's period (x ``ltscale``, paper mm)
+    leaves fewer than :data:`SAMPLE_PERIODS` in a sample ``paper_mm`` long:
+    DASHED's 19 mm period drew a 12 mm sample solid."""
+    name = str(row["linetype"])
+    if name.upper() == "BYLAYER" and row["layer"] in doc.layers:
+        name = doc.layers.get(row["layer"]).dxf.linetype
+    if name.upper() in ("BYLAYER", "BYBLOCK", "CONTINUOUS") or name not in doc.linetypes:
+        return ltscale
+    period = float(sum(doc.linetypes.get(name).simplified_line_pattern()))
+    if period <= 0:
+        return ltscale
+    return min(ltscale or 1.0, paper_mm / (SAMPLE_PERIODS * period))

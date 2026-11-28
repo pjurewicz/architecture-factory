@@ -54,6 +54,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `arch_legend` no longer refuses the drawing of an `arch_floor_zone` with
+  `joints` (`hatch pattern '_USER' is not one of the 172 predefined ones`,
+  which rolled back the whole sheet batch). A zone is one row whatever its
+  parts: the pattern and its joints share the cell, the joints drawn as a
+  user-defined hatch from the zone's own line families at the plan's printed
+  spacing, narrowed so a family keeps lines inside the cell. A sample takes its
+  source hatch's colour. `extra` `pattern` rows take `color` (ACI) and a
+  pattern that is not predefined is refused before anything is drawn.
+  `columns` gives exactly that many columns (4 rows in 3 columns were 2). A
+  line sample's `ltscale` is lowered until it holds three periods of its
+  linetype in the cell (DASHED's 19 mm period drew solid in 12 mm).
 - `cad_batch`: a `$reference` nested in an item of a `oneOf` / `anyOf`
   argument (`entity_batch_create.entities[i].points: "$z.properties.points"`)
   validates as a wildcard, as a top-level one always did: the item's branch
