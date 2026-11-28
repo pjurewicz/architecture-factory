@@ -6681,126 +6681,6 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
 
         return await self._async(_sync)
 
-    async def leader_create_mleader(
-        self,
-        points,
-        text,
-        text_height=2.5,
-        landing_gap=1.0,
-        arrow_size=2.5,
-        layer="DIM",
-        *,
-        arrow="closed",
-        text_side="auto",
-        color=None,
-        text_width=None,
-    ) -> EntityInfo:
-        from engineering.annotation import validate_mleader
-
-        normalized = validate_mleader(points, text)
-        if text_height <= 0 or landing_gap < 0 or arrow_size <= 0:
-            raise RuntimeError(
-                "leader_create_mleader: text_height/arrow_size must be positive and landing_gap non-negative"
-            )
-        if arrow not in ("closed", "dot", "none"):
-            raise InvalidArgsError(
-                f"invalid_args: arrow must be closed | dot | none, got {arrow!r}"
-            )
-        if text_side not in ("auto", "left", "right"):
-            raise InvalidArgsError(
-                f"invalid_args: text_side must be auto | left | right, got {text_side!r}"
-            )
-        if text_width is not None and text_width <= 0:
-            raise InvalidArgsError("invalid_args: text_width must be positive")
-
-        def _sync():
-            msp = self._msp()
-            path = msp.add_lwpolyline(normalized)
-            self._apply_attrs(path, layer, color)
-
-            (x0, y0), (x1, y1) = normalized[0], normalized[1]
-            dx, dy = x1 - x0, y1 - y0
-            length = math.hypot(dx, dy)
-            if length <= 1e-12:
-                raise RuntimeError("leader_create_mleader: first two points must be distinct")
-            ux, uy = dx / length, dy / length
-            px, py = -uy, ux
-            size = float(arrow_size)
-            children = [path]
-            if arrow == "closed":
-                head = msp.add_lwpolyline(
-                    [
-                        (x0, y0),
-                        (x0 + ux * size + px * size * 0.35, y0 + uy * size + py * size * 0.35),
-                        (x0 + ux * size - px * size * 0.35, y0 + uy * size - py * size * 0.35),
-                    ],
-                    close=True,
-                )
-                head.dxf.const_width = 0.0
-                children.append(head)
-            elif arrow == "dot":
-                # a filled dot: a closed two-bulge polyline of width r
-                r = size / 4.0
-                head = msp.add_lwpolyline(
-                    [(x0 - r / 2, y0, r, r, 1.0), (x0 + r / 2, y0, r, r, 1.0)],
-                    format="xyseb",
-                    close=True,
-                )
-                children.append(head)
-            for head in children[1:]:
-                self._apply_attrs(head, layer, color)
-
-            tx, ty = normalized[-1]
-            sx = normalized[-2][0]
-            side = text_side
-            if side == "auto":
-                side = "left" if tx < sx - 1e-9 else "right"
-            gap = float(landing_gap)
-            label = msp.add_mtext(
-                str(text),
-                dxfattribs={
-                    "char_height": float(text_height),
-                    "width": float(text_width) if text_width else 100.0,
-                    # middle-left / middle-right: the text's mid-height on the landing
-                    "attachment_point": 6 if side == "left" else 4,
-                },
-            )
-            label.dxf.insert = (tx - gap if side == "left" else tx + gap, ty, 0.0)
-            self._apply_attrs(label, layer, color)
-            self._mark_dirty()
-
-            children.append(label)
-            child_handles = [str(entity.dxf.handle) for entity in children]
-            return EntityInfo(
-                handle=child_handles[0],
-                type="MLEADER",
-                layer=layer,
-                color=256,
-                linetype="ByLayer",
-                visible=True,
-                properties={
-                    "representation": "composite",
-                    "logical_group_id": f"mleader:{uuid.uuid4().hex}",
-                    "child_handles": child_handles,
-                    "points": [list(point) for point in normalized],
-                    "text": str(text),
-                    "arrow": arrow,
-                    "text_side": side,
-                    "bounds": {
-                        "min": [
-                            min(point[0] for point in normalized),
-                            min(point[1] for point in normalized),
-                        ],
-                        "max": [
-                            max(point[0] for point in normalized),
-                            max(point[1] for point in normalized),
-                        ],
-                    },
-                },
-            )
-
-        return await self._async(_sync)
-
     async def callout(
         self,
         target,
@@ -6814,6 +6694,11 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         layout=None,
         side="auto",
         max_width=None,
+        shelf="end",
+        align="auto",
+        text_style=None,
+        color=None,
+        dry_run=False,
     ) -> dict:
         from ezdxf.enums import TextEntityAlignment
 
@@ -6832,17 +6717,31 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 text_height=text_height,
                 side=str(side or "auto"),
                 max_width=max_width,
+                shelf=str(shelf or "end"),
+                align=str(align or "auto"),
             )
         except ValueError as exc:
             raise InvalidArgsError(f"invalid_args: callout: {exc}") from exc
+        if color is not None and (
+            isinstance(color, bool) or not isinstance(color, int) or not 0 <= color <= 256
+        ):
+            raise InvalidArgsError(f"invalid_args: callout: color is an ACI 0-256, got {color!r}")
         layer = str(layer or "DIM")
 
         def _sync():
             doc = self._require_doc()
             space = self._space(layout, "callout")
+            if text_style is not None and text_style not in doc.styles:
+                raise InvalidArgsError(
+                    f"invalid_args: callout: no text style {text_style!r}; "
+                    f"the drawing has {', '.join(s.dxf.name for s in doc.styles)}"
+                )
+            if dry_run:
+                return {"ok": True, "dry_run": True}
             if layer not in doc.layers:
                 doc.layers.add(layer)
-            attribs = {"layer": layer}
+            attribs = {"layer": layer, **({} if color is None else {"color": color})}
+            lettering = {**attribs, **({"style": text_style} if text_style else {})}
             parts: dict[str, str] = {}
 
             frame = sheet_order = None
@@ -6874,18 +6773,21 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 parts["mask"] = mask.dxf.handle
 
             parts["leader"] = space.add_lwpolyline(plan.leader, dxfattribs=attribs).dxf.handle
-            fill = space.add_hatch(dxfattribs=attribs)
-            fill.set_solid_fill(color=256)
-            if plan.arrow is not None:
-                fill.paths.add_polyline_path(plan.arrow, is_closed=True)
-            else:
-                (cx, cy), radius = plan.dot
-                fill.paths.add_edge_path().add_arc((cx, cy), radius, 0.0, 360.0)
-            parts["terminator"] = fill.dxf.handle
+            if plan.tick is not None:
+                parts["terminator"] = space.add_line(*plan.tick, dxfattribs=attribs).dxf.handle
+            elif plan.arrow is not None or plan.dot is not None:
+                fill = space.add_hatch(dxfattribs=attribs)
+                fill.set_solid_fill(color=attribs.get("color", 256))
+                if plan.arrow is not None:
+                    fill.paths.add_polyline_path(plan.arrow, is_closed=True)
+                else:
+                    (cx, cy), radius = plan.dot
+                    fill.paths.add_edge_path().add_arc((cx, cy), radius, 0.0, 360.0)
+                parts["terminator"] = fill.dxf.handle
 
             if plan.kind == "text":
                 note = space.add_mtext(
-                    plan.content, dxfattribs={**attribs, "char_height": plan.height}
+                    plan.content, dxfattribs={**lettering, "char_height": plan.height}
                 )
                 note.set_location(plan.content_at, attachment_point=MTEXT_ALIGN[plan.content_align])
                 parts["text"] = note.dxf.handle
@@ -6893,7 +6795,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 (cx, cy), radius = plan.circle
                 parts["circle"] = space.add_circle((cx, cy), radius, dxfattribs=attribs).dxf.handle
                 numeral = space.add_text(
-                    plan.content, height=plan.height, dxfattribs=attribs
+                    plan.content, height=plan.height, dxfattribs=lettering
                 ).set_placement(plan.content_at, align=TextEntityAlignment.MIDDLE_CENTER)
                 parts["text"] = numeral.dxf.handle
             # The note is our lettering, not a typed dimension: it carries the
@@ -6910,8 +6812,8 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             group.extend(doc.entitydb[h] for h in parts.values())
             self._mark_dirty()
 
-            xs = [p[0] for p in plan.leader] + [p[0] for p in plan.mask or ()]
-            ys = [p[1] for p in plan.leader] + [p[1] for p in plan.mask or ()]
+            xs = [p[0] for p in plan.leader] + [p[0] for p in plan.box]
+            ys = [p[1] for p in plan.leader] + [p[1] for p in plan.box]
             if plan.circle is not None:
                 (cx, cy), radius = plan.circle
                 xs += [cx - radius, cx + radius]
@@ -6922,6 +6824,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 "kind": plan.kind,
                 "style": plan.style,
                 "side": plan.side,
+                "shelf": shelf,
                 "text": plan.content.replace("\\P", "\n"),
                 "lines": plan.content.count("\\P") + 1,
                 "overflow": list(plan.overflow),

@@ -432,7 +432,7 @@ def leader_prims(
 ) -> tuple[Prim, ...]:
     """A plain leader: a line from `tip` to `to` plus a solid arrowhead at `tip`.
 
-    `leader_create_mleader` is not used here: it refuses empty text
+    `callout` is not used here: it refuses empty text
     (`engineering/annotation.py::validate_mleader`), and a weld or surface
     symbol needs the leader *without* an MTEXT label beside it. The arrowhead
     reproduces the proportions that backend already draws (length `arrow_size`,

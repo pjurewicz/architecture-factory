@@ -1540,21 +1540,16 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
         ),
     ),
     # ── Leaders ─────────────────────────────────────────────────────────────
-    "leader_create_mleader": ToolAliases(
+    "callout": ToolAliases(
         acad=("MLEADER", "MLD", "QLEADER", "LEADER"),
         synonyms=(
             "leader",
-            "callout",
             "arrow with a note",
             "pointer note",
             "balloon",
             "leader without arrow",
             "note with a line",
             "label with leader line",
-        ),
-    ),
-    "callout": ToolAliases(
-        synonyms=(
             "callout",
             "masked callout",
             "note with background mask",

@@ -760,7 +760,7 @@ async def test_describe_tool_names_keeps_the_good_cards_and_names_the_nearest():
         ).structured_content
     assert [card["name"] for card in answer["tools"]] == ["layer_list"]
     assert answer["unknown"][0]["name"] == "entity_create_leader"
-    assert answer["unknown"][0]["nearest"][0] == "leader_create_mleader"
+    assert answer["unknown"][0]["nearest"][0] == "entity_create_arc"
 
 
 async def test_several_names_answer_signatures_and_full_or_one_name_the_whole_card():
@@ -797,7 +797,7 @@ async def test_several_names_answer_signatures_and_full_or_one_name_the_whole_ca
         ({"names": ["no_such_tool", "solid_box"]}, "'no_such_tool', 'solid_box'"),
         (
             {"name": "entity_create_leader"},
-            "Nearest: 'entity_create_leader' -> leader_create_mleader",
+            "Nearest: 'entity_create_leader' -> entity_create_arc",
         ),
         ({"names": ["layer_list", "call_tool"]}, "synthetic search tool"),
         ({"names": [f"t{i}" for i in range(MAX_DESCRIBE_NAMES + 1)]}, "25"),

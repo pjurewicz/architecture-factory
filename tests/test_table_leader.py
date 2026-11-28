@@ -117,49 +117,12 @@ async def test_table_rejects_ragged_rows_and_size_limit(backend):
         await backend.entity_create_table(0, 0, rows=[["A"]] * 201)
 
 
-async def test_ezdxf_mleader_returns_composite_contract(backend):
-    result = await backend.leader_create_mleader(
-        [[0, 0], [10, 5], [30, 5]],
-        "SURFACE A",
-        layer="DIM",
-    )
-
-    assert result.type == "MLEADER"
-    assert result.properties["representation"] == "composite"
-    assert result.properties["logical_group_id"].startswith("mleader:")
-    assert result.properties["text"] == "SURFACE A"
-    assert len(result.properties["child_handles"]) == 3
-
-
-async def test_mleader_without_head_text_on_the_left_in_a_colour(backend):
-    """17 notes were drawn as polyline + MTEXT pairs: no head-less, coloured or
-    left-hand leader existed."""
-    bare = await backend.leader_create_mleader(
-        [[50, 0], [40, 10], [20, 10]], "WYLEWKA", arrow="none", color=1
-    )
-    doc = backend._doc
-    parts = [doc.entitydb[h] for h in bare.properties["child_handles"]]
-    assert [p.dxftype() for p in parts] == ["LWPOLYLINE", "MTEXT"]
-    assert {p.dxf.color for p in parts} == {1}
-    label = parts[-1]
-    assert label.dxf.attachment_point == 6 and label.dxf.insert.x == 19.0
-    dot = await backend.leader_create_mleader([[0, 0], [10, 10]], "A", arrow="dot")
-    head = doc.entitydb[dot.properties["child_handles"][1]]
-    assert doc.entitydb[dot.properties["child_handles"][2]].dxf.attachment_point == 4
-    assert head.dxf.const_width > 0 or any(v[2] > 0 for v in head.get_points("xyseb"))
-
-
-async def test_mleader_requires_two_points(backend):
-    with pytest.raises(RuntimeError, match="at least two points"):
-        await backend.leader_create_mleader([[0, 0]], "note")
-
-
-async def test_server_registers_table_and_mleader_tools():
+async def test_server_registers_table_and_callout_tools():
     import server
 
     names = {tool.name for tool in await server._registered_tools()}
     assert "entity_create_table" in names
-    assert "leader_create_mleader" in names
+    assert "callout" in names and "leader_create_mleader" not in names
 
 
 async def test_table_and_mtext_draw_on_a_named_layout_without_switching(backend):

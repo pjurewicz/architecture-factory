@@ -2889,7 +2889,7 @@ async def drawing_redo(ctx: Context = None) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 2: Entity Creation (20 tools) ───────────────────────────────────
+# ── SECTION 2: Entity Creation (19 tools) ───────────────────────────────────
 # ---------------------------------------------------------------------------
 
 
@@ -3108,112 +3108,115 @@ async def entity_create_table(
     return _dc(result)
 
 
-@cad_tool(summary="Add a callout: an arrow with a note on the end.", cost="mutate")
-@mcp.tool(
-    annotations={"title": "Create Multileader", "readOnlyHint": False},
-    tags={"entity", "create", "annotation", "leader"},
-)
-async def leader_create_mleader(
-    points: Annotated[list[list[float]], "Leader vertices as [x, y] pairs"],
-    text: Annotated[str, "Leader annotation text"],
-    text_height: Annotated[float, Field(default=2.5, gt=0)] = 2.5,
-    landing_gap: Annotated[float, Field(default=1.0, ge=0)] = 1.0,
-    arrow_size: Annotated[float, Field(default=2.5, gt=0)] = 2.5,
-    layer: Annotated[str, "Target layer"] = "DIM",
-    arrow: Literal["closed", "dot", "none"] = "closed",
-    text_side: Annotated[
-        Literal["auto", "left", "right"], "auto: as the last segment points"
-    ] = "auto",
-    color: Annotated[int | None, "ACI; default ByLayer"] = None,
-    text_width: Annotated[float | None, Field(default=None, gt=0)] = None,
-    ctx: Context = None,
-) -> dict:
-    """Leader polyline (head at the first point) and MTEXT beside the last; parts in `child_handles`."""
-    result = await _backend(ctx).leader_create_mleader(
-        points,
-        text,
-        text_height,
-        landing_gap,
-        arrow_size,
-        layer,
-        arrow=arrow,
-        text_side=text_side,
-        color=color,
-        text_width=text_width,
-    )
-    return _dc(result)
-
-
 @cad_tool(
-    summary="Add a masked callout: dot or arrow, leader, note or numbered circle.", cost="mutate"
+    summary="Add callouts: leader with tick, dot, arrow or none, then a note or numbered circle.",
+    cost="mutate",
 )
 @mcp.tool(
     annotations={"title": "Create Callout", "readOnlyHint": False},
     tags={"entity", "create", "annotation", "leader"},
 )
 async def callout(
-    target: Annotated[list[float], Field(description="[x, y] the terminator touches (WCS).")],
+    target: Annotated[
+        list[float] | None, Field(default=None, description="[x, y] the terminator touches")
+    ] = None,
     landing: Annotated[
-        list[float],
-        Field(description="[x, y] of the knee; the shelf runs from it away from the target."),
-    ],
+        list[float] | None, Field(default=None, description="[x, y] of the knee")
+    ] = None,
     text: Annotated[
-        str | None, Field(default=None, description="Note; newlines make lines. Or number.")
+        str | None, Field(default=None, description="Note; newlines make lines")
     ] = None,
     number: Annotated[
-        int | str | None,
-        Field(default=None, description="Item number in a circle. Exactly one of text / number."),
+        int | str | None, Field(default=None, description="Item number in a circle (or text)")
     ] = None,
-    style: Annotated[str, Field(default="dot", description="'dot' or 'arrow' (filled).")] = "dot",
-    mask: Annotated[
-        bool, Field(default=True, description="WIPEOUT under the note or circle.")
-    ] = True,
+    style: Annotated[
+        Literal["none", "tick", "dot", "arrow"], Field(default="dot", description="Terminator")
+    ] = "dot",
+    mask: Annotated[bool, Field(default=True, description="WIPEOUT under the note")] = True,
     side: Annotated[
-        Literal["auto", "left", "right"],
-        Field(default="auto", description="Shelf direction; 'auto' = away from the target."),
+        Literal["auto", "left", "right"], Field(default="auto", description="Shelf direction")
     ] = "auto",
+    shelf: Annotated[
+        Literal["end", "under"],
+        Field(default="end", description="Note past the shelf end, or the shelf under it"),
+    ] = "end",
+    align: Annotated[Literal["auto", "left", "right"], Field(default="auto")] = "auto",
     text_height: Annotated[float, Field(default=2.5, gt=0)] = 2.5,
+    text_style: Annotated[str | None, Field(default=None)] = None,
     max_width: Annotated[
-        float | None,
-        Field(default=None, gt=0, description="Wrap the note at spaces (drawing units)."),
+        float | None, Field(default=None, gt=0, description="Wrap the note at spaces")
     ] = None,
+    color: Annotated[int | None, Field(default=None, description="ACI; default ByLayer")] = None,
     layer: Annotated[str, Field(default="DIM")] = "DIM",
-    layout: Annotated[str, Field(default="", description="Layout name; '' = current space.")] = "",
+    layout: Annotated[str, Field(default="", description="Layout name; '' = current space")] = "",
+    items: Annotated[
+        list[dict] | None,
+        Field(default=None, description="Many: [{target, landing, text, ...}] over the rest"),
+    ] = None,
     ctx: Context = None,
 ) -> dict:
-    """One technical callout: a filled dot (inside an outline) or arrow (on
-    one) at `target`, a leader to `landing`, a horizontal shelf of 2 text
-    heights away from the target, then a note or a numbered circle.
+    """Technical callouts: a terminator at `target`, a leader to `landing`, a
+    horizontal shelf, then a note or a numbered circle; `items` draws many in
+    one call, the arguments beside it each item's defaults.
 
+    Details:
+
+    `style` none | tick (45 degrees) | dot | arrow (filled). `shelf` end: the
+    shelf runs 2 text heights away from the target and the note starts past
+    it; under: the shelf runs under the note, as long as it, the note on top.
+    `align` left | right sets the note's lines (auto: away from the target).
     With `mask` a WIPEOUT is drawn first under the note or the circle, so
-    geometry beneath is hidden in model space, through a paper-space
-    viewport and on a layout over a viewport; a drawing without WIPEOUTFRAME
-    gets 0 (no frame), reported in `wipeout_frame`. On a layout the sheet's
-    "Plot paperspace last" is switched on (`sheet_order`): AutoCAD otherwise
-    draws the viewport's model over the mask. Native entities (WIPEOUT,
-    LWPOLYLINE, SOLID HATCH, MTEXT or CIRCLE + TEXT), listed in `parts` and
-    held in one GROUP (`group`): entity_delete of any part erases them all.
-    `max_width` breaks the note into lines no wider than it (same units as
-    `text_height`, so 1:50 sheet mm x 50), kept centred on the shelf; a word
-    wider than it stands alone and is listed in `overflow`. A U+00A0 space
-    keeps "18 mm" on one line.
-    Refused before drawing: both or neither of text / number, an unknown
-    style, a leader not longer than its terminator, an unknown layout,
-    max_width on a numbered callout.
+    geometry beneath is hidden in model space, through a viewport and on a
+    layout (WIPEOUTFRAME 0 when the drawing never set it, `wipeout_frame`;
+    "Plot paperspace last" switched on, `sheet_order`). Native entities in one
+    GROUP (`group`): entity_delete of any part erases them all. `max_width`
+    breaks the note into lines no wider than it (drawing units, like
+    `text_height`); a word wider stands alone in `overflow`; U+00A0 keeps
+    "18 mm" whole. `bounds` covers the leader and the note.
+    Refused before drawing (every item planned first): both or neither of
+    text / number, a leader not longer than its terminator, an unknown layout
+    or text style, max_width or shelf under on a numbered callout.
     """
-    return await _backend(ctx).callout(
-        target,
-        landing,
-        text=text,
-        number=number,
-        style=style,
-        mask=mask,
-        text_height=text_height,
-        layer=layer,
-        layout=layout or None,
-        side=side,
-        max_width=max_width,
-    )
+    shared = {
+        "target": target,
+        "landing": landing,
+        "text": text,
+        "number": number,
+        "style": style,
+        "mask": mask,
+        "side": side,
+        "shelf": shelf,
+        "align": align,
+        "text_height": text_height,
+        "text_style": text_style,
+        "max_width": max_width,
+        "color": color,
+        "layer": layer,
+        "layout": layout,
+    }
+    b = _backend(ctx)
+    if items is None:
+        return await b.callout(**{**shared, "layout": layout or None})
+    if not isinstance(items, list) or not items:
+        raise InvalidArgsError("invalid_args: items: give at least one {target, landing, text}")
+    jobs = []
+    for i, item in enumerate(items):
+        extra = sorted(set(item) - set(shared)) if isinstance(item, dict) else None
+        if extra is None or extra:
+            raise InvalidArgsError(f"invalid_args: items[{i}]: unknown key(s) {extra or item!r}")
+        job = {**shared, **item}
+        if "text" in item or "number" in item:  # an item's note replaces the shared one
+            job["text"], job["number"] = item.get("text"), item.get("number")
+        job["layout"] = job["layout"] or None
+        jobs.append(job)
+    for i, job in enumerate(jobs):
+        try:
+            await b.callout(**job, dry_run=True)
+        except InvalidArgsError as exc:
+            raise InvalidArgsError(f"invalid_args: items[{i}]: {exc}") from exc
+    keep = ("handle", "handles", "bounds", "overflow", "lines")
+    rows = [{k: v for k, v in (await b.callout(**job)).items() if k in keep} for job in jobs]
+    return {"ok": True, "count": len(rows), "callouts": rows}
 
 
 @cad_tool(
@@ -11223,8 +11226,7 @@ async def textstyle_set_current(
 )
 async def mleaderstyle_list(ctx: Context = None) -> dict:
     """Every MLEADERSTYLE with its four values (`values_available: true`),
-    read from the MLEADERSTYLE object. `leader_create_mleader` can still
-    override any of them per leader."""
+    read from the MLEADERSTYLE object; `callout` sets its own text height."""
     rows = await _backend(ctx).mleaderstyle_list()
     return {"ok": True, "styles": rows, "count": len(rows)}
 

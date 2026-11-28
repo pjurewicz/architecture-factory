@@ -9,7 +9,9 @@ Layout, in multiples of the text height ``h`` (AutoCAD's MLEADER defaults at
 4 mm text: an 8 mm dogleg and a 2 mm landing gap):
 
 * the shelf runs ``SHELF`` from the landing, away from the target's side
-  (``side="auto"``), or to the ``side`` the caller names;
+  (``side="auto"``), or to the ``side`` the caller names; ``shelf="under"``
+  runs it under the note instead, as long as the note, the note on top;
+* the terminator is none, a 45-degree tick, a filled dot or a filled arrow;
 * a note starts ``GAP`` past the shelf end, its middle on the shelf;
 * a number sits in a circle tangent to the shelf end, the numeral ``h`` high;
 * the mask is a WIPEOUT: a rectangle from the shelf end to ``GAP`` past the
@@ -25,8 +27,14 @@ from dataclasses import dataclass
 
 from engineering.annotation import LINE_PITCH, text_width
 
-STYLES = ("dot", "arrow")
+STYLES = ("none", "tick", "dot", "arrow")
 SIDES = ("auto", "left", "right")
+#: ``end``: the note past the shelf's end; ``under``: the shelf under the note,
+#: as long as it (round 7, the architect's underlined label).
+SHELVES = ("end", "under")
+ALIGNS = ("auto", "left", "right")
+#: Architectural tick: a stroke this many text heights long at 45 degrees.
+TICK_LENGTH = 1.0
 #: Shelf (dogleg) length, in text heights.
 SHELF = 2.0
 #: Shelf end to note, and the mask's margin round the note, in text heights.
@@ -48,17 +56,19 @@ Pt = tuple[float, float]
 @dataclass(frozen=True)
 class CalloutPlan:
     kind: str  # "text" | "number"
-    style: str  # "dot" | "arrow"
+    style: str  # STYLES
     side: str  # "right" | "left": where the content sits from the landing
     height: float
     leader: tuple[Pt, ...]  # target, landing, shelf end
     arrow: tuple[Pt, ...] | None  # filled triangle, tip first
     dot: tuple[Pt, float] | None  # centre, radius
+    tick: tuple[Pt, Pt] | None
     content: str  # MTEXT content (lines joined by \P) or the numeral
     content_at: Pt
     content_align: str  # MTEXT attachment / TEXT alignment name
     circle: tuple[Pt, float] | None  # the numbered circle
     mask: tuple[Pt, ...] | None
+    box: tuple[Pt, ...]  # what the content covers (the mask's outline), mask or not
     overflow: tuple[str, ...] = ()  # words wider than max_width
 
 
@@ -128,6 +138,8 @@ def plan_callout(
     text_height: float = 2.5,
     side: str = "auto",
     max_width: float | None = None,
+    shelf: str = "end",
+    align: str = "auto",
 ) -> CalloutPlan:
     """Every vertex of one callout, or ``ValueError`` naming what is wrong.
 
@@ -141,6 +153,12 @@ def plan_callout(
         raise ValueError(f"style must be one of {', '.join(STYLES)}; got {style!r}")
     if side not in SIDES:
         raise ValueError(f"side must be one of {', '.join(SIDES)}; got {side!r}")
+    if shelf not in SHELVES:
+        raise ValueError(f"shelf must be one of {', '.join(SHELVES)}; got {shelf!r}")
+    if align not in ALIGNS:
+        raise ValueError(f"align must be one of {', '.join(ALIGNS)}; got {align!r}")
+    if kind == "number" and shelf == "under":
+        raise ValueError("shelf 'under' underlines a text note; a numbered callout sits at the end")
     h = float(text_height)
     if not (math.isfinite(h) and h > 0):
         raise ValueError(f"text_height must be positive; got {text_height!r}")
@@ -158,7 +176,7 @@ def plan_callout(
         overflow = ()
 
     leg = math.hypot(lx - tx, ly - ty)
-    reach = ARROW_LENGTH * h if style == "arrow" else DOT_RADIUS * h
+    reach = {"arrow": ARROW_LENGTH * h, "dot": DOT_RADIUS * h}.get(style, 0.0)
     if leg <= reach:
         raise ValueError(
             f"landing ({lx:g}, {ly:g}) is {leg:g} from target ({tx:g}, {ty:g}); the leader "
@@ -169,29 +187,41 @@ def plan_callout(
         d = 1.0 if lx >= tx else -1.0
     else:
         d = 1.0 if side == "right" else -1.0
-    sx, sy = lx + d * SHELF * h, ly
-    ux, uy = (tx - lx) / leg, (ty - ly) / leg  # landing -> target
-    arrow = dot = None
-    if style == "arrow":
-        bx, by = tx - ux * ARROW_LENGTH * h, ty - uy * ARROW_LENGTH * h
-        px, py = -uy * ARROW_HALF_WIDTH * h, ux * ARROW_HALF_WIDTH * h
-        arrow = ((tx, ty), (bx + px, by + py), (bx - px, by - py))
-    else:
-        dot = ((tx, ty), DOT_RADIUS * h)
-
     margin = GAP * h
-    circle = None
     if kind == "text":
         lines = body
         width = max(text_width(line, h) for line in lines)
         block = h * (1.0 + (len(lines) - 1) * LINE_PITCH)
-        cx = sx + d * margin
+    run = width + 2 * margin if kind == "text" and shelf == "under" else SHELF * h
+    sx, sy = lx + d * run, ly
+    ux, uy = (tx - lx) / leg, (ty - ly) / leg  # landing -> target
+    arrow = dot = tick = None
+    if style == "arrow":
+        bx, by = tx - ux * ARROW_LENGTH * h, ty - uy * ARROW_LENGTH * h
+        px, py = -uy * ARROW_HALF_WIDTH * h, ux * ARROW_HALF_WIDTH * h
+        arrow = ((tx, ty), (bx + px, by + py), (bx - px, by - py))
+    elif style == "dot":
+        dot = ((tx, ty), DOT_RADIUS * h)
+    elif style == "tick":
+        c, s45 = math.cos(math.pi / 4), math.sin(math.pi / 4)
+        vx, vy = ux * c - uy * s45, ux * s45 + uy * c
+        half = TICK_LENGTH * h / 2.0
+        tick = ((tx - vx * half, ty - vy * half), (tx + vx * half, ty + vy * half))
+
+    circle = None
+    if kind == "text":
+        if shelf == "under":
+            x0, x1 = sorted((lx, sx))
+            tx0, y0, y1 = x0 + margin, sy, sy + block + 2 * margin
+        else:
+            tx0 = sx + margin if d > 0 else sx - margin - width
+            x0, x1 = (sx, tx0 + width + margin) if d > 0 else (tx0 - margin, sx)
+            y0, y1 = sy - block / 2.0 - margin, sy + block / 2.0 + margin
+        hand = align if align != "auto" else ("left" if d > 0 else "right")
         content = "\\P".join(lines)
-        content_at = (cx, sy)
-        align = "middle_left" if d > 0 else "middle_right"
-        far = cx + d * (width + margin)
-        x0, x1 = sorted((sx, far))
-        y0, y1 = sy - block / 2.0 - margin, sy + block / 2.0 + margin
+        anchor_x = tx0 if hand == "left" else tx0 + width
+        content_at = (anchor_x, sy + margin if shelf == "under" else sy)
+        align = f"{'bottom' if shelf == 'under' else 'middle'}_{hand}"
         outline = ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
     else:
         content = body
@@ -218,10 +248,12 @@ def plan_callout(
         leader=((tx, ty), (lx, ly), (sx, sy)),
         arrow=arrow,
         dot=dot,
+        tick=tick,
         content=content,
         content_at=content_at,
         content_align=align,
         circle=circle,
         mask=outline if mask else None,
+        box=outline,
         overflow=overflow,
     )

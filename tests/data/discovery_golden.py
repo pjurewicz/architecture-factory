@@ -59,7 +59,7 @@ TUNING_CASES: tuple[GoldenCase, ...] = (
     GoldenCase("QSELECT", "entity_select_smart", "command"),
     GoldenCase("DIMLINEAR", "dimension_linear", "command"),
     GoldenCase("ARRAYPOLAR", "entity_array_polar", "command"),
-    GoldenCase("MLEADER", "leader_create_mleader", "command"),
+    GoldenCase("MLEADER", "callout", "command"),
     GoldenCase("BHATCH", "entity_create_hatch", "command"),
     GoldenCase("LAYISO", "layer_isolate", "command"),
     GoldenCase("XLINE", "construction_xline", "command"),
@@ -84,9 +84,7 @@ TUNING_CASES: tuple[GoldenCase, ...] = (
     GoldenCase("datum triangle", "datum_feature", "synonym"),
     # Paraphrases — no shared vocabulary with the tool name.
     GoldenCase("I need the corner rounded off with a 3 mm radius", "entity_fillet", "paraphrase"),
-    GoldenCase(
-        "put an arrow with a note pointing at the hole", "leader_create_mleader", "paraphrase"
-    ),
+    GoldenCase("put an arrow with a note pointing at the hole", "callout", "paraphrase"),
     GoldenCase("turn a layer off so it does not print", "layer_hide", "paraphrase"),
     GoldenCase("make the whole shape smaller by half", "entity_scale", "paraphrase"),
     GoldenCase(

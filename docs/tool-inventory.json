@@ -3,7 +3,7 @@
   "schema_version": 2,
   "package_version": "1.8.0",
   "totals": {
-    "tools": 251,
+    "tools": 250,
     "resources": 13,
     "prompts": 5,
     "groups": 27
@@ -17,7 +17,7 @@
     "dimensions": 6,
     "drawing": 9,
     "engineering": 10,
-    "entity_creation": 19,
+    "entity_creation": 18,
     "entity_modification": 18,
     "entity_query": 9,
     "environment": 15,
@@ -1258,9 +1258,21 @@
       "name": "callout",
       "group": "entity_creation",
       "cost": "mutate",
-      "summary": "Add a masked callout: dot or arrow, leader, note or numbered circle.",
-      "acad": [],
+      "summary": "Add callouts: leader with tick, dot, arrow or none, then a note or numbered circle.",
+      "acad": [
+        "MLEADER",
+        "MLD",
+        "QLEADER",
+        "LEADER"
+      ],
       "synonyms": [
+        "leader",
+        "arrow with a note",
+        "pointer note",
+        "balloon",
+        "leader without arrow",
+        "note with a line",
+        "label with leader line",
         "callout",
         "masked callout",
         "note with background mask",
@@ -4482,38 +4494,6 @@
       ],
       "annotations": {
         "title": "Set Current Layout"
-      }
-    },
-    {
-      "name": "leader_create_mleader",
-      "group": "entity_creation",
-      "cost": "mutate",
-      "summary": "Add a callout: an arrow with a note on the end.",
-      "acad": [
-        "MLEADER",
-        "MLD",
-        "QLEADER",
-        "LEADER"
-      ],
-      "synonyms": [
-        "leader",
-        "callout",
-        "arrow with a note",
-        "pointer note",
-        "balloon",
-        "leader without arrow",
-        "note with a line",
-        "label with leader line"
-      ],
-      "tags": [
-        "annotation",
-        "create",
-        "entity",
-        "leader"
-      ],
-      "annotations": {
-        "title": "Create Multileader",
-        "readOnlyHint": false
       }
     },
     {

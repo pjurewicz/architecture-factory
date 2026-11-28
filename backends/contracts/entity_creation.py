@@ -62,7 +62,7 @@ def batch_create_adapter():
         hints = typing.get_type_hints(creator, localns={"EntityInfo": object})
         fields = {}
         for name, p in inspect.signature(creator).parameters.items():
-            if name == "self":
+            if name in ("self", "dry_run"):
                 continue
             hint, rule = rules.get((target, name), (hints[name], None))
             if rule is not None:
@@ -259,22 +259,6 @@ class EntityCreationContract(ABC):
         ...
 
     @abstractmethod
-    async def leader_create_mleader(
-        self,
-        points: list[list[float]],
-        text: str,
-        text_height: float = 2.5,
-        landing_gap: float = 1.0,
-        arrow_size: float = 2.5,
-        layer: str = "DIM",
-        *,
-        arrow: str = "closed",
-        text_side: str = "auto",
-        color: int | None = None,
-        text_width: float | None = None,
-    ) -> EntityInfo: ...
-
-    @abstractmethod
     async def callout(
         self,
         target: list[float],
@@ -288,15 +272,22 @@ class EntityCreationContract(ABC):
         layout: str | None = None,
         side: str = "auto",
         max_width: float | None = None,
+        shelf: str = "end",
+        align: str = "auto",
+        text_style: str | None = None,
+        color: int | None = None,
+        dry_run: bool = False,
     ) -> dict:
-        """One technical callout (``engineering/callout.py``): a dot or a filled
-        arrow on ``target``, a leader to ``landing`` and a horizontal shelf,
+        """One technical callout (``engineering/callout.py``): no terminator, a
+        tick, a dot or a filled arrow on ``target``, a leader to ``landing``
+        and a horizontal shelf (``shelf="under"``: under the note),
         then a note (``text``) or a numbered circle (``number``), over a WIPEOUT
         mask when ``mask``; ``side`` ("auto" | "left" | "right") is where the
         shelf runs from the landing; ``max_width`` wraps the note at spaces.
         Drawn into ``layout`` (None: the current
         space) in one call, its parts held in one GROUP so deleting any part
-        deletes the callout; every refusal fires before the first entity."""
+        deletes the callout; every refusal fires before the first entity, and
+        ``dry_run`` runs only the refusals."""
         ...
 
     @abstractmethod
@@ -375,10 +366,15 @@ class EntityCreationContract(ABC):
         "ellipse",
         "insert",
         "dimension_linear",
+        "callout",
     )
 
     #: Batch types whose create is not ``entity_create_<type>``.
-    BATCH_CREATE_METHODS = {"insert": "block_insert", "dimension_linear": "dimension_linear"}
+    BATCH_CREATE_METHODS = {
+        "insert": "block_insert",
+        "dimension_linear": "dimension_linear",
+        "callout": "callout",
+    }
 
     #: Batch types drawn by another type's create: ``rectangle`` is the closed
     #: polyline ``entity_create_rectangle`` draws, from ``x1, y1, x2, y2`` or
@@ -516,7 +512,13 @@ class EntityCreationContract(ABC):
                     async with self.dimstyle_scope(str(dimstyle)):
                         info = await creator(**spec)
                 try:
-                    if weight is not None or linetype is not None or color is not None:
+                    if isinstance(info, dict):  # a callout: its leader stands for the group
+                        if weight is not None or linetype is not None:
+                            for part in info["handles"]:
+                                await self.entity_set_properties(
+                                    part, lineweight=weight, linetype=linetype
+                                )
+                    elif weight is not None or linetype is not None or color is not None:
                         await self.entity_set_properties(
                             info.handle, lineweight=weight, linetype=linetype, color=color
                         )
@@ -529,11 +531,18 @@ class EntityCreationContract(ABC):
                     if text_props:
                         info = await self.entity_edit_text(info.handle, **text_props)
                 except Exception:
-                    await self.entity_delete(info.handle)  # nothing half-styled stays
+                    # nothing half-styled stays (a callout's part deletes its group)
+                    await self.entity_delete(
+                        info["handle"] if isinstance(info, dict) else info.handle
+                    )
                     raise
-                results.append(asdict(info))
+                if isinstance(info, dict):
+                    keep = ("handle", "handles", "bounds")
+                    results.append({"type": "CALLOUT", **{k: info[k] for k in keep}})
+                else:
+                    results.append(asdict(info))
                 if tag is not None:
-                    tags[str(tag)] = info.handle
+                    tags[str(tag)] = results[-1]["handle"]
             except Exception as exc:
                 errors.append({"index": index, "type": kind, "error": str(exc)})
         return {

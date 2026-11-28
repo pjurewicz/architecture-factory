@@ -664,7 +664,7 @@ async def test_tool_group_sizes_are_unchanged():
     `arch_plan_patch` (T-11) joins `architecture`; `file_upload_url` `sheet`: 244 tools.
     `arch_electrical`, `arch_legend` and `arch_title_block` join `architecture`; `textstyle_modify` `styles`; `drawing_recover` `transactions`: 249.
     `image_map` (now `scan_read`) joins `architecture`: 250.
-    `arch_electrical` became `arch_services` (every trade) and `arch_underlay` joins: 251.
+    `arch_electrical` became `arch_services` (every trade) and `arch_underlay` joins: 251. Round 7: leader_create_mleader folded into callout: 250.
     """
     sizes = {label: len(names) for label, names in (await server._tool_groups()).items()}
     assert (
@@ -678,7 +678,7 @@ async def test_tool_group_sizes_are_unchanged():
             "dimensions": 6,  # + dimension_chain
             "drawing": 9,
             "engineering": 10,
-            "entity_creation": 19,  # + callout
+            "entity_creation": 18,  # + callout
             "entity_modification": 18,  # + entity_modify_where (1.8-12), draw_order
             "entity_query": 9,
             "environment": 15,
@@ -699,4 +699,4 @@ async def test_tool_group_sizes_are_unchanged():
             "view": 1,
         }
     )
-    assert sum(sizes.values()) == 251
+    assert sum(sizes.values()) == 250

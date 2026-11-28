@@ -253,10 +253,10 @@ class AutoCADMCPProAdapter(BenchmarkAdapter):
         table = await self.backend.entity_create_table(
             0, 20, [["A", "1"]], headers=["ITEM", "QTY"], layer="TEXT"
         )
-        leader = await self.backend.leader_create_mleader([[0, 0], [10, 10]], "NOTE", layer="DIM")
+        leader = await self.backend.callout([0, 0], [10, 10], text="NOTE", layer="DIM")
         representations = [
             table.properties.get("representation"),
-            leader.properties.get("representation"),
+            "composite" if leader.get("group") else None,
         ]
         return all(representations), {"representations": representations}, []
 

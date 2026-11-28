@@ -7,6 +7,7 @@ import io
 import math
 
 import pytest
+import pytest_asyncio
 
 from engineering.annotation import text_width
 from engineering.errors import InvalidArgsError
@@ -118,7 +119,7 @@ async def test_a_drawing_that_set_wipeoutframe_keeps_it(backend):
         ({"text": "  \n "}, "empty"),
         ({"number": 0}, "positive"),
         ({"number": True}, "positive integer"),
-        ({"text": "A", "style": "tick"}, "style"),
+        ({"text": "A", "style": "zigzag"}, "style"),
         ({"text": "A", "landing": [1.0, 1.0]}, "longer than its arrow"),
         ({"text": "A", "layout": "NoSuchSheet"}, "does not exist"),
     ],
@@ -257,3 +258,99 @@ async def test_max_width_word_wider_than_the_column_stands_alone(backend):
         await backend.callout([0, 0], [20, 10], number=1, max_width=10.0)
     with pytest.raises(InvalidArgsError, match="max_width must be positive"):
         await backend.callout([0, 0], [20, 10], text="A", max_width=0)
+
+
+async def test_tick_none_under_shelf_right_aligned_with_style_and_bounds(backend):
+    """Round 7: 25 of 27 notes were polyline + MTEXT pairs - no tick, no shelf
+    under the note, no text style, no right alignment, bounds without the text."""
+    backend._doc.styles.add("ARCH", font="arial.ttf")
+    h = 2.5
+    note = "STROP G-K\nDWIE LINIE"
+    under = await backend.callout(
+        [0, 0], [10, 10], text=note, style="tick", shelf="under", align="right",
+        text_style="ARCH", mask=False, color=3,
+    )  # fmt: skip
+    width = max(text_width(line, h) for line in note.split("\n"))
+    # the shelf runs under the whole note, from the landing
+    assert under["leader"][1:] == [[10.0, 10.0], [pytest.approx(10.0 + width + h), 10.0]]
+    mtext = _entity(backend, under["parts"]["text"])
+    assert mtext.dxf.style == "ARCH" and mtext.dxf.color == 3
+    assert mtext.dxf.attachment_point == 9  # bottom_right: above the shelf, right edge
+    assert tuple(mtext.dxf.insert)[:2] == pytest.approx((10.0 + 0.5 * h + width, 10.0 + 0.5 * h))
+    tick = _entity(backend, under["parts"]["terminator"])
+    assert tick.dxftype() == "LINE"
+    assert tick.dxf.start.distance(tick.dxf.end) == pytest.approx(h)
+    # bounds reach the top of the note though there is no mask
+    assert under["bounds"]["max"][1] > 10.0 + h * (1 + 5 / 3)
+    bare = await backend.callout([0, 0], [1, 1], text="X", style="none")
+    assert "terminator" not in bare["parts"]  # no terminator: a leader may be short
+    with pytest.raises(InvalidArgsError, match="no text style 'NOPE'"):
+        await backend.callout([0, 0], [10, 10], text="X", text_style="NOPE")
+    with pytest.raises(InvalidArgsError, match="shelf 'under'"):
+        await backend.callout([0, 0], [10, 10], number=1, shelf="under")
+
+
+@pytest_asyncio.fixture
+async def client():
+    from fastmcp import Client
+
+    import server
+
+    async with Client(server.mcp) as c:
+        await c.call_tool("drawing_new", {})
+        yield c
+
+
+async def test_items_draw_many_callouts_and_a_bad_one_draws_none(client):
+    async def count():
+        rows = await client.call_tool("call_tool", {"name": "entity_list", "arguments": {}})
+        data = rows.structured_content
+        return len(data.get("result", data) if isinstance(data, dict) else data)
+
+    before = await count()
+    bad = await client.call_tool(
+        "call_tool",
+        {
+            "name": "callout",
+            "arguments": {
+                "style": "tick",
+                "items": [
+                    {"target": [0, 0], "landing": [20, 10], "text": "A"},
+                    {"target": [0, 0], "landing": [20, 10], "text": "B", "number": 2},
+                ],
+            },
+        },
+        raise_on_error=False,
+    )
+    assert bad.is_error and "items[1]" in bad.content[0].text
+    assert await count() == before
+    done = (
+        await client.call_tool(
+            "call_tool",
+            {
+                "name": "callout",
+                "arguments": {
+                    "style": "tick",
+                    "text_height": 125,
+                    "items": [
+                        {"target": [0, 0], "landing": [2000, 1000], "text": "A"},
+                        {"target": [0, 0], "landing": [-2000, 1000], "number": 3},
+                    ],
+                },
+            },
+        )
+    ).structured_content
+    assert done["count"] == 2 and all(row["handles"] for row in done["callouts"])
+    batch = (
+        await client.call_tool(
+            "entity_batch_create",
+            {
+                "entities": [
+                    {"type": "callout", "target": [0, 0], "landing": [30, 20], "text": "C",
+                     "style": "arrow", "tag": "c"},
+                    {"type": "line", "x1": 0, "y1": 0, "x2": 5, "y2": 0},
+                ]
+            },
+        )
+    ).structured_content  # fmt: skip
+    assert batch["ok"] and batch["created"] == 2 and "c" in batch["tags"]
