@@ -13,12 +13,13 @@ from backends.block_specs import (
 )
 
 
-def test_allowed_types_are_the_documented_eight():
+def test_allowed_types_are_the_documented_nine():
     assert ALLOWED_TYPES == (
         "line",
         "circle",
         "arc",
         "polyline",
+        "donut",
         "text",
         "solid",
         "wipeout",
@@ -38,6 +39,7 @@ def test_each_type_normalises_to_floats_and_layer_zero():
             {"type": "circle", "cx": 0, "cy": 0, "radius": 2},
             {"type": "arc", "cx": 0, "cy": 0, "radius": 2, "start_angle": 0, "end_angle": 180},
             {"type": "polyline", "points": [[0, 0], [1, 0], [1, 1]], "closed": True},
+            {"type": "donut", "cx": 0, "cy": 0, "outer_radius": 2, "inner_radius": 1},
             {"type": "text", "text": "M", "x": 0, "y": 0, "height": 2},
             {"type": "solid", "points": [[0, 0], [1, 0], [0, 1]]},
             {"type": "wipeout", "points": [[0, 0], [2, 0], [2, 1], [1, 2], [0, 1]]},
@@ -45,13 +47,24 @@ def test_each_type_normalises_to_floats_and_layer_zero():
         ]
     )
     assert [e["type"] for e in out] == list(ALLOWED_TYPES)
-    assert out[7]["circle"] == [0.0, 0.0, 1.0]
-    assert len(out[6]["points"]) == 5  # no four-point cap, unlike a SOLID
-    assert out[0] == {"type": "line", "layer": "0", "x1": 0.0, "y1": 0.0, "x2": 1.0, "y2": 0.0}
+    assert out[8]["boundary"] == [0.0, 0.0, 1.0]
+    assert len(out[7]["points"]) == 5  # no four-point cap, unlike a SOLID
+    assert out[0] == {
+        "type": "line",
+        "layer": "0",
+        "color": 0,
+        "linetype": "ByBlock",
+        "lineweight": -2,
+        "x1": 0.0,
+        "y1": 0.0,
+        "x2": 1.0,
+        "y2": 0.0,
+    }
     assert out[3]["points"] == [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)]
     assert out[3]["closed"] is True and out[3]["bulges"] is None
-    assert out[4]["align"] == "left" and out[4]["rotation"] == 0.0
-    assert out[5]["points"] == [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)]
+    assert out[4]["inner_radius"] == 1.0 and out[4]["outer_radius"] == 2.0
+    assert out[5]["align"] == "left" and out[5]["rotation"] == 0.0
+    assert out[6]["points"] == [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)]
 
 
 @pytest.mark.parametrize(

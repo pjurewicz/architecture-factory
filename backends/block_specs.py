@@ -11,11 +11,24 @@ from __future__ import annotations
 import math
 import re
 
-from backends.base import TEXT_ALIGN
+from backends.base import TEXT_ALIGN, parse_lineweight
 from engineering.validation import short_repr
 from security import illegal_symbol_name_chars
 
-ALLOWED_TYPES = ("line", "circle", "arc", "polyline", "text", "solid", "wipeout", "hatch")
+ALLOWED_TYPES = (
+    "line",
+    "circle",
+    "arc",
+    "polyline",
+    "donut",
+    "text",
+    "solid",
+    "wipeout",
+    "hatch",
+)
+#: Keys every primitive may carry, as on an ``entity_batch_create`` item. Unset,
+#: a primitive is ByBlock (the INSERT supplies colour, linetype, lineweight).
+_COMMON = ("type", "layer", "color", "linetype", "lineweight")
 #: The TEXT justifications every create shares (``backends.base.TEXT_ALIGN``).
 TEXT_ALIGNMENTS = tuple(TEXT_ALIGN)
 #: Checked with ``fullmatch`` — ``$`` alone would accept a trailing newline, which
@@ -33,17 +46,19 @@ _REQUIRED = {
     "solid": ("points",),
     "wipeout": ("points",),
     "hatch": (),
+    "donut": ("cx", "cy", "outer_radius"),
 }
 #: Keys a primitive may carry besides ``type``, ``layer`` and its required ones.
 _OPTIONAL = {
     "line": (),
     "circle": (),
     "arc": (),
-    "polyline": ("closed", "bulges"),
+    "polyline": ("closed", "bulges", "width"),
     "text": ("rotation", "align"),
     "solid": (),
     "wipeout": (),
-    "hatch": ("points", "circle"),
+    "hatch": ("boundary_points", "circle", "holes", "pattern", "scale", "angle"),
+    "donut": ("inner_radius",),
 }
 _ATTDEF_KEYS = (
     "tag",
@@ -56,7 +71,7 @@ _ATTDEF_KEYS = (
     "align",
     "invisible",
 )
-_POSITIVE = {"radius", "height"}
+_POSITIVE = {"radius", "height", "outer_radius"}
 #: DXF symbol-table names (layers, blocks) are at most 255 characters.
 MAX_NAME_LENGTH = 255
 
@@ -152,6 +167,51 @@ def _one_line(value, where: str) -> str:
     return value
 
 
+def _is_pair(value) -> bool:
+    return isinstance(value, (list, tuple))
+
+
+def _disc(value, where: str) -> list[float]:
+    if not isinstance(value, (list, tuple)) or len(value) != 3:
+        raise TypeError(f"{where} must be [cx, cy, radius]")
+    return [
+        _scalar(value[0], f"{where}[0]"),
+        _scalar(value[1], f"{where}[1]"),
+        _scalar(value[2], f"{where}[2]", positive=True),
+    ]
+
+
+def _pattern(name, where: str) -> str:
+    """A predefined hatch pattern in any case; ezdxf would fill an unknown one as ANSI31."""
+    from ezdxf.tools.pattern import ISO_PATTERN
+
+    key = str(name).strip().upper()
+    if key != "SOLID" and key not in ISO_PATTERN:
+        raise TypeError(f"{where}: 'pattern' {short_repr(name)} is not a predefined hatch pattern")
+    return key
+
+
+def _properties(spec: dict, where: str) -> dict:
+    """``color`` (ACI 0-256), ``linetype`` and ``lineweight`` as written; unset is ByBlock."""
+    out: dict = {"color": 0, "linetype": "ByBlock", "lineweight": -2}
+    if spec.get("color") is not None:
+        color = spec["color"]
+        if isinstance(color, bool) or not isinstance(color, int) or not 0 <= color <= 256:
+            raise TypeError(f"{where}: 'color' must be an ACI 0-256, got {short_repr(color)}")
+        out["color"] = color
+    if spec.get("linetype") is not None:
+        linetype = spec["linetype"]
+        if not isinstance(linetype, str) or not linetype.strip():
+            raise TypeError(f"{where}: 'linetype' must be a non-empty string")
+        out["linetype"] = linetype.strip()
+    if spec.get("lineweight") is not None:
+        try:
+            out["lineweight"] = parse_lineweight(spec["lineweight"])
+        except ValueError as exc:
+            raise TypeError(f"{where}: 'lineweight': {exc}") from None
+    return out
+
+
 def _refuse_unknown_keys(spec: dict, allowed: set[str], where: str, what: str) -> None:
     """A key nobody reads is refused by name, never dropped (backlog W1-T2-03)."""
     unknown = sorted(str(key) for key in spec if key not in allowed)
@@ -195,12 +255,12 @@ def validate_entity_specs(entities) -> list[dict]:
                 f"{where}: 'type' must be one of {ALLOWED_TYPES}, got {short_repr(kind)}"
             )
         _refuse_unknown_keys(
-            spec, {"type", "layer", *_REQUIRED[kind], *_OPTIONAL[kind]}, where, f"a {kind}"
+            spec, {*_COMMON, *_REQUIRED[kind], *_OPTIONAL[kind]}, where, f"a {kind}"
         )
         for key in _REQUIRED[kind]:
             if key not in spec:
                 raise TypeError(f"{where}: {kind} requires {key!r}")
-        norm: dict = {"type": kind, "layer": _layer(spec, where)}
+        norm: dict = {"type": kind, "layer": _layer(spec, where), **_properties(spec, where)}
         if kind == "line":
             for key in ("x1", "y1", "x2", "y2"):
                 norm[key] = _number(spec, key, where)
@@ -220,7 +280,23 @@ def validate_entity_specs(entities) -> list[dict]:
                 if not isinstance(bulges, (list, tuple)) or len(bulges) != len(pts):
                     raise TypeError(f"{where}: 'bulges' must list one value per point")
                 bulges = [_scalar(b, f"{where}: bulges[{j}]") for j, b in enumerate(bulges)]
-            norm.update(points=pts, closed=closed, bulges=list(bulges) if bulges else None)
+            width = _scalar(spec.get("width", 0.0), f"{where}: 'width'")
+            if width < 0:
+                raise TypeError(f"{where}: 'width' must be >= 0, got {width}")
+            norm.update(
+                points=pts, closed=closed, bulges=list(bulges) if bulges else None, width=width
+            )
+        elif kind == "donut":
+            # AutoCAD's DONUT: a closed two-arc LWPOLYLINE with a constant width
+            # (inner_radius 0 is a filled dot)
+            outer = _number(spec, "outer_radius", where)
+            inner = _scalar(spec.get("inner_radius", 0.0), f"{where}: 'inner_radius'")
+            if not 0 <= inner < outer:
+                raise TypeError(
+                    f"{where}: 'inner_radius' must be >= 0 and < outer_radius {outer}, got {inner}"
+                )
+            norm.update(cx=_number(spec, "cx", where), cy=_number(spec, "cy", where))
+            norm.update(inner_radius=inner, outer_radius=outer)
         elif kind == "text":
             norm.update(
                 text=_one_line(spec.get("text"), f"{where}: 'text'"),
@@ -233,22 +309,30 @@ def validate_entity_specs(entities) -> list[dict]:
         elif kind == "solid":
             norm["points"] = _points(spec, where, minimum=3, maximum=4)
         elif kind == "hatch":
-            # a solid fill: a polygon (points) or a disc (circle [cx, cy, r])
-            if ("points" in spec) == ("circle" in spec):
+            # a polygon (boundary_points, entity_batch_create's key) or a disc
+            # (circle [cx, cy, r]); holes are islands, each a polygon or a disc
+            if ("boundary_points" in spec) == ("circle" in spec):
                 raise TypeError(
-                    f"{where}: hatch takes points (3+) or circle [cx, cy, r], one of them"
+                    f"{where}: hatch takes boundary_points (3+) or circle [cx, cy, r], one of them"
                 )
-            if "points" in spec:
-                norm["points"] = _points(spec, where, minimum=3)
+            if "boundary_points" in spec:
+                norm["boundary"] = _points(
+                    {"points": spec["boundary_points"]}, f"{where}: boundary_points", minimum=3
+                )
             else:
-                c = spec["circle"]
-                if not isinstance(c, (list, tuple)) or len(c) != 3:
-                    raise TypeError(f"{where}: 'circle' must be [cx, cy, radius]")
-                norm["circle"] = [
-                    _scalar(c[0], f"{where}: circle[0]"),
-                    _scalar(c[1], f"{where}: circle[1]"),
-                    _scalar(c[2], f"{where}: circle[2]", positive=True),
-                ]
+                norm["boundary"] = _disc(spec["circle"], f"{where}: circle")
+            holes = spec.get("holes") or []
+            if not isinstance(holes, (list, tuple)):
+                raise TypeError(f"{where}: 'holes' must be a list of polygons or [cx, cy, r]")
+            norm["holes"] = [
+                _disc(hole, f"{where}: holes[{j}]")
+                if isinstance(hole, (list, tuple)) and len(hole) == 3 and not _is_pair(hole[0])
+                else _points({"points": hole}, f"{where}: holes[{j}]", minimum=3)
+                for j, hole in enumerate(holes)
+            ]
+            norm["pattern"] = _pattern(spec.get("pattern", "SOLID"), where)
+            norm["scale"] = _scalar(spec.get("scale", 1.0), f"{where}: 'scale'", positive=True)
+            norm["angle"] = _scalar(spec.get("angle", 0.0), f"{where}: 'angle'")
         elif kind == "wipeout":
             # A closed polygon (its last point joins the first); it masks what a
             # layout draws before the INSERT, and the primitives listed after it.

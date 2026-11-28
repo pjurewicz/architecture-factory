@@ -189,7 +189,7 @@ ERROR_TABLE: dict[str, KindSpec] = {
     "unknown_tool": KindSpec(
         "input", False, "Not a callable tool here; search_tools or the active TOOL_PACKS."
     ),
-    "invalid_args": KindSpec("input", False, "Fix the arguments; describe_tool shows the schema."),
+    "invalid_args": KindSpec("input", False, "Refused before any write: fix the arguments."),
     "unresolved_ref": KindSpec("input", False, "Bind the name in an earlier step."),
     "unsupported": KindSpec(
         "dependency", False, "This engine cannot; system_capabilities lists what it can."
@@ -302,6 +302,17 @@ def describe(kind: str) -> KindSpec:
 def retryable_for(kind: str, state: str | None) -> bool:
     """The kind's default, but true only when the record wrote nothing."""
     return describe(kind).retryable and state in _NOTHING_WRITTEN
+
+
+def nothing_written(error: dict, wrote: bool | None) -> dict:
+    """A ``failed`` call whose document revision did not move wrote nothing:
+    it is the caller's arguments refused before any write (a ``ValueError`` /
+    ``TypeError`` a check raised, wrapped in a ``ToolError``), so ``invalid_args``
+    with its hint, never "attempted and broke". ``wrote`` is None when the
+    revision could not be read; the kind is then kept. In place; returned."""
+    if wrote is False and error.get("kind") == "failed":
+        error["kind"] = "invalid_args"
+    return error
 
 
 def annotate(error: dict, state: str | None) -> dict:

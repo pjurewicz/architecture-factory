@@ -39,14 +39,17 @@ async def test_an_empty_list_is_still_refused_as_empty():
 # ── W1-T2-03: the per-entity override keys are refused, never dropped ───────
 
 
-@pytest.mark.parametrize("extra", [{"color": 1}, {"linetype": "DASHED"}, {"lineweight": 0.35}])
-async def test_an_override_key_is_refused_by_index(extra):
-    """RED: 'color' was accepted and silently dropped from the normalised spec."""
-    key = next(iter(extra))
-    with pytest.raises(
-        TypeError, match=rf"^entities\[1\]: unknown key\(s\) '{key}'; a line takes "
-    ):
-        validate_entity_specs([LINE, {**LINE, **extra}])
+@pytest.mark.parametrize(
+    "extra, kept",
+    [({"color": 1}, ("color", 1)), ({"linetype": "DASHED"}, ("linetype", "DASHED"))]
+    + [({"lineweight": 0.35}, ("lineweight", 35))],
+)
+async def test_an_override_key_is_kept_never_dropped(extra, kept):
+    """Round 5 (A2): keyed like entity_batch_create, so a primitive's colour,
+    linetype and lineweight are written (they were refused, before that dropped)."""
+    out = validate_entity_specs([LINE, {**LINE, **extra}])
+    assert out[1][kept[0]] == kept[1]
+    assert out[0][kept[0]] == {"color": 0, "linetype": "ByBlock", "lineweight": -2}[kept[0]]
 
 
 async def test_each_type_keeps_its_own_optional_keys():

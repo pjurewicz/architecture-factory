@@ -905,20 +905,28 @@ async def test_the_classifier_reads_the_cause_chain_not_the_message():
     assert classified["capability"] == "dwg"
 
 
-async def test_a_backend_failure_is_typed_as_failed(client):
-    result = await _batch(
-        client,
-        [
-            {
-                "tool": "entity_create_line",
-                "args": {"x1": 0, "y1": 0, "x2": 1, "y2": 0},
-                "bind": "l",
-            },
-            {"tool": "entity_edit_text", "args": {"handle": "$l", "text": "X"}},
-        ],
-        on_error="continue",
-    )
-    assert result["results"][1]["error"]["kind"] == "failed"
+async def test_a_backend_failure_is_typed_as_failed(client, monkeypatch):
+    """``failed`` is a step that wrote and then broke; one that raised before
+    any write (the revision did not move) is the caller's ``invalid_args``."""
+    from backends.ezdxf_backend import EzdxfBackend
+
+    original = EzdxfBackend.entity_move
+
+    async def move_then_break(self, *args, **kwargs):
+        await original(self, *args, **kwargs)
+        raise RuntimeError("broke after the write")
+
+    monkeypatch.setattr(EzdxfBackend, "entity_move", move_then_break)
+    steps = [
+        {"tool": "entity_create_line", "args": {"x1": 0, "y1": 0, "x2": 1, "y2": 0}, "bind": "l"},
+        {"tool": "entity_edit_text", "args": {"handle": "$l", "text": "X"}},
+        {"tool": "entity_move", "args": {"handle": "$l", "dx": 1, "dy": 0}},
+    ]
+    result = await _batch(client, steps, on_error="continue")
+    unwritten, broke = result["results"][1]["error"], result["results"][2]["error"]
+    assert unwritten["kind"] == "invalid_args"
+    assert unwritten["hint"].startswith("Refused before any write")
+    assert broke["kind"] == "failed" and "Attempted and broke" in broke["hint"]
 
 
 async def test_a_missing_handle_is_typed_as_not_found(client):

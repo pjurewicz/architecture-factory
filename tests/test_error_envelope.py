@@ -301,14 +301,17 @@ async def test_a_handle_missing_at_run_time_is_not_found_in_a_step_too(client):
 @pytest.mark.asyncio
 async def test_a_deliberate_type_error_refusal_is_never_called_a_server_bug(client, tool, args):
     """block_specs / dimstyles refuse a wrong-typed value with TypeError: the
-    caller's argument, ``failed`` as in 1.7 - never ``internal``."""
+    caller's argument - never ``internal``. Round 5: nothing was written (the
+    revision did not move), so ``invalid_args`` with the "refused before any
+    write" hint, on both routes - never "attempted and broke"."""
     _, payload = await _error(client, tool, args)
-    assert payload["kind"] == "failed", payload
-    assert payload["category"] != "internal" and "server bug" not in payload["hint"]
+    assert payload["kind"] == "invalid_args", payload
+    assert payload["hint"].startswith("Refused before any write"), payload
     record = await _record(client, payload["operation_id"])
-    assert record["error_kind"] == "failed"
+    assert record["error_kind"] == "invalid_args"
     step = await _step_error(client, tool, args)
-    assert step["kind"] == "failed", "the direct route and the batch step must agree"
+    assert step["kind"] == "invalid_args", "the direct route and the batch step must agree"
+    assert step["hint"] == payload["hint"]
 
 
 @pytest.mark.parametrize(

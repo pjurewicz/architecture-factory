@@ -152,20 +152,21 @@ async def test_a_failed_step_names_its_operation_and_the_batch_is_partial(client
             },
         )
     ).structured_content
-    # 1.8-02: a missing handle is now not_found (a refusal), so the failing
-    # step is an operation that really broke.
+    # round 5: editing a LINE's text raises before anything is written, so the
+    # step is the caller's arguments refused (invalid_args), not "broke".
     error = result["results"][1]["error"]
-    assert error["kind"] == "failed"
+    assert error["kind"] == "invalid_args"
+    assert error["hint"].startswith("Refused before any write")
     operations = await _operations(client)
     (step,) = [r for r in operations if r["operation_id"] == error["operation_id"]]
     assert (step["tool"], step["state"], step["error_kind"]) == (
         "entity_edit_text",
-        "failed",
-        "failed",
+        "refused",
+        "invalid_args",
     )
     (batch,) = [r for r in operations if r["tool"] == "cad_batch"]
     assert batch["operation_id"] == result["operation_id"]
-    assert (batch["state"], batch["error_kind"]) == ("partial", "failed")
+    assert (batch["state"], batch["error_kind"]) == ("partial", "invalid_args")
 
 
 @pytest.mark.asyncio

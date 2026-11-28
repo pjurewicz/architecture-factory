@@ -9869,11 +9869,12 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 blk.delete_all_entities()
                 blk.block.dxf.base_point = base
             for spec in ents:
+                # unset is ByBlock: the INSERT supplies colour, linetype, lineweight
                 attribs = {
                     "layer": spec["layer"],
-                    "color": 0,
-                    "linetype": "ByBlock",
-                    "lineweight": -2,  # ByBlock
+                    "color": spec["color"],
+                    "linetype": spec["linetype"],
+                    "lineweight": spec["lineweight"],
                 }
                 kind = spec["type"]
                 if kind == "line":
@@ -9896,7 +9897,19 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                         [(x, y, b) for (x, y), b in zip(spec["points"], bulges, strict=True)],
                         format="xyb",
                         close=spec["closed"],
-                        dxfattribs=attribs,
+                        dxfattribs={**attribs, "const_width": spec["width"]},
+                    )
+                elif kind == "donut":
+                    mid = (spec["outer_radius"] + spec["inner_radius"]) / 2.0
+                    cx, cy = spec["cx"], spec["cy"]
+                    blk.add_lwpolyline(
+                        [(cx - mid, cy, 1.0), (cx + mid, cy, 1.0)],
+                        format="xyb",
+                        close=True,
+                        dxfattribs={
+                            **attribs,
+                            "const_width": spec["outer_radius"] - spec["inner_radius"],
+                        },
                     )
                 elif kind == "text":
                     txt = blk.add_text(
@@ -9913,12 +9926,19 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 elif kind == "wipeout":
                     blk.add_wipeout(spec["points"], dxfattribs=attribs)
                 elif kind == "hatch":
-                    fill = blk.add_hatch(color=0, dxfattribs=attribs)
-                    if "circle" in spec:
-                        cx, cy, r = spec["circle"]
-                        fill.paths.add_edge_path().add_arc((cx, cy), r, 0.0, 360.0)
-                    else:
-                        fill.paths.add_polyline_path(spec["points"], is_closed=True)
+                    fill = blk.add_hatch(color=spec["color"], dxfattribs=attribs)
+                    if spec["pattern"] != "SOLID":
+                        fill.set_pattern_fill(
+                            spec["pattern"], scale=spec["scale"], angle=spec["angle"]
+                        )
+                    for index, loop in enumerate([spec["boundary"], *spec["holes"]]):
+                        flags = 1 if index == 0 else 16  # external, then outermost islands
+                        if not isinstance(loop[0], tuple):  # [cx, cy, r], not a polygon
+                            cx, cy, r = loop
+                            path = fill.paths.add_edge_path(flags=flags)
+                            path.add_arc((cx, cy), r, 0.0, 360.0)
+                        else:
+                            fill.paths.add_polyline_path(loop, is_closed=True, flags=flags)
             for att in atts:
                 attdef = blk.add_attdef(
                     att["tag"],

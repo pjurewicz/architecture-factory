@@ -77,6 +77,7 @@ from engineering.errors import (
     compact_message,
     describe,
     gate_failure_payload,
+    nothing_written,
     quarantine_of,
     refusal_kind,
     refusal_message,
@@ -945,6 +946,16 @@ def _interrupted_state(backend, operation_id: str, tool: str) -> str:
     return "cancelled"
 
 
+def _revision_moved(backend, document_id, revision_before) -> bool | None:
+    """Whether the active document's revision moved since ``revision_before``
+    of ``document_id``; None when that cannot be told (no document, another one)."""
+    identity = _identity_of(backend) or {}
+    if revision_before is None or identity.get("document_id") != document_id:
+        return None
+    revision = identity.get("revision")
+    return None if revision is None else revision != revision_before
+
+
 def _kind_outcome(backend, operation_id: str | None, tool: str, kind: str) -> tuple[str, str]:
     """``(record state, error kind)`` for an error of ``kind`` (1.8-02).
 
@@ -1110,6 +1121,12 @@ def _error_envelope(context, exc: BaseException) -> ToolResult:
     backend = lifespan.get("backend") if lifespan is not None else None
     arguments = dict(getattr(context.message, "arguments", None) or {})
     classified = classify(exc)
+    if operation_id is not None:
+        record = _operations_journal(lifespan).get(operation_id)
+        if record is not None:
+            nothing_written(
+                classified, _revision_moved(backend, record.document_id, record.revision_before)
+            )
     state, kind = _kind_outcome(
         backend, operation_id, _effective_tool(tool, arguments), classified["kind"]
     )
@@ -5366,13 +5383,14 @@ async def block_define(
     name: Annotated[str, "New block definition name"],
     entities: Annotated[
         list[dict],
-        "Primitives in block-local coordinates, keyed like entity_create_* / entity_batch_create. "
+        "Block-local primitives, keyed like entity_batch_create items. "
         "type=line {x1,y1,x2,y2} | circle {cx,cy,radius} | "
-        "arc {cx,cy,radius,start_angle,end_angle} | polyline {points,closed,bulges?} | "
-        "text {text,x,y,height,rotation?,align? (left, center, right, middle, top_left ... bottom_right)} | solid {points (3-4)} | "
-        "wipeout {points (3+), closed polygon; masks what is drawn before it, so list it first} | "
-        "hatch {points | circle [cx,cy,r]}, a solid fill. "
-        "Optional layer (default 0).",
+        "arc {cx,cy,radius,start_angle,end_angle} | polyline {points,closed?,bulges?,width?} | "
+        "donut {cx,cy,outer_radius,inner_radius?} | "
+        "text {text,x,y,height,rotation?,align?} | solid {points (3-4)} | "
+        "wipeout {points (3+); masks what is drawn before it, list it first} | "
+        "hatch {boundary_points | circle [cx,cy,r], holes? [polygon | [cx,cy,r]], pattern? SOLID}. "
+        "Each may carry layer (0), color, linetype, lineweight (unset: ByBlock).",
     ],
     attdefs: Annotated[
         list[dict] | None,
@@ -5399,8 +5417,8 @@ async def block_define(
     `create_layers=true`, which creates them and lists them in
     `layers_created`. `overwrite=true` replaces the *contents* of an existing
     block so its INSERTs keep pointing at the name and show the new geometry;
-    `replaced` reports it. Geometry inside the block is ByBlock so the
-    INSERT's layer supplies colour and lineweight. Insert with
+    `replaced` reports it. A primitive without color / linetype / lineweight
+    is ByBlock, so the INSERT's layer supplies them. Insert with
     `block_insert(attributes={TAG: value})`.
     """
     await ctx.info(f"Defining block '{name}' from {len(entities)} primitives")
@@ -6214,12 +6232,25 @@ def _batch_dim_overrides(args: dict) -> None:
             check_dim_value(key, value)
 
 
+def _batch_block_define(args: dict) -> None:
+    """block_define: the primitive and ATTDEF specs, checked as its body does."""
+    from backends import block_specs
+
+    if _batch_refs_in(args):
+        return  # a $reference is resolved at run time; the body checks it then
+    block_specs.validate_block_name(args.get("name"))
+    block_specs.validate_entity_specs(args.get("entities"))
+    block_specs.validate_attdef_specs(args.get("attdefs"))
+    block_specs.validate_base_point(args.get("base_x", 0.0), args.get("base_y", 0.0))
+
+
 #: Argument checks a tool body makes before writing that its JSON Schema cannot
 #: express, run at plan time so a batch is refused before step 1 instead of
 #: halting halfway (a batch that opens a document runs without a rollback).
 _BATCH_SEMANTIC_CHECKS = {
     "dimstyle_create": _batch_dim_overrides,
     "dimstyle_modify": _batch_dim_overrides,
+    "block_define": _batch_block_define,
 }
 
 
@@ -7154,6 +7185,7 @@ async def cad_batch(
             if watch is not None:
                 await watch.before(f"step {plan['i']} ({name})")
             step_mark = _change_mark(backend, name)
+            step_before = _identity_of(backend) or {}
             try:
                 # run_middleware=False: the cad_batch call itself is already through
                 # the audit/timing chain, and skipping it keeps the error one wrap
@@ -7180,7 +7212,12 @@ async def cad_batch(
                 failed += 1
                 executed += 1
                 row["status"] = "error"
-                row["error"] = _classify_batch_error(exc)
+                row["error"] = nothing_written(
+                    _classify_batch_error(exc),
+                    _revision_moved(
+                        backend, step_before.get("document_id"), step_before.get("revision")
+                    ),
+                )
                 timed = _timeout_kind(backend, step.operation_id, name)
                 if timed is not None:
                     row["error"]["kind"] = timed

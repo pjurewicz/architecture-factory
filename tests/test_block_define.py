@@ -154,7 +154,7 @@ async def test_a_hatch_fills_a_polygon_or_a_disc_and_a_bad_one_writes_nothing(ba
         "DOT",
         [
             {"type": "hatch", "circle": [0, 0, 2]},
-            {"type": "hatch", "points": [[5, 0], [9, 0], [9, 3]]},
+            {"type": "hatch", "boundary_points": [[5, 0], [9, 0], [9, 3]]},
         ],
     )
     disc, tri = backend._doc.blocks.get("DOT").query("HATCH")
@@ -163,8 +163,43 @@ async def test_a_hatch_fills_a_polygon_or_a_disc_and_a_bad_one_writes_nothing(ba
     assert (round(box.extmin.x, 3), round(box.extmax.y, 3)) == (-2.0, 2.0)
     assert len(tri.paths[0].vertices) == 3
     for bad, message in (
-        ({"type": "hatch"}, "points .3\\+. or circle"),
+        ({"type": "hatch"}, "boundary_points .3\\+. or circle"),
         ({"type": "hatch", "circle": [0, 0, -1]}, "circle\\[2\\] must be > 0"),
+    ):
+        with pytest.raises(TypeError, match=message):
+            await backend.block_define("BAD", [bad])
+    assert "BAD" not in backend._doc.blocks
+
+
+async def test_primitives_take_batch_properties_a_donut_and_a_hatch_with_an_island(backend):
+    """Round 5 (A2): keyed like entity_batch_create - colour, lineweight on a
+    primitive; a donut is a width polyline; a hatch ring is one fill with a hole."""
+    await backend.block_define(
+        "RING",
+        [
+            {"type": "circle", "cx": 0, "cy": 0, "radius": 34, "lineweight": 50, "color": 1},
+            {"type": "donut", "cx": 0, "cy": 0, "outer_radius": 10, "inner_radius": 6},
+            {"type": "hatch", "circle": [0, 0, 30], "holes": [[0, 0, 20]]},
+            {
+                "type": "hatch",
+                "boundary_points": [[40, 0], [60, 0], [50, 10]],
+                "pattern": "ansi31",
+            },
+        ],
+    )
+    blk = backend._doc.blocks.get("RING")
+    (circle,) = blk.query("CIRCLE")
+    assert (circle.dxf.lineweight, circle.dxf.color) == (50, 1)
+    (donut,) = blk.query("LWPOLYLINE")
+    assert donut.closed and donut.dxf.const_width == 4.0
+    assert [round(p[0], 3) for p in donut.get_points("x")] == [-8.0, 8.0]
+    ring, tri = blk.query("HATCH")
+    assert len(ring.paths) == 2 and ring.dxf.solid_fill == 1 and ring.dxf.color == 0
+    assert tri.dxf.pattern_name == "ANSI31" and len(tri.paths[0].vertices) == 3
+    for bad, message in (
+        ({"type": "donut", "cx": 0, "cy": 0, "outer_radius": 2, "inner_radius": 3}, "inner_radius"),
+        ({"type": "circle", "cx": 0, "cy": 0, "radius": 1, "color": 300}, "color"),
+        ({"type": "circle", "cx": 0, "cy": 0, "radius": 1, "lineweight": "heavy"}, "lineweight"),
     ):
         with pytest.raises(TypeError, match=message):
             await backend.block_define("BAD", [bad])
