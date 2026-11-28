@@ -14766,15 +14766,19 @@ async def scan_read(
         "{points: [[u, v], [u, v]], length, at?, angle?} - answered as align",
     ] = None,
     mode: Annotated[
-        Literal["map", "grid", "rects", "blobs", "compare"], "What to read; see Details"
+        Literal["map", "grid", "rects", "blobs", "compare", "snap"], "What to read; see Details"
     ] = "map",
     image: Annotated[str | None, "The scan file (all modes but map)"] = None,
-    pixels: Annotated[list[list[float]] | None, "map: [[u, v], ...] -> to_drawing"] = None,
+    pixels: Annotated[
+        list[list[float]] | None, "map / snap: [[u, v], ...] -> to_drawing / snapped"
+    ] = None,
     points: Annotated[list[list[float]] | None, "map: [[x, y], ...] -> to_image"] = None,
     measure: Annotated[bool, "map: length and angle of consecutive segments"] = False,
     region: Annotated[list[float] | None, "Window [x0, y0, x1, y1] in WCS"] = None,
     region_px: Annotated[list[float] | None, "Window [u0, v0, u1, v1] in scan px"] = None,
-    color: Annotated[str | list[int] | None, "rects/blobs: '#rrggbb' or [r, g, b]"] = None,
+    color: Annotated[
+        str | list[int] | None, "rects/blobs: '#rrggbb' or [r, g, b]; grid: its colour"
+    ] = None,
     tolerance: Annotated[float, "rects/blobs: max channel difference 0-255"] = 40,
     size: Annotated[list[float] | None, "rects/blobs: [min, max] side, drawing units"] = None,
     limit: Annotated[int, "rects/blobs: rows returned (1-1000)"] = 100,
@@ -14801,8 +14805,14 @@ async def scan_read(
     3+ report `rms` / `max` / `residuals`.
 
     `grid`: the window (`region` WCS or `region_px`; default the whole scan)
-    resampled into WCS axes with a labelled grid in drawing units (red every
-    `grid.step`, auto when `grid` is omitted; blue minor lines), PNG + report.
+    resampled into WCS axes with a labelled grid in drawing units (every
+    `grid.step`, auto when `grid` is omitted, fainter minor lines; `color`, by
+    default one the scan's ink does not use; y labels centred on their line),
+    PNG + report; `warning` when the scan is drawn below its resolution.
+
+    `snap`: each of `pixels` (scan px, e.g. read off a grid) to the nearest
+    line corner or line end within 25 px: `snapped` [{kind, px, point (WCS),
+    distance_px}] or found: false - image-axis lines only.
 
     `rects`: axis-aligned filled rectangles of `color` (wall poche): `center`,
     `size`, WCS `box`, `px`, `pixels`, `fill`, biggest first. `blobs`:
@@ -14848,9 +14858,21 @@ async def scan_read(
         window = {"region": region, "region_px": region_px}
         if mode == "grid":
             report = await asyncio.to_thread(
-                sr.grid_crop, path, align, zoom=zoom, max_px=max_px, grid=grid, **window
+                sr.grid_crop,
+                path,
+                align,
+                zoom=zoom,
+                max_px=max_px,
+                grid=grid,
+                color=color,
+                **window,
             )
+            if calibration is not None:
+                report["calibration"] = calibration
             return _view_image_result(report, "Scan crop not available.")
+        if mode == "snap":
+            out = await asyncio.to_thread(sr.snap_points, path, align, pixels=pixels, limit=limit)
+            return out if calibration is None else {**out, "calibration": calibration}
         if mode in ("rects", "blobs"):
             finder = sr.find_rects if mode == "rects" else sr.find_blobs
             return await asyncio.to_thread(

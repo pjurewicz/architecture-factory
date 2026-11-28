@@ -361,3 +361,57 @@ async def test_compare_on_a_layout_fits_the_page_and_sees_paper_space(client, tm
         "scan_read", {"image": str(scan), "mode": "grid"}, raise_on_error=False
     )
     assert bad.is_error and "align:" in bad.structured_content["message"]
+
+
+def test_the_grid_avoids_the_scan_colour_and_letters_y_on_its_line(tmp_path):
+    # round 6: a red grid over red dimension lines; a y label above its line
+    image = Image.new("RGB", (400, 300), "white")
+    pen = ImageDraw.Draw(image)
+    for v in range(20, 300, 20):
+        pen.line([(0, v), (399, v)], fill=(220, 0, 0), width=2)  # red dimension lines
+    red = tmp_path / "red.png"
+    image.save(red)
+    report = sr.grid_crop(str(red), ALIGN, grid=500, zoom=2)
+    assert "e60000" not in report["read"]  # not the red the scan uses
+    assert sr.grid_crop(str(red), ALIGN, grid=500, zoom=2, color="#00a000")["read"].startswith(
+        "lines in #00a000"
+    )
+    blank = tmp_path / "blank.png"
+    Image.new("RGB", (400, 300), "white").save(blank)
+    report = sr.grid_crop(str(blank), ALIGN, grid=500, zoom=2)
+    pic = Image.open(io.BytesIO(report["png"])).convert("RGB")
+    ppu, top = report["px_per_unit"], report["region"][3]
+    for y in (4000, 3000):
+        py = round((top - y) * ppu)
+        inked = [
+            j for j in range(max(0, py - 20), min(pic.size[1], py + 20))
+            if any(min(pic.getpixel((i, j))) < 150 for i in range(3, 12)) and abs(j - py) > 1
+        ]  # fmt: skip
+        assert min(inked) < py < max(inked), y  # the label straddles its line
+
+
+def test_a_downsampled_strip_warns_and_says_how_to_split(tmp_path):
+    strip = tmp_path / "strip.png"
+    Image.new("RGB", (5600, 900), "white").save(strip)
+    align = [[0, 0, 0, 900], [5600, 900, 5600, 0]]  # 1 mm a px
+    report = sr.grid_crop(str(strip), align, max_px=2400)
+    assert report["px"] == [2400, 386]
+    assert "split region into 3 windows" in report["warning"]
+    assert "warning" not in sr.grid_crop(
+        str(strip), align, region_px=[0, 0, 1800, 900], max_px=2400
+    )
+
+
+def test_snap_finds_the_corner_and_the_end_near_a_pixel(tmp_path):
+    image = Image.new("RGB", (400, 300), "white")
+    pen = ImageDraw.Draw(image)
+    pen.line([(100, 100), (300, 100)], fill="black", width=3)  # rows 99-101
+    pen.line([(100, 100), (100, 250)], fill="black", width=3)  # columns 99-101
+    scan = tmp_path / "l.png"
+    image.save(scan)
+    out = sr.snap_points(str(scan), ALIGN, pixels=[[108, 93], [296, 108], [20, 20]])
+    corner, end, none = out["snapped"]
+    assert corner["kind"] == "corner" and corner["px"] == pytest.approx([100.5, 100.5], abs=1)
+    assert corner["point"] == pytest.approx(wcs(100.5, 100.5), abs=10)
+    assert end["kind"] == "end" and end["px"] == pytest.approx([302, 100.5], abs=2)
+    assert none["found"] is False

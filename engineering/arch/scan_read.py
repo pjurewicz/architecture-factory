@@ -542,7 +542,34 @@ def _font(size: int):
         return ImageFont.load_default()
 
 
-def grid_crop(path, align, *, region=None, region_px=None, zoom=None, max_px=1568, grid=None):
+#: Grid colours to choose from, the one farthest from the scan's own ink wins.
+GRID_COLOURS = ((230, 0, 0), (0, 90, 255), (200, 0, 200), (0, 160, 0), (0, 170, 190))
+
+
+def _grid_colour(image, color) -> tuple[int, int, int]:
+    """``color`` when given, else the :data:`GRID_COLOURS` entry the scan's ink
+    is farthest from (round 6: a red grid over red dimension lines)."""
+    import numpy as np
+
+    if color is not None:
+        return parse_color(color)
+    small = image.copy()
+    small.thumbnail((256, 256))
+    arr = np.asarray(small, dtype=np.int16).reshape(-1, 3)
+    paper = np.median(arr, axis=0)
+    ink = arr[np.abs(arr - paper).max(axis=1) > SOURCE_INK_DISTANCE]
+    if not len(ink):
+        return GRID_COLOURS[0]
+
+    def near(c):  # the share of ink within reach of this colour
+        return float((np.abs(ink - np.array(c)).max(axis=1) < 110).mean())
+
+    return min(GRID_COLOURS, key=near)
+
+
+def grid_crop(
+    path, align, *, region=None, region_px=None, zoom=None, max_px=1568, grid=None, color=None
+):
     """The window resampled into WCS axes with a labelled grid; ``png`` + report."""
     cal = Calibration(align)
     max_px = check_max_px(max_px)
@@ -603,22 +630,24 @@ def grid_crop(path, align, *, region=None, region_px=None, zoom=None, max_px=156
             pen.line([(0, py), (width, py)], fill=colour, width=1)
         return xs, ys
 
+    rgb = _grid_colour(image.crop((u0, v0, u1, v1)), color)
     if minor:
-        lines(minor, (0, 110, 255, 70))
-    xs, ys = lines(step, (230, 0, 0, 170))
+        lines(minor, (*rgb, 60))
+    xs, ys = lines(step, (*rgb, 170))
     font = _font(12)
     for x in xs:
         label = _fmt(x)
         px = round((x - x0) * ppu) + 2
         box = pen.textbbox((px, 1), label, font=font)
         pen.rectangle(box, fill=(255, 255, 255, 200))
-        pen.text((px, 1), label, fill=(200, 0, 0, 255), font=font)
+        pen.text((px, 1), label, fill=(*rgb, 255), font=font)
     for y in ys:
-        label = _fmt(y)
+        # round 6: centred on its line, not above it (read 50-100 mm off)
+        label = f"{_fmt(y)} -"
         py = round((y1 - y) * ppu)
-        box = pen.textbbox((2, py - 14), label, font=font)
-        pen.rectangle(box, fill=(255, 255, 255, 200))
-        pen.text((2, py - 14), label, fill=(200, 0, 0, 255), font=font)
+        left, top, right, bottom = pen.textbbox((0, 0), label, font=font, anchor="lm")
+        pen.rectangle((2 + left, py + top, 2 + right, py + bottom), fill=(255, 255, 255, 200))
+        pen.text((2, py), label, fill=(*rgb, 255), font=font, anchor="lm")
     picture = Image.alpha_composite(out, layer).convert("RGB")
     buf = io.BytesIO()
     picture.save(buf, format="PNG")
@@ -637,12 +666,144 @@ def grid_crop(path, align, *, region=None, region_px=None, zoom=None, max_px=156
             "units_per_px": round(cal.upp, 6),
             "rotation_deg": round(cal.rotation, 4) + 0.0,
         },
-        "read": "red lines every grid.step, labelled in drawing units (x on top, y at "
-        "the left, above its line); pixel (X, Y) is WCS (x0 + X/ppu, y1 - Y/ppu)",
+        "read": f"lines in {'#{:02x}{:02x}{:02x}'.format(*rgb)} every grid.step, labelled "
+        "in drawing units (x on top, y at the left, centred on its line); pixel (X, Y) "
+        "is WCS (x0 + X/ppu, y1 - Y/ppu)",
     }
     if note:
         report["note"] = note
+    if zoom < 1.0:
+        pieces = math.ceil(1.0 / zoom)
+        report["warning"] = (
+            f"the scan is drawn at {zoom:.2f} of its resolution (max_px {max_px} on the "
+            f"long side): small text may not read - split region into {pieces} windows "
+            "along its long side, or raise max_px"
+        )
     return report
+
+
+# ── snap ───────────────────────────────────────────────────────────────────
+
+#: Snap: the window searched round each pixel, and the shortest run that is a line.
+SNAP_RADIUS_PX, SNAP_MIN_RUN_PX = 25, 8
+
+
+def _bands(mask, axis: int, min_run: int):
+    """Lines along ``axis`` (1: horizontal rows, 0: vertical columns) of ``mask``:
+    ``[(centre, start, end)]`` - a band of neighbouring rows (columns) holding a
+    run of at least ``min_run`` ink pixels, its centre and that run's ends."""
+    import numpy as np
+
+    m = mask if axis == 1 else mask.T
+    hits = []
+    for i, row in enumerate(m):
+        best, start = None, None
+        for j, on in enumerate([*row.tolist(), False]):
+            if on and start is None:
+                start = j
+            elif not on and start is not None:
+                if j - start >= min_run and (best is None or j - start > best[1] - best[0]):
+                    best = (start, j)
+                start = None
+        if best:
+            hits.append((i, *best))
+    bands, group = [], []
+    for hit in hits:
+        if group and (hit[0] != group[-1][0] + 1 or abs(hit[1] - group[-1][1]) > 3):
+            bands.append(group)
+            group = []
+        group.append(hit)
+    if group:
+        bands.append(group)
+    return [
+        (
+            float(np.mean([g[0] for g in b])) + 0.5,
+            float(np.median([g[1] for g in b])),
+            float(np.median([g[2] for g in b])),
+        )
+        for b in bands
+    ]
+
+
+def snap_points(path, align, *, pixels, limit=100) -> dict:
+    """The nearest line corner or line end to each scan pixel, in WCS (round 6).
+
+    Within :data:`SNAP_RADIUS_PX` of the pixel the scan's ink (off the paper
+    colour) is read as horizontal and vertical lines of the image (bands at
+    least :data:`SNAP_MIN_RUN_PX` long, their centre lines): a corner is where
+    a horizontal and a vertical one meet, an end where one stops. A slanted
+    line has neither; the row then says ``found: false``.
+    """
+    import numpy as np
+
+    cal = Calibration(align)
+    image = _open(path)
+    pts = list(pixels or ())
+    if not pts:
+        raise ValueError("pixels: give [[u, v], ...], the scan pixels to snap.")
+    if len(pts) > _limit(limit):
+        raise ValueError(f"pixels: at most {limit} at once, got {len(pts)}.")
+    full = np.asarray(image, dtype=np.int16)
+    paper = np.median(
+        full[:: max(1, full.shape[0] // 256), :: max(1, full.shape[1] // 256)].reshape(-1, 3),
+        axis=0,
+    )
+    r = SNAP_RADIUS_PX
+    rows = []
+    for i, p in enumerate(pts):
+        try:
+            u, v = (float(c) for c in p)
+        except (TypeError, ValueError):
+            raise ValueError(f"pixels[{i}]: expected [u, v], got {p!r}.") from None
+        c0, r0 = max(0, int(u) - r), max(0, int(v) - r)
+        c1, r1 = min(full.shape[1], int(u) + r + 1), min(full.shape[0], int(v) + r + 1)
+        if c1 <= c0 or r1 <= r0:
+            rows.append({"pixel": [u, v], "found": False, "reason": "outside the scan"})
+            continue
+        ink = np.abs(full[r0:r1, c0:c1] - paper).max(axis=2) > SOURCE_INK_DISTANCE
+        horiz, vert = _bands(ink, 1, SNAP_MIN_RUN_PX), _bands(ink, 0, SNAP_MIN_RUN_PX)
+        cands = []
+        for hy, hs, he in horiz:
+            for vx, vs, ve in vert:
+                if hs - 3 <= vx <= he + 3 and vs - 3 <= hy <= ve + 3:
+                    cands.append(("corner", vx, hy))
+        for hy, hs, he in horiz:
+            cands += [("end", hs, hy), ("end", he, hy)]
+        for vx, vs, ve in vert:
+            cands += [("end", vx, vs), ("end", vx, ve)]
+        # a run cut by the window edge does not end there, and an arm of a
+        # corner ends at the corner: neither is an end
+        h, w = ink.shape
+        corners = [c for c in cands if c[0] == "corner"]
+        cands = corners + [
+            c for c in cands
+            if c[0] == "end" and 0.5 < c[1] < w - 0.5 and 0.5 < c[2] < h - 0.5
+            and all(math.hypot(c[1] - k[1], c[2] - k[2]) > 4 for k in corners)
+        ]  # fmt: skip
+        if not cands:
+            rows.append({"pixel": [u, v], "found": False, "reason": "no line corner or end near"})
+            continue
+        kind, cu, cv = min(cands, key=lambda c: math.hypot(c0 + c[1] - u, r0 + c[2] - v))
+        pu, pv = c0 + cu, r0 + cv
+        x, y = cal.to_wcs(pu, pv)
+        rows.append(
+            {
+                "pixel": [u, v],
+                "found": True,
+                "kind": kind,
+                "px": [round(pu, 2), round(pv, 2)],
+                "point": [round(x, 3), round(y, 3)],
+                "distance_px": round(math.hypot(pu - u, pv - v), 2),
+            }
+        )
+    return {
+        "ok": True,
+        "snapped": rows,
+        "radius_px": r,
+        "method": "ink off the paper colour as the image's horizontal and vertical "
+        "lines (centre lines of bands at least "
+        f"{SNAP_MIN_RUN_PX} px long); corner = two meeting, end = one stopping",
+    }
 
 
 # ── compare ────────────────────────────────────────────────────────────────
