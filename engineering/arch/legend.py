@@ -9,7 +9,7 @@ cell but never above its plotted size, and the same hatch pattern at the same
 printed density.
 
 Descriptions come from the server's own tables, in ``lang``: an
-``arch_electrical`` block names its kind, a catalogue block its item, a wall
+``arch_services`` block names its kind, a catalogue block its item, a wall
 hatch its material (``WALL_HATCH_TABLE`` by pattern, angle and density).
 Anything else is named by its block or pattern name, and ``labels`` overrides
 or (``null``) drops any row by that key. A label keeps its line breaks
@@ -32,7 +32,7 @@ import fnmatch
 import math
 from typing import TYPE_CHECKING
 
-from engineering.arch import electrical as elec
+from engineering.arch import services as elec
 from engineering.arch.catalogue import _BY_NAME, BLOCK_PREFIX, CATALOGUE_NAMES, LABEL_PL
 from engineering.arch.lang import LANGS
 from engineering.arch.layers import ARCH_ROLE_LAYER
@@ -96,7 +96,7 @@ def _material(pattern: str, angle: float, scale: float, plot_scale: float) -> st
 
 def _catalogue_item(block: str) -> str | None:
     """``ARCH_DOUBLE_BED`` / ``ARCH_DOUBLE_BED_1800x2000`` -> ``double_bed``."""
-    if not block.upper().startswith(BLOCK_PREFIX) or block.upper().startswith(elec.BLOCK_PREFIX):
+    if not block.upper().startswith(BLOCK_PREFIX) or block.upper().startswith(elec.BLOCK_PREFIXES):
         return None
     rest = block[len(BLOCK_PREFIX) :].lower()
     for name in sorted(CATALOGUE_NAMES, key=len, reverse=True):
@@ -106,13 +106,7 @@ def _catalogue_item(block: str) -> str | None:
 
 
 def _elec_kind(block: str) -> str | None:
-    upper = block.upper()
-    if not upper.startswith(elec.BLOCK_PREFIX):
-        return None
-    for kind in sorted(elec.KINDS, key=len, reverse=True):
-        if upper[len(elec.BLOCK_PREFIX) :].startswith(f"{kind.upper()}_"):
-            return kind
-    return None
+    return elec.kind_of_block(block)
 
 
 def _catalogue_label(item: str, lang: str) -> str:
@@ -326,7 +320,7 @@ def _block_sample(doc, name, where: str) -> dict:
 
 def _extra_rows(backend, extra, k: float, model_rows: list[dict]) -> tuple[list[dict], set]:
     """``(extra rows, ids of model rows they take over)``: a sample from a
-    block, a hatch pattern or an ``arch_electrical`` kind, several samples side
+    block, a hatch pattern or an ``arch_services`` kind, several samples side
     by side (``blocks`` / ``keys`` - a model row named in ``keys`` moves into
     this one), or none; checked by path. Our own symbol block is defined when
     the drawing lacks it."""
@@ -410,7 +404,7 @@ def _extra_rows(backend, extra, k: float, model_rows: list[dict]) -> tuple[list[
                 shape = "switch" if kind == "switch_frame" else kind
                 row.update(kind="block", block=elec.block_name(shape, k), define=shape)
             else:
-                raise LegendArgsError(f"{where}.kind: {kind!r} is not an arch_electrical kind.")
+                raise elec.unknown_kind(kind, f"{where}.kind")
         else:
             row["kind"] = "text"
         out.append(row)

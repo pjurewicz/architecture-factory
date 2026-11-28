@@ -3,14 +3,14 @@
   "schema_version": 2,
   "package_version": "1.8.0",
   "totals": {
-    "tools": 250,
+    "tools": 251,
     "resources": 13,
     "prompts": 5,
     "groups": 27
   },
   "groups": {
     "analysis": 12,
-    "architecture": 20,
+    "architecture": 21,
     "batch": 3,
     "blocks": 9,
     "corner_ops": 4,
@@ -376,44 +376,6 @@
       }
     },
     {
-      "name": "arch_electrical",
-      "group": "architecture",
-      "cost": "mutate",
-      "summary": "Place electrical outlets, switches and devices on an interior plan, in one batch.",
-      "acad": [],
-      "synonyms": [
-        "electrical outlet symbol",
-        "socket outlet",
-        "power socket on plan",
-        "light switch symbol",
-        "lighting outlet ceiling light",
-        "rj45 data outlet tv sat usb",
-        "smoke detector co sensor flood sensor",
-        "thermostat intercom distribution board",
-        "floor box",
-        "electrical layout interior plan",
-        "lighting plan luminaire pendant spotlight",
-        "led strip track light circuit",
-        "gniazdo wtyczkowe",
-        "rzut oswietlenia tasma led szynoprzewod",
-        "gniazdka elektryczne",
-        "wypust oswietleniowy",
-        "lacznik",
-        "rozdzielnica",
-        "wideodomofon",
-        "czujka dymu",
-        "priz anahtar"
-      ],
-      "tags": [
-        "arch",
-        "create"
-      ],
-      "annotations": {
-        "title": "Architecture: Electrical Symbols",
-        "destructiveHint": false
-      }
-    },
-    {
       "name": "arch_grid",
       "group": "architecture",
       "cost": "mutate",
@@ -684,6 +646,63 @@
       }
     },
     {
+      "name": "arch_services",
+      "group": "architecture",
+      "cost": "mutate",
+      "summary": "Place installation points on a plan in one batch: electrical, plumbing, heating, vent.",
+      "acad": [],
+      "synonyms": [
+        "plumbing",
+        "plumbing points on plan",
+        "water point cold water hot water",
+        "hot and cold water pair",
+        "drain point soil stack riser",
+        "floor gully linear drain shower drain",
+        "outdoor tap rain shower",
+        "installation points mep services",
+        "radiator heating manifold",
+        "ventilation supply extract air terminal",
+        "intake exhaust air diffuser",
+        "hydraulika",
+        "instalacja wod-kan",
+        "wod-kan",
+        "woda zimna ciepla woda podejscie kanalizacyjne",
+        "pion kanalizacyjny wpust podlogowy odwodnienie liniowe",
+        "grzejniki c.o. rozdzielacz",
+        "rekuperacja wentylacja anemostat czerpnia wyrzutnia",
+        "tesisat su gideri radyator havalandirma",
+        "electrical outlet symbol",
+        "socket outlet",
+        "power socket on plan",
+        "light switch symbol",
+        "lighting outlet ceiling light",
+        "rj45 data outlet tv sat usb",
+        "smoke detector co sensor flood sensor",
+        "thermostat intercom distribution board",
+        "floor box",
+        "electrical layout interior plan",
+        "lighting plan luminaire pendant spotlight",
+        "led strip track light circuit",
+        "gniazdo wtyczkowe",
+        "rzut oswietlenia tasma led szynoprzewod",
+        "gniazdka elektryczne",
+        "wypust oswietleniowy",
+        "lacznik",
+        "rozdzielnica",
+        "wideodomofon",
+        "czujka dymu",
+        "priz anahtar"
+      ],
+      "tags": [
+        "arch",
+        "create"
+      ],
+      "annotations": {
+        "title": "Architecture: Installation Points",
+        "destructiveHint": false
+      }
+    },
+    {
       "name": "arch_stair",
       "group": "architecture",
       "cost": "mutate",
@@ -769,6 +788,31 @@
       ],
       "annotations": {
         "title": "Architecture: Title Block and Notes",
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "arch_underlay",
+      "group": "architecture",
+      "cost": "mutate",
+      "summary": "Grey, thin architecture under an installation sheet; on=False restores it.",
+      "acad": [],
+      "synonyms": [
+        "underlay",
+        "grey architecture background for installation drawing",
+        "architectural background grey thin",
+        "xref style underlay for mep sheet",
+        "screen the architecture layers",
+        "podklad architektoniczny szary",
+        "wyszarzenie architektury",
+        "mimari altlik gri"
+      ],
+      "tags": [
+        "arch",
+        "modify"
+      ],
+      "annotations": {
+        "title": "Architecture: Underlay for Trade Drawings",
         "destructiveHint": false
       }
     },

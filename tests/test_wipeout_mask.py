@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 
 from engineering.arch.catalogue import insert_item
-from engineering.arch.electrical import insert_devices
+from engineering.arch.services import insert_points
 from engineering.critique import run_critique
 
 pytestmark = pytest.mark.asyncio
@@ -15,7 +15,7 @@ pytestmark = pytest.mark.asyncio
 async def _strip(backend):
     await backend.layer_create("A-WALL-E-N")
     await backend.entity_create_line(0, 0, 4000, 0, layer="A-WALL-E-N")
-    result = await insert_devices(
+    result = await insert_points(
         backend, [{"kind": "led_strip", "path": [[1100, 300], [1700, 300]]}]
     )
     return result["items"][0]["handle"]

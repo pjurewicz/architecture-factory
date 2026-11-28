@@ -84,15 +84,24 @@ item's `size_range` (from `arch_catalogue_list`): the symbol is redrawn for the
 footprint, not scaled, and each footprint is its own block
 (`ARCH_<NAME>_<W>x<D>`) with a `SIZE` attribute `WxDxH`.
 
-## Interior sheets: electrical symbols, legend, title block
+## Interior and installation sheets: points, underlay, legend, title block
 
-Outlets, switches, data / TV / USB, detectors, thermostat, intercom, the
-distribution board and the lighting plan (ceiling, pendant, spot, spot pair,
-track head, wall light, motion sensor, LED driver access) are one
-`arch_electrical` call with every item (`[{kind, at, count, height, label,
-circuit}]`), never hand-made blocks: a wall device snaps to the nearest wall
-face and faces the room, `label` `HALL 01`, `count` 2 (`2x`) and `height` 300
-(`H=30CM`) are separate lines, kept horizontal, at a text height you give in paper mm.
+Every installation point - electrical (outlets, switches, data / TV / USB,
+detectors, intercom, distribution board, the lighting plan), plumbing (cold /
+hot water, the hot + cold `water_pair` at 150 mm, drain, stack, floor gully,
+outdoor tap, rain shower, `linear_drain` along a path), heating (radiator at
+its `length`, manifold, thermostat) and ventilation (supply, extract, intake,
+exhaust) - is one `arch_services` call with every item (`[{kind, at, count,
+height, label, circuit, dim_from}]`), never hand-made blocks or labels: a wall
+point snaps to the nearest wall face and faces the room, `label` `HALL 01`,
+`count` 2 (`2x`) and `height` 300 (`H=30CM`) are separate lines, kept
+horizontal, at a text height you give in paper mm. Each trade lands on its own
+layer (A-ELEC-E-N, P-DOMW-E-N, P-SANR-E-N, M-HEAT-E-N, M-VENT-E-N);
+`dim_from: "W1"` (or `{wall, ref: "axis"}`) dimensions the point from that
+wall. The kind list is in `describe_tool("arch_services")`; an unknown kind is
+refused with its trade's list. On an installation sheet call `arch_underlay()`
+first: the architecture goes grey and thin (poche light grey) in one call,
+never layer by layer, and `arch_underlay(on=False)` puts it back.
 LED strips, surface / pendant track and circuit links are items with a `path`;
 `switch_frame` with `circuits: [...]` frames the circuit names beside a switch.
 The project's own symbol replaces ours with `symbols={kind: block}` (same

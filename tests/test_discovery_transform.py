@@ -1173,3 +1173,13 @@ async def test_a_start_query_gets_the_workflow_and_a_mixed_query_a_tip():
     assert "cad_batch" in guide
     assert mixed.content[0].text.endswith("ranks none of them well).")
     assert "Workflow" not in plain.content[0].text and "Tip:" not in plain.content[0].text
+
+
+@pytest.mark.parametrize(
+    "query",
+    ["plumbing", "water", "drain", "hydraulika", "wod-kan", "radiator", "ventilation"],
+)
+async def test_every_installation_trade_finds_the_one_services_tool(transform, catalog, query):
+    """A9(d): an agent asking for plumbing / heating / ventilation points must
+    reach arch_services instead of hand-drawing its own blocks."""
+    assert "arch_services" in _names(transform.rank(catalog, query, limit=5).hits)[:3]

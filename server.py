@@ -2237,7 +2237,8 @@ PACK_TOOL_NAMES: dict[str, frozenset[str]] = {
             "arch_symbol",
             "arch_catalogue_list",
             "arch_catalogue_insert",
-            "arch_electrical",
+            "arch_services",
+            "arch_underlay",
             "arch_legend",
             "arch_title_block",
             "scan_read",
@@ -13487,7 +13488,7 @@ async def data_extract(
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 25: Architecture (20 tools) ────────────────────────────────────
+# ── SECTION 25: Architecture (21 tools) ────────────────────────────────────
 # ---------------------------------------------------------------------------
 
 
@@ -14313,75 +14314,117 @@ async def arch_catalogue_insert(
 
 
 @cad_tool(
-    summary="Place electrical outlets, switches and devices on an interior plan, in one batch.",
+    summary="Place installation points on a plan in one batch: electrical, plumbing, heating, vent.",
     cost="mutate",
 )
 @mcp.tool(
-    annotations={"title": "Architecture: Electrical Symbols", "destructiveHint": False},
+    annotations={"title": "Architecture: Installation Points", "destructiveHint": False},
     tags={"arch", "create"},
 )
-async def arch_electrical(
+async def arch_services(
     items: Annotated[
         list[dict],
         Field(
             description=(
-                "[{kind?, at: [x, y] | path: [[x, y], ...] (runs), count?: 2 -> '2x', "
-                "height?: mm -> 'H=30CM', label?, rotation?, circuit?, circuits?: [names] "
-                "(switch_frame)}]"
+                "[{kind?, at: [x, y] | path: [[x, y], ...] (runs), count?, height?: mm, label?, "
+                "rotation?, circuit?, circuits?, length? (radiator), dim_from?: wall id | "
+                "{wall, ref: face|axis}}]"
             )
         ),
     ],
     kind: Annotated[
-        str | None,
-        Field(
-            default=None,
-            description=(
-                "Default kind. Points: socket floor_box light_outlet ceiling_light pendant_light "
-                "spot spot_pair track_head wall_light switch switch_frame data tv sat usb "
-                "smoke_detector co_detector flood_detector motion_sensor thermostat intercom "
-                "panel led_driver. Runs (path): led_strip track track_pendant circuit_link"
-            ),
-        ),
+        str | None, Field(default=None, description="Default kind; list in describe_tool")
     ] = None,
     scale: Annotated[float, Field(default=50.0, gt=0, description="Plot-scale denominator")] = 50.0,
     snap: Annotated[
         float, Field(default=300.0, gt=0, description="Wall-face search radius, drawing units")
     ] = 300.0,
     text_height: Annotated[float, Field(default=1.8, gt=0, description="Paper mm")] = 1.8,
-    layer: Annotated[str | None, Field(default=None, description="Default A-ELEC-E-N")] = None,
+    layer: Annotated[str | None, Field(default=None, description="Default: the trade's")] = None,
     color: Annotated[int | None, Field(default=None, description="ACI; default ByLayer")] = None,
     symbols: Annotated[
         dict | None, Field(default=None, description="{kind: your block name}")
     ] = None,
     ctx: Context = None,
 ) -> dict:
-    """Insert symbol blocks ARCH_E_<KIND>_<scale>; runs are polylines along `path`.
+    """Insert symbol blocks ARCH_<E|P|H|V>_<KIND>_<scale>; runs are polylines along `path`.
 
-    A wall device without `rotation` snaps to the nearest wall face (arch_wall,
-    A-WALL* outline or line): origin on the face, facing the room. Label, count
-    and height are attributes L / N / H, kept horizontal beside the symbol.
-    `symbols` draws a kind with your own block, anchored the same way. Every item
-    carries an ACADMCP_ELEC record (kind, circuit) that arch_legend reads.
+    A wall point without `rotation` snaps to the nearest wall face, facing the
+    room. Label / count / height are attributes L / N / H, kept horizontal.
+    Every item carries an ACADMCP_SERVICE record (trade, kind, circuit) that
+    arch_legend reads.
+
+    Details:
+
+    Kinds by trade (layer):
+    - electrical (A-ELEC-E-N): socket floor_box light_outlet ceiling_light
+      pendant_light spot spot_pair track_head wall_light switch switch_frame
+      (`circuits: [names]` framed beside it) data tv sat usb smoke_detector
+      co_detector flood_detector motion_sensor intercom panel led_driver; runs
+      led_strip track track_pendant circuit_link.
+    - plumbing: cold_water hot_water water_pair (hot + cold outlets 150 mm
+      apart on the face) outdoor_tap rain_shower (P-DOMW-E-N); drain stack
+      floor_gully, run linear_drain (P-SANR-E-N).
+    - heating (M-HEAT-E-N): radiator (`length` mm, real size, default 600)
+      manifold thermostat.
+    - ventilation (M-VENT-E-N, EN 16798-3 codes): supply (SUP) extract (ETA)
+      ceiling terminals; intake (ODA) exhaust (EHA) on a wall.
+
+    A wall point snaps to an arch_wall face, an A-WALL* outline or line; a
+    free point stays at `at`. `count` 2 writes `2x`, `height` 300 `H=30CM`.
+    `circuit` is the circuit or loop name, counted in `circuits`. `dim_from`
+    adds a linear dimension of the point from the named arch_wall's face
+    (default) or axis, square to that wall, on the item's layer. `symbols`
+    draws a kind with your own block, anchored the same way. An unknown kind
+    is refused with the nearest names and its trade's list, before any write.
     Graphics are this server's nominal convention in paper mm x scale, not a
-    standard.
+    standard (`symbol_basis`). For an installation sheet, arch_underlay turns
+    the architecture grey and thin first.
     """
-    from engineering.arch.electrical import insert_devices
+    from engineering.arch.services import insert_points
 
-    await ctx.info(f"arch electrical: {len(items)} item(s) at 1:{scale:g}")
-    try:
-        return await insert_devices(
-            _backend(ctx),
-            items,
-            kind=kind,
-            scale=scale,
-            snap=snap,
-            text_height=text_height,
-            layer=layer,
-            color=color,
-            symbols=symbols,
-        )
-    except ValueError as exc:
-        raise ToolError(str(exc)) from exc
+    await ctx.info(f"arch services: {len(items)} item(s) at 1:{scale:g}")
+    return await insert_points(
+        _backend(ctx),
+        items,
+        kind=kind,
+        scale=scale,
+        snap=snap,
+        text_height=text_height,
+        layer=layer,
+        color=color,
+        symbols=symbols,
+    )
+
+
+@cad_tool(
+    summary="Grey, thin architecture under an installation sheet; on=False restores it.",
+    cost="mutate",
+)
+@mcp.tool(
+    annotations={"title": "Architecture: Underlay for Trade Drawings", "destructiveHint": False},
+    tags={"arch", "modify"},
+)
+async def arch_underlay(
+    on: Annotated[bool, Field(default=True, description="False: restore the colours")] = True,
+    color: Annotated[int, Field(default=8, description="ACI")] = 8,
+    lineweight: Annotated[float, Field(default=0.18, description="mm, ISO 128")] = 0.18,
+    ctx: Context = None,
+) -> dict:
+    """Set every A-* architecture layer to `color` and `lineweight`, hatches light grey.
+
+    Details:
+
+    The installation layers (A-ELEC, P-*, M-* and any layer carrying an
+    arch_services record) and the construction layer are left alone. The
+    layers' own values are kept in layer state ARCH_UNDERLAY_BEFORE;
+    `on=False` puts exactly those back and deletes the state. A hatch layer
+    (A-WALL-H-N poche) takes ACI 253 and keeps its thinner weight. A colour
+    outside 1-255 or a weight outside ISO 128 is refused before any write.
+    """
+    from engineering.arch.draw import arch_underlay as underlay
+
+    return await underlay(_backend(ctx), on=on, color=color, lineweight=lineweight)
 
 
 @cad_tool(

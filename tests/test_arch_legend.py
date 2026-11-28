@@ -6,8 +6,8 @@ import pytest
 
 from engineering.annotation_record import APP_ID
 from engineering.arch.catalogue import insert_item
-from engineering.arch.electrical import insert_devices
 from engineering.arch.legend import draw_legend
+from engineering.arch.services import insert_points
 from engineering.arch.spec import draw_plan_from_spec
 from engineering.errors import InvalidArgsError
 from engineering.standards.papers import resolve_page_setup
@@ -29,7 +29,7 @@ SPEC = {
 
 async def _drawing(backend):
     await draw_plan_from_spec(backend, SPEC)
-    await insert_devices(
+    await insert_points(
         backend, [{"kind": "socket", "at": [1000, 140]}, {"kind": "socket", "at": [2000, 140]}]
     )
     await insert_item(backend, "wc", at=(4000, 125))
@@ -111,7 +111,7 @@ async def test_a_lighting_sheet_legend_merges_filters_folds_and_warns(backend):
     await backend.block_define(
         "K", [{"type": "circle", "cx": 0, "cy": 100, "radius": 100}], [], 0, 0
     )
-    await insert_devices(
+    await insert_points(
         backend,
         [
             {"kind": "wall_light", "at": [1000, 3860], "circuit": "SALON 01"},
@@ -221,3 +221,31 @@ async def test_a_rerun_replaces_its_legend_and_another_name_coexists(backend):
     assert other["replaced"] == 0 and len(paper) == count + len(other["handles"])
     model = await draw_legend(backend, at=(9000, 4000))  # another space: nothing replaced
     assert model["replaced"] == 0
+
+
+@pytest.mark.asyncio
+async def test_one_legend_names_the_points_of_every_trade(backend):
+    """B1: the legend reads the ACADMCP_SERVICE records of plumbing and
+    electrical alike - a project block, a run and our own symbols."""
+    await draw_plan_from_spec(backend, SPEC)
+    await backend.block_define(
+        "WC_POINT", [{"type": "circle", "cx": 0, "cy": 100, "radius": 100}], [], 0, 0
+    )
+    await insert_points(
+        backend,
+        [
+            {"kind": "water_pair", "at": [1000, 140]},
+            {"kind": "drain", "at": [1500, 140]},
+            {"kind": "linear_drain", "path": [[200, 600], [1200, 600]]},
+            {"kind": "socket", "at": [2000, 140]},
+        ],
+        symbols={"drain": "WC_POINT"},
+    )
+    result = await draw_legend(backend, at=(6000, 4000), lang="pl")
+    rows = {r["key"]: r["label"] for r in result["rows"] if r["kind"] != "hatch"}
+    assert rows == {
+        "linear_drain": "odwodnienie liniowe",
+        "water_pair": "punkt wody ciepłej + zimnej (150 mm)",
+        "drain": "podejście kanalizacyjne",  # the project block, named by its record
+        "socket": "gniazdo wtyczkowe",
+    }

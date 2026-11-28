@@ -103,6 +103,110 @@ async def ensure_arch_layers(backend, names) -> tuple[str, ...]:
     return tuple(created)
 
 
+# -- the underlay of an installation sheet ------------------------------------------
+
+#: The layer state holding the architecture layers' own colour and weight while
+#: the underlay is on (an ``ACADMCP_LAYERSTATES`` entry, listed by layer_state_list).
+UNDERLAY_STATE = "ARCH_UNDERLAY_BEFORE"
+UNDERLAY_HATCH_COLOR = 253  # light grey: a poche stays readable without shouting
+
+
+def _underlay_layers(doc) -> list[str]:
+    """The architecture layers: every ``A-*`` but the installation layers, any
+    layer carrying an installation record and the construction scratch."""
+    from engineering.arch.services import SERVICE_ROLES, read_records
+
+    keep = {ARCH_ROLE_LAYER[r].casefold() for r in SERVICE_ROLES}
+    keep |= {e.dxf.layer.casefold() for e, _p in read_records(doc)}
+    return [
+        lyr.dxf.name
+        for lyr in doc.layers
+        if lyr.dxf.name.casefold().startswith("a-")
+        and lyr.dxf.name.casefold() not in keep
+        and "CONST" not in lyr.dxf.name.upper()
+    ]
+
+
+async def arch_underlay(backend, *, on: bool = True, color: int = 8, lineweight: float = 0.18):
+    """Turn the architecture into a grey, thin background for an installation
+    sheet, or put its own colours and weights back (``on=False``).
+
+    Every architecture layer (:func:`_underlay_layers`) takes ``color`` and
+    ``lineweight``; a hatch layer (``-H-`` presentation field) takes light grey
+    :data:`UNDERLAY_HATCH_COLOR` and keeps a thinner weight of its own. The
+    installation layers are never touched. The layers' own values are saved
+    once, in layer state :data:`UNDERLAY_STATE`, and ``on=False`` restores
+    exactly those layers and deletes the state - a second ``on=True`` re-greys
+    with new values without losing the originals.
+    """
+    from engineering.environment.layer_states import DICT_NAME, decode_state
+    from engineering.errors import InvalidArgsError
+    from engineering.plan_spec import ISO_128_LINEWEIGHTS_MM
+
+    if isinstance(color, bool) or not isinstance(color, int) or not 1 <= color <= 255:
+        raise InvalidArgsError(f"invalid_args: color: an ACI 1-255, got {color!r}.")
+    if lineweight not in ISO_128_LINEWEIGHTS_MM:
+        raise InvalidArgsError(
+            f"invalid_args: lineweight: an ISO 128 weight "
+            f"{', '.join(f'{w:g}' for w in ISO_128_LINEWEIGHTS_MM)} mm, got {lineweight!r}."
+        )
+    saved = {s["name"].upper() for s in await backend.layer_state_list()}
+    if not on:
+        if UNDERLAY_STATE not in saved:
+            raise InvalidArgsError(
+                "invalid_args: on: the underlay is not on (no layer state "
+                f"{UNDERLAY_STATE}); nothing to restore."
+            )
+
+        def _restore():
+            doc = backend._require_doc()
+            record = doc.rootdict.get(DICT_NAME).get(UNDERLAY_STATE)
+            state = decode_state([t.value for t in record.tags if t.code == 1000])
+            done = []
+            for name in _underlay_layers(doc):
+                snap = state["layers"].get(name)
+                if snap is None:  # a layer made since: nothing of its own to restore
+                    continue
+                lyr = doc.layers.get(name)
+                lyr.color = abs(int(snap["color"])) or 7
+                lyr.dxf.lineweight = int(snap["lineweight"])
+                done.append(name)
+            backend._mark_dirty()
+            return done
+
+        layers = await backend._async(_restore)
+        await backend.layer_state_delete(UNDERLAY_STATE)
+        return {"ok": True, "on": False, "layers": layers, "backend": backend.name}
+    if UNDERLAY_STATE not in saved:
+        await backend.layer_state_save(UNDERLAY_STATE, "arch_underlay: the layers before")
+
+    def _apply():
+        doc = backend._require_doc()
+        weight = round(lineweight * 100)
+        out = []
+        for name in _underlay_layers(doc):
+            lyr = doc.layers.get(name)
+            hatch = "-H-" in name.upper()
+            lyr.color = UNDERLAY_HATCH_COLOR if hatch else color
+            own = int(lyr.dxf.get("lineweight", -3))
+            lyr.dxf.lineweight = min(own, weight) if hatch and own > 0 else weight
+            out.append(name)
+        backend._mark_dirty()
+        return out
+
+    layers = await backend._async(_apply)
+    return {
+        "ok": True,
+        "on": True,
+        "layers": layers,
+        "color": color,
+        "hatch_color": UNDERLAY_HATCH_COLOR,
+        "lineweight": lineweight,
+        "state": UNDERLAY_STATE,
+        "backend": backend.name,
+    }
+
+
 # -- records --------------------------------------------------------------------
 
 
