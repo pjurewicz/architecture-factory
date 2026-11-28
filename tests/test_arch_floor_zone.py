@@ -298,3 +298,23 @@ async def test_a_layout_that_fails_half_way_leaves_nothing_drawn(backend, monkey
     with pytest.raises(RuntimeError, match="disk full"):
         await floor_zone(backend, outline=ROOM, lay="grid", plank=(600, 300))
     assert {e.handle for e in await backend.entity_list(limit=100000)} == before
+
+
+@pytest.mark.asyncio
+async def test_skirting_takes_a_projects_layer_and_colour_and_greys_with_the_underlay(backend):
+    from engineering.arch.draw import arch_underlay
+
+    await draw_plan_from_spec(backend, DOOR_ROOM)
+    zone = await floor_zone(
+        backend, room=[1500, 2000], pattern="none",
+        skirting={"P1": "flush", "layer": "I-SKIRT", "color": 3},
+    )  # fmt: skip
+    lines = [backend._doc.entitydb[h] for h in zone["handles"]["skirting"]]
+    assert {(e.dxf.layer, e.dxf.color) for e in lines} == {("I-SKIRT", 3)}
+    flush = [e for e in lines if e.dxf.linetype == "ACAD_ISO02W100"]
+    assert len(flush) == 1 and flush[0].dxf.ltscale == 0.25  # still dashed
+    with pytest.raises(ValueError, match="skirting.color: an ACI"):
+        await floor_zone(backend, room=[1500, 2000], skirting={"color": "red"})
+    await floor_zone(backend, room=[1500, 2000], pattern="none", skirting="flush")
+    under = await arch_underlay(backend)
+    assert "A-FLOR-SKRF-E-N" in under["layers"]

@@ -37,8 +37,10 @@ on ``A-FLOR-SKRT-E-N`` / ``A-FLOR-SKRF-E-N`` (ACAD_ISO02W100 at the 0.25 pen),
 at every door and at an opening whose sill is below :data:`SKIRTING_TOP` (read
 from the plan's records), behind the fitted items the zone cuts out, and at a
 room separation line. Each stretch's length is measured on the wall face, in
-metres; the gap, the nominal top and the layer colours are a repository
-convention, not a standard. Its record's ``legend`` is ``skirting_<type>``,
+metres; the gap, the nominal top, the layers and their colours are a repository
+convention, not a standard: ``skirting.layer`` / ``skirting.color`` put the
+lines on an interior project's own layer or colour (a flush line keeps its
+dashes), and ``arch_underlay`` greys them with the rest of the plan. Its record's ``legend`` is ``skirting_<type>``,
 which ``arch_legend`` letters in its ``lang`` (:data:`SKIRTING_LABELS`).
 ``pattern="none"`` draws no hatch (skirting or edge only).
 
@@ -201,7 +203,8 @@ _T = 1e-6
 
 
 def check_skirting(value, wall_ids) -> dict | None:
-    """``{"default": type, <wall id>: type}``, refused by path."""
+    """``{"default": type, <wall id>: type}`` plus an optional ``layer`` / ``color``
+    (an interior project's own style), refused by path."""
     if value is None:
         return None
     if isinstance(value, str):
@@ -209,6 +212,17 @@ def check_skirting(value, wall_ids) -> dict | None:
     if not isinstance(value, dict) or not value:
         raise ValueError("skirting: give applied | flush | none, or {default, <wall id>: type}")
     out = {}
+    value = dict(value)
+    if "layer" in value:
+        layer = value.pop("layer")
+        if not isinstance(layer, str) or not layer.strip():
+            raise ValueError(f"skirting.layer: a layer name, got {layer!r}")
+        out["layer"] = layer.strip()
+    if "color" in value:
+        color = value.pop("color")
+        if isinstance(color, bool) or not isinstance(color, int) or not 0 <= color <= 256:
+            raise ValueError(f"skirting.color: an ACI 0-256, got {color!r}")
+        out["color"] = color
     for key, kind in value.items():
         if kind not in SKIRTING_TYPES:
             raise ValueError(f"skirting.{key}: {kind!r}; types are {', '.join(SKIRTING_TYPES)}")
@@ -697,12 +711,17 @@ async def floor_zone(
             ]
         skirts = []
         for piece in result.get("skirting", {}).get("pieces", ()):
-            skirt_layer = ARCH_ROLE_LAYER[f"skirting_{piece['type']}"]
-            dashed = doc_linetype(skirt_layer).upper().startswith("ACAD_ISO")
+            own = ARCH_ROLE_LAYER[f"skirting_{piece['type']}"]
+            skirt_layer = types.get("layer", own)
+            attrs = {"layer": skirt_layer}
+            if skirt_layer != own and doc_linetype(own) != doc_linetype(skirt_layer):
+                attrs["linetype"] = doc_linetype(own)  # a flush line stays dashed
+            if "color" in types:
+                attrs["color"] = types["color"]
+            if attrs.get("linetype", doc_linetype(skirt_layer)).upper().startswith("ACAD_ISO"):
+                attrs["ltscale"] = ISO_PEN
             line = msp.add_lwpolyline(
-                [tuple(p) for p in piece["points"]],
-                close=piece["closed"],
-                dxfattribs={"layer": skirt_layer, **({"ltscale": ISO_PEN} if dashed else {})},
+                [tuple(p) for p in piece["points"]], close=piece["closed"], dxfattribs=attrs
             )
             skirts.append((line.dxf.handle, f"skirting_{piece['type']}"))
         if skirts:
@@ -729,6 +748,8 @@ async def floor_zone(
         await _ensure_layer(backend, layer)
         for kind in {p["type"] for p in result.get("skirting", {}).get("pieces", ())}:
             await _ensure_layer(backend, ARCH_ROLE_LAYER[f"skirting_{kind}"])
+            if types.get("layer"):
+                await _ensure_layer(backend, types["layer"])
         handles, skirts = await backend._async(_draw)
         drawn = [
             h

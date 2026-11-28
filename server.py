@@ -14053,8 +14053,11 @@ async def arch_floor_zone(
     color: Annotated[int | None, Field(default=None, description="ACI")] = None,
     edge: Annotated[bool, Field(description="Also draw the zone outline")] = False,
     skirting: Annotated[
-        str | dict[str, str] | None,
-        Field(default=None, description="applied|flush|none, or {default, <wall id>: type}"),
+        str | dict[str, str | int] | None,
+        Field(
+            default=None,
+            description="applied|flush|none, or {default, <wall id>: type, layer, color}",
+        ),
     ] = None,
     dry_run: bool = False,
     ctx: Context = None,
@@ -14066,7 +14069,8 @@ async def arch_floor_zone(
     AR-* patterns are building mm (pattern_scale only); others scale x pattern_scale.
     Each fill reports `period_mm` / `repeats`, warned below 3. `area_m2` is
     measured. `label` names the arch_legend row. `skirting` runs along the faces,
-    stopping at doors and fitted items; its length is measured (m). pattern
+    stopping at doors and fitted items; its length is measured (m); its layers,
+    colours, gap and 80 mm sill are a repo convention, not a standard. pattern
     "none": no hatch.
 
     `lay` cuts every tile / plank to the zone as polylines from `start`, with a
