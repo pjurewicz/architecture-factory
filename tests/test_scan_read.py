@@ -311,7 +311,7 @@ async def test_a_page_at_one_to_n_or_two_points_and_a_length_calibrate_in_one_ca
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mode", ["map", "grid", "rects", "blobs", "snap", "compare"])
+@pytest.mark.parametrize("mode", ["map", "grid", "rects", "blobs", "snap", "lines", "compare"])
 async def test_the_sheet_shortcut_calibrates_every_mode(client, tmp_path, mode):
     # round 7: rects took the scan's pixel size for its `size` argument
     if mode == "compare":
@@ -684,3 +684,92 @@ async def test_poche_and_walls_from_a_sheet_paste_into_arch_plan_from_spec(clien
         assert not plan.is_error and plan.structured_content["omitted"] == []
         rooms = (await client.call_tool("arch_rooms_detect", {})).structured_content
         assert len(rooms["rooms"]) == closed, spec.keys()
+
+
+# ── round 9: lines along the WCS axes ──
+
+
+def _elevation_scan(tmp_path) -> str:
+    """A wall elevation: flutes every 20 px (200 mm) at u 60-180, a zone station
+    5 px wide at u 200, tile joints every 30 px at v 60-180 right of it, a fill."""
+    image = Image.new("RGB", (400, 300), "white")
+    pen = ImageDraw.Draw(image)
+    for u in range(60, 181, 20):
+        pen.line([(u, 40), (u, 240)], fill="black", width=1)
+    pen.rectangle([198, 20, 202, 260], fill="black")  # u 198-203: centre 200.5
+    for v in range(60, 181, 30):
+        pen.line([(210, v), (380, v)], fill=(90, 90, 90), width=1)
+    pen.rectangle([300, 200, 360, 280], fill=GREY)  # a fill, not a line
+    path = tmp_path / "elevation.png"
+    image.save(path)
+    return str(path)
+
+
+def test_lines_give_flute_pitch_zone_station_and_tile_joints(tmp_path):
+    out = sr.find_lines(_elevation_scan(tmp_path), ALIGN)
+    vert, horiz = out["vertical"], out["horizontal"]
+    # a 1 px line at u covers [u, u + 1): centre u + 0.5 -> x = 1000 + 10 (u + 0.5)
+    flutes = [1000 + 10 * (u + 0.5) for u in range(60, 181, 20)]
+    assert [r["at"] for r in vert["lines"]] == pytest.approx([*flutes, 3005], abs=0.01)
+    assert vert["spacing"] == pytest.approx([200] * 7, abs=0.01)
+    assert vert["pitch"]["median"] == pytest.approx(200, abs=0.01)
+    assert vert["lines"][-1]["width"] == pytest.approx(50, abs=0.01)
+    assert vert["lines"][0]["span"] == pytest.approx([2590, 4600], abs=0.01)
+    assert vert["fills_dropped"] == 1  # the grey box, 61 px wide
+    # joints: y = 5000 - 10 (v + 0.5), ascending
+    joints = sorted(5000 - 10 * (v + 0.5) for v in range(60, 181, 30))
+    assert [r["at"] for r in horiz["lines"]] == pytest.approx(joints, abs=0.01)
+    assert horiz["pitch"] == {"median": 300, "min": 300, "max": 300}
+    # one colour, a region and the size bounds narrow the answer
+    grey = sr.find_lines(_elevation_scan(tmp_path), ALIGN, color=(90, 90, 90), tolerance=10)
+    assert grey["vertical"]["count"] == 0 and grey["horizontal"]["count"] == 5
+    left = sr.find_lines(_elevation_scan(tmp_path), ALIGN, region=[1500, 2000, 2900, 5000])
+    assert left["vertical"]["count"] == 7 and left["horizontal"]["count"] == 0
+    thin = sr.find_lines(_elevation_scan(tmp_path), ALIGN, size=[None, 20])
+    assert thin["vertical"]["count"] == 7  # the 50 mm station is a fill now
+    capped = sr.find_lines(_elevation_scan(tmp_path), ALIGN, limit=2)
+    assert capped["vertical"]["count"] == 8 and len(capped["vertical"]["lines"]) == 2
+    assert capped["vertical"]["truncated"]
+    with pytest.raises(ValueError, match="size:"):
+        sr.find_lines(_elevation_scan(tmp_path), ALIGN, size="big")
+
+
+def test_lines_on_a_turned_scan_are_read_along_wcs(tmp_path):
+    """The scan of test 1's calibration (30 degrees): lines drawn along WCS x."""
+    image = Image.new("RGB", (500, 500), "white")
+    pen = ImageDraw.Draw(image)
+    c, s = math.cos(TURN), math.sin(TURN)
+
+    def px(x, y):  # the inverse of truth(): WCS -> scan pixel
+        dx, dy = x - ORIGIN[0], y - ORIGIN[1]
+        return ((dx * c + dy * s) / SCALE, -(-dx * s + dy * c) / SCALE)
+
+    for x in (2400, 3000, 3600):  # vertical in WCS, 600 mm apart
+        pen.line([px(x, 300), px(x, 1500)], fill="black", width=2)
+    path = tmp_path / "turned.png"
+    image.save(path)
+    align = [pair(0, 0), pair(400, 0), pair(0, 300)]
+    out = sr.find_lines(str(path), align, region=[2000, 200, 4000, 1600], size=[800])
+    assert out["vertical"]["spacing"] == pytest.approx([600, 600], abs=SCALE)
+    assert [r["at"] for r in out["vertical"]["lines"]] == pytest.approx(
+        [2400, 3000, 3600], abs=SCALE
+    )
+    assert out["horizontal"]["count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_lines_through_the_tool(client, tmp_path):
+    scan = _elevation_scan(tmp_path)
+    lines = await client.call_tool(
+        "scan_read",
+        {"align": {"points": [[0, 0], [400, 0]], "length": 4000}, "image": scan, "mode": "lines"},
+    )
+    out = lines.structured_content
+    assert out["calibration"]["units_per_px"] == 10
+    assert out["vertical"]["pitch"]["median"] == pytest.approx(200, abs=0.01)
+    bad = await client.call_tool(
+        "scan_read",
+        {"align": ALIGN, "image": scan, "mode": "lines", "gap": 10},
+        raise_on_error=False,
+    )
+    assert bad.is_error and "gap" in bad.structured_content["message"]

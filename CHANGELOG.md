@@ -191,6 +191,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   DIMLFAC (the `arch-cm` preset) is the style's `dim_dimlfac_scaled` info row, not a
   `dim_override_disagrees` error; a literal wrong text is still an error.
 
+- `scan_read` mode `lines` (round 9): straight lines along the WCS axes in a
+  window - zone stations, flute pitch, tile joints - as `vertical` /
+  `horizontal` `{count, lines [{at, span, width}], spacing, pitch {median,
+  min, max}, fills_dropped}`, through the same calibration (the `align`
+  shortcuts too). The window is resampled into WCS like `grid`, so a turned
+  scan reads the same; ink is `color` within `tolerance` or off the paper; a
+  line holds an unbroken run of `size[0]` (default a tenth of the window) and
+  is at most `size[1]` wide (default 16 px, wider bands are fills); `limit`
+  caps the rows. Round 9 read the stations and flute pitch of a wall
+  elevation off a grid crop by eye.
 - `scan_read` mode `grid` (round 9): the x labels are centred on their line
   like the y labels (they started on it and read 10-20 mm off); the automatic
   grid colour is chosen from the window's ink read at full resolution (a

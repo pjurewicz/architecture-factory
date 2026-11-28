@@ -1274,6 +1274,32 @@ def _grid_colour(image, color) -> tuple[int, int, int]:
     return min(GRID_COLOURS, key=gap)
 
 
+def _wcs_window(cal: Calibration, size, region, region_px):
+    """The scan pixel window and the WCS box it is read as (``region`` itself when given)."""
+    u0, v0, u1, v1 = _window_px(cal, size, region, region_px)
+    if region is not None:
+        return (u0, v0, u1, v1), tuple(normalize_region(region))
+    return (u0, v0, u1, v1), cal.box_to_wcs(u0, v0, u1, v1)
+
+
+def _resample(image, cal: Calibration, box, ppu: float, fill):
+    """``image`` resampled into the WCS ``box`` at ``ppu`` px per unit: output
+    pixel (X, Y) is WCS (x0 + X/ppu, y1 - Y/ppu)."""
+    from PIL import Image
+
+    x0, y0, x1, y1 = box
+    width = max(1, round((x1 - x0) * ppu))
+    height = max(1, round((y1 - y0) * ppu))
+    a_inv = 1.0 / cal.a  # (u - i v) = a_inv * (x + i y - b)
+    base = a_inv * (complex(x0, y1) - cal.b)
+    dx = a_inv * complex(1.0 / ppu, 0.0)
+    dy = a_inv * complex(0.0, -1.0 / ppu)
+    coeffs = (dx.real, dy.real, base.real, -dx.imag, -dy.imag, -base.imag)
+    return image.transform(
+        (width, height), Image.AFFINE, coeffs, resample=Image.BILINEAR, fillcolor=fill
+    )
+
+
 def grid_crop(
     path, align, *, region=None, region_px=None, zoom=None, max_px=1568, grid=None, color=None
 ):
@@ -1281,11 +1307,7 @@ def grid_crop(
     cal = Calibration(align)
     max_px = check_max_px(max_px)
     image = _open(path)
-    u0, v0, u1, v1 = _window_px(cal, image.size, region, region_px)
-    if region is not None:
-        x0, y0, x1, y1 = normalize_region(region)
-    else:
-        x0, y0, x1, y1 = cal.box_to_wcs(u0, v0, u1, v1)
+    (u0, v0, u1, v1), (x0, y0, x1, y1) = _wcs_window(cal, image.size, region, region_px)
     span_px = max(x1 - x0, y1 - y0) / cal.upp  # the window's long side in scan pixels
     fit = max_px / span_px
     if zoom is None:
@@ -1298,20 +1320,10 @@ def grid_crop(
         note = f"zoom {zoom:g} would exceed max_px {max_px}; drawn at {fit:.4g}"
         zoom = fit
     ppu = zoom / cal.upp  # output px per drawing unit
-    width = max(1, round((x1 - x0) * ppu))
-    height = max(1, round((y1 - y0) * ppu))
-    # output pixel (X, Y) is WCS (x0 + X/ppu, y1 - Y/ppu); back into the scan
-    a_inv = 1.0 / cal.a
-    # (u - i v) = a_inv * (x + i y - b)
-    base = a_inv * (complex(x0, y1) - cal.b)
-    dx = a_inv * complex(1.0 / ppu, 0.0)
-    dy = a_inv * complex(0.0, -1.0 / ppu)
-    coeffs = (dx.real, dy.real, base.real, -dx.imag, -dy.imag, -base.imag)
     from PIL import Image, ImageDraw
 
-    out = image.transform(
-        (width, height), Image.AFFINE, coeffs, resample=Image.BILINEAR, fillcolor=(235, 235, 235)
-    ).convert("RGBA")
+    out = _resample(image, cal, (x0, y0, x1, y1), ppu, (235, 235, 235)).convert("RGBA")
+    width, height = out.size
     if grid is None:
         step = _nice_step(max(x1 - x0, y1 - y0))
         while step * ppu < 40:
@@ -1511,6 +1523,164 @@ def snap_points(path, align, *, pixels, limit=100) -> dict:
         "lines (centre lines of bands at least "
         f"{SNAP_MIN_RUN_PX} px long); corner = two meeting, end = one stopping",
     }
+
+
+# ── lines ──────────────────────────────────────────────────────────────────
+
+#: Lines: the window's long side is read at most this many px (else reduced).
+LINES_MAX_PX = 4096
+#: Lines: a band wider than this many scan px is a fill, not a line (default).
+LINES_MAX_WIDTH_PX = 16
+
+
+def _longest_runs(mask):
+    """Per column of ``mask``: (length, start, end exclusive) of its longest run of True."""
+    import numpy as np
+
+    m = mask.astype(np.int32)
+    c = np.cumsum(m, axis=0)
+    # at each pixel, the count at the last False above it: run = c - that
+    reset = np.maximum.accumulate(np.where(mask, 0, c), axis=0)
+    run = c - reset
+    length = run.max(axis=0)
+    end = run.argmax(axis=0) + 1
+    return length, end - length, end
+
+
+def _line_bands(mask, min_len: int, max_width: int):
+    """Lines along the columns of ``mask``: bands of neighbouring columns whose
+    longest run is at least ``min_len`` and overlaps the previous column's.
+    Returns ``(rows, wide)``: rows (centre col, width, start, end) and the
+    number of bands wider than ``max_width`` (fills)."""
+    import numpy as np
+
+    length, start, end = _longest_runs(mask)
+    bands, group = [], []
+    for col in np.nonzero(length >= min_len)[0].tolist():
+        s, e = int(start[col]), int(end[col])
+        if group and (col != group[-1][0] + 1 or s >= group[-1][2] or e <= group[-1][1]):
+            bands.append(group)
+            group = []
+        group.append((col, s, e))
+    if group:
+        bands.append(group)
+    rows, wide = [], 0
+    for b in bands:
+        if len(b) > max_width:
+            wide += 1
+            continue
+        cols = [g[0] for g in b]
+        rows.append(
+            (
+                (cols[0] + cols[-1]) / 2.0 + 0.5,
+                len(b),
+                float(np.median([g[1] for g in b])),
+                float(np.median([g[2] for g in b])),
+            )
+        )
+    return rows, wide
+
+
+def find_lines(
+    path, align, *, region=None, region_px=None, color=None, tolerance=40, size=None, limit=100
+) -> dict:
+    """Straight lines along the WCS axes in a window, and their spacing (round 9).
+
+    The window is resampled into WCS axes at the scan's resolution (as ``grid``
+    does), so a turned scan reads the same; ink is ``color`` within
+    ``tolerance``, or every pixel off the paper colour. A line is a band of
+    neighbouring pixel columns (rows) each holding an unbroken run of ink at
+    least ``size[0]`` long (default a tenth of the window), at most ``size[1]``
+    wide (default :data:`LINES_MAX_WIDTH_PX` px; wider bands are fills).
+    """
+    import numpy as np
+
+    cal = Calibration(align)
+    limit = _limit(limit)
+    image = _open(path)
+    (u0, v0, u1, v1), box = _wcs_window(cal, image.size, region, region_px)
+    x0, y0, x1, y1 = box
+    ppu = min(1.0 / cal.upp, LINES_MAX_PX / max(x1 - x0, y1 - y0))
+    crop = np.asarray(image.crop((u0, v0, u1, v1)), dtype=np.int16)
+    paper = np.median(
+        crop[:: max(1, crop.shape[0] // 256), :: max(1, crop.shape[1] // 256)].reshape(-1, 3),
+        axis=0,
+    )
+    raster = np.asarray(
+        _resample(image, cal, box, ppu, tuple(int(c) for c in paper)), dtype=np.int16
+    )
+    if color is None:
+        ink = np.abs(raster - paper).max(axis=2) > SOURCE_INK_DISTANCE
+    else:
+        ink = _mask(raster, color, tolerance)[0]
+    upx = 1.0 / ppu  # drawing units per raster px
+    if size is not None and (
+        isinstance(size, str | bytes)
+        or not isinstance(size, list | tuple)
+        or len(size) not in (1, 2)
+    ):
+        raise ValueError(f"size: [min length, max width] in drawing units, got {size!r}.")
+    lo, hi = (list(size or ()) + [None, None])[:2]
+    try:
+        max_w = LINES_MAX_WIDTH_PX if hi is None else max(1, math.floor(float(hi) / upx + 1e-9))
+        lo = None if lo is None else float(lo)
+    except (TypeError, ValueError):
+        raise ValueError(f"size: [min length, max width] in drawing units, got {size!r}.") from None
+    if lo is not None and lo < 0:
+        raise ValueError(f"size: min length >= 0, got {size!r}.")
+
+    def axis(m, along0, along_sign, across0, across_sign):
+        """Lines along the columns of ``m``; ``across`` is the WCS coordinate the
+        column index measures, ``along`` the one its rows measure."""
+        min_len = max(8, round(m.shape[0] / 10)) if lo is None else max(1, math.ceil(lo / upx))
+        rows, wide = _line_bands(m, min_len, max_w)
+        lines = [
+            {
+                "at": round(across0 + across_sign * c * upx, 3),
+                "span": sorted(round(along0 + along_sign * r * upx, 3) for r in (s, e)),
+                "width": round(n * upx, 3),
+            }
+            for c, n, s, e in rows
+        ]
+        lines.sort(key=lambda r: r["at"])
+        out = {"count": len(lines), "lines": lines[:limit]}
+        if len(lines) > limit:
+            out["truncated"] = True
+        gaps = [round(b["at"] - a["at"], 3) for a, b in zip(lines, lines[1:], strict=False)]
+        if gaps:
+            out["spacing"] = gaps[:limit]
+            out["pitch"] = {
+                "median": round(float(np.median(gaps)), 3),
+                "min": min(gaps),
+                "max": max(gaps),
+            }
+        if wide:
+            out["fills_dropped"] = wide
+        return out
+
+    out = {
+        "ok": True,
+        # columns measure x (left to right), their rows y (top down); rows the reverse
+        "vertical": axis(ink, y1, -1, x0, 1),
+        "horizontal": axis(ink.T, x0, 1, y1, -1),
+        "scan": {
+            "path": str(path),
+            "pixels": list(image.size),
+            "window_px": [u0, v0, u1, v1],
+            "units_per_px": round(cal.upp, 6),
+            "rotation_deg": round(cal.rotation, 4) + 0.0,
+        },
+        "method": f"window resampled into WCS at {round(upx, 6)} units per px; ink = "
+        + (
+            f"{color} within {tolerance}"
+            if color is not None
+            else f"a channel more than {SOURCE_INK_DISTANCE} off the paper {[int(c) for c in paper]}"
+        )
+        + "; a line = neighbouring columns (rows) each with an unbroken ink run of at least "
+        "size[0], at most size[1] wide; at = its centre (x of a vertical line, y of a "
+        "horizontal one), ascending, +-half a px; span = its longest run",
+    }
+    return out
 
 
 # ── compare ────────────────────────────────────────────────────────────────

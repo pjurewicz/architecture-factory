@@ -14951,7 +14951,7 @@ async def scan_read(
         "{points: [[u, v], [u, v]], length, at?, angle?} - answered as align",
     ] = None,
     mode: Annotated[
-        Literal["map", "grid", "rects", "blobs", "walls", "poche", "compare", "snap"],
+        Literal["map", "grid", "rects", "blobs", "walls", "poche", "compare", "snap", "lines"],
         "What to read; see Details",
     ] = "map",
     image: Annotated[str | None, "The scan file (all modes but map)"] = None,
@@ -14963,16 +14963,17 @@ async def scan_read(
     region: Annotated[list[float] | None, "Window [x0, y0, x1, y1] in WCS"] = None,
     region_px: Annotated[list[float] | None, "Window [u0, v0, u1, v1] in scan px"] = None,
     color: Annotated[
-        str | list[int] | None, "rects/blobs: '#rrggbb' or [r, g, b]; grid: its colour"
+        str | list[int] | None, "rects/blobs/lines: '#rrggbb' or [r, g, b]; grid: its colour"
     ] = None,
-    tolerance: Annotated[float, "rects/blobs/walls: max channel difference 0-255"] = 40,
+    tolerance: Annotated[float, "rects/blobs/walls/lines: max channel difference 0-255"] = 40,
     size: Annotated[
-        list[float] | None, "rects/blobs: [min, max] side; walls/poche: thickness (min 80)"
+        list[float] | None,
+        "rects/blobs: [min, max] side; walls/poche: thickness (min 80); lines: [length, width]",
     ] = None,
     skip: Annotated[str | list | None, "rects/walls/poche: colours counted as `color`"] = None,
     gap: Annotated[float | None, "rects/walls: join collinear pieces across gaps up to"] = None,
     origin: Annotated[list[float] | None, "walls/poche: the WCS point answered as [0, 0]"] = None,
-    limit: Annotated[int, "rects/blobs: rows returned (1-1000)"] = 100,
+    limit: Annotated[int, "Rows returned (1-1000)"] = 100,
     zoom: Annotated[float | None, "grid: output px per scan px"] = None,
     grid: Annotated[float | None, "grid: step (auto); walls/poche: rounding (1)"] = None,
     layout: Annotated[
@@ -15004,6 +15005,13 @@ async def scan_read(
     `snap`: each of `pixels` (scan px, e.g. read off a grid) to the nearest
     line corner or line end within 25 px: `snapped` [{kind, px, point (WCS),
     distance_px}] or found: false - image-axis lines only.
+
+    `lines`: lines along the WCS axes in the window (resampled as `grid`):
+    `vertical` / `horizontal` {count, lines [{at (x / y of its centre), span,
+    width}], spacing, pitch {median, min, max}, fills_dropped} - zone stations,
+    flute pitch, tile joints. Ink is `color` within `tolerance`, else off the
+    paper; a line holds an unbroken run of `size[0]` (default a tenth of the
+    window) and is at most `size[1]` wide (default 16 px; wider is a fill).
 
     `rects`: axis-aligned filled rectangles of `color` (wall poche): `center`,
     `size`, WCS `box`, `px`, `pixels`, `fill`, biggest first. `blobs`:
@@ -15079,6 +15087,20 @@ async def scan_read(
             return _view_image_result(report, "Scan crop not available.")
         if mode == "snap":
             out = await asyncio.to_thread(sr.snap_points, path, align, pixels=pixels, limit=limit)
+            return out if calibration is None else {**out, "calibration": calibration}
+        if mode == "lines":
+            if skip is not None or gap is not None or origin is not None:
+                raise ValueError("skip / gap / origin: not read by lines.")
+            out = await asyncio.to_thread(
+                sr.find_lines,
+                path,
+                align,
+                color=color,
+                tolerance=tolerance,
+                size=size,
+                limit=limit,
+                **window,
+            )
             return out if calibration is None else {**out, "calibration": calibration}
         if mode in ("rects", "blobs", "walls", "poche"):
             extra = {}
