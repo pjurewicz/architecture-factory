@@ -348,7 +348,12 @@ class EntityCreationContract(ABC):
         layer: str | None = None,
         color: int | None = None,
         xdata: dict[str, list] | None = None,
-    ) -> EntityInfo: ...
+        origin: list[float] | None = None,
+    ) -> EntityInfo:
+        """``origin`` [x, y] (WCS): where the pattern's base point lands - AutoCAD's
+        HATCH origin, default (0, 0); it moves the phase of the lines or dots, not the
+        area. Refused for SOLID."""
+        ...
 
     @abstractmethod
     async def entity_create_spline(
@@ -655,13 +660,16 @@ class EntityCreationContract(ABC):
         angle: float | None = None,
         color: int | None = None,
         style: str = "",
+        origin: list[float] | None = None,
     ) -> dict:
         """Edit an existing hatch in place. Returns ``{ok, handle, changed}``.
 
         ``changed`` names exactly the attributes that moved: an omitted
         parameter must leave its attribute alone, because a partial edit that
         quietly resets the rest is data loss. ``style`` is the island style —
-        ``normal``, ``outer`` or ``ignore``.
+        ``normal``, ``outer`` or ``ignore``. ``origin`` is the pattern origin as
+        in ``entity_create_hatch``; a new scale, angle or pattern keeps the
+        origin it had.
         """
         ...
 

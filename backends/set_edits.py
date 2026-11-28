@@ -65,11 +65,14 @@ __all__ = [
     "Where",
     "changes_payload",
     "check_layer_name",
+    "check_origin",
     "glob_matches",
+    "hatch_origin",
     "parse_set",
     "parse_space",
     "parse_where",
     "region_meets",
+    "set_hatch_origin",
 ]
 
 #: How many handles a result lists before it says ``truncated``.
@@ -501,6 +504,60 @@ def ezdxf_dimension_follow(entity, old_layer: str, old_color: int) -> None:
             part.dxf.color = color
 
 
+def check_origin(value, name: str = "origin") -> tuple[float, float]:
+    """A hatch pattern origin as ``(x, y)``, or ``invalid_args`` naming ``name``."""
+    ok = (
+        isinstance(value, (list, tuple))
+        and len(value) == 2
+        and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in value)
+        and all(math.isfinite(v) for v in value)
+    )
+    if not ok:
+        raise InvalidArgsError(f"invalid_args: {name}: expected [x, y] numbers, got {value!r}")
+    return float(value[0]), float(value[1])
+
+
+def hatch_origin(hatch) -> tuple[float, float]:
+    """The point a hatch's pattern is anchored at (AutoCAD's HATCH origin), WCS.
+
+    DXF stores no origin: it is how far the first pattern line's base point
+    sits from where the predefined pattern, at the hatch's own scale and angle,
+    puts it - ``(0, 0)`` unless something moved it. A solid fill, or a pattern
+    that is not a predefined one, has none to read: ``(0, 0)``.
+    """
+    from ezdxf.math import Vec2
+    from ezdxf.tools import pattern as patterns
+
+    lines = hatch.pattern.lines if hatch.pattern is not None else []
+    measurement = hatch.doc.header.get("$MEASUREMENT", 1) if hatch.doc else 1
+    table = patterns.ISO_PATTERN if measurement else patterns.IMPERIAL_PATTERN
+    definition = table.get(str(hatch.dxf.pattern_name))
+    if not lines or definition is None:
+        return 0.0, 0.0
+    home = Vec2(definition[0][1]).rotate_deg(float(hatch.dxf.pattern_angle))
+    home = home * float(hatch.dxf.pattern_scale)
+    at = lines[0].base_point - home
+    return at.x, at.y
+
+
+def set_hatch_origin(hatch, origin: tuple[float, float]) -> None:
+    """Move the pattern's anchor to ``origin`` (WCS) by shifting every line's base point.
+
+    The phase of the lines or dots moves; the boundary and the pattern's scale
+    and angle do not. Every edit that rescales or rotates the pattern
+    (``set_pattern_scale`` scales the base points about WCS ``(0, 0)``, taking
+    an origin with it) reads :func:`hatch_origin` first and puts it back here.
+    """
+    from ezdxf.math import Vec2
+
+    here = hatch_origin(hatch)
+    shift = Vec2(origin[0] - here[0], origin[1] - here[1])
+    if shift.magnitude < 1e-12:
+        return
+    for line in hatch.pattern.lines:
+        line.base_point = line.base_point + shift
+
+
 def ezdxf_write(entity, spec: SetSpec) -> None:
     """Write ``spec`` onto ``entity`` (a POLYLINE's vertices follow its layer,
     a DIMENSION's block its layer and colour)."""
@@ -535,6 +592,7 @@ def _write_typed(entity, spec: SetSpec) -> None:
         angle = spec.pattern_angle
         angle = float(dxf.get("pattern_angle", 0.0)) if angle is None else angle
         color = int(dxf.get("color", 256))
+        origin = hatch_origin(entity)  # a rescale or rotation must not move the anchor
         if spec.pattern == "SOLID":
             entity.set_solid_fill(color=color, style=int(dxf.get("hatch_style", 0)))
         elif spec.pattern is not None:
@@ -544,6 +602,8 @@ def _write_typed(entity, spec: SetSpec) -> None:
                 entity.set_pattern_scale(scale)
             if spec.pattern_angle is not None:
                 entity.set_pattern_angle(angle)
+        if entity.has_pattern_fill:
+            set_hatch_origin(entity, origin)
     if kind in ("TEXT", "MTEXT"):
         if spec.text_style is not None:
             dxf.style = spec.text_style

@@ -6916,21 +6916,29 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         layer=None,
         color=None,
         xdata=None,
+        origin=None,
     ) -> EntityInfo:
+        from backends import set_edits as se
+
         prepared = prepare_xdata(xdata)
+        at = None if origin is None else se.check_origin(origin)
 
         def _sync():
             msp = self._msp()
+            name = _hatch_pattern(pattern)
+            if name == "SOLID" and at is not None:
+                raise InvalidArgsError("invalid_args: origin: a SOLID fill has no pattern")
             # ByLayer (256), as AutoCAD's AddHatch leaves it: ezdxf's add_hatch and
             # set_pattern_fill both default to an explicit ACI 7, which the
             # property_override focus would rightly report on every hatch.
             hatch = msp.add_hatch(color=256)
-            name = _hatch_pattern(pattern)
             if name == "SOLID":
                 # ezdxf's set_pattern_fill("SOLID") writes ANSI31's lines under the name
                 hatch.set_solid_fill(color=256)
             else:
                 hatch.set_pattern_fill(name, color=256, scale=float(scale), angle=float(angle))
+                if at is not None:
+                    se.set_hatch_origin(hatch, at)
             pts = [(float(p[0]), float(p[1])) for p in boundary_points]
             hatch.paths.add_polyline_path(pts, is_closed=True)
             self._apply_attrs(hatch, layer, color)
@@ -7095,7 +7103,12 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         angle: float | None = None,
         color: int | None = None,
         style: str = "",
+        origin=None,
     ) -> dict:
+        from backends import set_edits as se
+
+        at = None if origin is None else se.check_origin(origin)
+
         def _sync():
             hatch, refusal = self._resolve_hatch(handle)
             if refusal:
@@ -7124,9 +7137,17 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     "angle": float(hatch.dxf.pattern_angle),
                     "color": int(hatch.dxf.color),
                     "style": int(hatch.dxf.hatch_style),
+                    "origin": tuple(round(v, 9) for v in se.hatch_origin(hatch))
+                    if hatch.has_pattern_fill
+                    else None,
                 }
 
+            if at is not None and (
+                _hatch_pattern(pattern) == "SOLID" if pattern else not hatch.has_pattern_fill
+            ):
+                return {"ok": False, "error": "origin: a SOLID fill has no pattern"}
             before = _snapshot()
+            anchor = se.hatch_origin(hatch)  # a rescale or rotation must not carry it away
             if pattern and _hatch_pattern(pattern) == "SOLID":
                 hatch.set_solid_fill(color=before["color"], style=before["style"])
             elif pattern:
@@ -7141,6 +7162,8 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     hatch.set_pattern_scale(float(scale))
                 if angle is not None:
                     hatch.set_pattern_angle(float(angle))
+            if hatch.has_pattern_fill:
+                se.set_hatch_origin(hatch, at or anchor)
             if color is not None:
                 hatch.dxf.color = int(color)
             if wanted_style:

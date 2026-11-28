@@ -24,6 +24,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for the outline not drawn, and `arch_title_block` anchors to the frame that
   was drawn.
 
+- `entity_create_hatch` and `hatch_edit` take `origin` `[x, y]` (WCS), AutoCAD's
+  HATCH origin: the point the pattern's base point lands on, default `[0, 0]`.
+  It shifts the phase of the lines or dots (written into the pattern lines'
+  base points in the DXF, drawn by the renderer), not the area; a new scale,
+  angle or pattern - by `hatch_edit` or by `entity_modify_where` - keeps the
+  origin the hatch had; a SOLID fill refuses it. The `pattern` description now
+  names `CROSS` and `DOTS` (AutoCAD's own dotted fill); `hatch_edit` points to
+  `entity_modify_where(set={pattern, pattern_scale, pattern_angle})` for a set
+  of hatches.
+
 - Wall materials `glass` and `demolition` (`arch_wall`, `arch_plan_from_spec`).
   A glass wall is the curtain-wall glazing end to end, junction to junction,
   with no poche: two glass walls at an L meet on the mitre with no post, a

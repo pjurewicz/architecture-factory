@@ -261,6 +261,150 @@ async def test_an_unknown_island_style_is_refused_naming_the_valid_ones(backend)
         assert valid in result["error"]
 
 
+# ── pattern origin ──────────────────────────────────────────────────────────
+
+
+def _off_family(hatch, point):
+    """How far ``point`` lies from the nearest line of the hatch's first pattern line family."""
+    line = hatch.pattern.lines[0]
+    theta = math.radians(line.angle)
+    ux, uy = math.cos(theta), math.sin(theta)
+    pitch = abs(ux * line.offset[1] - uy * line.offset[0])  # spacing across the lines
+    across = ux * (point[1] - line.base_point[1]) - uy * (point[0] - line.base_point[0])
+    return abs(across - pitch * round(across / pitch))
+
+
+async def test_an_origin_shifts_the_phase_and_is_saved_in_the_dxf(backend, tmp_path):
+    """Round 9: the agent cheated with scale 5.00365 to land the lines on its source's."""
+    from backends.set_edits import hatch_origin
+
+    plain = await backend.entity_create_hatch("ANSI31", SQUARE, scale=2.0)
+    placed = await backend.entity_create_hatch("ANSI31", SQUARE, scale=2.0, origin=[7.0, 3.0])
+
+    assert _off_family(_entity(backend, plain.handle), (7.0, 3.0)) == pytest.approx(
+        2.83, abs=0.01
+    ), "control: without an origin no line passes through the point"
+    reloaded = await _reloaded(backend, tmp_path, placed.handle)
+    assert _off_family(reloaded, (7.0, 3.0)) == pytest.approx(0.0, abs=1e-9)
+    assert _pattern_pitch(reloaded) == pytest.approx(6.35), (
+        "the spacing is the scale's, not the origin's"
+    )
+    assert reloaded.dxf.pattern_scale == 2.0 and reloaded.dxf.pattern_angle == 0.0
+    assert hatch_origin(reloaded) == pytest.approx((7.0, 3.0))
+
+
+async def test_an_origin_with_an_angle_keeps_the_point_on_a_line(backend):
+    created = await backend.entity_create_hatch(
+        "ANSI31", SQUARE, scale=1.5, angle=20.0, origin=[-4.0, 11.0]
+    )
+    assert _off_family(_entity(backend, created.handle), (-4.0, 11.0)) == pytest.approx(
+        0.0, abs=1e-9
+    )
+
+
+async def test_hatch_edit_changes_the_origin_and_reports_only_that(backend):
+    created = await backend.entity_create_hatch("ANSI31", SQUARE, scale=2.0)
+
+    moved = await backend.hatch_edit(created.handle, origin=[7.0, 3.0])
+    again = await backend.hatch_edit(created.handle, origin=[7.0, 3.0])
+
+    assert moved["changed"] == ["origin"] and again["changed"] == []
+    hatch = _entity(backend, created.handle)
+    assert _off_family(hatch, (7.0, 3.0)) == pytest.approx(0.0, abs=1e-9)
+    assert (hatch.dxf.pattern_scale, hatch.dxf.color) == (2.0, 256), "nothing else moved"
+
+
+@pytest.mark.parametrize(
+    "edit", [{"scale": 3.0}, {"angle": 25.0}, {"pattern": "ANSI37"}, {"scale": 3.0, "angle": 25.0}]
+)
+async def test_a_new_scale_angle_or_pattern_keeps_the_origin(backend, edit):
+    """ezdxf scales the base points about WCS (0, 0): without care the origin runs away."""
+    from backends.set_edits import hatch_origin
+
+    created = await backend.entity_create_hatch("ANSI31", SQUARE, scale=2.0, origin=[7.0, 3.0])
+
+    result = await backend.hatch_edit(created.handle, **edit)
+
+    assert "origin" not in result["changed"]
+    hatch = _entity(backend, created.handle)
+    assert hatch_origin(hatch) == pytest.approx((7.0, 3.0))
+    assert _off_family(hatch, (7.0, 3.0)) == pytest.approx(0.0, abs=1e-9)
+
+
+async def test_entity_modify_where_keeps_the_origin_when_it_rescales(backend):
+    from backends.set_edits import hatch_origin
+
+    a = await backend.entity_create_hatch("ANSI31", SQUARE, origin=[7.0, 3.0])
+
+    out = await backend.entity_modify_where(
+        {"type": "HATCH"}, {"pattern_scale": 4, "pattern_angle": 30}
+    )
+
+    assert out["changed"] == 1
+    assert hatch_origin(_entity(backend, a.handle)) == pytest.approx((7.0, 3.0))
+
+
+async def test_an_origin_is_refused_for_a_solid_fill_and_a_malformed_one_by_name(backend):
+    from engineering.errors import InvalidArgsError
+
+    created = await backend.entity_create_hatch("ANSI31", SQUARE)
+    before = len(backend._doc.modelspace())
+
+    with pytest.raises(InvalidArgsError, match="origin: a SOLID fill"):
+        await backend.entity_create_hatch("SOLID", SQUARE, origin=[1.0, 1.0])
+    for bad in ([1.0], [1.0, 2.0, 3.0], "1,2", [True, 0.0], [float("nan"), 0.0]):
+        with pytest.raises(InvalidArgsError, match="origin: expected"):
+            await backend.entity_create_hatch("ANSI31", SQUARE, origin=bad)
+        with pytest.raises(InvalidArgsError, match="origin: expected"):
+            await backend.hatch_edit(created.handle, origin=bad)
+    assert len(backend._doc.modelspace()) == before, "a refusal drew nothing"
+
+    solid = await backend.entity_create_hatch("SOLID", SQUARE)
+    refused = await backend.hatch_edit(solid.handle, origin=[1.0, 1.0])
+    assert refused["ok"] is False and "SOLID" in refused["error"]
+    to_solid = await backend.hatch_edit(created.handle, pattern="SOLID", origin=[1.0, 1.0])
+    assert to_solid["ok"] is False
+    assert _entity(backend, created.handle).dxf.pattern_name == "ANSI31", "refused before any write"
+
+
+async def test_cross_and_dots_are_predefined_patterns(backend):
+    """The tool description names them; DOTS is the dotted fill (AutoCAD's own definition)."""
+    cross = await backend.entity_create_hatch("cross", SQUARE)
+    dots = await backend.entity_create_hatch("DOTS", SQUARE, scale=5.0)
+
+    assert _entity(backend, cross.handle).dxf.pattern_name == "CROSS"
+    dot_line = _entity(backend, dots.handle).pattern.lines[0]
+    assert dot_line.dash_length_items == [0.0, -7.9375], "a zero dash is a dot"
+
+
+async def test_an_origin_puts_a_dot_where_the_render_shows_it(backend):
+    """The render honours the pattern's base point, not just the DXF tag."""
+    import io
+
+    pytest.importorskip("matplotlib", reason="rendering needs the [pdf] extra")
+    Image = pytest.importorskip("PIL.Image")
+
+    await backend.layer_create("DOT", color=7, lineweight=100)
+    big = [[-50.0, -50.0], [50.0, -50.0], [50.0, 50.0], [-50.0, 50.0]]
+    on = await backend.entity_create_hatch("DOTS", big, scale=5.0, layer="DOT", origin=[13.0, 21.0])
+    region = [8.0, 16.0, 18.0, 26.0]
+
+    def dark(report, x, y):
+        image = Image.open(io.BytesIO(report["png"])).convert("L")
+        px = int((x - region[0]) * report["px_per_unit"])
+        py = int((region[3] - y) * report["px_per_unit"])
+        window = [image.getpixel((px + i, py + j)) for i in (-2, 0, 2) for j in (-2, 0, 2)]
+        return min(window) < 100
+
+    shifted = await backend.view_render(region=region, max_px=800, background="white")
+    await backend.hatch_edit(on.handle, origin=[0.0, 0.0])
+    home = await backend.view_render(region=region, max_px=800, background="white")
+
+    assert dark(shifted, 13.0, 21.0), "a dot sits on the origin"
+    assert not dark(shifted, 13.0 + 3.96875, 21.0), "the next dot in the row is a half step away"
+    assert not dark(home, 13.0, 21.0), "control: at origin (0, 0) no dot falls there"
+
+
 # ── boundary edges ──────────────────────────────────────────────────────────
 
 ARC_EDGE = {

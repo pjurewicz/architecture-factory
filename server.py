@@ -3240,25 +3240,30 @@ async def callout(
 async def entity_create_hatch(
     pattern: Annotated[
         str,
-        "Predefined pattern, any case: SOLID, ANSI31-38, AR-SAND AR-CONC AR-B816 AR-B88 "
-        "AR-BRSTD AR-HBONE AR-PARQ1 AR-RROOF, ACAD_ISO02W100-15W100, BRICK*, CONCRETE1-3, "
+        "Pattern, any case: SOLID, ANSI31-38, AR-SAND AR-CONC AR-B816 AR-B88 "
+        "AR-BRSTD AR-HBONE AR-PARQ1 AR-RROOF, CROSS, DOTS, ACAD_ISO02W100-15W100, BRICK*, CONCRETE1-3, "
         "EARTH, GRAVEL, GRASS, INSUL, JIS_*, STEEL, WOOD1-4, V_MASONRY*; another name is refused",
     ],
     boundary_points: Annotated[
         list[list[float]],
-        "Closed outer boundary, [x, y] points (straight edges); arcs and holes "
-        "(islands): hatch_add_boundary on the returned handle",
+        "Closed outer boundary, [x, y] points (straight edges); arcs, holes: "
+        "hatch_add_boundary on the returned handle",
     ],
     scale: Annotated[float, Field(description="Pattern scale factor", gt=0)] = 1.0,
     angle: Annotated[float, "Pattern rotation angle in degrees"] = 0.0,
     layer: Annotated[str | None, "Layer name"] = None,
     color: Annotated[int | None, "ACI color code"] = None,
+    origin: Annotated[
+        list[float] | None,
+        "Pattern origin [x, y], AutoCAD's HATCH origin (default [0, 0]): shifts where lines or "
+        "dots fall. Not for SOLID",
+    ] = None,
     ctx: Context = None,
 ) -> dict:
     """Create a hatch fill pattern inside a closed boundary polygon."""
     await ctx.debug(f"Creating hatch pattern={pattern} scale={scale}")
     result = await _backend(ctx).entity_create_hatch(
-        pattern, boundary_points, scale, angle, layer, color
+        pattern, boundary_points, scale, angle, layer, color, origin=origin
     )
     return _dc(result)
 
@@ -3396,16 +3401,19 @@ async def hatch_edit(
     angle: Annotated[float | None, "New pattern angle in degrees."] = None,
     color: Annotated[int | None, "New ACI colour."] = None,
     style: Annotated[str, "Island style: normal, outer or ignore. Empty leaves it alone."] = "",
+    origin: Annotated[
+        list[float] | None,
+        "New pattern origin [x, y], as in entity_create_hatch.",
+    ] = None,
     ctx: Context = None,
 ) -> dict:
     """Edit an existing hatch in place.
 
-    Omitted parameters are left alone — a partial edit that resets the rest is
-    data loss. `changed` reports which attributes actually moved, so re-setting
-    a value to what it already was comes back as an empty list rather than a
-    false positive.
+    Omitted parameters stay; `changed` lists what moved; a new scale, angle or
+    pattern keeps the origin. Many hatches: entity_modify_where(where,
+    set={pattern, pattern_scale, pattern_angle}), or cad_batch.
     """
-    return await _backend(ctx).hatch_edit(handle, pattern, scale, angle, color, style)
+    return await _backend(ctx).hatch_edit(handle, pattern, scale, angle, color, style, origin)
 
 
 @cad_tool(summary="Add an island (hole) or an arc / ellipse outline to a hatch.", cost="mutate")
@@ -3427,7 +3435,7 @@ async def hatch_add_boundary(
     the hatch, or an outline with arcs: entity_create_hatch draws the outer
     polygon, this adds each curved or inner loop to its handle.
 
-    Typed edges exist because a boundary that only accepts vertex lists
+    Details: typed edges exist because a boundary that only accepts vertex lists
     silently straightens every curve it is given. Every edge is validated
     before any is written, so a malformed list refuses instead of leaving a
     half-built path. The edges become one edge path.
