@@ -2928,7 +2928,7 @@
       "name": "entity_create_hatch",
       "group": "entity_creation",
       "cost": "mutate",
-      "summary": "Fill a closed polygon with a pattern (SOLID, ANSI31, AR-SAND...); holes: hatch_add_boundary.",
+      "summary": "Fill a closed polygon, minus its holes, with a pattern (SOLID, ANSI31, AR-SAND...).",
       "acad": [
         "HATCH",
         "BHATCH"

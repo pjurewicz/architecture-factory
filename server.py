@@ -3334,7 +3334,7 @@ async def callout(
 
 
 @cad_tool(
-    summary="Fill a closed polygon with a pattern (SOLID, ANSI31, AR-SAND...); holes: hatch_add_boundary.",
+    summary="Fill a closed polygon, minus its holes, with a pattern (SOLID, ANSI31, AR-SAND...).",
     cost="mutate",
 )
 @mcp.tool(
@@ -3350,8 +3350,7 @@ async def entity_create_hatch(
     ],
     boundary_points: Annotated[
         list[list[float]],
-        "Closed outer boundary, [x, y] points (straight edges); arcs, holes: "
-        "hatch_add_boundary on the returned handle",
+        "Closed outer boundary, [x, y] points; arcs: hatch_add_boundary on the handle",
     ],
     scale: Annotated[float, Field(description="Pattern scale factor", gt=0)] = 1.0,
     angle: Annotated[float, "Pattern rotation angle in degrees"] = 0.0,
@@ -3362,12 +3361,13 @@ async def entity_create_hatch(
         "Pattern origin [x, y], AutoCAD's HATCH origin (default [0, 0]): shifts where lines or "
         "dots fall. Not for SOLID",
     ] = None,
+    holes: Annotated[list[list] | None, "Islands: each [[x, y], ...] or [cx, cy, r]"] = None,
     ctx: Context = None,
 ) -> dict:
     """Create a hatch fill pattern inside a closed boundary polygon."""
     await ctx.debug(f"Creating hatch pattern={pattern} scale={scale}")
     result = await _backend(ctx).entity_create_hatch(
-        pattern, boundary_points, scale, angle, layer, color, origin=origin
+        pattern, boundary_points, scale, angle, layer, color, origin=origin, holes=holes
     )
     return _dc(result)
 
@@ -3528,23 +3528,24 @@ async def hatch_edit(
 async def hatch_add_boundary(
     handle: Annotated[str, "Handle of an existing HATCH."],
     edges: Annotated[
-        list[dict],
+        list[dict] | None,
         "Typed edges: {'type':'line','start':[x,y],'end':[x,y]} | "
         "{'type':'arc','center':[x,y],'radius':r,'start_angle':a,'end_angle':b,'ccw':true} | "
         "{'type':'ellipse','center':[x,y],'major_axis':[x,y],'ratio':r}",
-    ],
+    ] = None,
+    points: Annotated[list[list[float]] | None, "Or a polygon [[x, y], ...]"] = None,
     ctx: Context = None,
 ) -> dict:
-    """Add one boundary path built from typed edges - an island (a hole) inside
-    the hatch, or an outline with arcs: entity_create_hatch draws the outer
-    polygon, this adds each curved or inner loop to its handle.
+    """Add one boundary path (typed edges or points): an island (a hole) or an
+    outline with arcs.
 
     Details: typed edges exist because a boundary that only accepts vertex lists
     silently straightens every curve it is given. Every edge is validated
     before any is written, so a malformed list refuses instead of leaving a
-    half-built path. The edges become one edge path.
+    half-built path. The edges become one edge path; `points` (3+) one
+    polyline path. Islands known up front: entity_create_hatch(holes=).
     """
-    return await _backend(ctx).hatch_add_boundary(handle, edges)
+    return await _backend(ctx).hatch_add_boundary(handle, edges, points)
 
 
 @cad_tool(summary="Mask whatever is behind a closed polygon on the sheet.", cost="mutate")

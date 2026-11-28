@@ -405,6 +405,103 @@ async def test_an_origin_puts_a_dot_where_the_render_shows_it(backend):
     assert not dark(home, 13.0, 21.0), "control: at origin (0, 0) no dot falls there"
 
 
+# ── islands: holes= and hatch_add_boundary(points=) ─────────────────────────
+
+
+async def test_holes_are_islands_saved_as_hatch_paths_and_measured_out(backend, tmp_path):
+    """Round 9: a hole took nine typed line edges in a second call."""
+    created = await backend.entity_create_hatch(
+        "ANSI31", SQUARE, holes=[[[5, 5], [15, 5], [15, 15], [5, 15]], [30, 30, 5]]
+    )
+
+    reloaded = await _reloaded(backend, tmp_path, created.handle)
+    assert _path_types(reloaded) == ["PolylinePath", "PolylinePath", "EdgePath"]
+    assert [p.path_type_flags & 17 for p in reloaded.paths] == [1, 16, 16], (
+        "external, then outermost islands - as block_define writes them"
+    )
+    measured = await backend.entity_get(created.handle)
+    assert measured.properties["area"] == pytest.approx(1600 - 100 - math.pi * 25, abs=1e-6)
+
+
+async def test_a_bad_hole_is_refused_by_index_before_the_hatch_is_drawn(backend):
+    from engineering.errors import InvalidArgsError
+
+    before = len(backend._doc.modelspace())
+    for holes, where in (([[[1, 1], [2, 2]]], r"holes\[0\]"), ([[1, 1, -2]], r"holes\[0\]\[2\]")):
+        with pytest.raises(InvalidArgsError, match=where):
+            await backend.entity_create_hatch("ANSI31", SQUARE, holes=holes)
+    assert len(backend._doc.modelspace()) == before
+
+
+async def test_a_hole_leaves_out_the_dot_its_origin_put_there(backend):
+    """Islands and R9.6's origin together, in the render: the dot on the origin
+    stays, the next one in its row falls in the hole and is gone."""
+    import io
+
+    pytest.importorskip("matplotlib", reason="rendering needs the [pdf] extra")
+    Image = pytest.importorskip("PIL.Image")
+
+    await backend.layer_create("DOT", color=7, lineweight=100)
+    big = [[-50.0, -50.0], [50.0, -50.0], [50.0, 50.0], [-50.0, 50.0]]
+    step = 7.9375  # DOTS at scale 5: the dots of a row
+    plain = await backend.entity_create_hatch(
+        "DOTS", big, scale=5.0, layer="DOT", origin=[13.0, 21.0]
+    )
+    region = [8.0, 16.0, 26.0, 26.0]
+
+    def dark(report, x, y):
+        image = Image.open(io.BytesIO(report["png"])).convert("L")
+        px = int((x - region[0]) * report["px_per_unit"])
+        py = int((region[3] - y) * report["px_per_unit"])
+        window = [image.getpixel((px + i, py + j)) for i in (-2, 0, 2) for j in (-2, 0, 2)]
+        return min(window) < 100
+
+    control = await backend.view_render(region=region, max_px=800, background="white")
+    await backend.entity_delete(plain.handle)
+    holed = await backend.entity_create_hatch(
+        "DOTS", big, scale=5.0, layer="DOT", origin=[13.0, 21.0], holes=[[13.0 + step, 21.0, 2.0]]
+    )
+    shown = await backend.view_render(region=region, max_px=800, background="white")
+
+    assert dark(control, 13.0 + step, 21.0), "control: without the hole a dot is there"
+    assert dark(shown, 13.0, 21.0) and not dark(shown, 13.0 + step, 21.0)
+    from backends.set_edits import hatch_origin
+
+    assert hatch_origin(_entity(backend, holed.handle)) == pytest.approx((13.0, 21.0))
+
+
+async def test_entity_batch_create_takes_holes_on_a_hatch_item(backend):
+    out = await backend.entity_batch_create(
+        [{"type": "hatch", "pattern": "SOLID", "boundary_points": SQUARE, "holes": [[20, 20, 5]]}]
+    )
+    assert out["errors"] == []
+    assert len(_entity(backend, out["entities"][0]["handle"]).paths) == 2
+
+
+async def test_hatch_add_boundary_takes_a_polygon_as_points(backend, tmp_path):
+    created = await backend.entity_create_hatch("SOLID", SQUARE)
+
+    result = await backend.hatch_add_boundary(
+        created.handle, points=[[10, 10], [30, 10], [30, 30], [10, 30]]
+    )
+
+    assert result == {
+        "ok": True,
+        "handle": created.handle,
+        "path_count": 2,
+        "edge_types": ["line"] * 4,
+    }
+    reloaded = await _reloaded(backend, tmp_path, created.handle)
+    assert _path_types(reloaded) == ["PolylinePath", "PolylinePath"]
+    measured = await backend.entity_get(created.handle)
+    assert measured.properties["area"] == pytest.approx(1600 - 400)
+    both = await backend.hatch_add_boundary(created.handle, [LINE_EDGE], [[0, 0], [1, 0], [0, 1]])
+    neither = await backend.hatch_add_boundary(created.handle)
+    short = await backend.hatch_add_boundary(created.handle, points=[[0, 0], [1, 0]])
+    assert [r["ok"] for r in (both, neither, short)] == [False, False, False]
+    assert len(_entity(backend, created.handle).paths) == 2, "no refusal wrote a path"
+
+
 # ── boundary edges ──────────────────────────────────────────────────────────
 
 ARC_EDGE = {

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `entity_create_hatch(holes=[...])`: islands in the same call, each a polygon
+  `[[x, y], ...]` or a disc `[cx, cy, r]` - `block_define`'s hatch schema, so
+  an `entity_batch_create` hatch item takes `holes` too. They are written as
+  AutoCAD's HATCH writes islands (external loop, then outermost islands), keep
+  the pattern `origin`, and every one is checked before the hatch is drawn.
+  `hatch_add_boundary(points=)` adds a polygon loop instead of typed `edges`
+  (one of them). Round 9 drew a hole as nine typed line edges in a second call.
+
 - `view_screenshot` of model space in a drawing with sheets answers `sheets`
   (`[{layout, plot_style}]`, each paper layout holding a viewport) and a `note`:
   model space is drawn as on screen - object colours, lineweights not at paper

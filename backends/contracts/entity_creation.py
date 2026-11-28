@@ -50,7 +50,7 @@ def batch_create_adapter():
             list[list[float]],
             Field(
                 min_length=3,
-                description="outer polygon; islands / arcs: hatch_add_boundary on the handle",
+                description="outer polygon; arcs: hatch_add_boundary on the handle",
             ),
         ),
         ("hatch", "scale"): (float, Field(gt=0)),
@@ -349,10 +349,15 @@ class EntityCreationContract(ABC):
         color: int | None = None,
         xdata: dict[str, list] | None = None,
         origin: list[float] | None = None,
+        holes: list[list] | None = None,
     ) -> EntityInfo:
         """``origin`` [x, y] (WCS): where the pattern's base point lands - AutoCAD's
         HATCH origin, default (0, 0); it moves the phase of the lines or dots, not the
-        area. Refused for SOLID."""
+        area. Refused for SOLID.
+
+        ``holes``: islands, each a polygon ``[[x, y], ...]`` (3+) or a disc
+        ``[cx, cy, r]`` - ``block_define``'s hatch schema; every one is checked
+        before the hatch is written."""
         ...
 
     @abstractmethod
@@ -674,13 +679,18 @@ class EntityCreationContract(ABC):
         ...
 
     @abstractmethod
-    async def hatch_add_boundary(self, handle: str, edges: list[dict]) -> dict:
-        """Add one boundary path built from typed edges.
+    async def hatch_add_boundary(
+        self,
+        handle: str,
+        edges: list[dict] | None = None,
+        points: list[list[float]] | None = None,
+    ) -> dict:
+        """Add one boundary path: typed ``edges`` or a polygon's ``points``, one of them.
 
         Returns ``{ok, handle, path_count, edge_types}``. Edges are
         ``{"type": "line"|"arc"|"ellipse", ...}``. Typed edges exist because a
         boundary API that only accepts vertex lists silently straightens every
-        curve it is given.
+        curve it is given; ``points`` (3+) is the straight-edged loop.
         """
         ...
 

@@ -181,6 +181,32 @@ def _disc(value, where: str) -> list[float]:
     ]
 
 
+def hatch_holes(holes, where: str) -> list:
+    """Hatch islands, each a polygon ``[(x, y), ...]`` (3+) or a disc ``[cx, cy, r]``:
+    the ``holes`` of a ``block_define`` hatch and of ``entity_create_hatch``."""
+    if not isinstance(holes, (list, tuple)):
+        if holes is None:
+            return []
+        raise TypeError(f"{where} must be a list of polygons or [cx, cy, r]")
+    return [hatch_loop(hole, f"{where}[{j}]") for j, hole in enumerate(holes)]
+
+
+def hatch_loop(loop, where: str) -> list:
+    """One hatch loop: a disc ``[cx, cy, r]``, else a polygon of 3+ ``[x, y]`` points."""
+    if isinstance(loop, (list, tuple)) and len(loop) == 3 and not _is_pair(loop[0]):
+        return _disc(loop, where)
+    return _points({"points": loop}, where, minimum=3)
+
+
+def add_hatch_loop(hatch, loop, flags: int) -> None:
+    """One boundary path of ``hatch``: a polygon, or a disc ``[cx, cy, r]`` as a full arc."""
+    if not isinstance(loop[0], tuple):  # [cx, cy, r], not a polygon
+        cx, cy, r = loop
+        hatch.paths.add_edge_path(flags=flags).add_arc((cx, cy), r, 0.0, 360.0)
+    else:
+        hatch.paths.add_polyline_path(loop, is_closed=True, flags=flags)
+
+
 def _pattern(name, where: str) -> str:
     """A predefined hatch pattern in any case; ezdxf would fill an unknown one as ANSI31."""
     from ezdxf.tools.pattern import ISO_PATTERN
@@ -321,15 +347,7 @@ def validate_entity_specs(entities) -> list[dict]:
                 )
             else:
                 norm["boundary"] = _disc(spec["circle"], f"{where}: circle")
-            holes = spec.get("holes") or []
-            if not isinstance(holes, (list, tuple)):
-                raise TypeError(f"{where}: 'holes' must be a list of polygons or [cx, cy, r]")
-            norm["holes"] = [
-                _disc(hole, f"{where}: holes[{j}]")
-                if isinstance(hole, (list, tuple)) and len(hole) == 3 and not _is_pair(hole[0])
-                else _points({"points": hole}, f"{where}: holes[{j}]", minimum=3)
-                for j, hole in enumerate(holes)
-            ]
+            norm["holes"] = hatch_holes(spec.get("holes"), f"{where}: holes")
             norm["pattern"] = _pattern(spec.get("pattern", "SOLID"), where)
             norm["scale"] = _scalar(spec.get("scale", 1.0), f"{where}: 'scale'", positive=True)
             norm["angle"] = _scalar(spec.get("angle", 0.0), f"{where}: 'angle'")

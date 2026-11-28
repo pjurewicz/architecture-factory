@@ -6917,11 +6917,17 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         color=None,
         xdata=None,
         origin=None,
+        holes=None,
     ) -> EntityInfo:
         from backends import set_edits as se
+        from backends.block_specs import add_hatch_loop, hatch_holes
 
         prepared = prepare_xdata(xdata)
         at = None if origin is None else se.check_origin(origin)
+        try:
+            islands = hatch_holes(holes, "holes")
+        except TypeError as exc:
+            raise InvalidArgsError(f"invalid_args: {exc}") from exc
 
         def _sync():
             msp = self._msp()
@@ -6941,6 +6947,8 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     se.set_hatch_origin(hatch, at)
             pts = [(float(p[0]), float(p[1])) for p in boundary_points]
             hatch.paths.add_polyline_path(pts, is_closed=True)
+            for island in islands:  # outermost islands, as block_define writes them
+                add_hatch_loop(hatch, island, 16)
             self._apply_attrs(hatch, layer, color)
             self._attach_xdata(hatch, prepared)
             self._mark_dirty()
@@ -7177,11 +7185,29 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
 
         return await self._async(_sync)
 
-    async def hatch_add_boundary(self, handle, edges) -> dict:
+    async def hatch_add_boundary(self, handle, edges=None, points=None) -> dict:
+        from backends.block_specs import add_hatch_loop, hatch_loop
+
         def _sync():
             hatch, refusal = self._resolve_hatch(handle)
             if refusal:
                 return refusal
+            if (edges is None) == (points is None):
+                return {"ok": False, "error": "give edges or points, one of them"}
+            if points is not None:
+                try:
+                    loop = hatch_loop(points, "points")
+                except TypeError as exc:
+                    return {"ok": False, "error": str(exc)}
+                disc = not isinstance(loop[0], tuple)  # [cx, cy, r]
+                add_hatch_loop(hatch, loop, 1)
+                self._mark_dirty()
+                return {
+                    "ok": True,
+                    "handle": hatch.dxf.handle,
+                    "path_count": len(hatch.paths),
+                    "edge_types": ["arc"] if disc else ["line"] * len(loop),
+                }
             if not edges:
                 return {"ok": False, "error": "edges must not be empty"}
 
@@ -9908,6 +9934,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         from ezdxf.enums import TextEntityAlignment
 
         from backends.block_specs import (
+            add_hatch_loop,
             referenced_layers,
             solid_vertices,
             validate_attdef_specs,
@@ -10020,13 +10047,8 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                             spec["pattern"], scale=spec["scale"], angle=spec["angle"]
                         )
                     for index, loop in enumerate([spec["boundary"], *spec["holes"]]):
-                        flags = 1 if index == 0 else 16  # external, then outermost islands
-                        if not isinstance(loop[0], tuple):  # [cx, cy, r], not a polygon
-                            cx, cy, r = loop
-                            path = fill.paths.add_edge_path(flags=flags)
-                            path.add_arc((cx, cy), r, 0.0, 360.0)
-                        else:
-                            fill.paths.add_polyline_path(loop, is_closed=True, flags=flags)
+                        # external, then outermost islands
+                        add_hatch_loop(fill, loop, 1 if index == 0 else 16)
             for att in atts:
                 attdef = blk.add_attdef(
                     att["tag"],
