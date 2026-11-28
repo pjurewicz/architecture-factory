@@ -2,7 +2,8 @@
 
 Names follow the ISO 13567 field order the repository's ``iso13567`` set
 already uses — agent (``A`` = architect), element, presentation (``E`` element
-graphics, ``H`` hatching, ``T`` text/annotation), status (``N`` new) — with the
+graphics, ``H`` hatching, ``T`` text/annotation), status (``N`` new, ``R`` to be
+removed - a ``demolition`` wall) — with the
 element field in its common short spelling (``WALL``, ``DOOR``, ``WIND``); the
 fields are not padded to ISO 13567-2's fixed widths, exactly as the existing
 ``M-GEOMET-E-N`` rows are not.
@@ -26,6 +27,8 @@ ARCH_LAYERS: list[tuple[str, int, str, float, str]] = [
     ("0", 7, "Continuous", 0.25, "default"),
     ("A-WALL-E-N", 7, "Continuous", 0.50, "Architecture / walls, cut outline / new"),
     ("A-WALL-H-N", 8, "Continuous", 0.13, "Architecture / walls, poche hatch / new"),
+    ("A-WALL-E-R", 2, "ACAD_ISO02W100", 0.35, "Architecture / walls, outline / to be removed"),
+    ("A-WALL-H-R", 2, "Continuous", 0.13, "Architecture / walls, hatch / to be removed"),
     ("A-DOOR-E-N", 3, "Continuous", 0.25, "Architecture / doors, leaf and swing / new"),
     ("A-WIND-E-N", 4, "Continuous", 0.25, "Architecture / windows, frame and glazing / new"),
     ("A-STAIR-E-N", 6, "Continuous", 0.25, "Architecture / stairs / new"),
@@ -94,6 +97,8 @@ ARCH_LAYERS: list[tuple[str, int, str, float, str]] = [
 ARCH_ROLE_LAYER: dict[str, str] = {
     "wall": "A-WALL-E-N",
     "wall_hatch": "A-WALL-H-N",
+    "wall_removed": "A-WALL-E-R",
+    "hatch:demolition": "A-WALL-H-R",  # a HatchArea of that material
     "door": "A-DOOR-E-N",
     "window": "A-WIND-E-N",
     "stair": "A-STAIR-E-N",

@@ -23,6 +23,18 @@ SOURCE, stated row by row because it is not one document:
 * ``timber`` adds 90 degrees so its single line family runs on the opposite
   diagonal to brick: JIS_WOOD is one 45-degree family, and unrotated it would
   be indistinguishable from brick on the sheet.
+* ``gypsum_board`` is the light plasterboard (GK) stud partition: AR-SAND, its
+  legend row reads as a partition, not as a board.
+* ``glass`` (a glazed partition, a full-length glass wall) has **no poche**: the
+  wall engine draws the curtain-wall symbol along its whole length - two
+  glazing lines at 40 % and 60 % of the thickness on the window layer, a panel
+  joint every ``CURTAIN_PANEL_MAX`` - and its faces only bound rooms. Two glass
+  walls at an L meet on the mitre with no post (the corner-opening rule).
+* ``demolition`` (a wall to be demolished) is a **repository convention**,
+  nominal and named as such: its outline dashed (``ACAD_ISO02W100``) on
+  ``A-WALL-E-R`` and AutoCAD's ``*CROSS, A series of crosses`` turned 45
+  degrees on ``A-WALL-H-R`` - ``R`` being ISO 13567-2's status code "to be
+  removed". It records no structural material.
 
 ``scale`` is chosen for a 1:50 plan, the default plot scale of every ``arch``
 tool, and ``wall_hatch(material, scale)`` multiplies it by ``scale / 50`` so the
@@ -49,7 +61,12 @@ WALL_MATERIALS: tuple[str, ...] = (
     "stone",
     "timber",
     "generic",
+    "glass",
+    "demolition",
 )
+
+#: The materials drawn as glazing lines, with no poche (see the docstring).
+GLAZED_MATERIALS: tuple[str, ...] = ("glass",)
 
 WALL_HATCH_TABLE: dict[str, dict] = {
     "brick": {
@@ -100,6 +117,13 @@ WALL_HATCH_TABLE: dict[str, dict] = {
         "scale": 20.0,
         "source": "ISO 128-50 general hatching = acadiso.pat *ANSI31",
     },
+    "demolition": {
+        "pattern": "CROSS",
+        "angle": 45.0,
+        "scale": 15.0,
+        "source": "repository convention: acadiso.pat *CROSS at 45 deg, outline dashed, "
+        "ISO 13567 status R layers",
+    },
 }
 
 
@@ -137,6 +161,8 @@ def wall_hatch(material: str, scale: float = TABLE_PLOT_SCALE) -> dict:
             f"wall materials are {', '.join(WALL_MATERIALS)}"
         )
     row = WALL_HATCH_TABLE.get(normalise_material(material))
+    if normalise_material(material) in GLAZED_MATERIALS:
+        raise ValueError(f"material: a {material} wall has no poche; it is drawn as glazing")
     if row is None:
         raise ValueError(
             f"material: unknown wall material {material!r}; "

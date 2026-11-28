@@ -354,3 +354,59 @@ async def test_extra_pattern_colour_dashes_and_columns(backend):
         await draw_legend(backend, at=(0, 0), extra=[{"label": "x", "pattern": "_USER"}])
     with pytest.raises(InvalidArgsError, match=r"extra\[0\]: give label"):
         await draw_legend(backend, at=(0, 0), extra=[{"label": "x", "block": "K", "color": 1}])
+
+
+@pytest.mark.asyncio
+async def test_gk_glass_and_demolition_walls_draw_and_each_reads_into_the_legend(backend):
+    """Round 8: a GK partition, a glass wall (an L of two, no post) and a wall to
+    be demolished, each in its own graphics and with its own legend row."""
+    spec = {
+        "sheet": {"intent": "flat", "sheet_size": "A3", "scale": 50},
+        "walls": [
+            {"id": "S", "axis": [[0, 0], [6000, 0], [6000, 4000]], "thickness": 250},
+            {
+                "id": "G",
+                "axis": [[6000, 4000], [0, 4000], [0, 0]],
+                "thickness": 120,
+                "material": "glass",
+            },
+            {
+                "id": "GK",
+                "axis": [[3000, 0], [3000, 4000]],
+                "thickness": 100,
+                "material": "gypsum_board",
+            },
+            {
+                "id": "D",
+                "axis": [[3000, 2000], [6000, 2000]],
+                "thickness": 120,
+                "material": "demolition",
+            },
+        ],
+        "rooms": [{"id": "R1", "name": "A", "at": [1500, 2000]}],
+    }
+    result = await draw_plan_from_spec(backend, spec)
+    # the room closes on the glass wall's inner face: 2890 x 3815 mm
+    assert result["rooms"][0]["room"]["area"] == pytest.approx(2890 * 3815)
+    msp = backend._doc.modelspace()
+    removed = [e for e in msp if e.dxf.layer == "A-WALL-E-R"]
+    assert len(removed) == 4 and all(e.dxf.ltscale == 0.25 for e in removed)
+    (cross,) = [e for e in msp.query("HATCH") if e.dxf.layer == "A-WALL-H-R"]
+    assert (cross.dxf.pattern_name, cross.dxf.pattern_angle) == ("CROSS", 45.0)
+    # the glazing: two lines along each of three gaps plus the mullions, no poche
+    assert len([e for e in msp.query("LINE") if e.dxf.layer == "A-WIND-E-N"]) == 12
+    labels = {
+        lang: [
+            (r["key"], r["label"])
+            for r in (await draw_legend(backend, at=(8000, 4000), lang=lang))["rows"]
+        ]
+        for lang in ("pl", "en")
+    }
+    assert labels["pl"] == [
+        ("ANSI31", "mur z cegły"),
+        ("CROSS", "ściana do wyburzenia"),
+        ("glass", "ściana szklana"),
+        ("AR-SAND", "ścianka GK"),
+    ]
+    assert ("glass", "glass wall") in labels["en"]
+    assert ("AR-SAND", "plasterboard partition") in labels["en"]

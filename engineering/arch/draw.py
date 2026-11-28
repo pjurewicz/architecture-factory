@@ -58,6 +58,7 @@ HANDLES_APP = "ACADMCP_ARCH_H"
 #: A cased opening has no leaf: its record sits on its head line, on the overhead layer.
 RECORD_ROLES: tuple[str, ...] = (
     "wall",
+    "wall_removed",
     "door",
     "window",
     "stair",
@@ -295,6 +296,7 @@ def _signature(geometry: WallGeometry) -> tuple:
         frozenset(seg(line) for line in geometry.faces),
         frozenset(seg(line) for line in geometry.jambs),
         frozenset(seg(line) for line in geometry.seams),
+        frozenset(seg(line) for line in geometry.thresholds),  # a glass wall's only lines
         frozenset(ring(region) for region in geometry.regions),
         frozenset(entry["element"] for entry in geometry.omitted),
     )
@@ -310,11 +312,13 @@ async def _draw_wall(backend, wall, geometry: WallGeometry, openings, scale=50) 
     # Records are stored resolved: swing_towards turned into swing, hinge beside hand.
     resolved = [resolve_door(wall, op) for op in openings if op.id not in skipped]
     symbols = [(op, opening_prims(wall, op, cuts.get(op.id))) for op in resolved]
-    # Faces first, so owned[0] - the record carrier - is the wall's first face line;
-    # the poche follows on the wall-hatch layer, in each material's pattern.
+    glazing = [p for cut in geometry.cuts if cut.get("glazing") for p in _glazing(wall, cut)]
+    # Faces first, so owned[0] - the record carrier - is the wall's first face line
+    # (a glass wall's first jamb or glazing line); the poche follows on the
+    # wall-hatch layer, in each material's pattern.
     drawn = await draw_prims(
         backend,
-        [*geometry.faces, *geometry.jambs, *geometry.seams, *geometry.hatches],
+        [*geometry.faces, *geometry.jambs, *geometry.seams, *glazing, *geometry.hatches],
         role_layer=ARCH_ROLE_LAYER,
         plot_scale=scale,
     )
@@ -326,6 +330,13 @@ async def _draw_wall(backend, wall, geometry: WallGeometry, openings, scale=50) 
         "openings": done,
         "omitted": list(geometry.omitted),
     }
+
+
+def _glazing(wall, cut: dict) -> tuple:
+    """A glass wall's glazed gap, drawn as the curtain-wall symbol of its cut."""
+    width = max(math.dist(*cut["left"]), math.dist(*cut["right"]))
+    op = Opening(cut["element"], wall.id, "curtain_wall", 0.0, width)
+    return opening_prims(wall, op, cut)
 
 
 async def _draw_symbol(backend, op: Opening, prims, wall=None, scale=50) -> dict:
@@ -419,7 +430,8 @@ async def draw_walls(backend, walls, openings=(), *, poche=True, scale=50) -> di
 
 def wall_polygon_prims(polygon: WallPolygon, *, poche: bool = True) -> tuple:
     """The outline as one closed polyline on the wall layer, then its poche."""
-    outline = Poly(tuple(polygon.points), True, "wall")
+    role = "wall_removed" if polygon.material == "demolition" else "wall"
+    outline = Poly(tuple(polygon.points), True, role)
     if not poche:
         return (outline,)
     material = "solid" if poche == "solid" else polygon.material or "generic"

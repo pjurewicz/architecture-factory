@@ -587,6 +587,9 @@ def opening_closures(walls, openings) -> tuple[tuple[tuple[Pt, Pt], ...], tuple[
             cut_rows = {cut["element"]: cut for cut in geometry.cuts}
         except ValueError:
             cut_rows = {}  # a stale record: fall back on each opening's own numbers
+    for cut in cut_rows.values():  # a glass wall's glazed gaps close like an opening's
+        if cut.get("glazing"):
+            closures.extend((tuple(cut["right"]), tuple(cut["left"])))
     for opening in openings:
         cut = cut_rows.get(opening.id)
         if cut is not None:
@@ -677,7 +680,9 @@ def detect_rooms(
     """
     min_area = _positive(min_area, "min_area")
     min_width = _positive(min_width, "min_width")
-    ours_layers = {ARCH_ROLE_LAYER["wall"].casefold(), ARCH_ROLE_LAYER["room_separator"].casefold()}
+    ours_layers = {
+        ARCH_ROLE_LAYER[role].casefold() for role in ("wall", "wall_removed", "room_separator")
+    }
     rooms: list[dict] = []
     for face, tags in tagged_faces(segments, tol=tol):
         if face.area < min_area or mean_width(face) < min_width:
@@ -854,13 +859,12 @@ async def wall_layers(backend: AutoCADBackend) -> list[str]:
     column, a wall imported from another model - as plain closed polylines.
     """
     wall = ARCH_ROLE_LAYER["wall"]
-    hatch = ARCH_ROLE_LAYER["wall_hatch"].casefold()
     separator = ARCH_ROLE_LAYER["room_separator"]
     names = [wall]
     for layer in await backend.layer_list():
         name = layer.name
         folded = name.casefold()
-        if folded.startswith("a-wall") and folded != hatch and folded != wall.casefold():
+        if folded.startswith("a-wall") and "-h-" not in folded and folded != wall.casefold():
             names.append(name)
         elif folded == separator.casefold():
             names.append(name)

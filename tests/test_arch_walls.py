@@ -828,3 +828,61 @@ def test_a_closed_axis_is_a_ring_with_no_jamb_and_a_4_by_5_m_inner_face():
         S(-100, 5300, -100, -100),
     }
     assert len(geo.regions) == 4
+
+
+# -- glass and demolition walls (round 8) -----------------------------------------
+
+
+def _glass_l(second: str = "glass", openings=()) -> WallGeometry:
+    return wall_geometry(
+        [
+            Wall("G1", ((0.0, 0.0), (3000.0, 0.0)), 200.0, material="glass"),
+            Wall("G2", ((3000.0, 0.0), (3000.0, 2000.0)), 200.0, material=second),
+        ],
+        openings,
+    )
+
+
+def test_a_glass_l_is_glazed_end_to_end_with_no_post_at_the_corner():
+    g = _glass_l()
+    assert g.faces == () and g.hatches == ()
+    # only the two free ends are closed: nothing on the mitre, nothing twice
+    assert sorted(seg(j) for j in g.jambs) == [
+        ((0.0, -100.0), (0.0, 100.0)),
+        ((2900.0, 2000.0), (3100.0, 2000.0)),
+    ]
+    rows = sorted((c["element"], c["corner"], c.get("glazing")) for c in g.cuts)
+    assert rows == [("G1~0", ["end"], True), ("G2~1", ["start"], True)]
+    # the glazed gaps bound rooms like an opening's: the inner face meets the mitre
+    assert ((0.0, 100.0), (2900.0, 100.0)) in segs(g.thresholds)
+
+
+def test_a_glass_wall_into_a_solid_one_closes_the_solid_end_on_the_mitre():
+    g = _glass_l("brick")
+    assert ((2900.0, 100.0), (3100.0, -100.0)) in segs(g.jambs)
+    assert [h.material for h in g.hatches] == ["brick"]
+
+
+def test_a_glass_wall_hosts_no_opening():
+    g = _glass_l(openings=[Opening("D1", "G1", "door", 500.0, 900.0)])
+    assert [o["element"] for o in g.omitted] == ["D1"]
+    assert "is glass" in g.omitted[0]["reason"]
+
+
+def test_curtain_mullions_stand_square_to_the_wall_in_a_corner_gap():
+    from engineering.arch.openings import opening_prims
+
+    g = _glass_l()
+    cut = next(c for c in g.cuts if c["element"] == "G1~0")
+    wall = Wall("G1", ((0.0, 0.0), (3000.0, 0.0)), 200.0, material="glass")
+    prims = opening_prims(wall, Opening("G1~0", "G1", "curtain_wall", 0.0, 3100.0), cut)
+    mullions = [p for p in prims if abs(p.p1[1] - p.p2[1]) > 1.0]
+    # three panels over the 2900 mm both faces share, not over the 3100 mm outer face
+    assert [round(m.p1[0], 6) for m in mullions] == [966.666667, 1933.333333]
+    assert all(abs(m.p1[0] - m.p2[0]) < 1e-9 for m in mullions)
+
+
+def test_a_demolition_wall_takes_its_own_roles():
+    g = wall_geometry([Wall("D", ((0.0, 0.0), (2000.0, 0.0)), 120.0, material="demolition")])
+    assert {line.role for line in (*g.faces, *g.jambs)} == {"wall_removed"}
+    assert [h.material for h in g.hatches] == ["demolition"]

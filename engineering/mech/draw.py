@@ -167,6 +167,8 @@ def _layer_of(prim, role_layer: Mapping[str, str] | None) -> str:
     if role_layer is None:
         return layer_for(prim)
     if isinstance(prim, HatchArea):
+        if f"hatch:{prim.material}" in role_layer:  # a material with a layer of its own
+            return role_layer[f"hatch:{prim.material}"]
         for key in _HATCH_ROLES:
             if key in role_layer:
                 return role_layer[key]

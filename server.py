@@ -13777,8 +13777,8 @@ async def arch_wall(
             description=(
                 "Walls to add: [{id, axis:[[x,y],...] (2+ points, straight segments, WCS mm), "
                 "thickness, justification:'center'|'left'|'right' (side of the axis looking "
-                "along it), material:'brick'|'aac'|'concrete'|'reinforced_concrete'|"
-                "'gypsum_board'|'stone'|'timber'|'generic', closed:bool}]"
+                "along it), material: brick|aac|concrete|reinforced_concrete|gypsum_board (GK)|"
+                "stone|timber|generic|glass (glazed, no post at an L)|demolition, closed:bool}]"
             ),
         ),
     ] = [],  # noqa: B006 - pydantic copies a default; the body never mutates it
@@ -13804,7 +13804,9 @@ async def arch_wall(
     Two ends at one point mitre into a clean L; an end inside another wall is a
     T (the stem stops on the crossing wall's near face, which is cut there); two
     axes crossing are an X (all four faces cut). A wall of another material
-    ending on a T or an X gets a seam line across its end. The poche follows
+    ending on a T or an X gets a seam line across its end. A glass wall is
+    glazing end to end (no poche, no opening); a demolition wall is dashed and
+    cross-hatched on the A-WALL-*-R layers (a repository convention). The poche follows
     `scale`: the material table is set for 1:50, so 1:100 doubles every pattern
     scale (AR-SAND on gypsum board 1.0 -> 2.0). A drawn wall whose outline the
     new walls change is taken back out and redrawn with its openings - the

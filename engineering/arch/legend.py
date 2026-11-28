@@ -73,9 +73,15 @@ MATERIAL_LABELS: dict[str, dict[str, str]] = {
     },
     "concrete": {"en": "concrete", "pl": "beton", "tr": "beton"},
     "reinforced_concrete": {"en": "reinforced concrete", "pl": "żelbet", "tr": "betonarme"},
-    "gypsum_board": {"en": "gypsum board", "pl": "płyta g-k", "tr": "alçı pano"},
+    "gypsum_board": {"en": "plasterboard partition", "pl": "ścianka GK", "tr": "alçıpan bölme"},
     "stone": {"en": "stone", "pl": "kamień", "tr": "taş"},
     "timber": {"en": "timber", "pl": "drewno", "tr": "ahşap"},
+    "glass": {"en": "glass wall", "pl": "ściana szklana", "tr": "cam duvar"},
+    "demolition": {
+        "en": "wall to be demolished",
+        "pl": "ściana do wyburzenia",
+        "tr": "yıkılacak duvar",
+    },
 }
 
 
@@ -182,6 +188,19 @@ def hatch_row(groups: dict, fills: list[dict], own: str | None, layer: str, poch
     )
 
 
+def _glass_wall(e) -> bool:
+    """The entity carries the ``ACADMCP_ARCH`` record of a glass wall."""
+    from engineering.arch.model import APP_ID, Wall, decode, from_payload
+
+    if not e.has_xdata(APP_ID):
+        return False
+    try:
+        wall = from_payload(decode(list(e.get_xdata(APP_ID))))
+    except (ValueError, KeyError, TypeError):
+        return False
+    return isinstance(wall, Wall) and wall.material == "glass"
+
+
 def _read(backend) -> dict:
     """Items model space uses, one group each (a legend's own samples excluded):
     ``{key: row}`` with ``kind`` block / hatch / line."""
@@ -241,6 +260,25 @@ def _read(backend) -> dict:
                 zone.append((fill, e.dxf.layer, poche_of(e)))
                 continue
             row = hatch_row(groups, [fill], None, e.dxf.layer, poche_of(e))
+            row["count"] += 1
+        elif kind == "LINE" and _glass_wall(e):  # a glass wall has no hatch: its glazing
+            row = groups.setdefault(
+                "GLASS",
+                {
+                    "kind": "line",
+                    "key": "glass",
+                    "item": "glass",
+                    "order": 0,
+                    "default_off": False,
+                    "count": 0,
+                    "names": ["glass"],
+                    "layer": ARCH_ROLE_LAYER["window"],
+                    "linetype": "BYLAYER",
+                    "lineweight": -1,
+                    "ltscale": 0.0,
+                    "color": 256,
+                },
+            )
             row["count"] += 1
         elif kind in ("LWPOLYLINE", "LINE") and record and record["kind"] == "run":
             item = record["item"]
@@ -321,7 +359,8 @@ def legend_rows(
             row["label"] = MATERIAL_LABELS[material][lang] if material else row["pattern"]
             row["order"] = 0 if material else 1
         elif row["kind"] == "line":
-            row["label"] = elec.label(row["item"], lang)
+            item = row["item"]
+            row["label"] = (MATERIAL_LABELS.get(item) or {}).get(lang) or elec.label(item, lang)
         elif row["order"] == 11:
             row["label"] = elec.label(row["item"], lang)
         elif row["order"] == 12:

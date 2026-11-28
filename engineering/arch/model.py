@@ -28,7 +28,7 @@ from engineering.errors import InvalidArgsError
 from engineering.measure import is_self_intersecting, polygon_area_perimeter
 from engineering.mech import xdata as _codec
 
-from .materials import WALL_HATCH_TABLE, WALL_MATERIALS, normalise_material
+from .materials import GLAZED_MATERIALS, WALL_MATERIALS, normalise_material
 
 Pt = tuple[float, float]
 
@@ -392,7 +392,7 @@ def wall_from_dict(d: dict, path: str = "wall") -> Wall:
 
 
 def _material(value, where: str) -> str:
-    if not isinstance(value, str) or normalise_material(value) not in WALL_HATCH_TABLE:
+    if not isinstance(value, str) or normalise_material(value) not in WALL_MATERIALS:
         raise ValueError(
             f"{where}: unknown wall material {value!r}; "
             f"wall materials are {', '.join(WALL_MATERIALS)}"
@@ -438,10 +438,15 @@ def point_in_outline(point: Pt, outline: Sequence[Pt]) -> bool:
 def wall_polygon_from_dict(d: dict, path: str = "wall_polygon") -> WallPolygon:
     """A validated WallPolygon: 3+ points, no repeated point, no crossing edge, an area."""
     _known(d, path, _POLYGON_FIELDS)
+    material = _material(d.get("material") or "generic", f"{path}.material")
+    if material in GLAZED_MATERIALS:
+        raise ValueError(
+            f"{path}.material: a {material} wall is glazing along an axis; give it as a wall"
+        )
     return WallPolygon(
         id=_text(_required(d, "id", path), f"{path}.id"),
         points=_outline(_required(d, "points", path), f"{path}.points"),
-        material=_material(d.get("material") or "generic", f"{path}.material"),
+        material=material,
     )
 
 

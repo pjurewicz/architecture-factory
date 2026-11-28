@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Wall materials `glass` and `demolition` (`arch_wall`, `arch_plan_from_spec`).
+  A glass wall is the curtain-wall glazing end to end, junction to junction,
+  with no poche: two glass walls at an L meet on the mitre with no post, a
+  solid wall meeting it is closed on the mitre, its gaps bound rooms, and it
+  hosts no opening (listed in `omitted`). A demolition wall is a nominal repo
+  convention: outline dashed `ACAD_ISO02W100` on `A-WALL-E-R`, `*CROSS` at 45
+  degrees on `A-WALL-H-R` (`R` = ISO 13567-2 "to be removed"). `arch_legend`
+  gives each a row (`ściana szklana`, `ściana do wyburzenia`) and labels
+  `gypsum_board` as a GK partition (`ścianka GK`).
+
 - `dimstyle_create` / `dimstyle_modify` report every refused variable in one
   refusal (`3 refused (DIMFOO, DIMDEC, DIMTXT): ...`, the keys first so the
   240-character envelope still names all of them), in a direct call, in a
@@ -23,6 +33,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `DIMDLE` 2.
 
 ### Changed (breaking)
+
+- A curtain wall's mullions stand square to the wall, spaced over the stretch
+  both faces share; in a corner gap they were drawn slanted.
+- `arch_legend`'s `gypsum_board` row reads "plasterboard partition" /
+  "ścianka GK" / "alçıpan bölme" instead of "gypsum board"; a wall polygon
+  refuses `glass` (glazing runs along an axis: give it as a wall).
 
 - `DIMDSEP: 44` used to be refused as a wrong type; it now means a comma
   (code or character, stored as the character). Several bad overrides raise

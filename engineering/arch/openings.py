@@ -64,8 +64,8 @@ Conventions (this repository's, stated because plan symbols vary by office):
 * ``window``: a frame line on each wall face across the opening and two glazing
   lines between them at the thirds of the wall thickness.
 * ``curtain_wall``: two glazing lines at 40 % and 60 % of the thickness and a
-  mullion across the full thickness between panels no wider than
-  ``CURTAIN_PANEL_MAX``. Its ends get no mullion: the wall engine closes them
+  mullion square across the full thickness between panels no wider than
+  ``CURTAIN_PANEL_MAX``, spaced over the stretch both faces share. Its ends get no mullion: the wall engine closes them
   with a jamb (or, at a corner, a jamb along the mitre line or nothing), and a
   mullion there would be the same line drawn twice.
 
@@ -239,9 +239,18 @@ def opening_prims(wall: Wall, opening: Opening, cut: dict | None = None) -> tupl
         return (Line(la, lb, "window"), Line(ra, rb, "window"), across(1 / 3), across(2 / 3))
     if kind == "curtain_wall":
         panels = max(1, math.ceil(width / CURTAIN_PANEL_MAX - 1e-9))
+        # square to the wall, between the part both faces span (a corner gap
+        # ends on the mitre line, so its faces differ in length)
+        shift = (la[0] - ra[0]) * u[0] + (la[1] - ra[1]) * u[1]
+        lo = max(0.0, shift)
+        hi = min(math.dist(ra, rb), shift + math.dist(la, lb))
         mullions = tuple(
-            Line(_lerp(ra, rb, i / panels), _lerp(la, lb, i / panels), "window")
-            for i in range(1, panels)
+            Line(
+                (ra[0] + u[0] * t, ra[1] + u[1] * t),
+                (la[0] + u[0] * (t - shift), la[1] + u[1] * (t - shift)),
+                "window",
+            )
+            for t in (lo + (hi - lo) * i / panels for i in range(1, panels))
         )
         return (across(0.6), across(0.4), *mullions)
     if kind == "cased_opening":

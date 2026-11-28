@@ -44,7 +44,10 @@ stop on the L's mitre line instead of a jamb, so a window on each of the two
 walls meets its neighbour at the corner with no post between them. When only
 one of the two walls is open there, the other one is closed by a jamb along
 that mitre line. A corner at a T or an X (three or more ends at the node) is
-not one wall corner and stays in ``omitted``. Every solid piece - one axis segment's
+not one wall corner and stays in ``omitted``. A ``glass`` wall is one such
+glazed gap per piece, junction to junction (its cut rows carry ``glazing``):
+it has no face and no poche, hosts no opening, and two glass walls at an L meet
+with no post. A ``demolition`` wall's lines take the ``wall_removed`` role. Every solid piece - one axis segment's
 stretch between junctions, openings and free ends, plus each hub - is one CCW
 region and, with ``poche=True``, one ``HatchArea`` in the wall's material.
 
@@ -67,7 +70,7 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
-from engineering.arch.materials import normalise_material, wall_hatch
+from engineering.arch.materials import GLAZED_MATERIALS, normalise_material, wall_hatch
 from engineering.arch.model import CORNER_KINDS, Opening, Wall, segment_of, validate_openings
 from engineering.measure import is_self_intersecting, polygon_area_perimeter
 from engineering.mech.primitives import HatchArea, Line, Pt
@@ -258,7 +261,8 @@ def _validate(walls: Sequence[Wall], openings: Sequence[Opening], join_tol: floa
             )
         seen[wall.id] = i
         try:
-            wall_hatch(wall.material)
+            if normalise_material(str(wall.material)) not in GLAZED_MATERIALS:
+                wall_hatch(wall.material)
         except ValueError as exc:
             # wall_hatch's message already names its field; the path replaces it
             reason = str(exc).removeprefix("material: ")
@@ -810,6 +814,18 @@ def _build(walls: Sequence[Wall], openings: Sequence[Opening], join_tol: float) 
     for opening in openings:
         wi = by_id[opening.wall]
         wall = walls[wi]
+        if normalise_material(wall.material) in GLAZED_MATERIALS:
+            omitted.append(
+                (
+                    {
+                        "element": opening.id,
+                        "reason": f"wall {wall.id!r} is glass, glazed along its whole length; "
+                        "split it and host the opening in a solid wall",
+                    },
+                    wall.id,
+                )
+            )
+            continue
         si, along = segment_of(wall, float(opening.offset))
         a0, b0 = wall_segments(wall)[si]
         start = _add(a0, _mul(_unit(a0, b0), along))
@@ -883,6 +899,35 @@ def _build(walls: Sequence[Wall], openings: Sequence[Opening], join_tol: float) 
         if corner1:
             open_ends.add((id(host), 1))
 
+    # A glass wall is one glazed gap per piece, from junction to junction: at an
+    # L or a straight join it runs onto the mitre line (no post), elsewhere it
+    # stops where the solid wall it meets starts.
+    glazing: set[str] = set()
+    for k, piece in enumerate(pieces):
+        if normalise_material(walls[piece.seg.wall].material) not in GLAZED_MATERIALS:
+            continue
+        u = _unit(piece.a, piece.b)
+        flags, span = [], []
+        for end in (0, 1):
+            pick = max if end == 0 else min
+            clear = pick(
+                _dot(_sub(piece.corners[(end, side)], piece.a), u) for side in ("left", "right")
+            )
+            corner = len(ends[piece.nodes[end]]) == 2
+            flags.append(corner)
+            span.append((0.0 if end == 0 else math.dist(piece.a, piece.b)) if corner else clear)
+            if corner:
+                open_ends.add((id(piece), end))
+        element = f"{walls[piece.seg.wall].id}~{k}"
+        glazing.add(element)
+        cut_in.setdefault(id(piece), []).append((span[0], span[1], flags[0], flags[1], element))
+
+    def jamb(line: Line, owner: str) -> None:
+        """A jamb, once: a glazed gap at a free end stops on the end's own jamb."""
+        key = {_key(line.p1), _key(line.p2)}
+        if not any({_key(j.p1), _key(j.p2)} == key for j, _o in jambs):
+            jambs.append((line, owner))
+
     # -- faces, jambs and regions, piece by piece ---------------------------------
     for piece in pieces:
         seg = piece.seg
@@ -901,18 +946,17 @@ def _build(walls: Sequence[Wall], openings: Sequence[Opening], join_tol: float) 
             else:
                 la, ra = at(d0, seg.left), at(d0, seg.right)
                 runs.append((cur[0], cur[1], la, ra))
-                jambs.append((Line(la, ra, "wall"), owner))
+                jamb(Line(la, ra, "wall"), owner)
             if corner1:
                 lb, rb = piece.corners[(1, "left")], piece.corners[(1, "right")]
             else:
                 lb, rb = at(d1, seg.left), at(d1, seg.right)
-                jambs.append((Line(lb, rb, "wall"), owner))
+                jamb(Line(lb, rb, "wall"), owner)
             thresholds.append((Line(la, lb, "wall"), owner))
             thresholds.append((Line(ra, rb, "wall"), owner))
             corner = [name for flag, name in ((corner0, "start"), (corner1, "end")) if flag]
-            cuts.append(
-                ({"element": element, "left": (la, lb), "right": (ra, rb), "corner": corner}, owner)
-            )
+            row = {"element": element, "left": (la, lb), "right": (ra, rb), "corner": corner}
+            cuts.append(({**row, "glazing": True} if element in glazing else row, owner))
             cur = None if corner1 else (lb, rb)
         if cur is not None:
             runs.append((cur[0], cur[1], piece.corners[(1, "left")], piece.corners[(1, "right")]))
@@ -1005,26 +1049,36 @@ def _assemble(parts: dict, poche: bool, owner: str | None) -> WallGeometry:
     def mine(rows):
         return [item for item, who in rows if owner is None or who == owner]
 
-    material = {wall.id: wall.material for wall in parts["walls"]}
+    material = {wall.id: normalise_material(wall.material) for wall in parts["walls"]}
     regions = [(polygon, who) for polygon, who in parts["regions"] if owner in (None, who)]
     hatches = (
         tuple(
             # round 3: poche="solid" fills every cut face (interior drawings)
             HatchArea((polygon,), SOLID_POCHE if poche == "solid" else material[who])
             for polygon, who in regions
+            if material[who] not in GLAZED_MATERIALS
         )
         if poche
         else ()
     )
+
+    def lines(rows):
+        """A wall to be demolished is outlined on its own layer (``wall_removed``)."""
+        return tuple(
+            line._replace(role="wall_removed") if material[who] == "demolition" else line
+            for line, who in rows
+            if owner is None or who == owner
+        )
+
     return WallGeometry(
-        faces=tuple(mine(parts["faces"])),
-        jambs=tuple(mine(parts["jambs"])),
+        faces=lines(parts["faces"]),
+        jambs=lines(parts["jambs"]),
         regions=tuple(polygon for polygon, _who in regions),
         hatches=hatches,
         omitted=tuple(mine(parts["omitted"])),
         thresholds=tuple(mine(parts["thresholds"])),
         cuts=tuple(mine(parts["cuts"])),
-        seams=tuple(mine(parts["seams"])),
+        seams=lines(parts["seams"]),
     )
 
 

@@ -16,7 +16,12 @@ from ezdxf.tools import pattern as ezpattern
 
 from engineering.arch.lang import LANGS, fmt_area_m2, fmt_number, tag_prefix, vocab
 from engineering.arch.layers import ARCH_LAYERS, ARCH_ROLE_LAYER
-from engineering.arch.materials import WALL_HATCH_TABLE, WALL_MATERIALS, wall_hatch
+from engineering.arch.materials import (
+    GLAZED_MATERIALS,
+    WALL_HATCH_TABLE,
+    WALL_MATERIALS,
+    wall_hatch,
+)
 from engineering.layers import LAYER_ROLES, LAYER_SET_REGISTRY, apply_layer_set, resolve_role_layer
 from engineering.mech import xdata as codec
 from engineering.mech.draw import draw_prims
@@ -28,6 +33,8 @@ from engineering.plan_spec import ISO_128_LINEWEIGHTS_MM
 EXPECTED_LAYERS = {
     "A-WALL-E-N": ("Continuous", 0.50),
     "A-WALL-H-N": ("Continuous", 0.13),
+    "A-WALL-E-R": ("ACAD_ISO02W100", 0.35),  # round 8: to be removed (ISO 13567 status R)
+    "A-WALL-H-R": ("Continuous", 0.13),
     "A-DOOR-E-N": ("Continuous", 0.25),
     "A-WIND-E-N": ("Continuous", 0.25),
     "A-STAIR-E-N": ("Continuous", 0.25),
@@ -79,6 +86,8 @@ def test_every_role_maps_onto_a_layer_of_the_set():
     assert ARCH_ROLE_LAYER == {
         "wall": "A-WALL-E-N",
         "wall_hatch": "A-WALL-H-N",
+        "wall_removed": "A-WALL-E-R",
+        "hatch:demolition": "A-WALL-H-R",
         "door": "A-DOOR-E-N",
         "window": "A-WIND-E-N",
         "stair": "A-STAIR-E-N",
@@ -135,7 +144,7 @@ def _period(name: str) -> float:
     return min(periods)
 
 
-def test_the_eight_pinned_materials_each_have_one_row():
+def test_the_pinned_materials_each_have_one_row_but_glass():
     assert WALL_MATERIALS == (
         "brick",
         "aac",
@@ -145,8 +154,12 @@ def test_the_eight_pinned_materials_each_have_one_row():
         "stone",
         "timber",
         "generic",
+        "glass",
+        "demolition",
     )
-    assert set(WALL_HATCH_TABLE) == set(WALL_MATERIALS)
+    assert set(WALL_HATCH_TABLE) == set(WALL_MATERIALS) - set(GLAZED_MATERIALS)
+    with pytest.raises(ValueError, match="no poche"):
+        wall_hatch("glass")
 
 
 def test_wall_hatch_returns_exactly_pattern_angle_scale():
@@ -165,7 +178,7 @@ def test_every_pattern_exists_in_both_ezdxf_measurement_sets():
     """ezdxf silently falls back to ANSI31 for a pattern it does not know."""
     iso = ezpattern.load(measurement=1)
     imperial = ezpattern.load(measurement=0)
-    for material in WALL_MATERIALS:
+    for material in WALL_HATCH_TABLE:
         name = wall_hatch(material)["pattern"]
         assert name in iso and name in imperial, material
 
@@ -203,7 +216,7 @@ def test_aac_is_the_lighter_diagonal_of_brick():
 
 
 def test_every_row_states_where_its_symbol_comes_from():
-    for material in WALL_MATERIALS:
+    for material in WALL_HATCH_TABLE:
         source = WALL_HATCH_TABLE[material]["source"]
         assert any(
             token in source for token in ("ISO 128-50", "JIS A 0150", "acadiso.pat", "convention")
