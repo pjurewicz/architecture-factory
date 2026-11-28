@@ -36,6 +36,7 @@ __all__ = [
     "ARROWHEAD_BLOCKS",
     "DIM_VARIABLE_RANGES",
     "DIM_VARIABLE_WHITELIST",
+    "ARCH_CM",
     "ISO_25",
     "LINEWEIGHT_CODES",
     "PRESETS",
@@ -44,6 +45,7 @@ __all__ = [
     "canonical_arrowhead",
     "check_dim_name",
     "check_dim_value",
+    "check_dim_overrides",
     "describe_preset",
     "ezdxf_arrowhead",
     "reported_arrowhead",
@@ -113,7 +115,22 @@ ANSI: dict[str, Any] = {
     "DIMSCALE": 1.0,
 }
 
-PRESETS: dict[str, dict[str, Any]] = {"iso-25": ISO_25, "ansi": ANSI}
+#: A nominal repo convention, not a standard: an architectural plan drawn in
+#: millimetres whose dimensions read in centimetres. DIMLFAC 0.1 turns mm into
+#: cm, DIMRND 0.5 then rounds the *shown* value to the nearest half centimetre
+#: (a tie goes up, as AutoCAD does), one decimal with a comma, architectural
+#: ticks with the dimension line running DIMDLE past them. After the seventeen
+#: the ISO-25 base shares, the rest are the extra variables this preset adds.
+ARCH_CM: dict[str, Any] = {
+    **ISO_25,
+    "DIMDEC": 1,
+    "DIMBLK": "_ARCHTICK",
+    "DIMLFAC": 0.1,
+    "DIMRND": 0.5,
+    "DIMDLE": 2.0,
+}
+
+PRESETS: dict[str, dict[str, Any]] = {"iso-25": ISO_25, "ansi": ANSI, "arch-cm": ARCH_CM}
 #: Other spellings of a preset: ``iso`` is the name ``drawing_apply_standard``
 #: and ``mleaderstyle_create`` use for the same standard.
 PRESET_ALIASES: dict[str, str] = {"iso": "iso-25"}
@@ -161,7 +178,8 @@ _CLOSED_FILLED_ALIASES = frozenset({".", "CLOSEDFILLED", "_CLOSEDFILLED"})
 #:   (``backends/contracts/settings.py::_SETTING_RANGES``).
 #: * ``("int", low, high)`` — an integer (a float with no fraction is accepted).
 #: * ``("nonzero_float", low, high)`` — as ``float`` but ``0`` is refused.
-#: * ``("char",)`` — exactly one character.
+#: * ``("char",)`` — exactly one character, or its character code as an integer
+#:   (``44`` for the comma; DXF group 278 stores the code).
 #: * ``("arrow",)`` — an arrowhead: ``""`` (closed filled), one of
 #:   :data:`ARROWHEAD_BLOCKS` given with or without its underscore in any case,
 #:   or a user block name under the symbol-name rule; see :func:`canonical_arrowhead`.
@@ -211,6 +229,9 @@ DIM_VARIABLE_RANGES: dict[str, tuple | set] = {
     # how far the dimension line runs past the extension lines; only drawn
     # with a tick arrowhead (_ARCHTICK, _OBLIQUE, _INTEGRAL, _NONE)
     "DIMDLE": ("float", 0.0, 1e6),
+    # AutoCAD's tick size: above 0 draws oblique strokes of that size *instead
+    # of* arrowheads (DIMBLK / DIMASZ are then ignored); 0 draws arrowheads
+    "DIMTSZ": ("float", 0.0, 1e6),
 }
 
 DIM_VARIABLE_WHITELIST: frozenset[str] = frozenset(DIM_VARIABLE_RANGES)
@@ -353,11 +374,16 @@ def check_dim_value(name: str, value: Any) -> Any:
         return canonical_arrowhead(key, value)
     if kind == "name":
         return check_name(key, value, what="style name")
-    if not isinstance(value, str):
-        raise TypeError(f"{key}: expected a string, got {type(value).__name__}")
-    if len(value) != 1:  # "char"
-        raise ValueError(f"{key}: {value!r} must be exactly one character")
-    code = ord(value)
+    # "char": one character, or its code (DXF group 278 stores the code)
+    if isinstance(value, str):
+        if len(value) != 1:
+            raise ValueError(f"{key}: {value!r} must be one character or its integer code (44)")
+        code = ord(value)
+    else:
+        number = _number(key, value)
+        if number != int(number):
+            raise ValueError(f"{key}: {value!r} must be one character or its integer code (44)")
+        code = int(number)
     if code < 32 or code == 127:
         raise ValueError(
             f"{key}: {value!r} is a control character, which a DXF cannot hold as a separator"
@@ -367,45 +393,91 @@ def check_dim_value(name: str, value: Any) -> Any:
             f"{key}: {value!r} (U+{code:04X}) is outside the 16-bit character code DXF group "
             f"278 stores (at most U+{DIMDSEP_MAX_CODE:04X})"
         )
-    return value
+    return chr(code)
 
 
-def validate_overrides(overrides: dict | None) -> dict[str, Any]:
-    """``overrides`` as a typed, upper-cased dict — every key checked, nothing written."""
+def _raise_all(errors: list[Exception]) -> None:
+    """Raise the one refusal, or a single ``ValueError`` listing all of them.
+
+    A caller who is told one bad key per call sends the same style three times;
+    the keys come first so a message cut at the envelope's limit still names
+    every refused variable.
+    """
+    if len(errors) == 1:
+        raise errors[0]
+    if errors:
+        keys = ", ".join(str(error).split(":", 1)[0] for error in errors)
+        detail = "; ".join(str(error) for error in errors)
+        raise ValueError(f"{len(errors)} refused ({keys}): {detail}")
+
+
+def check_dim_overrides(
+    overrides: dict | None,
+    *,
+    preset: Any = None,
+    deferred: frozenset[str] | set[str] = frozenset(),
+) -> dict[str, Any]:
+    """``overrides`` as a typed, upper-cased dict - every key checked at once, nothing written.
+
+    All problems (a ``preset`` other than ``None``, every unknown key, every bad
+    value) come back in one ``ValueError``; a single problem is raised as it
+    is (``TypeError`` for the wrong type). A key in ``deferred`` (a ``cad_batch``
+    value bound at run time) has its name checked and its value left out.
+    """
     if overrides is None:
-        return {}
+        overrides = {}
     if not isinstance(overrides, dict):
         raise TypeError(f"overrides: expected a mapping, got {type(overrides).__name__}")
+    errors: list[Exception] = []
+    if preset is not None:
+        try:
+            _preset_key(preset)
+        except ValueError as exc:
+            errors.append(exc)
     typed: dict[str, Any] = {}
     for raw_key, value in overrides.items():
         key = str(raw_key).strip().upper()
-        typed[key] = check_dim_value(key, value)
+        try:
+            if raw_key in deferred:
+                check_dim_name(key)
+            else:
+                typed[key] = check_dim_value(key, value)
+        except (TypeError, ValueError) as exc:
+            errors.append(exc)
+    _raise_all(errors)
     return typed
 
 
-def resolve_dimstyle(preset: str | None, overrides: dict | None) -> dict[str, Any]:
-    """The preset's seventeen values with ``overrides`` applied on top.
+def validate_overrides(overrides: dict | None) -> dict[str, Any]:
+    """``overrides`` as a typed, upper-cased dict - every key checked, nothing written."""
+    return check_dim_overrides(overrides)
 
-    ``preset`` ``None`` means the ISO-25 base. An unknown preset, an override
-    key outside :data:`DIM_VARIABLE_WHITELIST` or a value outside its range
-    raises ``ValueError`` (``TypeError`` for the wrong type) naming the key —
-    before anything is written, because nothing here writes.
-    """
+
+def _preset_key(preset: Any) -> str:
     key = "iso-25" if preset is None else str(preset).strip().lower()
     key = PRESET_ALIASES.get(key, key)
     if key not in PRESETS:
         raise ValueError(f"preset: unknown value {preset!r}; use one of {sorted(PRESETS)}")
-    values = dict(PRESETS[key])
-    values.update(validate_overrides(overrides))
+    return key
+
+
+def resolve_dimstyle(preset: str | None, overrides: dict | None) -> dict[str, Any]:
+    """The preset's values with ``overrides`` applied on top.
+
+    ``preset`` ``None`` means the ISO-25 base. An unknown preset, an override
+    key outside :data:`DIM_VARIABLE_WHITELIST` or a value outside its range
+    raises ``ValueError`` (``TypeError`` for the wrong type) naming every one
+    of them - before anything is written, because nothing here writes.
+    """
+    typed = check_dim_overrides(overrides, preset=preset)
+    values = dict(PRESETS[_preset_key(preset)])
+    values.update(typed)
     return values
 
 
 def describe_preset(name: str) -> dict:
     """``{name, source, values, textstyle}`` for a preset, or ``ValueError``."""
-    key = str(name).strip().lower()
-    key = PRESET_ALIASES.get(key, key)
-    if key not in PRESETS:
-        raise ValueError(f"preset: unknown value {name!r}; use one of {sorted(PRESETS)}")
+    key = _preset_key(name)
     return {
         "name": key,
         "source": PRESET_SOURCES[key],

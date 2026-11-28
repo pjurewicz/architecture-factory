@@ -6325,20 +6325,22 @@ def _batch_branch_error(error):
 
 def _batch_dim_overrides(args: dict) -> None:
     """dimstyle_create / dimstyle_modify: the literal preset and override names
-    and values, which their schema (a free ``dict``) cannot express."""
-    from engineering.standards.dimstyles import check_dim_name, check_dim_value, resolve_dimstyle
+    and values, which their schema (a free ``dict``) cannot express. Every
+    problem is reported at once, as the tool body does."""
+    from engineering.standards.dimstyles import check_dim_overrides
 
     preset = args.get("preset")
-    if isinstance(preset, str) and _batch_ref_name(preset) is None:
-        resolve_dimstyle(preset, None)
+    if not isinstance(preset, str) or _batch_ref_name(preset) is not None:
+        preset = None
     overrides = args.get("overrides")
     if not isinstance(overrides, dict):
-        return
-    for key, value in overrides.items():
-        if isinstance(value, str) and _batch_ref_name(value) is not None:
-            check_dim_name(key)
-        else:
-            check_dim_value(key, value)
+        overrides = None
+    deferred = {
+        key
+        for key, value in (overrides or {}).items()
+        if isinstance(value, str) and _batch_ref_name(value) is not None
+    }
+    check_dim_overrides(overrides, preset=preset, deferred=deferred)
 
 
 def _batch_block_define(args: dict) -> None:
@@ -11099,7 +11101,7 @@ async def dimstyle_create(
     name: Annotated[str, "New dimension style name, e.g. ISO-25, ANSI, MECH-A3"],
     preset: Annotated[
         str | None,
-        "iso-25 (alias iso; ISO 129-1, 2.5 mm, comma) | ansi (ASME Y14.2, 3 mm, point), any case; omit for the ISO-25 base",
+        "iso-25 (alias iso; ISO 129-1, 2.5 mm, comma) | ansi (ASME Y14.2, 3 mm, point) | arch-cm (nominal repo convention: mm drawing read in cm), any case; omit for ISO-25",
     ] = None,
     overrides: Annotated[
         dict | None,
@@ -11110,20 +11112,20 @@ async def dimstyle_create(
 ) -> dict:
     """Create a dimension style: preset values first, then `overrides`.
 
-    Keys: DIMTXT ASZ EXE EXO GAP TAD TIH TOH DEC DSEP LUNIT ZIN BLK TXSTY LWD
-    LWE SCALE (the presets'), TOL TP TM TOLJ TFAC LFAC RND ATFIT TMOVE CLRD
-    CLRE CLRT SAH BLK1 BLK2 CEN DLE (all DIM-prefixed). `values`: the 17 plus
-    every one written.
+    Keys (DIM-prefixed): TXT ASZ EXE EXO GAP TAD TIH TOH DEC DSEP LUNIT ZIN BLK
+    TXSTY LWD LWE SCALE (the presets'), TOL TP TM TOLJ TFAC LFAC RND ATFIT
+    TMOVE CLRD CLRE CLRT SAH BLK1 BLK2 CEN DLE TSZ. `values`: the 17 plus
+    every one written. `arch-cm`: ISO-25 with LFAC 0.1, DEC 1, RND 0.5
+    (half-up), _ARCHTICK, DLE 2. TSZ > 0 draws ticks, not arrowheads.
 
-    Refuses as `invalid_args` before any write (in `cad_batch` before step 1):
-    an unknown preset or key; a value outside its range
-    (DIMDEC 0-8, sizes > 0, DIMTAD 0-4, DIMDSEP one character, lineweights an
-    AutoCAD code); a name that already exists (use `dimstyle_modify`); a
+    Refuses as `invalid_args` before any write (in `cad_batch` before step 1),
+    every bad key at once: an unknown preset or key; a value out of range
+    (DEC 0-8, sizes > 0, TAD 0-4, DSEP one character or its code, 44;
+    lineweights an AutoCAD code); an existing name (use `dimstyle_modify`); a
     user DIMBLK/DIMBLK1/DIMBLK2 naming a block the drawing does not define
-    (built-in arrowheads need none); a DIMTXSTY that is neither an existing
-    text style nor a bundled preset (ISOCP, ISOCPEUR, ARIAL, ROMANS — those
-    are created, `textstyle_created`). With `set_current` the next dimension
-    carries the style.
+    (built-ins need none); a DIMTXSTY neither an existing text style nor a
+    bundled preset (ISOCP, ISOCPEUR, ARIAL, ROMANS: created,
+    `textstyle_created`). With `set_current` the next dimension carries it.
     """
     from engineering.standards.dimstyles import resolve_dimstyle
 
@@ -11152,15 +11154,13 @@ async def dimstyle_modify(
 ) -> dict:
     """Change variables on an existing dimension style.
 
-    `changed` names only the variables that actually moved — re-setting a
-    value to itself is not a change. `dimensions_using_style` lists the
-    dimensions already drawn with it, and they are redrawn
-    (`rerendered`). A text its author placed keeps its position (`text_kept`)
-    unless `force`. `rerender_required: true` means a dimension still shows
-    the old style (`rerender=False`). Refuses a missing style, an empty `overrides`, a key
-    outside the whitelist, a value outside its range, a DIMTXSTY that does
-    not exist, a user arrowhead block the drawing does not define — all
-    before any write.
+    `changed` names only variables that moved (re-setting a value is not a
+    change). Dimensions using the style (`dimensions_using_style`) are redrawn
+    (`rerendered`); a text its author placed keeps its position (`text_kept`)
+    unless `force`; `rerender_required: true` means one still shows the old
+    style (`rerender=False`). Refuses before any write, every bad key at once:
+    a missing style, empty `overrides`, a key outside the whitelist, a value
+    out of range, a missing DIMTXSTY or user arrowhead block.
     """
     from engineering.standards.dimstyles import validate_overrides
 

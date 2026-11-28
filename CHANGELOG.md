@@ -7,8 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `dimstyle_create` / `dimstyle_modify` report every refused variable in one
+  refusal (`3 refused (DIMFOO, DIMDEC, DIMTXT): ...`, the keys first so the
+  240-character envelope still names all of them), in a direct call, in a
+  `cad_batch` plan and in its dry run - one send is enough to fix a style.
+- `DIMTSZ` joins the whitelist (AutoCAD's tick size: above 0 draws oblique
+  ticks instead of arrowheads), and `DIMDSEP` takes its character code as an
+  integer (`44`, `46`, the DXF group 278 value) as well as the character; the
+  stored and reported value is always the character.
+- Preset `arch-cm`: a nominal repo convention (not a standard) for a plan in
+  millimetres read in centimetres - ISO-25 with `DIMLFAC` 0.1, `DIMDEC` 1,
+  decimal comma, `DIMRND` 0.5 (a tie rounds up, as AutoCAD does), `_ARCHTICK`
+  and `DIMDLE` 2.
+
 ### Changed (breaking)
 
+- `DIMDSEP: 44` used to be refused as a wrong type; it now means a comma
+  (code or character, stored as the character). Several bad overrides raise
+  one `ValueError` listing all of them; a single one keeps its own type.
 - `image_map` is now `scan_read` (pack `arch`, read-only), a scan reader. It
   takes the same `align` (`overlay_align`) and has these modes: `map` (the old
   `image_map`: `pixels` / `points` / `measure`, no file read); `grid` (the scan

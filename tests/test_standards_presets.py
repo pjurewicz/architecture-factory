@@ -91,16 +91,25 @@ def test_ansi_value_by_name(variable, expected):
     assert type(PRESETS["ansi"][variable]) is type(expected)
 
 
-def test_presets_set_exactly_the_seventeen_spec_variables():
+def test_presets_set_the_seventeen_spec_variables_and_arch_cm_adds_three():
     assert len(PRESET_VARIABLES) == 17
     for name, preset in PRESETS.items():
-        assert tuple(preset) == PRESET_VARIABLES, name
+        assert tuple(preset)[:17] == PRESET_VARIABLES, name
+        assert len(preset) == (20 if name == "arch-cm" else 17), name
+    # a nominal repo convention (mm drawing read in cm), not a standard
+    assert {k: v for k, v in PRESETS["arch-cm"].items() if k not in PRESETS["iso-25"]} == {
+        "DIMLFAC": 0.1,
+        "DIMRND": 0.5,
+        "DIMDLE": 2.0,
+    }
+    assert PRESETS["arch-cm"]["DIMBLK"] == "_ARCHTICK" and PRESETS["arch-cm"]["DIMDEC"] == 1
+    assert PRESETS["arch-cm"]["DIMDSEP"] == ","
 
 
-def test_the_whitelist_is_the_seventeen_plus_the_sixteen_spec_extras_and_dimdle():
+def test_the_whitelist_is_the_seventeen_plus_the_sixteen_spec_extras_dimdle_and_dimtsz():
     extras = set(
         "DIMTOL DIMTP DIMTM DIMTOLJ DIMTFAC DIMLFAC DIMRND DIMATFIT "
-        "DIMTMOVE DIMCLRD DIMCLRE DIMCLRT DIMSAH DIMBLK1 DIMBLK2 DIMCEN DIMDLE".split()
+        "DIMTMOVE DIMCLRD DIMCLRE DIMCLRT DIMSAH DIMBLK1 DIMBLK2 DIMCEN DIMDLE DIMTSZ".split()
     )
     assert DIM_VARIABLE_WHITELIST == set(PRESET_VARIABLES) | extras
     assert set(DIM_VARIABLE_RANGES) == DIM_VARIABLE_WHITELIST
@@ -185,13 +194,53 @@ def test_out_of_range_or_unknown_overrides_are_refused_by_name(overrides, fragme
     [
         ({"DIMTXT": "2.5"}, "DIMTXT"),
         ({"DIMTAD": True}, "DIMTAD"),
-        ({"DIMDSEP": 44}, "DIMDSEP"),
+        ({"DIMDSEP": True}, "DIMDSEP"),
+        ({"DIMDSEP": [44]}, "DIMDSEP"),
         ({"DIMBLK": 0}, "DIMBLK"),
     ],
 )
 def test_wrong_types_are_a_type_error_naming_the_key(overrides, fragment):
     with pytest.raises(TypeError, match=fragment):
         resolve_dimstyle("iso-25", overrides)
+
+
+def test_dimdsep_takes_a_character_or_its_ascii_code():
+    """AutoCAD stores DIMDSEP as a code (group 278: 44 comma, 46 point), and
+    ``dimstyle_list`` once reported it as a character; both spellings are one
+    value, and the stored result is always the character."""
+    assert resolve_dimstyle("iso-25", {"DIMDSEP": 46.0})["DIMDSEP"] == "."
+    assert resolve_dimstyle("ansi", {"DIMDSEP": 44})["DIMDSEP"] == ","
+    assert resolve_dimstyle("ansi", {"DIMDSEP": ","})["DIMDSEP"] == ","
+
+
+@pytest.mark.parametrize("code", [0, 10, 31, 127, 0x8000, 0x1F600, -44, 44.5])
+def test_dimdsep_refuses_the_codes_a_dxf_cannot_hold_too(code):
+    with pytest.raises(ValueError, match="DIMDSEP"):
+        resolve_dimstyle("iso-25", {"DIMDSEP": code})
+
+
+def test_every_refused_variable_is_named_in_one_refusal():
+    """Round 8: one bad key per call sent the same style three times. Every
+    unknown key, bad value and the preset come back together, the keys first
+    so the 240-character envelope still names all of them."""
+    with pytest.raises(
+        ValueError, match=r"^4 refused \(preset, DIMFOO, DIMDEC, DIMTXT\)"
+    ) as caught:
+        resolve_dimstyle(
+            "din", {"DIMFOO": 1, "DIMDEC": 9, "DIMDSEP": 44, "DIMTXT": 0, "DIMTSZ": 1.2}
+        )
+    assert "DIMDSEP" not in str(caught.value) and "DIMTSZ" not in str(caught.value)
+    with pytest.raises(TypeError, match="DIMTXT"):  # a single problem keeps its own type
+        resolve_dimstyle("iso-25", {"DIMTXT": "big", "DIMDSEP": 44})
+    with pytest.raises(ValueError, match=r"^2 refused \(DIMTXT, DIMDEC\)"):
+        resolve_dimstyle("iso-25", {"DIMTXT": "big", "DIMDEC": 9})
+
+
+def test_dimtsz_is_a_non_negative_size():
+    assert resolve_dimstyle("iso-25", {"DIMTSZ": 1.2})["DIMTSZ"] == 1.2
+    assert resolve_dimstyle("iso-25", {"DIMTSZ": 0})["DIMTSZ"] == 0.0
+    with pytest.raises(ValueError, match="DIMTSZ"):
+        resolve_dimstyle("iso-25", {"DIMTSZ": -1})
 
 
 def test_unknown_preset_is_refused():

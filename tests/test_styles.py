@@ -725,3 +725,54 @@ async def test_a_hatch_pattern_is_read_in_any_case_and_an_unknown_one_refused(ba
         await backend.entity_create_hatch("AR-SNAD", square)
     with pytest.raises(InvalidArgsError, match="ANSI31"):
         await backend.hatch_edit(made.handle, pattern="ANSI99X")
+
+
+async def test_arch_cm_reads_a_millimetre_drawing_in_half_centimetres_rounded_up(backend):
+    """The nominal arch-cm convention: DIMLFAC 0.1 shows mm as cm, DIMRND 0.5
+    rounds the shown value to a half cm and a tie goes up, as AutoCAD does
+    (123.25 -> 123.5; round-half-even would give 123). Comma, ticks."""
+    created = await backend.dimstyle_create("ARCH", resolve_dimstyle("arch-cm", None), True)
+    assert created["values"]["DIMBLK"] == "_ARCHTICK" and created["values"]["DIMDEC"] == 1
+    shown = {}
+    for length in (1232.5, 1232.4, 1237.4):
+        dim = await backend.dimension_linear(0, 0, length, 0, 50, 10)
+        shown[length] = _rendered(backend, dim.handle)[0]
+    assert shown == {1232.5: "123,5", 1232.4: "123", 1237.4: "123,5"}
+
+
+async def test_dimtsz_and_an_ascii_dimdsep_code_reach_the_style_and_survive_a_reload(
+    backend, tmp_path
+):
+    """Round 8: DIMTSZ was refused as an unknown variable and DIMDSEP 44 as
+    "expected a string"; one send now writes both, and the file keeps them."""
+    values = resolve_dimstyle("ansi", {"DIMTSZ": 1.2, "DIMDSEP": 44})
+    created = await backend.dimstyle_create("TICKS", values)
+    assert created["values"]["DIMTSZ"] == 1.2 and created["values"]["DIMDSEP"] == ","
+    path = tmp_path / "ticks.dxf"
+    await backend.drawing_save(str(path))
+    style = ezdxf.readfile(path).dimstyles.get("TICKS")
+    assert style.dxf.dimtsz == 1.2 and style.dxf.dimdsep == 44
+    await backend.dimstyle_set_current("TICKS")
+    dim = await backend.dimension_linear(0, 0, 100, 0, 50, 10)
+    assert _rendered(backend, dim.handle)[2] == [2.4], "ticks are drawn at twice DIMTSZ, not DIMASZ"
+
+
+async def test_dimstyle_create_tool_names_every_refused_variable_at_once(backend):
+    import server
+    from engineering.errors import InvalidArgsError
+
+    ctx = _Ctx(backend)
+    created = await server.dimstyle_create(
+        name="OK", overrides={"DIMDSEP": 44, "DIMTSZ": 1.2}, ctx=ctx
+    )
+    assert created["values"]["DIMTSZ"] == 1.2
+    with pytest.raises(InvalidArgsError) as caught:
+        await server.dimstyle_create(
+            name="X", overrides={"DIMFOO": 1, "DIMDEC": 9, "DIMTXT": "big"}, ctx=ctx
+        )
+    assert "3 refused (DIMFOO, DIMDEC, DIMTXT)" in str(caught.value)
+    with pytest.raises(InvalidArgsError, match="2 refused .*DIMTXT, DIMDEC"):
+        await server.dimstyle_modify(
+            name="OK", overrides={"DIMTXT": 0, "DIMDEC": 9, "DIMDSEP": 46}, ctx=ctx
+        )
+    assert (await server.dimstyle_list(ctx=ctx))["count"] == 2

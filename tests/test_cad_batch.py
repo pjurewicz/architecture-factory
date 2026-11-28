@@ -498,6 +498,11 @@ async def test_an_unknown_dimension_variable_refuses_the_batch_before_step_1(cli
         )
     assert "DIMLFAX" in str(excinfo.value) and "DIMLFAC" in str(excinfo.value)
     assert await _entity_count(client) == 0, "nothing may run before the refusal"
+    # round 8: one refusal names every bad variable, in a dry run too
+    many = {"name": "ARCH", "overrides": {"DIMLFAX": 0.1, "DIMDEC": 9, "DIMTSZ": 1.2}}
+    result = await _batch(client, [{"tool": "dimstyle_create", "args": many}], dry_run=True)
+    assert result["results"][0]["error"]["kind"] == "invalid_args"
+    assert "2 refused (DIMLFAX, DIMDEC)" in result["results"][0]["error"]["message"]
     ok = {"name": "ARCH", "overrides": {"DIMBLK": "_ARCHTICK", "DIMDLE": "$size"}}
     result = await _batch(client, [{"tool": "dimstyle_create", "args": ok}], dry_run=True)
     assert result["results"][0]["error"]["kind"] == "unresolved_ref", "only the value is bound"
