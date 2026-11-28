@@ -24,7 +24,9 @@ module's drafting choices, not a standard. Lines go on ``TITLEBLOCK``, text
 on ``TEXT`` - the sheet layers ``titleblock_apply`` uses - and every entity
 carries an ``ACADMCP_ANNOT`` record (tool ``arch_title_block``, ``set`` the
 call's ``name``): a rerun with the same name on the same space deletes the
-previous block and notes first and reports ``replaced``.
+previous block and notes first and reports ``replaced``. ``color`` (ACI)
+colours the block's lines and text, and the notes too unless ``notes.color``
+says otherwise.
 """
 
 from __future__ import annotations
@@ -476,6 +478,14 @@ async def _draw(backend, prims, *, origin, k: float, set_name: str, color: int |
     return handles
 
 
+def _color(c, where: str) -> int | None:
+    if c is None:
+        return None
+    if isinstance(c, bool) or not isinstance(c, int) or not 0 <= c <= 256:
+        raise _bad(f"{where}: an ACI colour 0-256, got {c!r}.")
+    return c
+
+
 def _num(value, where: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise _bad(f"{where}: expected a number, got {value!r}.")
@@ -519,11 +529,7 @@ def parse_notes(notes, lang: str, text_height: float) -> dict | None:
         out["frame"] = spec["frame"]
     if spec.get("text_height") is not None:
         out["text_height"] = _height_arg(spec["text_height"], "notes.text_height")
-    if spec.get("color") is not None:
-        c = spec["color"]
-        if isinstance(c, bool) or not isinstance(c, int) or not 0 <= c <= 256:
-            raise _bad(f"notes.color: an ACI colour 0-256, got {c!r}.")
-        out["color"] = c
+    out["color"] = _color(spec.get("color"), "notes.color")
     apart = {"x", "y"} & set(spec)
     if apart and apart != {"x", "y"}:
         raise _bad("notes: give both x and y (the box's bottom-left corner), or neither.")
@@ -554,6 +560,7 @@ async def draw_title_block(
     text_height: float = VALUE_HEIGHT,
     label_position: str = "left",
     height: float | None = None,
+    color: int | None = None,
     name: str = "default",
 ) -> dict:
     """Draw the block and the notes; see the module docstring. ``at`` is the
@@ -578,6 +585,7 @@ async def draw_title_block(
     rows = parse_fields(fields, lang) if fields is not None else []
     if not 1.0 <= float(text_height) <= 10.0:
         raise _bad(f"text_height: {text_height!r} mm is outside 1-10 mm.")
+    color = _color(color, "color")
     nspec = parse_notes(notes, lang, float(text_height))
     if not rows and nspec is None:
         raise _bad("arch_title_block: give fields, notes or both.")
@@ -654,7 +662,7 @@ async def draw_title_block(
     try:
         replaced = await replace_set(backend, layout, TOOL, name)
         await _ensure_sheet_layers(backend, (SHEET_LAYER, SHEET_TEXT_LAYER))
-        handles = await _draw(backend, prims, origin=(ox, oy), k=k, set_name=name)
+        handles = await _draw(backend, prims, origin=(ox, oy), k=k, set_name=name, color=color)
         if nspec is not None:
             if stacked:
                 norigin = (ox, oy + notes_top * k)
@@ -666,7 +674,7 @@ async def draw_title_block(
                 origin=norigin,
                 k=k,
                 set_name=name,
-                color=nspec["color"],
+                color=color if nspec["color"] is None else nspec["color"],
             )
     finally:
         if layout is not None:

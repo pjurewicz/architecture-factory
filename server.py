@@ -14753,10 +14753,7 @@ async def arch_title_block(
         dict | list | None,
         Field(
             default=None,
-            description=(
-                "{project, investor, address, stage, scale, date, designer, author, checked, "
-                "title, drawing_no, revision, or any label: value} or [cell | [cell, ...], ...]"
-            ),
+            description=("{label: value} (known keys, see Details) or [cell | [cell, ...], ...]"),
         ),
     ] = None,
     notes: Annotated[
@@ -14764,7 +14761,7 @@ async def arch_title_block(
         Field(default=None, description="[text, ...] or {items, title, frame, ...}"),
     ] = None,
     layout: Annotated[
-        str | None, Field(default=None, description="Paper layout; its frame corner is the anchor")
+        str | None, Field(default=None, description="Paper layout; its frame anchors")
     ] = None,
     corner: Annotated[
         str,
@@ -14773,7 +14770,7 @@ async def arch_title_block(
         ),
     ] = "bottom_right",
     x: Annotated[
-        float | None, Field(default=None, description="Corner X instead of the frame's")
+        float | None, Field(default=None, description="Corner X (not the frame's)")
     ] = None,
     y: Annotated[float | None, Field(default=None, description="Corner Y")] = None,
     width: Annotated[float, Field(default=180.0, description="Paper mm, 30-400")] = 180.0,
@@ -14784,6 +14781,7 @@ async def arch_title_block(
     lang: Annotated[str, Field(default="en", description="en | tr | pl")] = "en",
     text_height: Annotated[float, Field(default=2.5, description="Value height, paper mm")] = 2.5,
     label_position: Annotated[str, Field(default="left", description="left | above")] = "left",
+    color: Annotated[int | None, Field(default=None, description="ACI 0-256")] = None,
     name: Annotated[str, Field(default="default", description="Rerun id: replaces")] = "default",
     ctx: Context = None,
 ) -> dict:
@@ -14804,7 +14802,10 @@ async def arch_title_block(
     text_height, color, numbering ('{n}.' '{n}/' '{n})' '-' ''), x?, y?,
     width?, height?} -
     with x, y (bottom-left corner) the notes get a box of their own, else they
-    stack on the block. Known keys are lettered in `lang`; lines on
+    stack on the block. `color` (ACI) colours lines and text, the notes too
+    unless notes.color is set. Known keys, lettered in `lang`: project,
+    investor, address, stage, scale, date, designer, author, checked, title,
+    drawing_no, revision (any other key as written); lines on
     TITLEBLOCK, text on TEXT, every entity with an ACADMCP_ANNOT record
     (tool, set = name). `warnings` reports a block off the paper or over a
     viewport.
@@ -14829,6 +14830,7 @@ async def arch_title_block(
             lang=lang,
             text_height=text_height,
             label_position=label_position,
+            color=color,
             name=name,
         )
     except InvalidArgsError:

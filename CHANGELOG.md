@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `arch_title_block(color=)`: an ACI colour (0-256) for the block's text and
+  lines, the same meaning as `notes.color` and `arch_legend`'s `color`; the
+  notes take it too unless `notes.color` is set. A colour outside 0-256 is
+  refused before anything is drawn. There was no way to set it before: the text
+  went on `TEXT` in the layer's colour and a rerun replaces any recolouring.
+  Per-cell colour is not offered. The descriptions of `rows` and two other
+  parameters are shorter (the known keys moved to `describe_tool`), so the idle
+  arch pack is 2 tokens smaller.
+
 - Wall materials `glass` and `demolition` (`arch_wall`, `arch_plan_from_spec`).
   A glass wall is the curtain-wall glazing end to end, junction to junction,
   with no poche: two glass walls at an L meet on the mitre with no post, a

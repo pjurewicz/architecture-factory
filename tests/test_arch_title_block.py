@@ -248,6 +248,35 @@ async def test_notes_without_frame_or_title_in_their_own_colour(backend):
 
 
 @pytest.mark.asyncio
+async def test_color_paints_the_block_and_the_notes_unless_they_have_their_own(backend):
+    result = await draw_title_block(
+        backend,
+        at=(0, 0),
+        scale=1,
+        fields={"project": "P", "stage": "S"},
+        notes={"items": ["a"], "color": 3},
+        color=2,
+    )
+    ents = [backend._doc.entitydb[h] for h in result["handles"]]
+    blocks = [e for e in ents if e.dxf.layer in ("TEXT", "TITLEBLOCK") and e.dxf.color == 2]
+    assert {e.dxftype() for e in blocks} == {"TEXT", "LINE", "LWPOLYLINE"}
+    notes = [e for e in ents if e.dxf.color == 3]
+    assert notes and len(blocks) + len(notes) == len(ents)  # notes.color wins, nothing left ByLayer
+    inherited = await draw_title_block(
+        backend, at=(0, 0), scale=1, fields={"project": "P"}, notes=["a"], color=5, name="b"
+    )
+    assert {backend._doc.entitydb[h].dxf.color for h in inherited["handles"]} == {5}
+
+
+@pytest.mark.asyncio
+async def test_color_outside_aci_is_refused_before_drawing(backend):
+    for bad in (257, -1, True, 1.5):
+        with pytest.raises(InvalidArgsError, match="color"):
+            await draw_title_block(backend, at=(0, 0), scale=1, fields={"date": "1"}, color=bad)
+    assert not [e for e in backend._msp() if e.dxf.layer in ("TEXT", "TITLEBLOCK")]
+
+
+@pytest.mark.asyncio
 async def test_a_narrow_source_block_is_drawn_at_its_own_width(backend):
     # round 6: the source's title block is 48.75 mm wide; 60 mm was a caution
     result = await draw_title_block(backend, at=(0, 0), fields=FIELDS, width=48.75, scale=1)
