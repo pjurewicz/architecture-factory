@@ -238,7 +238,9 @@ async def test_a_block_heavy_qa_read_that_overruns_never_quarantines(backend, mo
     monkeypatch.setattr(config.settings, "ezdxf_call_timeout", 0.3)
     try:
         snap, coverage = await qa_snapshot(backend, {})
-        assert entered.is_set()
+        # the deadline may fire while the worker is still counting, before the
+        # gated read (a loaded runner): wait for the read instead of racing it
+        assert entered.wait(30)
         assert snap is None and coverage.complete is False
         assert "NOT quarantined" in coverage.reason
         assert backend._quarantine is None
@@ -431,7 +433,9 @@ async def test_a_wrapped_async_still_carries_the_qa_reads_readonly_flag(
     monkeypatch.setattr(config.settings, "ezdxf_call_timeout", 0.3)
     try:
         snap, coverage = await qa_snapshot(backend, {})
-        assert entered.is_set()
+        # the deadline may fire while the worker is still counting, before the
+        # gated read (a loaded runner): wait for the read instead of racing it
+        assert entered.wait(30)
         assert snap is None and coverage.complete is False
         assert backend._quarantine is None, "a read must never quarantine"
         assert "NOT quarantined" in coverage.reason
