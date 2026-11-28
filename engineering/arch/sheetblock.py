@@ -288,15 +288,18 @@ def block_prims(
     label_position: str = "left",
     height: float | None = None,
 ):
-    """``(prims, height)`` of the title block, its top-left corner at (0, 0),
+    """``(prims, height, wide)`` of the title block, its top-left corner at (0, 0),
     +y up, paper mm. A one-cell row puts its label left of the value
     (``label_position="left"``) or above it, a cell without a label spans its
     row; a row of several cells letters each label above. ``height`` stretches
-    the rows to it (refused when the content needs more)."""
+    the rows to it (refused when the content needs more). ``wide`` names every
+    line wider than its column (a word is never broken)."""
+    from engineering.annotation import text_width
+
     lh, vh, th = _heights(text_height)
     k = vh / VALUE_HEIGHT
     label_w = min(LABEL_WIDTH * k, 0.4 * width)
-    plans, needs = [], []
+    plans, needs, wide = [], [], []
     for r, cells in enumerate(rows):
         widths = _widths(cells, width, f"fields[{r}]")
         laid, row_h = [], ROW_HEIGHT * k
@@ -309,6 +312,12 @@ def block_prims(
             )
             span = (width - label_w if mode == "left" else cw) - 2 * PAD
             lines = _wrap(cell["lines"], span, h)
+            for line in lines:
+                if (w := text_width(line, h)) > span + 1e-6:
+                    wide.append(
+                        f"fields[{r}]: {line!r} is {w:.1f} mm wide, its column {span:.1f} mm - "
+                        "lower text_height, widen the block or use label_position='above'"
+                    )
             need = len(lines) * PITCH * h + 2 * PAD + (lh + PAD if mode == "above" else 0.0)
             laid.append((cell, cw, mode, lines, h))
             row_h = max(row_h, need)
@@ -360,7 +369,7 @@ def block_prims(
     block_h = -y
     if rows:
         prims.insert(0, Poly(((0, 0), (width, 0), (width, -block_h), (0, -block_h)), True))
-    return prims, block_h
+    return prims, block_h, wide
 
 
 async def _ensure_sheet_layers(backend, names) -> None:
@@ -518,14 +527,14 @@ async def draw_title_block(
     nspec = parse_notes(notes, lang, float(text_height))
     if not rows and nspec is None:
         raise _bad("arch_title_block: give fields, notes or both.")
-    if not 60.0 <= float(width) <= 400.0:
-        raise _bad(f"width: {width!r} mm is outside 60-400 mm.")
+    if not 30.0 <= float(width) <= 400.0:
+        raise _bad(f"width: {width!r} mm is outside 30-400 mm.")
     if label_position not in ("left", "above"):
         raise _bad(f"label_position must be left or above, got {label_position!r}.")
     if height is not None and not rows:
         raise _bad("height: the title block's own height; give fields (notes take notes.height).")
     width = float(width)
-    prims, block_h = block_prims(
+    prims, block_h, wide = block_prims(
         rows,
         width,
         text_height=text_height,
@@ -603,7 +612,7 @@ async def draw_title_block(
         "min": [round(ox, 3), round(oy + stack_bottom * k, 3)],
         "max": [round(ox + width * k, 3), round(oy + stack_top * k, 3)],
     }
-    warnings = list(report.pop("warnings", []) or [])
+    warnings = list(report.pop("warnings", []) or []) + wide
     if rows or stacked:
         warnings += await sheet_fit_warnings(backend, layout, (bbox["min"], bbox["max"]))
     out_box = None

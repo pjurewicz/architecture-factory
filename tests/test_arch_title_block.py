@@ -245,3 +245,20 @@ async def test_notes_without_frame_or_title_in_their_own_colour(backend):
     assert kinds == ["TEXT", "TEXT", "TEXT"]  # "1.", two lines, no frame, no title
     texts = _texts(backend, result["handles"])
     assert {t.dxf.color for t in texts} == {1} and {t.dxf.height for t in texts} == {3}
+
+
+@pytest.mark.asyncio
+async def test_a_narrow_source_block_is_drawn_at_its_own_width(backend):
+    # round 6: the source's title block is 48.75 mm wide; 60 mm was a caution
+    result = await draw_title_block(backend, at=(0, 0), fields=FIELDS, width=48.75, scale=1)
+    lo, hi = result["bbox"]["min"], result["bbox"]["max"]
+    assert hi[0] - lo[0] == pytest.approx(48.75)
+    # a word is never broken: the one wider than its column is named
+    assert {w.split(":")[0] for w in result["warnings"]} == {"fields[4]"}  # the 3.5 mm title
+    assert any("'ELEKTRYCZNEJ'" in w for w in result["warnings"])
+    fits = await draw_title_block(
+        backend, at=(0, -500), fields={"date": "2026-11"}, width=48.75, scale=1, name="c"
+    )
+    assert "warnings" not in fits
+    with pytest.raises(ValueError, match="outside 30-400 mm"):
+        await draw_title_block(backend, at=(0, 0), fields=FIELDS, width=29, scale=1, name="b")

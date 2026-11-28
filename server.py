@@ -14603,7 +14603,7 @@ async def arch_title_block(
         float | None, Field(default=None, description="Corner X instead of the frame's")
     ] = None,
     y: Annotated[float | None, Field(default=None, description="Corner Y")] = None,
-    width: Annotated[float, Field(default=180.0, description="Paper mm, 60-400")] = 180.0,
+    width: Annotated[float, Field(default=180.0, description="Paper mm, 30-400")] = 180.0,
     height: Annotated[float | None, Field(default=None, description="Block height, mm")] = None,
     scale: Annotated[
         float, Field(default=50.0, gt=0, description="Plot scale in model space")
