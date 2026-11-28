@@ -237,3 +237,59 @@ async def test_a_centred_label_is_centred_and_fit_shrinks_it_into_a_narrow_room(
     assert heights == pytest.approx([175.0, 175.0, 125.0])
     small = await call(client, "arch_room", {"name": "X", "x": 725, "y": 3500, "fit": True})
     assert "already labelled" in small["error"]
+
+
+def test_corner_end_runs_a_window_to_the_junction_with_no_post():
+    """Round 7 (asked in round 4 too): a window drawn to the inner face corner
+    left a 100 mm post the source does not have; corner='end' runs it to the L."""
+    from engineering.arch.model import opening_from_dict, resolve_corner
+
+    raw = {"id": "W1", "wall": "S", "kind": "window", "offset": 4800, "width": 1100}
+    post = wall_geometry([S, E], [opening_from_dict(raw)], poche=False)
+    assert ((5900.0, -100.0), (5900.0, 100.0)) in {seg(j) for j in post.jambs}  # the post
+    ws = resolve_corner(S, opening_from_dict({**raw, "corner": "end"}))
+    assert (ws.offset, ws.width, ws.corner) == (4800.0, 1200.0, None)
+    we = resolve_corner(
+        E, opening_from_dict({"id": "W2", "wall": "E", "kind": "window", "offset": 100,
+                              "width": 1400, "corner": "start"})
+    )  # fmt: skip
+    assert (we.offset, we.width) == (0.0, 1500.0)
+    geo = wall_geometry([S, E], [ws, we], poche=False)
+    jambs = {seg(j) for j in geo.jambs}
+    assert ((5900.0, -100.0), (5900.0, 100.0)) not in jambs
+    assert ((5900.0, 100.0), (6100.0, -100.0)) not in jambs  # nothing closes the corner
+    with pytest.raises(ValueError, match="corner"):
+        opening_from_dict({**raw, "corner": "middle"})
+
+
+@pytest.mark.asyncio
+async def test_an_opening_label_is_lettered_beside_it_and_corner_resolves_in_the_plan():
+    async with Client(server.mcp) as client:
+        await client.call_tool("drawing_new", {})
+        spec = {
+            "sheet": {"scale": 50},
+            "walls": [
+                {"id": "S", "axis": [[0, 0], [6000, 0]], "thickness": 200},
+                {"id": "E", "axis": [[6000, 0], [6000, 5000]], "thickness": 200},
+            ],
+            "openings": [
+                {"id": "D1", "wall": "S", "kind": "door", "offset": 1000, "width": 900,
+                 "label": "90/223 hp=0"},
+                {"id": "W1", "wall": "S", "kind": "window", "offset": 4800, "width": 1100,
+                 "corner": "end"},
+            ],
+        }  # fmt: skip
+        out = (
+            await client.call_tool("arch_plan_from_spec", {"spec": spec, "verbose": True})
+        ).structured_content
+        assert out["omitted"] == []
+        rows = (
+            await client.call_tool("call_tool", {"name": "entity_list", "arguments": {}})
+        ).structured_content
+        rows = rows.get("result", rows) if isinstance(rows, dict) else rows
+        (label,) = [r for r in rows if r["properties"].get("text") == "90/223 hp=0"]
+        # mid-opening, 1.5 mm past the face opposite the swing, centred on its 2 mm
+        assert label["properties"]["insertion"] == [1450.0, -100.0 - 75.0 - 50.0]
+        assert label["layer"] == "A-SYMB-T-N"
+        # the door swings in (above the axis): the label stands below the outer face
+        assert label["properties"]["height"] == 100.0  # 2 mm at 1:50

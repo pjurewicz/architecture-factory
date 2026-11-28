@@ -44,6 +44,7 @@ from .lang import LANGS
 from .layers import ARCH_ROLE_LAYER
 from .model import (
     opening_from_dict,
+    resolve_corner,
     room_from_dict,
     room_separator_from_dict,
     stair_from_dict,
@@ -307,12 +308,13 @@ def validate_spec(spec: dict) -> dict:
     openings = [
         opening_from_dict(item, f"openings[{i}]") for i, item in enumerate(_list(spec, "openings"))
     ]
+    hosts = {wall.id: wall for wall in walls}
+    openings = [resolve_corner(hosts[op.wall], op) if op.wall in hosts else op for op in openings]
     try:
         validate_openings(walls, openings)
         geometry = wall_geometry(walls, openings, poche=poche)
     except ValueError as exc:
         raise ValueError(f"walls/openings: {exc}") from exc
-    hosts = {wall.id: wall for wall in walls}
     openings = [resolve_door(hosts[op.wall], op, f"openings[{i}]") for i, op in enumerate(openings)]
 
     stairs = []

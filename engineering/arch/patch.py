@@ -638,7 +638,9 @@ async def patch_plan(
                 owned[f"opening:{row['id']}"] = list(row["handles"])
         for op in new["openings"]:
             if op.id in plan["symbols_only"]:
-                done = await _draw.draw_opening(backend, walls[op.wall], geometry[op.wall], op)
+                done = await _draw.draw_opening(
+                    backend, walls[op.wall], geometry[op.wall], op, new["scale"]
+                )
                 owned[f"opening:{op.id}"] = list(done["handles"])
         redrawn = [sep for sep in new["room_separators"] if sep.id in plan["room_separators"]]
         for row in await _draw.draw_room_separators(backend, redrawn):

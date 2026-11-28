@@ -91,6 +91,8 @@ class Opening:
     height: float | None = None
     tag: str | None = None
     frame: bool | None = None  # None: on for openings.FRAMED_KINDS
+    corner: str | None = None  # start | end: resolved into offset / width, never stored
+    label: str | None = None  # text drawn beside the opening (round 7)
 
 
 class OpeningArgsError(InvalidArgsError, ValueError):
@@ -246,6 +248,8 @@ _OPENING_FIELDS = (
     "height",
     "tag",
     "frame",
+    "corner",
+    "label",
 )
 _STAIR_FIELDS = (
     "id",
@@ -266,7 +270,13 @@ _SEPARATOR_FIELDS = ("id", "points")
 #: The closed values each builder's ``_choice`` checks, by field.
 _CHOICES: dict[type, dict[str, Sequence[str]]] = {
     Wall: {"justification": JUSTIFICATIONS, "material": WALL_MATERIALS},
-    Opening: {"kind": OPENING_KINDS, "swing": SWINGS, "hand": HANDS, "hinge": HINGES},
+    Opening: {
+        "kind": OPENING_KINDS,
+        "swing": SWINGS,
+        "hand": HANDS,
+        "hinge": HINGES,
+        "corner": ("start", "end"),
+    },
     Stair: {"kind": STAIR_KINDS, "turn": TURNS},
     Room: {},
     WallPolygon: {},
@@ -279,6 +289,8 @@ _DESCRIPTIONS: dict[type, dict[str, str]] = {
         "hinge": "door: start (at offset) | end",
         "swing_towards": "WCS point on the opening side",
         "frame": "door frame; default on",
+        "corner": "run to the axis start / end: no post at the L",
+        "label": "text beside it, e.g. 90/223",
     },
 }
 _POINT_SCHEMA = {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}
@@ -484,7 +496,12 @@ def opening_from_dict(d: dict, path: str = "opening") -> Opening:
             raise OpeningArgsError(
                 f"{path}.frame: a {kind} has no frame; frame is for {', '.join(FRAMED_KINDS)}"
             )
+    corner = d.get("corner")
+    if corner is not None:
+        corner = _choice(corner, f"{path}.corner", ("start", "end"))
     return Opening(
+        corner=corner,
+        label=_text(d.get("label"), f"{path}.label", optional=True),
         id=_text(_required(d, "id", path), f"{path}.id"),
         wall=_text(_required(d, "wall", path), f"{path}.wall"),
         kind=kind,
@@ -599,6 +616,18 @@ def _vertex_runs(wall: Wall) -> list[float]:
         run += math.dist(a, b)
         runs.append(run)
     return runs
+
+
+def resolve_corner(wall: Wall, opening: Opening) -> Opening:
+    """Round 7: ``corner`` "start" / "end" runs the opening to its wall's axis
+    start (offset 0) or end, so at an L it meets the junction with no post;
+    resolved into offset and width, as ``swing_towards`` into swing."""
+    if opening.corner is None:
+        return opening
+    if opening.corner == "start":
+        width = float(opening.offset) + float(opening.width)
+        return replace(opening, offset=0.0, width=width, corner=None)
+    return replace(opening, width=wall_length(wall) - float(opening.offset), corner=None)
 
 
 def validate_openings(walls: Sequence[Wall], openings: Sequence[Opening]) -> None:

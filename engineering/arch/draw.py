@@ -19,6 +19,7 @@ Every refusal fires before the first entity is created or erased.
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import replace
 
 from engineering.arch.dimension import chain_text_positions, exterior_chains
@@ -35,6 +36,7 @@ from engineering.arch.model import (
     decode,
     from_payload,
     opening_from_dict,
+    resolve_corner,
     stair_from_dict,
     to_payload,
     to_values,
@@ -317,7 +319,7 @@ async def _draw_wall(backend, wall, geometry: WallGeometry, openings, scale=50) 
         plot_scale=scale,
     )
     owned = list(drawn["handles"])
-    done = [await _draw_symbol(backend, op, prims) for op, prims in symbols]
+    done = [await _draw_symbol(backend, op, prims, wall, scale) for op, prims in symbols]
     await _write_record(backend, owned[0], wall, owned)
     return {
         "wall": {"id": wall.id, "record": owned[0], "handles": owned},
@@ -326,9 +328,14 @@ async def _draw_wall(backend, wall, geometry: WallGeometry, openings, scale=50) 
     }
 
 
-async def _draw_symbol(backend, op: Opening, prims) -> dict:
-    """One opening's symbol with its record on the first entity."""
-    placed = await draw_prims(backend, prims, role_layer=ARCH_ROLE_LAYER)
+async def _draw_symbol(backend, op: Opening, prims, wall=None, scale=50) -> dict:
+    """One opening's symbol with its record on the first entity; its ``label``
+    (round 7) lettered beside it, outside the swing, along the wall."""
+    if op.label and wall is not None:
+        prims = (*prims, _label_prim(wall, op, scale))
+    placed = await draw_prims(
+        backend, prims, role_layer=ARCH_ROLE_LAYER, annotation="arch_plan_from_spec"
+    )
     await _write_record(backend, placed["handles"][0], op, placed["handles"])
     return {
         "id": op.id,
@@ -338,11 +345,38 @@ async def _draw_symbol(backend, op: Opening, prims) -> dict:
     }
 
 
-async def draw_opening(backend, wall, geometry: WallGeometry, op: Opening) -> dict:
+async def draw_opening(backend, wall, geometry: WallGeometry, op: Opening, scale=50) -> dict:
     """Redraw one opening's symbol in a wall whose cut did not move (a hinge flip)."""
     cut = next((c for c in geometry.cuts if c["element"] == op.id), None)
     op = resolve_door(wall, op)
-    return await _draw_symbol(backend, op, opening_prims(wall, op, cut))
+    return await _draw_symbol(backend, op, opening_prims(wall, op, cut), wall, scale)
+
+
+#: An opening label's paper height and its clearance from the wall face (mm).
+LABEL_HEIGHT, LABEL_GAP = 2.0, 1.5
+
+
+def _label_prim(wall, op: Opening, scale: float):
+    """The label's TEXT: centred on the opening's middle, beyond the face
+    opposite the door's swing (the outer face for a window), turned along the
+    wall and kept readable (never upside down)."""
+    from engineering.arch.model import segment_of
+    from engineering.arch.walls import face_offsets, wall_segments
+    from engineering.mech.primitives import Text
+
+    index, along = segment_of(wall, float(op.offset) + float(op.width) / 2.0)
+    (ax, ay), (bx, by) = wall_segments(wall)[index]
+    length = math.hypot(bx - ax, by - ay)
+    ux, uy = (bx - ax) / length, (by - ay) / length
+    left, right = face_offsets(wall)
+    h, gap = LABEL_HEIGHT * scale, LABEL_GAP * scale
+    side = -1.0 if op.swing == "in" else 1.0  # away from the swing (in = the axis's left)
+    reach = (right - gap - h / 2.0) if side < 0 else (left + gap + h / 2.0)
+    mx, my = ax + ux * along - uy * reach, ay + uy * along + ux * reach
+    angle = math.degrees(math.atan2(uy, ux))
+    if angle > 90.0 + 1e-9 or angle <= -90.0 + 1e-9:
+        angle -= 180.0 if angle > 0 else -180.0
+    return Text((mx, my), op.label, h, angle, "symbol", "middle_center")
 
 
 def _collect(results: list[dict]) -> dict:
@@ -632,7 +666,7 @@ async def add_opening(
     if op.wall not in walls:
         names = ", ".join(sorted(walls)) or "none - draw one with arch_wall"
         raise ValueError(f"opening.wall: {op.wall!r} is not a wall on this drawing; walls: {names}")
-    op = resolve_door(walls[op.wall], op, "opening")
+    op = resolve_door(walls[op.wall], resolve_corner(walls[op.wall], op), "opening")
     (op,) = assign_tags([op], plan["openings"], lang=lang)
     if auto_id:
         op = replace(op, id=op.tag)
