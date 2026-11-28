@@ -49,6 +49,9 @@ SOURCE_INK_DISTANCE = 48
 FILL_CORE_PX = 3
 #: A rendered pixel is ink when some channel is at most this (white paper).
 INK_CHANNEL = 191
+#: rects / walls: a ``skip`` pixel counts as the fill when the fill lies on
+#: both sides of it within this many pixels (a label over a wall, not beside it).
+SKIP_REACH_PX = 32
 #: Compare: a line pixel counts as matched within this many pixels.
 COMPARE_TOLERANCE_PX = 2
 #: Compare: the regions of largest difference returned.
@@ -377,11 +380,23 @@ def _bounded(rows: list[dict], limit: int, out: dict, key: str) -> dict:
     return out
 
 
-def _detect_head(path, align, region, region_px, color, tolerance, size, limit):
+def _detect_head(path, align, region, region_px, color, tolerance, size, limit, skip=None):
     cal = Calibration(align)
     limit = _limit(limit)
     arr, origin, k, scan_size = _pixels(path, cal, region, region_px)
     mask, rgb = _mask(arr, color, tolerance)
+    if skip:  # round 7: colours that cross the fill (dimensions, hatching) count as it
+        if (
+            isinstance(skip, str)
+            or not isinstance(skip, list | tuple)
+            or (len(skip) == 3 and all(isinstance(c, int) for c in skip))
+        ):
+            skip = [skip]
+        over = mask.copy()
+        for other in skip:
+            over &= False
+            over |= _mask(arr, other, tolerance)[0]
+            mask |= over & _between(mask, SKIP_REACH_PX)
     lo, hi = _size_bounds(size, cal, k)
     head = {
         "ok": True,
@@ -398,15 +413,34 @@ def _detect_head(path, align, region, region_px, color, tolerance, size, limit):
     return cal, mask, origin, k, lo, hi, head, limit
 
 
-def find_rects(
-    path, align, *, color, tolerance=40, size=None, region=None, region_px=None, limit=100
-):
-    """Axis-aligned filled rectangles of ``color``; see the module docstring."""
-    cal, mask, origin, k, lo, hi, out, limit = _detect_head(
-        path, align, region, region_px, color, tolerance, size, limit
-    )
+def _reach(mask, axis: int, reverse: bool):
+    """Per pixel, the distance to the nearest ``mask`` pixel before it along
+    ``axis`` (after it when ``reverse``); a large number where there is none."""
+    import numpy as np
+
+    m = np.flip(mask, axis) if reverse else mask
+    n = m.shape[axis]
+    idx = np.arange(n).reshape((-1, 1) if axis == 0 else (1, -1))
+    last = np.maximum.accumulate(np.where(m, idx, -(10**9)), axis=axis)
+    dist = idx - last
+    return np.flip(dist, axis) if reverse else dist
+
+
+def _between(mask, reach: int):
+    """Pixels with ``mask`` on both sides within ``reach`` px, along a row or a
+    column: where a crossing line or label cuts a fill, not where it overhangs."""
+    out = None
+    for axis in (0, 1):
+        both = (_reach(mask, axis, False) <= reach) & (_reach(mask, axis, True) <= reach)
+        out = both if out is None else out | both
+    return out
+
+
+def _boxes(mask) -> list[list[int]]:
+    """Row runs merged downwards while their ends stay within a pixel:
+    [c0, r0, c1, r1, count] in array px, so an L or a T becomes its arms."""
     rows, starts, ends = _runs(mask)
-    done: list[list[int]] = []  # [c0, r0, c1, r1, count]
+    done: list[list[int]] = []  # [c0, r0, c1, r1, count, last start, last end]
     open_: list[list[int]] = []
     i, n = 0, len(rows)
     while i < n:
@@ -435,14 +469,220 @@ def find_rects(
         open_ = still
         i = j
     done.extend(open_)
+    return [r[:5] for r in done]
+
+
+def _wall_bands(boxes, mask, gap_px: float) -> list[dict]:
+    """Boxes as bands along their long side, collinear ones joined (round 7).
+
+    A band is {h, a0, a1, c, t, count, gaps}: horizontal or not, its run
+    [a0, a1) along the axis, its centre line c across and thickness t, in
+    array px. Two bands of one direction whose centre lines and thicknesses
+    agree within 15 % (2 px at least) are one band when the stretch between
+    them is filled in ``mask`` (a junction the run merge cut) or no longer
+    than ``gap_px``; such a gap is kept in ``gaps`` (an opening candidate).
+    """
+    bands = []
+    for c0, r0, c1, r1, count in boxes:
+        h = (c1 - c0) >= (r1 - r0)
+        a0, a1, b0, b1 = (c0, c1, r0, r1) if h else (r0, r1, c0, c1)
+        bands.append(
+            {"h": h, "a0": a0, "a1": a1, "c": (b0 + b1) / 2.0, "t": float(b1 - b0),
+             "count": count, "gaps": []}
+        )  # fmt: skip
+    merged = True
+    while merged:
+        merged = False
+        bands.sort(key=lambda b: (b["h"], round(b["c"]), b["a0"]))
+        out: list[dict] = []
+        for band in bands:
+            for prev in reversed(out):
+                if prev["h"] != band["h"]:
+                    continue
+                tol = max(2.0, 0.15 * max(prev["t"], band["t"]))
+                if abs(prev["c"] - band["c"]) > tol or abs(prev["t"] - band["t"]) > tol:
+                    continue
+                first, second = (prev, band) if prev["a0"] <= band["a0"] else (band, prev)
+                gap = second["a0"] - first["a1"]
+                filled = gap <= 0
+                if not filled:
+                    lo = max(0, int(round(band["c"] - band["t"] / 4)))
+                    hi = max(lo + 1, int(round(band["c"] + band["t"] / 4)))
+                    sl = (
+                        mask[lo:hi, first["a1"] : second["a0"]]
+                        if band["h"]
+                        else mask[first["a1"] : second["a0"], lo:hi]
+                    )
+                    filled = sl.size > 0 and float(sl.mean()) >= 0.8
+                if not filled and gap > gap_px:
+                    continue
+                la, lb = prev["a1"] - prev["a0"], band["a1"] - band["a0"]
+                prev["c"] = (prev["c"] * la + band["c"] * lb) / (la + lb)
+                prev["t"] = (prev["t"] * la + band["t"] * lb) / (la + lb)
+                prev["gaps"] += band["gaps"] + ([] if filled else [(first["a1"], second["a0"])])
+                prev["a0"], prev["a1"] = min(prev["a0"], band["a0"]), max(prev["a1"], band["a1"])
+                prev["count"] += band["count"]
+                merged = True
+                break
+            else:
+                out.append(band)
+        bands = out
+    return bands
+
+
+def _band_box(b) -> tuple[float, float, float, float]:
+    """A band as [c0, r0, c1, r1] in array px."""
+    lo, hi = b["c"] - b["t"] / 2.0, b["c"] + b["t"] / 2.0
+    return (b["a0"], lo, b["a1"], hi) if b["h"] else (lo, b["a0"], hi, b["a1"])
+
+
+def find_rects(
+    path,
+    align,
+    *,
+    color,
+    tolerance=40,
+    size=None,
+    region=None,
+    region_px=None,
+    limit=100,
+    skip=None,
+    gap=None,
+):
+    """Axis-aligned filled rectangles of ``color``; see the module docstring.
+
+    ``skip`` colours count as ``color``; with ``gap`` (drawing units) collinear
+    rectangles of one thickness are joined across gaps up to it."""
+    cal, mask, origin, k, lo, hi, out, limit = _detect_head(
+        path, align, region, region_px, color, tolerance, size, limit, skip
+    )
     unit = cal.upp * k
+    boxes = _boxes(mask)
+    if gap is not None:
+        gap_px = _nonnegative(gap, "gap") / unit
+        boxes = []
+        for b in _wall_bands(_boxes(mask), mask, gap_px):
+            c0, r0, c1, r1 = _band_box(b)
+            boxes.append([round(c0), round(r0), round(c1), round(r1), b["count"]])
     found = []
-    for c0, r0, c1, r1, count, *_ in done:
+    for c0, r0, c1, r1, count in boxes:
         w, h = (c1 - c0) * unit, (r1 - r0) * unit
         if lo <= w <= hi and lo <= h <= hi:
             found.append(_feature(cal, origin, k, c0, r0, c1, r1, count))
     found.sort(key=lambda f: -f["pixels"])
     return _bounded(found, limit, out, "rects")
+
+
+def _nonnegative(value, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float) or not value >= 0:
+        raise ValueError(f"{name}: a number of drawing units >= 0, got {value!r}.")
+    return float(value)
+
+
+def find_walls(
+    path,
+    align,
+    *,
+    color,
+    tolerance=40,
+    size=None,
+    region=None,
+    region_px=None,
+    limit=100,
+    skip=None,
+    gap=None,
+    origin=None,
+    step=None,
+):
+    """Wall poche of ``color`` read as axes and thicknesses (round 7).
+
+    The mask (``skip`` colours counted as ``color``) is closed over 2 px cuts
+    and opened by the minimum thickness (``size[0]``, default 3 px), so lines,
+    hatching and lettering drop out; its rectangles become bands joined along
+    their axes (:func:`_wall_bands`, gaps up to ``gap`` kept as openings) and each
+    band end that touches a crossing band is carried onto that band's axis, so
+    L, T and X meet as ``arch_plan_from_spec`` joins them. Rows are spec walls
+    {id, axis, thickness} and openings {wall, offset, width} (kind not read);
+    ``origin`` is subtracted from every point, ``step`` rounds (default 1).
+    """
+    cal, mask, at, k, lo, hi, out, limit = _detect_head(
+        path, align, region, region_px, color, tolerance, size, limit, skip
+    )
+    unit = cal.upp * k
+    gap_px = 0.0 if gap is None else _nonnegative(gap, "gap") / unit
+    step = 1.0 if step is None else _nonnegative(step, "grid")
+    if step == 0:
+        raise ValueError("grid: the walls rounding step must be above zero.")
+    ox, oy = (0.0, 0.0) if origin is None else _xy(origin, "origin")
+    r = max(0, int((lo / unit - 1) // 2))
+    mask = _erode(_dilate(mask, 2), 2)
+    if r:
+        mask = _dilate(_erode(mask, r), r)
+    bands, dropped = [], 0
+    for b in _wall_bands(_boxes(mask), mask, gap_px):
+        if not lo <= b["t"] * unit <= hi or b["a1"] - b["a0"] < b["t"]:
+            dropped += 1  # thinner / thicker than size, or a pier no longer than thick
+            continue
+        bands.append(b)
+    ends = []  # each band end carried onto the axis of a crossing band it touches
+    for b in bands:
+        new = [float(b["a0"]), float(b["a1"])]
+        for i, e in enumerate((b["a0"], b["a1"])):
+            probe = (e, e + b["t"]) if i == 0 else (e - b["t"], e)
+            box = _band_box({**b, "a0": probe[0], "a1": probe[1]})
+            best = None
+            for other in bands:
+                if other["h"] == b["h"]:
+                    continue
+                ob = _band_box(other)
+                if (
+                    all((box[j] <= ob[j + 2] + 2 and ob[j] <= box[j + 2] + 2) for j in (0, 1))
+                    and abs(other["c"] - e) <= b["t"] + other["t"]
+                ):
+                    if best is None or abs(other["c"] - e) < abs(best - e):
+                        best = other["c"]
+            if best is not None:
+                new[i] = best
+        ends.append(new)
+
+    def wcs(b, a):
+        c, v = (a, b["c"]) if b["h"] else (b["c"], a)
+        x, y = cal.to_wcs(at[0] + c * k, at[1] + v * k)
+        return x - ox, y - oy
+
+    def rnd(v):
+        q = round(v / step) * step
+        return int(q) if float(q).is_integer() else round(q, 3)
+
+    walls, openings = [], []
+    order = sorted(range(len(bands)), key=lambda i: -(ends[i][1] - ends[i][0]) * bands[i]["t"])
+    for n, i in enumerate(order, 1):
+        b, (a0, a1) = bands[i], ends[i]
+        p, q = wcs(b, a0), wcs(b, a1)
+        if (q[0], q[1]) < (p[0], p[1]):
+            p, q = q, p
+        wid = f"W{n}"
+        walls.append(
+            {"id": wid, "axis": [[rnd(p[0]), rnd(p[1])], [rnd(q[0]), rnd(q[1])]],
+             "thickness": rnd(b["t"] * unit)}
+        )  # fmt: skip
+        for g0, g1 in b["gaps"]:
+            s = sorted(math.dist(p, wcs(b, g)) for g in (g0, g1))
+            openings.append({"wall": wid, "offset": rnd(s[0]), "width": rnd(s[1] - s[0])})
+    out = _bounded(walls, limit, out, "walls")
+    out["openings"] = [o for o in openings if any(w["id"] == o["wall"] for w in out["walls"])]
+    out["dropped"] = dropped
+    if origin is not None:
+        out["origin"] = [ox, oy]
+    return out
+
+
+def _xy(value, name: str) -> tuple[float, float]:
+    try:
+        x, y = (float(v) for v in value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name}: expected [x, y], got {value!r}.") from None
+    return x, y
 
 
 def find_blobs(

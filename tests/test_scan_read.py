@@ -440,3 +440,70 @@ def test_snap_finds_the_corner_and_the_end_near_a_pixel(tmp_path):
     assert corner["point"] == pytest.approx(wcs(100.5, 100.5), abs=10)
     assert end["kind"] == "end" and end["px"] == pytest.approx([302, 100.5], abs=2)
     assert none["found"] is False
+
+
+def _plan_scan(tmp_path) -> str:
+    """A grey-poche plan at 10 mm/px: a 200 mm shell, two 100 mm walls in a T,
+    an 800 mm gap in the bottom wall, a red dimension line and a red band
+    across walls, blue hatching over one wall and thin grey lettering."""
+    image = Image.new("RGB", (400, 300), "white")
+    pen = ImageDraw.Draw(image)
+    for box in ([40, 40, 359, 59], [40, 240, 99, 259], [180, 240, 359, 259],
+                [40, 40, 59, 259], [340, 40, 359, 259],  # shell
+                [195, 60, 204, 239], [60, 145, 194, 154]):  # fmt: skip
+        pen.rectangle(box, fill=GREY)
+    pen.line([(250, 20), (250, 80)], fill=RED, width=2)  # a dimension line across the top
+    pen.rectangle([330, 100, 370, 105], fill=RED)  # a red band across the right wall
+    for d in range(0, 220, 8):
+        pen.line([(40, 40 + d), (59, 59 + d)], fill=(0, 0, 255), width=1)  # hatching
+    pen.line([(80, 100), (150, 100)], fill=GREY, width=2)  # lettering, not a wall
+    path = tmp_path / "plan.png"
+    image.save(path)
+    return str(path)
+
+
+def test_walls_come_back_as_spec_axes_joined_at_their_junctions(tmp_path):
+    out = sr.find_walls(
+        _plan_scan(tmp_path), ALIGN, color=GREY, skip=["#ff0000"], gap=1000, size=[60, 400]
+    )
+    got = sorted((tuple(map(tuple, w["axis"])), w["thickness"]) for w in out["walls"])
+    assert got == sorted(
+        [
+            (((1500, 4500), (4500, 4500)), 200),  # top, through the dimension line
+            (((1500, 2500), (4500, 2500)), 200),  # bottom, across the 800 mm gap
+            (((1500, 2500), (1500, 4500)), 200),  # left, under its hatching
+            (((4500, 2500), (4500, 4500)), 200),  # right, through the red band
+            (((3000, 2500), (3000, 4500)), 100),  # the T at both ends
+            (((1500, 3500), (3000, 3500)), 100),  # between the shell and the T wall
+        ]
+    )
+    bottom = next(w["id"] for w in out["walls"] if w["axis"] == [[1500, 2500], [4500, 2500]])
+    assert out["openings"] == [{"wall": bottom, "offset": 500, "width": 800}]
+    # without skip the red band cuts the right wall; without gap the bottom is two walls
+    plain = sr.find_walls(_plan_scan(tmp_path), ALIGN, color=GREY, size=[60, 400])
+    assert len(plain["walls"]) == 8 and plain["openings"] == []
+    local = sr.find_walls(
+        _plan_scan(tmp_path), ALIGN, color=GREY, skip="#ff0000", gap=1000,
+        size=[60, 400], origin=[1500, 2500], step=50,
+    )  # fmt: skip
+    assert [[0, 0], [3000, 0]] in [w["axis"] for w in local["walls"]]
+
+
+@pytest.mark.asyncio
+async def test_scan_walls_paste_into_arch_plan_from_spec(client, tmp_path):
+    scan = _plan_scan(tmp_path)
+    args = {"align": ALIGN, "image": scan, "mode": "walls", "color": "#808080",
+            "skip": ["#ff0000"], "gap": 1000, "size": [60, 400]}  # fmt: skip
+    read = (await client.call_tool("scan_read", args)).structured_content
+    await client.call_tool("drawing_new", {})
+    walls = [{**w, "material": "brick"} for w in read["walls"]]
+    openings = [{**o, "id": f"D{i}", "kind": "door"} for i, o in enumerate(read["openings"])]
+    plan = await client.call_tool(
+        "arch_plan_from_spec", {"spec": {"walls": walls, "openings": openings}}
+    )
+    data = plan.structured_content
+    assert not plan.is_error and data["omitted"] == []
+    bad = await client.call_tool(
+        "scan_read", {**args, "mode": "blobs", "skip": "#ff0000"}, raise_on_error=False
+    )
+    assert bad.is_error and "rects and walls only" in bad.structured_content["message"]

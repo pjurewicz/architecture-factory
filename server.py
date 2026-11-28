@@ -14766,7 +14766,8 @@ async def scan_read(
         "{points: [[u, v], [u, v]], length, at?, angle?} - answered as align",
     ] = None,
     mode: Annotated[
-        Literal["map", "grid", "rects", "blobs", "compare", "snap"], "What to read; see Details"
+        Literal["map", "grid", "rects", "blobs", "walls", "compare", "snap"],
+        "What to read; see Details",
     ] = "map",
     image: Annotated[str | None, "The scan file (all modes but map)"] = None,
     pixels: Annotated[
@@ -14779,11 +14780,16 @@ async def scan_read(
     color: Annotated[
         str | list[int] | None, "rects/blobs: '#rrggbb' or [r, g, b]; grid: its colour"
     ] = None,
-    tolerance: Annotated[float, "rects/blobs: max channel difference 0-255"] = 40,
-    size: Annotated[list[float] | None, "rects/blobs: [min, max] side, drawing units"] = None,
+    tolerance: Annotated[float, "rects/blobs/walls: max channel difference 0-255"] = 40,
+    size: Annotated[
+        list[float] | None, "rects/blobs: [min, max] side; walls: thickness (drawing units)"
+    ] = None,
+    skip: Annotated[str | list | None, "rects/walls: colours counted as `color`"] = None,
+    gap: Annotated[float | None, "rects/walls: join collinear pieces across gaps up to"] = None,
+    origin: Annotated[list[float] | None, "walls: the WCS point answered as [0, 0]"] = None,
     limit: Annotated[int, "rects/blobs: rows returned (1-1000)"] = 100,
     zoom: Annotated[float | None, "grid: output px per scan px"] = None,
-    grid: Annotated[float | None, "grid: step in drawing units (auto)"] = None,
+    grid: Annotated[float | None, "grid: step in drawing units (auto); walls: rounding (1)"] = None,
     layout: Annotated[
         str | None, "compare: this paper layout, the scan fitted page to page without align"
     ] = None,
@@ -14819,6 +14825,14 @@ async def scan_read(
     8-connected components of `color` (symbols, dots, rings): centroid
     `center`, `size`, `box`, `pixels`. Both: `count` and at most `limit` rows
     (`truncated`); `size` [min, max] filters both sides (default min 3 px).
+    rects: `skip` colours (dimensions, hatching over the fill) count as
+    `color`; `gap` joins collinear rectangles of one thickness across gaps.
+
+    `walls`: the poche as spec walls to paste into arch_plan_from_spec -
+    `walls` [{id, axis, thickness}], `openings` [{wall, offset, width}] for
+    each gap `gap` bridged (kind not read), `dropped` pieces; thin lines and
+    lettering are opened away (`size` = thickness range), crossing ends meet
+    on the axes (L / T / X), `origin` makes them local, `grid` rounds.
 
     `compare`: the drawing rendered on white at the scan's resolution,
     resampled into the scan's pixels through `align` - model space, or
@@ -14873,10 +14887,19 @@ async def scan_read(
         if mode == "snap":
             out = await asyncio.to_thread(sr.snap_points, path, align, pixels=pixels, limit=limit)
             return out if calibration is None else {**out, "calibration": calibration}
-        if mode in ("rects", "blobs"):
-            finder = sr.find_rects if mode == "rects" else sr.find_blobs
+        if mode in ("rects", "blobs", "walls"):
+            extra = {}
+            if mode != "blobs":
+                extra = {"skip": skip, "gap": gap}
+            elif skip is not None or gap is not None:
+                raise ValueError("skip / gap: rects and walls only.")
+            if mode == "walls":
+                extra |= {"origin": origin, "step": grid}
+            elif origin is not None:
+                raise ValueError("origin: walls only.")
+            finder = {"rects": sr.find_rects, "blobs": sr.find_blobs, "walls": sr.find_walls}
             out = await asyncio.to_thread(
-                finder,
+                finder[mode],
                 path,
                 align,
                 color=color,
@@ -14884,6 +14907,7 @@ async def scan_read(
                 size=size,
                 limit=limit,
                 **window,
+                **extra,
             )
             return out if calibration is None else {**out, "calibration": calibration}
         b = _backend(ctx)
