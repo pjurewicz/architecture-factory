@@ -3,14 +3,14 @@
   "schema_version": 2,
   "package_version": "1.8.0",
   "totals": {
-    "tools": 250,
+    "tools": 251,
     "resources": 13,
     "prompts": 5,
     "groups": 27
   },
   "groups": {
     "analysis": 12,
-    "architecture": 21,
+    "architecture": 22,
     "batch": 3,
     "blocks": 9,
     "corner_ops": 4,
@@ -372,6 +372,31 @@
       ],
       "annotations": {
         "title": "Architecture: Dimension Chains",
+        "destructiveHint": false
+      }
+    },
+    {
+      "name": "arch_floor_zone",
+      "group": "architecture",
+      "cost": "mutate",
+      "summary": "Hatch a floor zone - a room or outline minus fitted items - and measure its area.",
+      "acad": [],
+      "synonyms": [
+        "floor zone",
+        "underfloor heating",
+        "floor finish",
+        "floor area minus fitted furniture",
+        "vinyl floor",
+        "ogrzewanie podlogowe",
+        "strefa podlogi",
+        "posadzka winyl"
+      ],
+      "tags": [
+        "arch",
+        "create"
+      ],
+      "annotations": {
+        "title": "Architecture: Floor Zone",
         "destructiveHint": false
       }
     },

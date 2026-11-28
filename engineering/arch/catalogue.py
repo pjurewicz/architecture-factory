@@ -1412,6 +1412,34 @@ ITEMS: tuple[CatalogueItem, ...] = (
 HEIGHT_RANGE: tuple[float, float] = (10.0, 4000.0)
 
 CATALOGUE_NAMES: tuple[str, ...] = tuple(item.name for item in ITEMS)
+#: Fitted items - joinery, appliances and sanitary ware fixed to the building,
+#: which a floor zone (underfloor heating, a floor finish) stops at by default;
+#: the rest is movable furniture a floor runs under. A test holds it to ITEMS.
+FITTED: frozenset[str] = frozenset(
+    {
+        "kitchen_counter",
+        "fridge",
+        "induction_hob",
+        "oven_tall_unit",
+        "dishwasher",
+        "wc",
+        "bidet",
+        "wall_basin",
+        "shower_tray",
+        "bathtub",
+        "kitchen_sink",
+        "washing_machine",
+        "walk_in_shower",
+        "freestanding_bathtub",
+        "sink_bowl",
+        "built_in_wardrobe",
+        "countertop_basin",
+        "radiator",
+        "concealed_wc_frame",
+        "prewall",
+        "wall_niche",
+    }
+)
 _BY_NAME: dict[str, CatalogueItem] = {item.name: item for item in ITEMS}
 
 #: Turkish letters folded to ASCII so "buzdolabi" finds "buzdolabı" and a
@@ -1518,6 +1546,7 @@ def _row(item: CatalogueItem, lang: str) -> dict:
         "block": f"{BLOCK_PREFIX}{item.name.upper()}",
         "layer": ARCH_ROLE_LAYER[item.family],
         "tier": item.tier,
+        "fitted": item.name in FITTED,
         **(
             {
                 "options": {

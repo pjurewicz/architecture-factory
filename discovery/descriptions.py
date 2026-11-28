@@ -5,7 +5,7 @@ to the model on every uncached request: the idle cost the token budget holds
 (``benchmarks/token_budget.json``, plan section 4). A docstring is written for
 the reader who is about to call the tool - refusals, units, enums, edge cases -
 and the longest ones run to several thousand characters, most of which a model
-choosing among 250 tools never needs.
+choosing among 251 tools never needs.
 
 So at registration (``server.cad_tool``, the one place every tool passes
 through) a description over :data:`WIRE_DESCRIPTION_MAX` characters is listed

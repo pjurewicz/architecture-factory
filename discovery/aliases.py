@@ -2572,6 +2572,19 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "odczyt skanu",
         ),
     ),
+    "arch_floor_zone": ToolAliases(
+        acad=(),
+        synonyms=(
+            "floor zone",
+            "underfloor heating",
+            "floor finish",
+            "floor area minus fitted furniture",
+            "vinyl floor",
+            "ogrzewanie podlogowe",
+            "strefa podlogi",
+            "posadzka winyl",
+        ),
+    ),
     "interior_tile_layout": ToolAliases(
         acad=(),
         synonyms=(

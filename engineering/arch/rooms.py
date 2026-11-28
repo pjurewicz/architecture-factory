@@ -867,6 +867,19 @@ async def wall_layers(backend: AutoCADBackend) -> list[str]:
     return names
 
 
+async def plan_faces(backend: AutoCADBackend, records: dict):
+    """``(faces, wall layers, segments, skipped, closures, omitted)``: the closed
+    faces of the wall layers, every opening closed across its wall."""
+    layers = await wall_layers(backend)
+    segments, skipped = await read_segments(backend, layers)
+    closures, omitted = opening_closures(records["walls"], records["openings"])
+    wall_layer = ARCH_ROLE_LAYER["wall"]
+    faces = planar_faces(
+        [*segments, *((p1, p2, wall_layer) for p1, p2 in closures)], tol=DEFAULT_TOL
+    )
+    return faces, layers, segments, skipped, closures, omitted
+
+
 async def label_room(
     backend: AutoCADBackend,
     room_dict: dict,
@@ -935,13 +948,7 @@ async def label_room(
             backend, room, records, lang=lang, scale=scale, align=align, fit=fit, mask=mask
         )
 
-    wall_layer = ARCH_ROLE_LAYER["wall"]
-    layers = await wall_layers(backend)
-    segments, skipped = await read_segments(backend, layers)
-    closures, omitted = opening_closures(records["walls"], records["openings"])
-    faces = planar_faces(
-        [*segments, *((p1, p2, wall_layer) for p1, p2 in closures)], tol=DEFAULT_TOL
-    )
+    faces, layers, segments, skipped, closures, omitted = await plan_faces(backend, records)
     face = face_containing(faces, (x, y))
     if face is None:
         ends = _open_ends_near(records, (x, y))

@@ -2249,6 +2249,7 @@ PACK_TOOL_NAMES: dict[str, frozenset[str]] = {
             "arch_plan_patch",
             "interior_tile_layout",
             "interior_wall_elevation",
+            "arch_floor_zone",
         }
     ),
     # SECTION 27 - the plant takeoffs: pipe and cable quantities whose topology
@@ -13692,7 +13693,7 @@ async def data_extract(
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 25: Architecture (21 tools) ────────────────────────────────────
+# ── SECTION 25: Architecture (22 tools) ────────────────────────────────────
 # ---------------------------------------------------------------------------
 
 
@@ -13950,65 +13951,53 @@ async def arch_stair(
 async def interior_tile_layout(
     outline: Annotated[
         list[list[float]],
-        Field(
-            description="Floor outline, WCS [[x, y], ...] (mm), a simple polygon, open or closed"
-        ),
+        Field(description="Floor outline, WCS [[x, y], ...], a simple polygon"),
     ],
-    tile_length: Annotated[
-        float, Field(description="Tile / panel length along the lay direction (mm)")
-    ],
-    tile_width: Annotated[float, Field(description="Tile / panel width (mm)")],
+    tile_length: Annotated[float, Field(description="Along the lay direction, mm")],
+    tile_width: Annotated[float, Field(description="mm")],
     pattern: Annotated[
         str, Field(default="grid", description="grid | running_bond | herringbone")
     ] = "grid",
-    joint: Annotated[
-        float, Field(default=3.0, description="Joint (grout) width, mm; 0 for panels")
-    ] = 3.0,
+    joint: Annotated[float, Field(default=3.0, description="Joint width, mm; 0 for panels")] = 3.0,
     start_x: Annotated[
         float | None,
         Field(
             default=None,
-            description="WCS X of a tile corner the layout starts from; default the outline's min X",
+            description="Start tile corner X; default the outline's min X",
         ),
     ] = None,
     start_y: Annotated[
         float | None,
-        Field(default=None, description="WCS Y of that corner; default the outline's min Y"),
+        Field(default=None, description="Default the outline's min Y"),
     ] = None,
     angle_deg: Annotated[
         float,
-        Field(default=0.0, description="Lay direction, degrees CCW from +X (45 for a diagonal)"),
+        Field(default=0.0, description="Lay direction, degrees CCW"),
     ] = 0.0,
     bond: Annotated[
         float,
         Field(
             default=0.5,
-            description="running_bond: row shift as a share of the length (0.5 half, 0.333 third)",
+            description="running_bond row shift, share of the length",
         ),
     ] = 0.5,
     cutouts: Annotated[
         list[dict] | None,
         Field(
             default=None,
-            description="Areas left untiled: [{points: [[x, y], ...], label}] - fitted furniture, shower tray, bath",
+            description="Untiled areas: [{points: [[x, y], ...], label}]",
         ),
     ] = None,
-    waste_pct: Annotated[
-        float, Field(default=10.0, description="Waste allowance added to the tile count, %")
-    ] = 10.0,
-    dry_run: Annotated[
-        bool, Field(default=False, description="Compute the takeoff only; draw nothing")
-    ] = False,
+    waste_pct: Annotated[float, Field(default=10.0, description="Waste allowance, %")] = 10.0,
+    dry_run: Annotated[bool, Field(default=False, description="Takeoff only")] = False,
     offcut_reuse: Annotated[
         bool,
         Field(
             default=True,
-            description="Pack cut pieces into offcuts of earlier cuts (false: every cut piece a whole tile)",
+            description="Cut pieces from earlier offcuts",
         ),
     ] = True,
-    kerf: Annotated[
-        float, Field(default=3.0, description="Material lost per saw cut, mm (offcut_reuse only)")
-    ] = 3.0,
+    kerf: Annotated[float, Field(default=3.0, description="Lost per cut, mm")] = 3.0,
     ctx: Context = None,
 ) -> dict:
     """A tile or panel layout cut to a floor outline, drawn thin on `A-FLOR-E-N`, with its takeoff.
@@ -14060,6 +14049,76 @@ async def interior_tile_layout(
             waste_pct=waste_pct,
             offcut_reuse=offcut_reuse,
             kerf=kerf,
+        )
+    except ValueError as exc:
+        raise ToolError(str(exc)) from exc
+
+
+@cad_tool(
+    summary="Hatch a floor zone - a room or outline minus fitted items - and measure its area.",
+    cost="mutate",
+)
+@mcp.tool(
+    annotations={"title": "Architecture: Floor Zone", "destructiveHint": False},
+    tags={"arch", "create"},
+)
+async def arch_floor_zone(
+    room: Annotated[
+        str | list[float] | None, Field(default=None, description="Room id or [x, y] in it")
+    ] = None,
+    outline: Annotated[
+        list[list[float]] | None, Field(default=None, description="Or a WCS outline")
+    ] = None,
+    minus: Annotated[
+        list[str],
+        Field(description="fitted | movable | catalogue names: their footprints are cut out"),
+    ] = ["fitted"],  # noqa: B006 - pydantic copies the default
+    minus_handles: Annotated[
+        list[str] | None, Field(default=None, description="Further entities cut out")
+    ] = None,
+    pattern: Annotated[str, Field(description="Predefined hatch pattern")] = "ANSI37",
+    joints: Annotated[
+        list[float] | None,
+        Field(default=None, description="[along, across] joint spacing, mm; replaces pattern"),
+    ] = None,
+    angle: Annotated[float, Field(description="Pattern / joint angle, degrees")] = 0.0,
+    start: Annotated[list[float] | None, Field(default=None, description="Joint origin")] = None,
+    scale: Annotated[float, Field(gt=0, description="Plot-scale denominator")] = 50.0,
+    pattern_scale: Annotated[float, Field(gt=0)] = 1.0,
+    label: Annotated[str | None, Field(default=None, description="Legend label")] = None,
+    name: Annotated[str | None, Field(default=None, description="Rerun replaces it")] = None,
+    layer: Annotated[str | None, Field(default=None, description="Default A-FLOR-E-N")] = None,
+    color: Annotated[int | None, Field(default=None, description="ACI")] = None,
+    dry_run: bool = False,
+    ctx: Context = None,
+) -> dict:
+    """One HATCH over a room (its wall face or boundary) or an outline, minus cutouts.
+
+    Cut out: the face's holes, catalogue items by class (`fitted` = joinery,
+    appliances, sanitary; `movable` = furniture) or name, and `minus_handles`.
+    `area_m2` is measured from the cut region, never typed. `label` names the
+    arch_legend row. The result's `outline` / `cutouts` feed interior_tile_layout.
+    """
+    from engineering.arch.floor import floor_zone
+
+    try:
+        return await floor_zone(
+            _backend(ctx),
+            room=room,
+            outline=outline,
+            minus=minus,
+            minus_handles=minus_handles or (),
+            pattern=pattern,
+            joints=joints,
+            angle=angle,
+            start=start,
+            scale=scale,
+            pattern_scale=pattern_scale,
+            label=label,
+            name=name,
+            layer=layer,
+            color=color,
+            dry_run=dry_run,
         )
     except ValueError as exc:
         raise ToolError(str(exc)) from exc
