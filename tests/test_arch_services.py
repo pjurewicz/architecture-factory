@@ -290,6 +290,8 @@ async def test_the_underlay_greys_the_architecture_only_and_is_reversible(backen
     assert after["P-SANR-E-N"] == before["P-SANR-E-N"]
     assert after["A-ELEC-E-N"] == before["A-ELEC-E-N"]  # A-* but an installation layer
     assert "A-ELEC-E-N" not in result["layers"]
+    # round 7: the symbol layer the legend letters on stays as it was
+    assert "A-SYMB-T-N" in doc.layers and "A-SYMB-T-N" not in result["layers"]
     await arch_underlay(backend, color=9, lineweight=0.13)  # again: the originals survive
     await arch_underlay(backend, on=False)
     assert props() == before

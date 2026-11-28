@@ -113,11 +113,19 @@ UNDERLAY_HATCH_COLOR = 253  # light grey: a poche stays readable without shoutin
 
 def _underlay_layers(doc) -> list[str]:
     """The architecture layers: every ``A-*`` but the installation layers, any
-    layer carrying an installation record and the construction scratch."""
+    layer carrying an installation record, the symbol layer and any layer
+    with the sheet's legend / title block (round 7: A-SYMB-T-N greyed the
+    legend, drawn before or after), and the construction scratch."""
+    from engineering.annotation_record import read_annotation
     from engineering.arch.services import SERVICE_ROLES, read_records
 
-    keep = {ARCH_ROLE_LAYER[r].casefold() for r in SERVICE_ROLES}
+    keep = {ARCH_ROLE_LAYER[r].casefold() for r in (*SERVICE_ROLES, "symbol")}
     keep |= {e.dxf.layer.casefold() for e, _p in read_records(doc)}
+    sheet_tools = {"arch_legend", "arch_title_block"}
+    for space in (doc.modelspace(), *(doc.layouts.get(n) for n in doc.layouts.names())):
+        for e in space:
+            if (read_annotation(e) or {}).get("tool") in sheet_tools:
+                keep.add(e.dxf.layer.casefold())
     return [
         lyr.dxf.name
         for lyr in doc.layers
