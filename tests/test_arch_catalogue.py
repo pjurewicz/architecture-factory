@@ -44,12 +44,12 @@ def _spec_points(spec: dict) -> list[tuple[float, float]]:
 BEYOND = {"wardrobe", "wall_niche"}
 
 
-def test_the_catalogue_holds_forty_three_items_in_two_families():
-    assert len(ITEMS) == 43
-    assert len(set(CATALOGUE_NAMES)) == 43
+def test_the_catalogue_holds_forty_eight_items_in_two_families():
+    assert len(ITEMS) == 48
+    assert len(set(CATALOGUE_NAMES)) == 48
     assert FAMILIES == ("furniture", "sanitary")
-    assert sum(item.family == "furniture" for item in ITEMS) == 29
-    assert sum(item.family == "sanitary" for item in ITEMS) == 14
+    assert sum(item.family == "furniture" for item in ITEMS) == 31
+    assert sum(item.family == "sanitary" for item in ITEMS) == 17
     assert {
         "single_bed",
         "double_bed",
@@ -195,8 +195,14 @@ def test_search_by_turkish_word_with_and_without_diacritics():
     assert [row["name"] for row in catalogue("buzdolabı")] == ["fridge"]
     assert [row["name"] for row in catalogue("buzdolabi")] == ["fridge"]
     assert [row["name"] for row in catalogue("KLOZET")] == ["wc"]
-    assert [row["name"] for row in catalogue("çamaşır")] == ["washing_machine"]
-    assert [row["name"] for row in catalogue("camasir")] == ["washing_machine"]
+    assert [row["name"] for row in catalogue("çamaşır")] == [
+        "washing_machine",
+        "washer_dryer_column",
+    ]
+    assert [row["name"] for row in catalogue("camasir")] == [
+        "washing_machine",
+        "washer_dryer_column",
+    ]
 
 
 def test_search_every_word_must_match():
@@ -228,6 +234,9 @@ def test_family_filter_and_the_label_language():
         "radiator",
         "concealed_wc_frame",
         "prewall",
+        "boiler",
+        "dhw_tank",
+        "washer_dryer_column",
     ]
     assert all(row["layer"] == ARCH_ROLE_LAYER["sanitary"] for row in sanitary)
     (row,) = catalogue("fridge", lang="tr")
@@ -235,7 +244,7 @@ def test_family_filter_and_the_label_language():
     assert row["size"] == [600.0, 650.0]
     assert row["size_basis"] == SIZE_BASIS
     assert row["block"] == "ARCH_FRIDGE"
-    assert len(catalogue()) == 43
+    assert len(catalogue()) == 48
 
 
 def test_polish_labels_cover_every_item_and_are_searchable_without_diacritics():
@@ -553,3 +562,45 @@ def test_a_wardrobe_draws_a_rail_hangers_and_one_dashed_swing_per_door():
     assert block_spec("wardrobe")["name"] == "ARCH_WARDROBE"  # 2 doors by default
     with pytest.raises(ValueError, match="a leaf takes 300-1000 mm"):
         block_spec("wardrobe", 2400, options={"doors": 1})
+
+
+@pytest.mark.asyncio
+async def test_against_wall_turns_the_item_to_the_room_and_mask_false_drops_the_wipeouts(backend):
+    """Round 7: agents computed rotation and anchor by hand; the source hatches
+    through movable furniture. Ring faces at 125 / 4875 and 125 / 3875."""
+    from engineering.arch.catalogue import insert_items
+    from engineering.arch.spec import draw_plan_from_spec
+
+    await draw_plan_from_spec(
+        backend,
+        {
+            "sheet": {"intent": "flat", "sheet_size": "A3", "scale": 50},
+            "walls": [
+                {
+                    "id": "EXT",
+                    "axis": [[0, 0], [5000, 0], [5000, 4000], [0, 4000]],
+                    "thickness": 250,
+                    "closed": True,
+                }
+            ],
+        },
+    )
+    out = await insert_items(
+        backend,
+        [
+            {"name": "boiler", "x": 4700, "y": 2000, "against_wall": True},  # right wall
+            {"name": "double_bed", "x": 2500, "y": 3500, "against_wall": True, "mask": False},
+            {"name": "sofa_3_seat", "x": 2500, "y": 2000, "against_wall": True},  # 1.9 m off
+        ],
+    )
+    boiler, bed = out["inserted"]
+    assert boiler["rotation"] == pytest.approx(90.0)  # back on x = 4875, front towards -X
+    # back_center on the face: footprint back corners on x = 4875, around y = 2000
+    (bx0, by0), (bx1, by1) = boiler["footprint"][:2]
+    assert bx0 == pytest.approx(4875.0) and bx1 == pytest.approx(4875.0)
+    assert (by0 + by1) / 2 == pytest.approx(2000.0)
+    assert bed["rotation"] == pytest.approx(180.0) and bed["block"] == "ARCH_DOUBLE_BED_NOMASK"
+    block = backend._doc.blocks.get("ARCH_DOUBLE_BED_NOMASK")
+    assert not [e for e in block if e.dxftype() == "WIPEOUT"]
+    (refused,) = out["refused"]
+    assert refused["i"] == 2 and "no wall face within 1000 mm" in refused["message"]

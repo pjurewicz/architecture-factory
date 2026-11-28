@@ -14497,8 +14497,8 @@ async def arch_catalogue_insert(
         list[dict],
         Field(
             description=(
-                "[{name, x, y, rotation?, anchor?, width?, depth?, height?, options?}] - "
-                "name from arch_catalogue_list; (x, y) WCS of the anchor"
+                "[{name, x, y, rotation? | against_wall?, anchor?, width?, depth?, height?, "
+                "options?, mask?}] - name from arch_catalogue_list; (x, y) WCS of the anchor"
             )
         ),
     ],
@@ -14510,7 +14510,10 @@ async def arch_catalogue_insert(
 
     Per item: `rotation` degrees CCW about (x, y) - 0 puts the item's back (its
     wall side) along +X, front facing +Y; against a wall face running P->Q with
-    the room on its left, use the direction of P->Q. `anchor`: back_left
+    the room on its left, use the direction of P->Q. `against_wall: true` does
+    that itself: the anchor (default back_center) lands on the nearest wall face
+    within 1 m of (x, y), the front towards the room. `mask: false` draws the
+    item without its wipeouts, so a floor pattern shows through. `anchor`: back_left
     (default) | back_center | back_right | center | front_center. `width` /
     `depth` (mm) redraw the symbol for that footprint within the item's
     `size_range` (not scaled); `height` goes into the SIZE attribute only;
