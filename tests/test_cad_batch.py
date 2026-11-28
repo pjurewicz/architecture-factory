@@ -530,6 +530,89 @@ async def test_a_domain_refusal_refuses_the_batch_before_step_1(client):
     assert rows[2]["error"]["hint"].startswith("Refused before any write")
 
 
+SNAP = {"tool": "point_from_snap", "args": {"handle": "$l", "snap": "end"}, "bind": "p"}
+ROWS = {k: "x" for k in ("project", "investor", "address", "stage", "date", "designer", "title")}
+
+
+async def test_a_sheet_tool_refusal_refuses_the_batch_before_step_1(client):
+    """Round 9: a title block over its height and a legend row's angle were
+    refused at the last step, rolling back 9 and 12 steps; their plan checks
+    (@cad_tool(plan=)) refuse them before step 1 now."""
+    block = {"rows": ROWS, "x": 0, "y": 0, "height": 38.8, "text_height": 2}
+    legend = {"x": 0, "y": 0, "extra": [{"label": "Oak", "block": "DOOR", "angle": 45}]}
+    angle = {"x": 0, "y": 0, "extra": [{"label": "Oak", "pattern": "ANSI31", "angle": "45°"}]}
+    for tool, args, says in (
+        ("arch_title_block", block, "over 38.8"),
+        ("arch_legend", legend, "Not accepted here: angle"),
+        ("arch_legend", angle, "extra[0].angle: a number"),
+    ):
+        steps = [_line(y1=i, y2=i) for i in range(9)] + [{"tool": tool, "args": args}]
+        with pytest.raises(ToolError, match="refused all 10 steps") as excinfo:
+            await _batch(client, steps)
+        assert says in str(excinfo.value)
+        assert await _entity_count(client) == 0, "nothing may run before the refusal"
+        row = (await _batch(client, steps, dry_run=True))["results"][-1]
+        assert row["error"]["kind"] == "invalid_args" and says in row["error"]["message"]
+        assert row["error"]["hint"].startswith("Refused before any write")
+
+
+async def test_a_plan_check_refuses_alike_on_every_route_and_writes_nothing(client):
+    """The plan check is the body's own first call: a direct call, a dry run
+    and a real batch carry the same kind and message, and none moves the
+    document's revision."""
+
+    async def revision():
+        return (await client.call_tool("drawing_info", {})).structured_content["revision"]
+
+    args = {"rows": ROWS, "x": 0, "y": 0, "height": 38.8, "text_height": 2}
+    before = await revision()
+    direct = await client.call_tool("arch_title_block", args, raise_on_error=False)
+    direct = direct.structured_content
+    assert direct["kind"] == "invalid_args" and "over 38.8" in direct["message"]
+    steps = [_line(), {"tool": "arch_title_block", "args": args}]
+    row = (await _batch(client, steps, dry_run=True))["results"][1]["error"]
+    assert row["kind"] == direct["kind"]
+    assert row["message"] == f"arch_title_block: {direct['message']}"[: len(row["message"])]
+    batch = await client.call_tool("cad_batch", {"steps": steps}, raise_on_error=False)
+    assert direct["message"][:200] in batch.structured_content["message"]
+    assert await revision() == before, "a plan refusal writes nothing on any route"
+
+
+async def test_a_plan_check_never_refuses_what_a_reference_will_supply(client):
+    """A $reference is checked as far as the literals go: a referenced corner
+    point still lays the block out (and draws it), a referenced legend row is
+    left to the run while its literal neighbour is still checked."""
+    block = {"rows": ROWS, "x": "$p.x", "y": "$p.y", "text_height": 2}
+    result = await _batch(
+        client, [_line(bind="l"), SNAP, {"tool": "arch_title_block", "args": block}]
+    )
+    assert result["ok"] and result["results"][2]["result"]["bbox"]["max"][1] > 5.0
+    tight = {**block, "height": 20}
+    rows = (
+        await _batch(
+            client,
+            [_line(bind="l"), SNAP, {"tool": "arch_title_block", "args": tight}],
+            dry_run=True,
+        )
+    )["results"]
+    assert "over 20" in rows[2]["error"]["message"], "the literal height is still checked"
+    extra = [{"label": "$p.x", "pattern": "ANSI31"}, {"label": "Oak", "angle": 45, "kind": "$p.y"}]
+    legend = {"x": "$p.x", "y": 0, "text_height": "$p.x", "extra": extra}
+    rows = (
+        await _batch(
+            client, [_line(bind="l"), SNAP, {"tool": "arch_legend", "args": legend}], dry_run=True
+        )
+    )["results"]
+    assert all(r["status"] == "valid" for r in rows), rows
+    legend["extra"].append({"label": "Pine", "block": "DOOR", "angle": 45})
+    rows = (
+        await _batch(
+            client, [_line(bind="l"), SNAP, {"tool": "arch_legend", "args": legend}], dry_run=True
+        )
+    )["results"]
+    assert "extra[2]: give label" in rows[2]["error"]["message"], "its own index, not renumbered"
+
+
 async def test_an_invalid_step_stops_a_real_batch_before_anything_runs(client):
     with pytest.raises(ToolError) as excinfo:
         await _batch(client, [_line(), {"tool": "entity_create_dragon", "args": {}}])

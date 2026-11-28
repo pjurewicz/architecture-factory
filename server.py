@@ -1956,7 +1956,7 @@ async def _tool_groups() -> dict:
 CAD_TOOL_COSTS = ("read", "safe", "mutate", "destructive", "escape")
 
 
-def cad_tool(*, summary: str, cost: str):
+def cad_tool(*, summary: str, cost: str, plan=None):
     """Attach discovery metadata to the ``mcp.tool`` registration below it.
 
     Usage — this decorator sits **above** the registration::
@@ -1983,6 +1983,14 @@ def cad_tool(*, summary: str, cost: str):
 
       ``summary``   one compact line, for a search hit's preview
       ``cost``      one of :data:`CAD_TOOL_COSTS`
+
+    ``plan`` (round 9) is the tool's plan check, ``plan(args, deferred)``: the
+    refusals its arguments alone decide, raised as ``ValueError`` /
+    ``InvalidArgsError`` before any write. cad_batch runs it for every step
+    at plan time and in a dry run (:data:`TOOL_PLANS`); ``args`` are the raw
+    step arguments and ``deferred`` the top-level names holding a
+    ``$reference``, which the check must not refuse. It reads no drawing and
+    is kept off the wire.
 
     1.8-14: the alias lists (``acad`` AutoCAD command names, ``synonyms``)
     no longer ride on every tools/list entry. They stay in
@@ -2014,6 +2022,8 @@ def cad_tool(*, summary: str, cost: str):
         meta = dict(component.meta or {})
         meta["cad"] = {"summary": summary, "cost": cost}
         component.meta = meta
+        if plan is not None:
+            TOOL_PLANS[name] = plan
         # W3 (1.8.0): a description over WIRE_DESCRIPTION_MAX is listed as its
         # leading whole paragraphs + "Details: describe_tool."; the full text
         # stays in discovery.descriptions (never meta, which is on the wire).
@@ -2021,6 +2031,100 @@ def cad_tool(*, summary: str, cost: str):
         return target
 
     return decorate
+
+
+#: round 9: tool name -> its plan check (``@cad_tool(plan=)``), which cad_batch
+#: runs at plan time so a batch is refused before step 1 instead of halting
+#: halfway (a batch that opens a document runs without a rollback).
+TOOL_PLANS: dict[str, Any] = {}
+
+
+def _plan_dim_overrides(args: dict, deferred: frozenset) -> None:
+    """dimstyle_create / dimstyle_modify: the literal preset and override names
+    and values, which their schema (a free ``dict``) cannot express. Every
+    problem is reported at once, as the tool body does."""
+    from engineering.standards.dimstyles import check_dim_overrides
+
+    preset = args.get("preset")
+    if not isinstance(preset, str) or "preset" in deferred:
+        preset = None
+    overrides = args.get("overrides")
+    if not isinstance(overrides, dict):
+        overrides = None
+    held = {
+        key
+        for key, value in (overrides or {}).items()
+        if isinstance(value, str) and _batch_ref_name(value) is not None
+    }
+    check_dim_overrides(overrides, preset=preset, deferred=held)
+
+
+def _plan_block_define(args: dict, deferred: frozenset) -> None:
+    """block_define: the primitive and ATTDEF specs, checked as its body does."""
+    from backends import block_specs
+
+    if deferred:
+        return  # a $reference is resolved at run time; the body checks it then
+    block_specs.validate_block_name(args.get("name"))
+    block_specs.validate_entity_specs(args.get("entities"))
+    block_specs.validate_attdef_specs(args.get("attdefs"))
+    block_specs.validate_base_point(args.get("base_x", 0.0), args.get("base_y", 0.0))
+
+
+def _plan_catalogue_insert(args: dict, deferred: frozenset) -> None:
+    """arch_catalogue_insert: names, anchors, ranges and options of every item.
+    Inside a batch, which is all or nothing, any refused item refuses the batch
+    at plan time with every problem listed (a direct call inserts the others)."""
+    from engineering.arch.catalogue import check_items
+
+    if deferred:
+        return
+    problems = check_items(args.get("items"))
+    if problems:
+        shown = "; ".join(p["message"] for p in problems[:5])
+        more = f"; and {len(problems) - 5} more" if len(problems) > 5 else ""
+        raise ValueError(f"{len(problems)} item(s) refused: {shown}{more}")
+
+
+def _plan_title_block(args: dict, deferred: frozenset) -> None:
+    """arch_title_block: the cells, the notes and whether they fit ``height``.
+    A referenced corner point stands in as (0, 0) - only its presence is
+    checked; any other reference leaves the layout to the run."""
+    from engineering.arch.sheetblock import plan_title_block
+
+    if deferred - {"x", "y", "layout", "name", "color"}:
+        return
+    x, y = (0.0 if key in deferred else args.get(key) for key in ("x", "y"))
+    plan_title_block(
+        fields=args.get("rows"),
+        notes=args.get("notes"),
+        layout="$" if "layout" in deferred else args.get("layout"),
+        corner=args.get("corner", "bottom_right"),
+        at=None if x is None and y is None else (x, y),
+        width=args.get("width", 180.0),
+        lang=args.get("lang", "en"),
+        text_height=args.get("text_height", 2.5),
+        label_position=args.get("label_position", "left"),
+        height=args.get("height"),
+        color=None if "color" in deferred else args.get("color"),
+        name="$" if "name" in deferred else args.get("name", "default"),
+    )
+
+
+def _plan_legend(args: dict, deferred: frozenset) -> None:
+    """arch_legend: every argument without a reference, and every ``extra``
+    row without one; blocks, layers and model keys are the drawing's, checked
+    when it runs."""
+    from engineering.arch.legend import plan_legend
+
+    keys = ("lang", "labels", "scale", "columns", "max_height", "text_height")
+    keys += ("row_gap", "frame", "name", "layer", "color")
+    given = {key: args[key] for key in keys if key in args and key not in deferred}
+    extra = args.get("extra")
+    if isinstance(extra, list):
+        # a referenced row is the run's; a text row in its place keeps the indexes
+        extra = [{"label": "-"} if _batch_refs_in(item) else item for item in extra]
+    plan_legend(**given, extra=extra)
 
 
 # ---------------------------------------------------------------------------
@@ -5481,6 +5585,7 @@ async def block_create_from_entities(
 @cad_tool(
     summary="Define a block from typed primitives and attribute definitions.",
     cost="mutate",
+    plan=_plan_block_define,
 )
 @mcp.tool(
     annotations={"title": "Define Block", "readOnlyHint": False},
@@ -6341,71 +6446,15 @@ def _batch_branch_error(error):
     return error
 
 
-def _batch_dim_overrides(args: dict) -> None:
-    """dimstyle_create / dimstyle_modify: the literal preset and override names
-    and values, which their schema (a free ``dict``) cannot express. Every
-    problem is reported at once, as the tool body does."""
-    from engineering.standards.dimstyles import check_dim_overrides
-
-    preset = args.get("preset")
-    if not isinstance(preset, str) or _batch_ref_name(preset) is not None:
-        preset = None
-    overrides = args.get("overrides")
-    if not isinstance(overrides, dict):
-        overrides = None
-    deferred = {
-        key
-        for key, value in (overrides or {}).items()
-        if isinstance(value, str) and _batch_ref_name(value) is not None
-    }
-    check_dim_overrides(overrides, preset=preset, deferred=deferred)
-
-
-def _batch_block_define(args: dict) -> None:
-    """block_define: the primitive and ATTDEF specs, checked as its body does."""
-    from backends import block_specs
-
-    if _batch_refs_in(args):
-        return  # a $reference is resolved at run time; the body checks it then
-    block_specs.validate_block_name(args.get("name"))
-    block_specs.validate_entity_specs(args.get("entities"))
-    block_specs.validate_attdef_specs(args.get("attdefs"))
-    block_specs.validate_base_point(args.get("base_x", 0.0), args.get("base_y", 0.0))
-
-
-def _batch_catalogue_insert(args: dict) -> None:
-    """arch_catalogue_insert: names, anchors, ranges and options of every item.
-    Inside a batch, which is all or nothing, any refused item refuses the batch
-    at plan time with every problem listed (a direct call inserts the others)."""
-    from engineering.arch.catalogue import check_items
-
-    if _batch_refs_in(args):
-        return
-    problems = check_items(args.get("items"))
-    if problems:
-        shown = "; ".join(p["message"] for p in problems[:5])
-        more = f"; and {len(problems) - 5} more" if len(problems) > 5 else ""
-        raise ValueError(f"{len(problems)} item(s) refused: {shown}{more}")
-
-
-#: Argument checks a tool body makes before writing that its JSON Schema cannot
-#: express, run at plan time so a batch is refused before step 1 instead of
-#: halting halfway (a batch that opens a document runs without a rollback).
-_BATCH_SEMANTIC_CHECKS = {
-    "dimstyle_create": _batch_dim_overrides,
-    "dimstyle_modify": _batch_dim_overrides,
-    "block_define": _batch_block_define,
-    "arch_catalogue_insert": _batch_catalogue_insert,
-}
-
-
 def _batch_semantic_check(tool: str, args: dict) -> str | None:
-    check = _BATCH_SEMANTIC_CHECKS.get(tool)
+    """The tool's plan check (``@cad_tool(plan=)``) on one step, or None."""
+    check = TOOL_PLANS.get(tool)
     if check is None:
         return None
+    deferred = frozenset(key for key, value in args.items() if _batch_refs_in(value))
     try:
-        check(args)
-    except (TypeError, ValueError) as exc:
+        check(args, deferred)
+    except (TypeError, ValueError, InvalidArgsError) as exc:
         return compact_message(str(exc))[:_BATCH_MESSAGE_CHARS]
     return None
 
@@ -11141,6 +11190,7 @@ async def dimstyle_list(ctx: Context = None) -> dict:
 @cad_tool(
     summary="Create a dimension style from the ISO-25 or ANSI preset, with per-variable overrides.",
     cost="mutate",
+    plan=_plan_dim_overrides,
 )
 @mcp.tool(
     annotations={"title": "Styles: Create Dimension Style", "readOnlyHint": False},
@@ -11189,6 +11239,7 @@ async def dimstyle_create(
 @cad_tool(
     summary="Change DIM* variables on an existing dimension style; reports only what moved.",
     cost="mutate",
+    plan=_plan_dim_overrides,
 )
 @mcp.tool(
     annotations={"title": "Styles: Modify Dimension Style", "readOnlyHint": False},
@@ -14493,6 +14544,7 @@ async def arch_catalogue_list(
 @cad_tool(
     summary="Insert furniture and sanitary items - bed, sofa, WC, basin, bathtub - as blocks.",
     cost="mutate",
+    plan=_plan_catalogue_insert,
 )
 @mcp.tool(
     annotations={"title": "Architecture: Catalogue Insert", "readOnlyHint": False},
@@ -14664,6 +14716,7 @@ async def arch_underlay(
 @cad_tool(
     summary="Draw a legend of the blocks and hatches the drawing uses: sample + description.",
     cost="mutate",
+    plan=_plan_legend,
 )
 @mcp.tool(
     annotations={"title": "Architecture: Legend", "destructiveHint": False},
@@ -14761,6 +14814,7 @@ async def arch_legend(
 @cad_tool(
     summary="Draw an architect's title block (project / client / stage rows) and a numbered NOTES box; not ISO 7200.",
     cost="mutate",
+    plan=_plan_title_block,
 )
 @mcp.tool(
     annotations={"title": "Architecture: Title Block and Notes", "destructiveHint": False},
@@ -14831,8 +14885,6 @@ async def arch_title_block(
     from engineering.arch.sheetblock import draw_title_block
 
     at = None if x is None and y is None else (x, y)
-    if at is not None and None in at:
-        raise InvalidArgsError("arch_title_block: give both x and y, or neither")
     await ctx.info(f"arch title block on {layout or 'Model'} at {corner}")
     try:
         return await draw_title_block(
