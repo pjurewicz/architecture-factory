@@ -156,6 +156,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `draw_order(where=)` answered `handles` as entity reprs (`WIPEOUT(#31)`) and
+  `count` as the last layout's: now the handles and the whole set. Round 9's
+  "hatch still shows under the WIPEOUT" after sending both back was not the
+  renderer nor the SORTENTSTABLE: as AutoCAD's DRAWORDER Back, each call puts
+  its set under everything, so of two calls the later set ends lowest - the
+  model render, the sheet render and the sheet's PDF show the same order
+  (tested), and the description says so.
+
 - `dimension_truth`: a text override with `<>` (`ZABUDOWA GK NA GOTOWO=<>`) under
   DIMLFAC (the `arch-cm` preset) is the style's `dim_dimlfac_scaled` info row, not a
   `dim_override_disagrees` error; a literal wrong text is still an error.

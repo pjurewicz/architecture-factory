@@ -8160,9 +8160,9 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 # unique, so no tie falls back to creation order, and never "0",
                 # which AutoCAD draws last whatever its position.
                 current = list(layout.entities_in_redraw_order())
-                picked = [e for e in current if e.dxf.handle in selected]
+                moved = [e for e in current if e.dxf.handle in selected]
                 rest = [e for e in current if e.dxf.handle not in selected]
-                new = picked + rest if action == "send_to_back" else rest + picked
+                new = moved + rest if action == "send_to_back" else rest + moved
                 keys = sorted((e.dxf.handle for e in current), key=lambda h: int(h, 16))
                 mapping = {
                     e.dxf.handle: k for e, k in zip(new, keys, strict=True) if e.dxf.handle != k
@@ -8170,9 +8170,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 if new != current:
                     layout.set_redraw_order(mapping)
                     changed = True
-                rows.append(
-                    {"layout": layout.name, "moved": len(picked), "changed": new != current}
-                )
+                rows.append({"layout": layout.name, "moved": len(moved), "changed": new != current})
             if changed:
                 self._mark_dirty()
             out = {

@@ -4405,8 +4405,8 @@ async def draw_order(
     space: Annotated[str, "model | paper | all"] = "model",
     ctx: Context = None,
 ) -> dict:
-    """AutoCAD's DRAWORDER: which entities cover which (a hatch or a block's
-    wipeout drawn later covers labels); handles stay, via the SORTENTSTABLE.
+    """AutoCAD's DRAWORDER (which entity covers which), in the SORTENTSTABLE;
+    handles stay. Of two send_to_back calls the later set ends lowest.
     """
     return await _backend(ctx).draw_order(handles, action, where=where, space=space)
 
