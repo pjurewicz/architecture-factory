@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `draw_order(action="above"|"under", reference=<handle>)`: AutoCAD's
+  DRAWORDER Above / Under objects - the set goes just over or just under the
+  reference, the rest keeps its order (send_to_back / bring_to_front move a set
+  past everything, so stacking two sets took two calls in the right order).
+  The reference must be in the set's layout and not in the set. Written to the
+  SORTENTSTABLE, read back after a save. The order is read with
+  `entity_list(fields=[..., "draw_index"])`: each row's place in its layout's
+  draw order (0 drawn first), a projection-only field - the rows keep creation
+  order and the default row is unchanged. Round 9.
+
 - `entity_create_hatch(holes=[...])`: islands in the same call, each a polygon
   `[[x, y], ...]` or a disc `[cx, cy, r]` - `block_define`'s hatch schema, so
   an `entity_batch_create` hatch item takes `holes` too. They are written as

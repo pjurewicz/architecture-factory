@@ -221,6 +221,30 @@ async def test_the_projection_order_is_the_callers_not_the_dataclasses(client):
     assert all(list(row) == ["layer", "handle"] for row in rows)
 
 
+async def test_draw_index_is_a_projection_only_field_in_creation_order_rows(client):
+    """Round 9 (R9.7): the draw order is read through fields; the rows keep
+    creation order and the default row does not grow."""
+    await _draw(client, circles=3, lines=0)
+    first, second, third = (r["handle"] for r in _rows(await client.call_tool("entity_list", {})))
+    await client.call_tool("draw_order", {"handles": [third], "action": "send_to_back"})
+    await client.call_tool(
+        "draw_order", {"handles": [first], "action": "above", "reference": second}
+    )
+
+    rows = _rows(await client.call_tool("entity_list", {"fields": ["handle", "draw_index"]}))
+    assert rows == [
+        {"handle": first, "draw_index": 2},
+        {"handle": second, "draw_index": 1},
+        {"handle": third, "draw_index": 0},
+    ]
+    envelope = _rows(
+        await client.call_tool("entity_list", {"fields": ["draw_index"], "compact": True})
+    )
+    assert envelope["rows"] == [[2], [1], [0]]
+    plain = _rows(await client.call_tool("entity_list", {}))
+    assert "draw_index" not in plain[0]
+
+
 async def test_a_repeated_field_is_projected_once(client):
     """Repeats are a caller slip, not an error — but they must not double the column."""
     await _draw(client, circles=2, lines=0)

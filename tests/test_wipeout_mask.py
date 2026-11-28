@@ -53,7 +53,7 @@ async def test_an_unknown_focus_answers_the_catalogue_a_tool_only_client_can_rea
     assert "domain_absent" in issue.detail["not_checked_reasons"]
 
 
-# ── round 9: two send_to_back calls; one order in the model, sheet and PDF renders ──
+# ── round 9: two send_to_back calls, above / under a reference, the order read back ──
 
 SQUARE = [[0, 0], [100, 0], [100, 100], [0, 100]]
 MASK = [[30, 30], [70, 30], [70, 70], [30, 70]]
@@ -91,6 +91,57 @@ async def test_of_two_send_to_back_calls_the_later_set_goes_under(backend, tmp_p
     await backend.drawing_save_as(str(path))
     reread = ezdxf.readfile(str(path)).modelspace()
     assert _order(backend, reread) == [mask, hatch], "kept in the SORTENTSTABLE AutoCAD reads"
+    listed = await backend.entity_list(space="model")
+    assert [row.handle for row in listed] == [hatch, mask], "entity_list: creation order"
+    assert await backend.entity_draw_index([hatch, mask]) == {hatch: 1, mask: 0}
+
+
+async def test_above_and_under_place_the_set_next_to_the_reference(backend, tmp_path):
+    import ezdxf
+
+    label = await backend.entity_create_text("A", 50, 50, 5)
+    hatch, mask = await _hatch_and_mask(backend)
+    await backend.draw_order([hatch], "bring_to_front")
+    assert _order(backend) == [label.handle, mask, hatch]
+
+    moved = await backend.draw_order(None, "above", where={"type": "WIPEOUT"}, reference=hatch)
+    assert moved["reference"] == hatch and moved["count"] == 1
+    assert _order(backend) == [label.handle, hatch, mask], "just over the hatch"
+    await backend.draw_order([label.handle], "above", reference=mask)
+    assert _order(backend) == [hatch, mask, label.handle], "the label back over the mask"
+    await backend.draw_order([mask], "under", reference=hatch)
+    assert _order(backend) == [mask, hatch, label.handle]
+
+    path = tmp_path / "order.dxf"
+    await backend.drawing_save_as(str(path))
+    assert _order(backend, ezdxf.readfile(str(path)).modelspace()) == [
+        mask,
+        hatch,
+        label.handle,
+    ], "kept in the SORTENTSTABLE AutoCAD reads"
+
+
+async def test_above_and_under_refuse_a_missing_reference_the_reference_itself_or_another_layout(
+    backend,
+):
+    from engineering.errors import InvalidArgsError
+
+    hatch, mask = await _hatch_and_mask(backend)
+    await backend.layout_create("S1")
+    await backend.layout_set_current("S1")
+    note = await backend.entity_create_text("N", 10, 10, 5)
+    await backend.layout_set_current("Model")
+    before = _order(backend)
+
+    for call, match in (
+        (dict(handles=[mask], action="above"), "reference"),
+        (dict(handles=[mask], action="send_to_back", reference=hatch), "reference"),
+        (dict(handles=[mask, hatch], action="under", reference=hatch), "the reference itself"),
+        (dict(handles=[note.handle], action="above", reference=hatch), "per layout"),
+    ):
+        with pytest.raises(InvalidArgsError, match=match):
+            await backend.draw_order(**call)
+    assert _order(backend) == before
 
 
 def _pdf_fills(path) -> list[str]:

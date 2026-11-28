@@ -525,7 +525,8 @@ def test_the_budget_file_is_the_plans_table():
     )
     measured = BUDGET["baseline"]["v1.7.0_measured"]
     # raises the owner allowed, each named in its cell's note with its measurement
-    raised = {"packs_core": 103}  # round 3 (2026-11-27): drawing_recover
+    # round 3 (2026-11-27): drawing_recover, 103; round 9 (R9.7): draw_order above / under, 43
+    raised = {"packs_core": 146}
     for name in ("default", "lean", "packs_core"):
         # measured 1.7.0 prompt value + 5 %, rounded down
         assert BUDGET["idle"][name]["ceiling"] == int(

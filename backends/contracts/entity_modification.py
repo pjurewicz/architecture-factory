@@ -101,10 +101,13 @@ class EntityModificationContract(ABC):
         *,
         where: dict | None = None,
         space: str = "model",
+        reference: str | None = None,
     ) -> dict:
         """DRAWORDER: draw ``handles`` - or what ``where`` matches in ``space``
         (``entity_modify_where``'s grammar, round 4) - under (``send_to_back``)
-        or over (``bring_to_front``) everything else in their own layout.
+        or over (``bring_to_front``) everything else in their own layout, or
+        just over (``above``) / just under (``under``) the ``reference`` entity,
+        DRAWORDER's Above / Under objects (round 9; the reference's layout only).
 
         Written to the layout's SORTENTSTABLE, so the handles and the creation
         order are unchanged; the selected entities keep their order among

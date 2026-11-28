@@ -196,6 +196,14 @@ class EntityQueryContract(ABC):
         ...
 
     @abstractmethod
+    async def entity_draw_index(self, handles: list[str]) -> dict[str, int | None]:
+        """``{handle: its place in its own layout's draw order}`` - 0 is drawn
+        first, under every later one (the SORTENTSTABLE's order, round 9) -
+        ``None`` for an entity no layout draws. ``entity_list``'s ``draw_index``
+        field."""
+        ...
+
+    @abstractmethod
     async def entity_count(
         self,
         type_filter: str | None = None,

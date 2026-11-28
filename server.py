@@ -1666,7 +1666,9 @@ def _nested_keys(rows: list[dict], root: str) -> list[str]:
     return sorted(keys)
 
 
-def _resolve_fields(fields: list[str], rows: list[dict], spec: type, tool: str) -> list[str]:
+def _resolve_fields(
+    fields: list[str], rows: list[dict], spec: type, tool: str, extra: tuple = ()
+) -> list[str]:
     """Validate a projection against `spec`'s fields; return it de-duplicated.
 
     Validation is the whole point: an unvalidated projection turns a typo into a
@@ -1678,7 +1680,7 @@ def _resolve_fields(fields: list[str], rows: list[dict], spec: type, tool: str) 
     rest; one present on *none* is the typo case and raises. An empty result is
     exempt — there is no column there to misread.
     """
-    roots = tuple(spec.__dataclass_fields__)
+    roots = (*spec.__dataclass_fields__, *extra)
     valid = ", ".join(roots)
     resolved: list[str] = []
     for raw in fields:
@@ -1729,6 +1731,7 @@ def _shape_rows(
     tool: str,
     total: int | None = None,
     offset: int = 0,
+    extra: dict[str, dict] | None = None,
 ) -> list[dict] | dict:
     """Apply the shared projection/compaction to one collection result.
 
@@ -1742,6 +1745,10 @@ def _shape_rows(
     there is nothing more, and only one of those is safe to read as complete.
     """
     dicts = [_dc(row) for row in rows]
+    # `extra`: fields only a projection names, {field: {handle: value}}
+    for field_name, by_handle in (extra or {}).items():
+        for row in dicts:
+            row[field_name] = by_handle.get(row.get("handle"))
     # `is None` rather than falsiness: an explicit `fields=[]` is a caller
     # mistake worth an error, not a silent fall-through to the full record.
     if fields is None and not compact:
@@ -1749,7 +1756,7 @@ def _shape_rows(
     names = (
         list(spec.__dataclass_fields__)
         if fields is None
-        else _resolve_fields(fields, dicts, spec, tool)
+        else _resolve_fields(fields, dicts, spec, tool, tuple(extra or ()))
     )
     projected = [{name: _pluck(row, name) for name in names} for row in dicts]
     if not compact:
@@ -4411,15 +4418,18 @@ async def entity_edit_text(
 )
 async def draw_order(
     handles: list[str] | None = None,
-    action: Literal["send_to_back", "bring_to_front"] = "send_to_back",
+    action: Literal["send_to_back", "bring_to_front", "above", "under"] = "send_to_back",
     where: Annotated[dict | None, "Or entity_modify_where's filter"] = None,
     space: Annotated[str, "model | paper | all"] = "model",
+    reference: Annotated[str | None, "For above / under: this handle"] = None,
     ctx: Context = None,
 ) -> dict:
     """AutoCAD's DRAWORDER (which entity covers which), in the SORTENTSTABLE;
     handles stay. Of two send_to_back calls the later set ends lowest.
     """
-    return await _backend(ctx).draw_order(handles, action, where=where, space=space)
+    return await _backend(ctx).draw_order(
+        handles, action, where=where, space=space, reference=reference
+    )
 
 
 @cad_tool(summary="Put an opaque background box behind an MTEXT.", cost="mutate")
@@ -4873,7 +4883,8 @@ async def entity_list(
     """List entities with optional type and layer filters: handle, type, layer,
     color and type-specific properties.
 
-    Costly (~250 characters a row); for handles only::
+    `fields` may add `draw_index` (0 = drawn first, under the rest). Costly
+    (~250 characters a row); for handles only::
 
         entity_list(layer_filter="GEOMETRY", fields=["handle", "type"], compact=True)
 
@@ -4903,6 +4914,9 @@ async def entity_list(
             "Re-run with compact=True for total/truncated/next_offset, or page with "
             f"offset={offset + len(result)}."
         )
+    extra = None
+    if fields is not None and "draw_index" in {str(f).strip() for f in fields}:
+        extra = {"draw_index": await b.entity_draw_index([row.handle for row in result])}
     return _shape_rows(
         result,
         spec=EntityInfo,
@@ -4911,6 +4925,7 @@ async def entity_list(
         tool="entity_list",
         total=total,
         offset=offset,
+        extra=extra,
     )
 
 

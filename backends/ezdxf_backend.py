@@ -8115,26 +8115,48 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         *,
         where: dict | None = None,
         space: str = "model",
+        reference: str | None = None,
     ) -> dict:
         from backends import set_edits as se
 
         if (handles is None) == (where is None):
             raise InvalidArgsError("invalid_args: draw_order takes handles or where, one of them")
+        relative = action in ("above", "under")
+        if relative != (reference is not None):
+            raise InvalidArgsError(
+                "invalid_args: reference: the handle that above / under draw relative to, "
+                "and only for them"
+            )
         query = se.parse_where(where) if where is not None else None
         scope = se.parse_space(space)
 
         def _sync():
             from ezdxf.entities import is_graphic_entity
 
-            if action not in ("send_to_back", "bring_to_front"):
+            if action not in ("send_to_back", "bring_to_front", "above", "under"):
                 raise InvalidArgsError(
-                    f"invalid_args: action must be send_to_back or bring_to_front, got {action!r}"
+                    "invalid_args: action must be send_to_back, bring_to_front, above or "
+                    f"under, got {action!r}"
                 )
+
+            def layout_of(handle):
+                entity = self._get_entity(str(handle).strip().upper())
+                layout = entity.get_layout() if is_graphic_entity(entity) else None
+                if layout is None:
+                    raise InvalidArgsError(
+                        f"invalid_args: {handle} is a {entity.dxftype()} that no layout or "
+                        "block definition draws directly, so it has no draw order"
+                    )
+                return entity, layout
+
+            anchor = anchor_layout = None
+            if relative:
+                anchor, anchor_layout = layout_of(reference)
             picked = handles
             skipped: dict = {}
             if query is not None:
                 found, skipped = se.ezdxf_select(self._require_doc(), query, scope)
-                picked = [str(e.dxf.handle) for e in found]
+                picked = [str(e.dxf.handle) for e in found if e is not anchor]
                 if not picked:
                     raise InvalidArgsError(
                         f"invalid_args: where {query.to_dict()} matches nothing in {scope}"
@@ -8143,12 +8165,13 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 raise InvalidArgsError("invalid_args: handles must not be empty")
             by_layout: dict[str, tuple] = {}
             for handle in picked:
-                entity = self._get_entity(str(handle).strip().upper())
-                layout = entity.get_layout() if is_graphic_entity(entity) else None
-                if layout is None:
+                entity, layout = layout_of(handle)
+                if entity is anchor:
+                    raise InvalidArgsError(f"invalid_args: {handle} is the reference itself")
+                if relative and layout.layout_key != anchor_layout.layout_key:
                     raise InvalidArgsError(
-                        f"invalid_args: {handle} is a {entity.dxftype()} that no layout or "
-                        "block definition draws directly, so it has no draw order"
+                        f"invalid_args: {handle} is drawn in {layout.name}, the reference "
+                        f"{anchor.dxf.handle} in {anchor_layout.name}: draw order is per layout"
                     )
                 key = layout.layout_key
                 by_layout.setdefault(key, (layout, set()))[1].add(entity.dxf.handle)
@@ -8162,7 +8185,13 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 current = list(layout.entities_in_redraw_order())
                 moved = [e for e in current if e.dxf.handle in selected]
                 rest = [e for e in current if e.dxf.handle not in selected]
-                new = moved + rest if action == "send_to_back" else rest + moved
+                if action == "send_to_back":
+                    new = moved + rest
+                elif action == "bring_to_front":
+                    new = rest + moved
+                else:  # DRAWORDER's Above / Under objects: next to the reference
+                    at = rest.index(anchor) + (action == "above")
+                    new = rest[:at] + moved + rest[at:]
                 keys = sorted((e.dxf.handle for e in current), key=lambda h: int(h, 16))
                 mapping = {
                     e.dxf.handle: k for e, k in zip(new, keys, strict=True) if e.dxf.handle != k
@@ -8180,6 +8209,8 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 "layouts": rows,
                 "handles": [str(h).strip().upper() for h in picked],
             }
+            if relative:
+                out["reference"] = anchor.dxf.handle
             if query is not None:
                 out["count"] = len(picked)
                 out["handles"] = out["handles"][: se.HANDLE_SAMPLE]
@@ -8805,6 +8836,26 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                 if len(results) >= limit:
                     break
             return results
+
+        return await self._async(_sync, readonly=True)
+
+    async def entity_draw_index(self, handles) -> dict[str, int | None]:
+        def _sync():
+            from ezdxf.entities import is_graphic_entity
+
+            orders: dict[str, dict[str, int]] = {}  # layout key -> handle -> index
+            out: dict[str, int | None] = {}
+            for handle in handles:
+                entity = self._get_entity(str(handle).strip().upper())
+                layout = entity.get_layout() if is_graphic_entity(entity) else None
+                if layout is None:
+                    out[handle] = None
+                    continue
+                if layout.layout_key not in orders:
+                    drawn = layout.entities_in_redraw_order()
+                    orders[layout.layout_key] = {e.dxf.handle: i for i, e in enumerate(drawn)}
+                out[handle] = orders[layout.layout_key].get(entity.dxf.handle)
+            return out
 
         return await self._async(_sync, readonly=True)
 
