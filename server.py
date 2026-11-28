@@ -14461,13 +14461,13 @@ async def arch_title_block(
             default=None,
             description=(
                 "{project, investor, address, stage, scale, date, designer, author, checked, "
-                "title, drawing_no, revision, or any label: value} or [[label, value] | "
-                "[[label, value], ...], ...]"
+                "title, drawing_no, revision, or any label: value} or [cell | [cell, ...], ...]"
             ),
         ),
     ] = None,
     notes: Annotated[
-        list[str] | None, Field(default=None, description="Numbered notes, stacked on the block")
+        list[str] | dict | None,
+        Field(default=None, description="[text, ...] or {items, title, frame, ...}"),
     ] = None,
     layout: Annotated[
         str | None, Field(default=None, description="Paper layout; its frame corner is the anchor")
@@ -14483,29 +14483,40 @@ async def arch_title_block(
     ] = None,
     y: Annotated[float | None, Field(default=None, description="Corner Y")] = None,
     width: Annotated[float, Field(default=180.0, description="Paper mm, 60-400")] = 180.0,
+    height: Annotated[float | None, Field(default=None, description="Block height, mm")] = None,
     scale: Annotated[
         float, Field(default=50.0, gt=0, description="Plot scale in model space")
     ] = 50.0,
     lang: Annotated[str, Field(default="en", description="en | tr | pl")] = "en",
     text_height: Annotated[float, Field(default=2.5, description="Value height, paper mm")] = 2.5,
     label_position: Annotated[str, Field(default="left", description="left | above")] = "left",
-    max_height: Annotated[float | None, Field(default=None, description="Paper mm")] = None,
-    notes_box: Annotated[
-        dict | None, Field(default=None, description="{x, y, width, height?}: notes apart")
-    ] = None,
+    name: Annotated[str, Field(default="default", description="Rerun id: replaces")] = "default",
     ctx: Context = None,
 ) -> dict:
-    """Rows in the order given; long values wrap. A row [[label, value], ...]
-    puts cells side by side (Date | Stage | Scale). Known keys are lettered in
-    `lang`; lines on TITLEBLOCK, text on TEXT with an ACADMCP_ANNOT record.
-    Over `max_height` is refused with the height needed; `warnings` reports a
-    block off the paper or over a viewport.
+    """Rows in the order given; a rerun with the same `name` on the same
+    space replaces the previous block (`replaced`).
+
+    Details:
+
+    A cell is [label, value] or {label?, value, align?, text_height?,
+    width?} (align left|center|right; width in paper mm, for cells side by
+    side - one without width takes the rest); a row [cell, cell, ...] puts
+    cells side by side (Date | Stage | Scale). A value keeps its "\\n" line
+    breaks and wraps only a line too long for its column; a cell without a
+    label spans the row. `height` stretches the rows to it; a block that needs
+    more is refused with the height it needs. `notes` as a dict: {items,
+    title (null: none), frame, text_height, color, x?, y?, width?, height?} -
+    with x, y (bottom-left corner) the notes get a box of their own, else they
+    stack on the block. Known keys are lettered in `lang`; lines on
+    TITLEBLOCK, text on TEXT, every entity with an ACADMCP_ANNOT record
+    (tool, set = name). `warnings` reports a block off the paper or over a
+    viewport.
     """
     from engineering.arch.sheetblock import draw_title_block
 
     at = None if x is None and y is None else (x, y)
     if at is not None and None in at:
-        raise ToolError("arch_title_block: give both x and y, or neither")
+        raise InvalidArgsError("arch_title_block: give both x and y, or neither")
     await ctx.info(f"arch title block on {layout or 'Model'} at {corner}")
     try:
         return await draw_title_block(
@@ -14516,13 +14527,15 @@ async def arch_title_block(
             corner=corner,
             at=at,
             width=width,
+            height=height,
             scale=scale,
             lang=lang,
             text_height=text_height,
             label_position=label_position,
-            max_height=max_height,
-            notes_box=notes_box,
+            name=name,
         )
+    except InvalidArgsError:
+        raise
     except (ValueError, RuntimeError) as exc:
         raise ToolError(str(exc)) from exc
 

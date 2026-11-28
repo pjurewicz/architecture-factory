@@ -6,6 +6,7 @@ import pytest
 
 from engineering.annotation_record import APP_ID
 from engineering.arch.sheetblock import draw_title_block
+from engineering.errors import InvalidArgsError
 from engineering.standards.papers import resolve_page_setup
 from engineering.viewport_clip import text_box
 
@@ -66,7 +67,9 @@ async def test_the_block_sits_in_the_frame_corner_with_the_notes_above(backend):
 
 @pytest.mark.asyncio
 async def test_a_long_value_wraps_and_its_row_grows(backend):
-    narrow = await draw_title_block(backend, at=(0, 0), fields=FIELDS, width=100, scale=1)
+    narrow = await draw_title_block(
+        backend, at=(0, 0), fields=FIELDS, width=100, scale=1, name="narrow"
+    )
     wide = await draw_title_block(backend, at=(0, 500), fields=FIELDS, width=300, scale=1)
 
     def height(r):
@@ -134,7 +137,7 @@ async def test_cells_side_by_side_fit_a_short_block_and_the_notes_go_apart(backe
         ["Skala", "1:50"],
         ["Nr", "E-02"],
     ]
-    with pytest.raises(ValueError, match=r"max_height: the block needs 56\.0 mm, over 40"):
+    with pytest.raises(InvalidArgsError, match=r"height: the block needs 56\.0 mm, over 40"):
         await draw_title_block(
             backend,
             layout="A3",
@@ -142,7 +145,7 @@ async def test_cells_side_by_side_fit_a_short_block_and_the_notes_go_apart(backe
             at=(4.2, 5.7),
             width=85.3,
             fields=pairs,
-            max_height=40,
+            height=40,
         )
     rows = [pairs[0], pairs[1], [pairs[3], pairs[2]], [pairs[4], pairs[5], pairs[6], pairs[7]]]
     result = await draw_title_block(
@@ -154,10 +157,8 @@ async def test_cells_side_by_side_fit_a_short_block_and_the_notes_go_apart(backe
         fields=rows,
         text_height=2.0,
         label_position="above",
-        max_height=40,
         lang="pl",
-        notes=NOTES,
-        notes_box={"x": 100, "y": 5.7, "width": 120},
+        notes={"items": NOTES, "x": 100, "y": 5.7, "width": 120},
     )
     height = result["bbox"]["max"][1] - result["bbox"]["min"][1]
     assert height <= 40 and result["bbox"]["min"] == pytest.approx([4.2, 5.7])
@@ -169,4 +170,78 @@ async def test_cells_side_by_side_fit_a_short_block_and_the_notes_go_apart(backe
     assert texts["Data"].dxf.insert.y > date.dxf.insert.y  # the label above its value
     assert texts["1."].dxf.insert.x > 100  # the notes in their own box
     assert result["notes_bbox"]["min"] == [100.0, 5.7]
-    assert any(w.startswith("notes_box covers_viewport") for w in result["warnings"])
+    assert any(w.startswith("notes covers_viewport") for w in result["warnings"])
+
+
+@pytest.mark.asyncio
+async def test_explicit_lines_cell_styles_and_a_fixed_height(backend):
+    """Round 5 (A3): "\\n" is a line break and a short line never wraps; a
+    cell sets its own alignment, height and width; the block stretches to
+    `height` exactly."""
+    await _sheet(backend)
+    rows = [
+        {"value": "PROJEKT BUDOWLANY\nDOM JEDNORODZINNY", "align": "center", "text_height": 5},
+        [
+            {"label": "Opracował", "value": "mgr inż. arch. Łucja Żółć\nupr. 12/34\nWarszawa"},
+            {"label": "Źródło", "value": "pomiar 2026", "align": "right", "width": 60},
+        ],
+    ]
+    result = await draw_title_block(
+        backend, layout="A3", fields=rows, width=180, height=69.6, lang="pl"
+    )
+    assert result["height"] == pytest.approx(69.6)
+    assert result["bbox"]["max"][1] - result["bbox"]["min"][1] == pytest.approx(69.6)
+    texts = {t.dxf.text: t for t in _texts(backend, result["handles"])}
+    author = ["mgr inż. arch. Łucja Żółć", "upr. 12/34", "Warszawa"]
+    assert all(line in texts for line in author)  # one TEXT per line given, none broken
+    ys = [texts[line].dxf.insert.y for line in author]
+    assert ys[0] > ys[1] > ys[2]
+    title = texts["PROJEKT BUDOWLANY"]
+    assert title.dxf.height == 5 and title.dxf.halign == 1  # centred on the block
+    assert title.dxf.align_point.x == pytest.approx(230 + 90)
+    source = texts["pomiar 2026"]
+    assert source.dxf.halign == 2  # right-aligned at the 60 mm cell's right edge
+    assert source.dxf.align_point.x == pytest.approx(410 - 1.5)
+    assert texts["Źródło"].dxf.halign == 2
+    with pytest.raises(InvalidArgsError, match=r"fields\[0\]\[0\]\.align: one of"):
+        await draw_title_block(
+            backend, at=(0, 0), fields=[[{"value": "x", "align": "middle"}, ["a", "b"]]]
+        )
+
+
+@pytest.mark.asyncio
+async def test_a_rerun_replaces_its_set_and_another_name_coexists(backend):
+    """Round 5 (A5): every entity carries the record with its set; a second
+    call with the same name deletes the first block, another name keeps it."""
+    await _sheet(backend)
+    paper = backend._doc.layouts.get("A3")
+    first = await draw_title_block(backend, layout="A3", fields=FIELDS, notes=NOTES)
+    count = len(paper)
+    assert first["replaced"] == 0
+    assert all(backend._doc.entitydb[h].has_xdata(APP_ID) for h in first["handles"])
+    again = await draw_title_block(backend, layout="A3", fields=FIELDS, notes=NOTES)
+    assert again["replaced"] == len(first["handles"]) and len(paper) == count
+    other = await draw_title_block(
+        backend, layout="A3", corner="top_left", fields={"date": "1"}, name="stamp"
+    )
+    assert other["replaced"] == 0 and len(paper) == count + len(other["handles"])
+
+
+@pytest.mark.asyncio
+async def test_notes_without_frame_or_title_in_their_own_colour(backend):
+    result = await draw_title_block(
+        backend,
+        at=(0, 0),
+        scale=1,
+        notes={
+            "items": ["Pierwsza\ndruga linia"],
+            "title": None,
+            "frame": False,
+            "color": 1,
+            "text_height": 3,
+        },
+    )
+    kinds = [backend._doc.entitydb[h].dxftype() for h in result["handles"]]
+    assert kinds == ["TEXT", "TEXT", "TEXT"]  # "1.", two lines, no frame, no title
+    texts = _texts(backend, result["handles"])
+    assert {t.dxf.color for t in texts} == {1} and {t.dxf.height for t in texts} == {3}
