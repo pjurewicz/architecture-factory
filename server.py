@@ -2240,7 +2240,7 @@ PACK_TOOL_NAMES: dict[str, frozenset[str]] = {
             "arch_electrical",
             "arch_legend",
             "arch_title_block",
-            "image_map",
+            "scan_read",
             "arch_dimension_chains",
             "arch_plan_from_spec",
             "arch_plan_patch",
@@ -8059,7 +8059,7 @@ async def view_screenshot(
         list[list[float]] | None,
         "Two calibration pairs [[u, v, x, y], [u, v, x, y]]: image pixel (u, v; "
         "origin top-left, v down) lands on drawing point (x, y). Fixes scale, "
-        "rotation and shift; image_map converts points.",
+        "rotation and shift; scan_read reads the scan.",
     ] = None,
     layout: Annotated[
         str | None, "Paper layout drawn as drawing_export_pdf plots it; region in paper units"
@@ -13393,7 +13393,8 @@ async def file_upload_url(
         # round 4: agents measured a scan outside the server, not knowing this
         result["measure"] = (
             "To measure on this scan: view_screenshot(overlay_image=, overlay_align=) "
-            "to calibrate, then image_map(align, pixels, measure=True) - lengths in drawing units."
+            "to calibrate, then scan_read(align, image=, mode='grid'|'rects'|'blobs'|'compare') or "
+            "scan_read(align, pixels=, measure=True) - all in drawing units."
         )
     return result
 
@@ -14567,22 +14568,103 @@ async def arch_title_block(
         raise ToolError(str(exc)) from exc
 
 
-@cad_tool(summary="Map scan pixels to drawing points and back (overlay calibration).", cost="read")
+@cad_tool(
+    summary="Read a calibrated scan: map points, gridded crop, colour features, compare.",
+    cost="read",
+)
 @mcp.tool(
-    annotations={"title": "Architecture: Map Image Points", "readOnlyHint": True},
+    annotations={"title": "Architecture: Read Scan", "readOnlyHint": True},
     tags={"arch", "query"},
 )
-async def image_map(
+async def scan_read(
     align: Annotated[list[list[float]], "view_screenshot's overlay_align; 3+ pairs report rms"],
-    pixels: Annotated[list[list[float]] | None, "[[u, v], ...] -> to_drawing"] = None,
-    points: Annotated[list[list[float]] | None, "[[x, y], ...] -> to_image"] = None,
-    measure: Annotated[bool, "Add length and angle of each consecutive segment"] = False,
-) -> dict:
-    """Pixels (origin top-left, v down) <-> WCS points; reads no file."""
-    from engineering.arch.image_map import image_map as run
+    mode: Annotated[
+        Literal["map", "grid", "rects", "blobs", "compare"], "What to read; see Details"
+    ] = "map",
+    image: Annotated[str | None, "The scan file (all modes but map)"] = None,
+    pixels: Annotated[list[list[float]] | None, "map: [[u, v], ...] -> to_drawing"] = None,
+    points: Annotated[list[list[float]] | None, "map: [[x, y], ...] -> to_image"] = None,
+    measure: Annotated[bool, "map: length and angle of consecutive segments"] = False,
+    region: Annotated[list[float] | None, "Window [x0, y0, x1, y1] in WCS"] = None,
+    region_px: Annotated[list[float] | None, "Window [u0, v0, u1, v1] in scan px"] = None,
+    color: Annotated[str | list[int] | None, "rects/blobs: '#rrggbb' or [r, g, b]"] = None,
+    tolerance: Annotated[float, "rects/blobs: max channel difference 0-255"] = 40,
+    size: Annotated[list[float] | None, "rects/blobs: [min, max] side, drawing units"] = None,
+    limit: Annotated[int, "rects/blobs: rows returned (1-1000)"] = 100,
+    zoom: Annotated[float | None, "grid: output px per scan px"] = None,
+    grid: Annotated[float | None, "grid: step in drawing units (auto)"] = None,
+    max_px: Annotated[int, Field(description="Image long side", ge=64, le=4096)] = 1568,
+    ctx: Context = None,
+):
+    """Read a scan through its overlay_align calibration (pixel origin top-left,
+    v down); answers in drawing units, never writes the drawing.
+
+    Details:
+
+    `map` (no file): `pixels` -> `to_drawing`, `points` -> `to_image`;
+    `measure` adds segment lengths / angles; 2 pairs say `controlled: false`,
+    3+ report `rms` / `max` / `residuals`.
+
+    `grid`: the window (`region` WCS or `region_px`; default the whole scan)
+    resampled into WCS axes with a labelled grid in drawing units (red every
+    `grid.step`, auto when `grid` is omitted; blue minor lines), PNG + report.
+
+    `rects`: axis-aligned filled rectangles of `color` (wall poche): `center`,
+    `size`, WCS `box`, `px`, `pixels`, `fill`, biggest first. `blobs`:
+    8-connected components of `color` (symbols, dots, rings): centroid
+    `center`, `size`, `box`, `pixels`. Both: `count` and at most `limit` rows
+    (`truncated`); `size` [min, max] filters both sides (default min 3 px).
+
+    `compare`: the drawing (model space) rendered on white at the scan's
+    resolution, resampled into the scan's pixels through `align`;
+    `source_covered_pct` (scan line pixels with a drawn pixel within
+    `method.tolerance_px`), `drawing_on_source_pct` (the reverse), `regions`
+    (WCS boxes with the most missing + extra pixels) and a PNG: grey source,
+    green matched, red not drawn, blue not in the source. `method` states the
+    thresholds.
+
+    Without Pillow every file mode is refused, capability `scan_image`.
+    """
+    from engineering.arch import scan_read as sr
+    from engineering.arch.image_map import image_map as run_map
 
     try:
-        return run(align, pixels=pixels, points=points, measure=measure)
+        if mode == "map":
+            return run_map(align, pixels=pixels, points=points, measure=measure)
+        if image is None:
+            raise ValueError(f"image: mode {mode!r} reads the scan file; give its path.")
+        path = str(validate_path(image))
+        window = {"region": region, "region_px": region_px}
+        if mode == "grid":
+            report = await asyncio.to_thread(
+                sr.grid_crop, path, align, zoom=zoom, max_px=max_px, grid=grid, **window
+            )
+            return _view_image_result(report, "Scan crop not available.")
+        if mode in ("rects", "blobs"):
+            finder = sr.find_rects if mode == "rects" else sr.find_blobs
+            return await asyncio.to_thread(
+                finder,
+                path,
+                align,
+                color=color,
+                tolerance=tolerance,
+                size=size,
+                limit=limit,
+                **window,
+            )
+        src = await asyncio.to_thread(sr.compare_window, path, align, **window)
+        render = await _view_render(
+            _backend(ctx),
+            region=src["render_region"],
+            max_px=src["render_max_px"],
+            background="white",
+        )
+        if render.get("png") is None:
+            raise ToolError(
+                "compare needs matplotlib to render the drawing (pip install matplotlib)."
+            )
+        report = await asyncio.to_thread(sr.compare, src, render, max_px=max_px)
+        return _view_image_result(report, "Compare picture not available.")
     except ValueError as exc:
         raise InvalidArgsError(str(exc)) from exc
 

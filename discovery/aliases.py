@@ -2528,14 +2528,22 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "pafta antedi",
         ),
     ),
-    "image_map": ToolAliases(
+    "scan_read": ToolAliases(
         synonyms=(
+            "read source scan",
+            "read source image",
             "image pixels to drawing coordinates",
             "measure on scan raster",
             "calibrate scan convert points",
             "trace a plan from an image",
+            "trace scan overlay",
+            "overlay image grid crop",
+            "detect wall poche colour rectangles",
+            "find symbols by colour in image",
+            "compare drawing with scan overlay coverage",
             "piksele na wspolrzedne",
             "pomiar z rastra",
+            "odczyt skanu",
         ),
     ),
     "interior_tile_layout": ToolAliases(

@@ -146,7 +146,7 @@ ARCH_TOOLS = {
     "arch_electrical",
     "arch_legend",
     "arch_title_block",
-    "image_map",
+    "scan_read",
     "arch_dimension_chains",
     "arch_plan_from_spec",
     "arch_plan_patch",

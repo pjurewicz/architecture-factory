@@ -2379,6 +2379,12 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     if find_spec("openpyxl") is not None
                     else FeatureCapability(False, reason="optional_dependency_missing:openpyxl")
                 ),
+                # round 5 (B4/B5): scan_read opens the scan with Pillow (the pdf extra)
+                "scan_image": (
+                    FeatureCapability(True, "pillow")
+                    if find_spec("PIL") is not None
+                    else FeatureCapability(False, reason="optional_dependency_missing:Pillow")
+                ),
             },
         )
 

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (breaking)
+
+- `image_map` is now `scan_read` (pack `arch`, read-only), a scan reader. It
+  takes the same `align` (`overlay_align`) and has these modes: `map` (the old
+  `image_map`: `pixels` / `points` / `measure`, no file read); `grid` (the scan
+  window, `region` in WCS or `region_px`, resampled into WCS axes with a
+  labelled grid in drawing units and returned as a PNG); `rects`
+  (axis-aligned filled rectangles of a `color`, e.g. grey wall poche);
+  `blobs` (centroids of 8-connected components of a `color`: symbols, dots,
+  rings). `rects` and `blobs` take `tolerance`, `size` [min, max] and
+  `limit`, and return `count` plus at most `limit` rows. `compare` renders
+  model space at the scan's resolution, resamples it into the scan's pixels
+  and returns `source_covered_pct`, `drawing_on_source_pct`, the WCS
+  `regions` with the largest difference and a PNG; `method` states the
+  thresholds. The image is read through `validate_path`. Without Pillow
+  every file mode is refused with the new capability `scan_image`.
+
 ### Fixed
 
 - ISOCP lettering is measured and drawn at its ISO 3098 width. `isocp.shx`

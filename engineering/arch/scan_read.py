@@ -1,0 +1,691 @@
+"""Reading a calibrated scan: a gridded crop, colour features, a comparison (round 5, B4/B5).
+
+Every mode takes ``align``, ``view_screenshot``'s ``overlay_align`` (pairs
+``[u, v, x, y]``, image pixel with origin top-left and v down -> WCS point),
+and answers in drawing units. Nothing here writes the drawing; the scan is a
+file the caller has already passed through ``security.validate_path``.
+
+Pixel convention: pixel ``(i, j)`` (column, row) covers ``[i, i + 1) x [j, j + 1)``
+in the ``(u, v)`` the calibration uses, so its centre is ``(i + 0.5, j + 0.5)``.
+
+* :func:`grid_crop` - the scan resampled into a WCS-aligned window with a
+  labelled coordinate grid in drawing units drawn over it (PNG).
+* :func:`find_rects` - axis-aligned filled rectangles of one colour (wall
+  poché): row runs of the colour merged downwards while their ends stay within
+  a pixel, so an L or a T becomes its arms.
+* :func:`find_blobs` - 8-connected components of one colour (symbols, dots,
+  rings): centroid, size and pixel count.
+* :func:`compare` - the drawing rasterised (``view_render``) at the scan's
+  resolution, resampled into the scan's pixels through ``align``, and the two
+  line masks compared within a pixel tolerance.
+
+Pillow reads the file; numpy does the rest (no scipy). Without Pillow every
+mode that opens a file is refused with the capability ``scan_image``.
+"""
+
+from __future__ import annotations
+
+import io
+import math
+from importlib.util import find_spec
+
+from backends.base import UnsupportedCapabilityError
+from backends.region_render import (
+    OVERLAY_MAX_SOURCE_PX,
+    check_max_px,
+    normalize_region,
+    overlay_transform,
+)
+
+#: Cap of the rows a detection returns (``limit``), and its default.
+MAX_LIMIT, DEFAULT_LIMIT = 1000, 100
+#: A colour mask with more row runs than this is noise, not features.
+MAX_RUNS = 400_000
+#: A scan pixel is a line pixel when its luminance (0-255) is below this.
+LINE_LUMINANCE = 128
+#: A rendered pixel is ink when some channel is at most this (white paper).
+INK_CHANNEL = 191
+#: Compare: a line pixel counts as matched within this many pixels.
+COMPARE_TOLERANCE_PX = 2
+#: Compare: the regions of largest difference returned.
+COMPARE_REGIONS = 8
+#: Grid mode never enlarges the scan more than this by default.
+MAX_AUTO_ZOOM = 4.0
+
+
+def pillow_available() -> bool:
+    return find_spec("PIL") is not None
+
+
+def _require_pillow() -> None:
+    if not pillow_available():
+        raise UnsupportedCapabilityError(
+            "scan_image",
+            "scan_read needs Pillow to read the image file, and it is not installed. "
+            'Install it with: pip install Pillow (or pip install -e ".[pdf]"). '
+            "mode='map' (pure arithmetic on the calibration) works without it.",
+        )
+
+
+def parse_color(color) -> tuple[int, int, int]:
+    """``'#rrggbb'`` / ``'rrggbb'`` / ``[r, g, b]`` -> (r, g, b); ``ValueError`` names ``color``."""
+    if color is None:
+        raise ValueError("color: give the colour to find, '#rrggbb' or [r, g, b].")
+    if isinstance(color, str):
+        text = color.strip().lstrip("#")
+        if len(text) == 6:
+            try:
+                return tuple(int(text[i : i + 2], 16) for i in (0, 2, 4))  # type: ignore[return-value]
+            except ValueError:
+                pass
+        raise ValueError(f"color: expected '#rrggbb', got {color!r}.")
+    try:
+        r, g, b = (int(v) for v in color)
+    except (TypeError, ValueError):
+        raise ValueError(f"color: expected [r, g, b] or '#rrggbb', got {color!r}.") from None
+    if not all(0 <= v <= 255 for v in (r, g, b)):
+        raise ValueError(f"color: each channel must be 0-255, got {color!r}.")
+    return r, g, b
+
+
+class Calibration:
+    """``align`` as the similarity model = a·(u - i·v) + b and its inverse."""
+
+    def __init__(self, align):
+        self.a, self.b = overlay_transform(align)
+        self.upp = abs(self.a)
+        self.rotation = math.degrees(math.atan2(self.a.imag, self.a.real))
+
+    def to_wcs(self, u, v):
+        z = self.a * (u - 1j * v) + self.b
+        return z.real, z.imag
+
+    def to_px(self, x, y):
+        p = (complex(x, y) - self.b) / self.a
+        return p.real, -p.imag
+
+    def box_to_wcs(self, u0, v0, u1, v1) -> tuple[float, float, float, float]:
+        pts = [self.to_wcs(u, v) for u, v in ((u0, v0), (u1, v0), (u1, v1), (u0, v1))]
+        xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+        return min(xs), min(ys), max(xs), max(ys)
+
+    def box_to_px(self, x0, y0, x1, y1) -> tuple[float, float, float, float]:
+        pts = [self.to_px(x, y) for x, y in ((x0, y0), (x1, y0), (x1, y1), (x0, y1))]
+        us, vs = [p[0] for p in pts], [p[1] for p in pts]
+        return min(us), min(vs), max(us), max(vs)
+
+
+def _open(path: str):
+    """The file as an RGB PIL image; ``ValueError`` names ``image``."""
+    _require_pillow()
+    from PIL import Image, UnidentifiedImageError
+
+    try:
+        with Image.open(path) as source:
+            source.load()
+            return source.convert("RGB")
+    except (FileNotFoundError, IsADirectoryError) as exc:
+        raise ValueError(f"image: {path} does not exist") from exc
+    except (UnidentifiedImageError, OSError) as exc:
+        raise ValueError(f"image: {path} is not an image Pillow can read") from exc
+
+
+def _window_px(cal: Calibration, size, region, region_px) -> tuple[int, int, int, int]:
+    """The pixel window [u0, v0, u1, v1) (ints, clipped to the scan) to read."""
+    width, height = size
+    if region is not None and region_px is not None:
+        raise ValueError("region and region_px are one window: give one of them.")
+    if region_px is not None:
+        try:
+            u0, v0, u1, v1 = normalize_region(region_px)
+        except ValueError as exc:
+            raise ValueError(str(exc).replace("region", "region_px", 1)) from None
+    elif region is not None:
+        u0, v0, u1, v1 = cal.box_to_px(*normalize_region(region))
+    else:
+        u0, v0, u1, v1 = 0, 0, width, height
+    box = (
+        max(0, math.floor(u0)),
+        max(0, math.floor(v0)),
+        min(width, math.ceil(u1)),
+        min(height, math.ceil(v1)),
+    )
+    if box[2] - box[0] < 1 or box[3] - box[1] < 1:
+        where = "region_px" if region_px is not None else "region"
+        raise ValueError(
+            f"{where}: the window lies outside the scan ({width} x {height} px); "
+            f"the scan covers WCS {[round(v, 3) for v in cal.box_to_wcs(0, 0, width, height)]}."
+        )
+    return box
+
+
+def _pixels(path: str, cal: Calibration, region, region_px):
+    """(RGB array of the window, (u0, v0), k original px per array px, scan size)."""
+    import numpy as np
+
+    image = _open(path)
+    size = image.size
+    u0, v0, u1, v1 = _window_px(cal, size, region, region_px)
+    crop = image.crop((u0, v0, u1, v1))
+    k = 1.0
+    if max(crop.size) > OVERLAY_MAX_SOURCE_PX:
+        k = max(crop.size) / OVERLAY_MAX_SOURCE_PX
+        crop = crop.resize(
+            (max(1, round(crop.size[0] / k)), max(1, round(crop.size[1] / k))), resample=2
+        )
+        k = (u1 - u0) / crop.size[0]
+    return np.asarray(crop, dtype=np.int16), (u0, v0), k, size
+
+
+def _scan_report(path, cal: Calibration, size, origin, k, arr) -> dict:
+    u0, v0 = origin
+    h, w = arr.shape[:2]
+    return {
+        "path": str(path),
+        "pixels": list(size),
+        "window_px": [u0, v0, round(u0 + w * k, 3), round(v0 + h * k, 3)],
+        "units_per_px": round(cal.upp, 6),
+        "rotation_deg": round(cal.rotation, 4) + 0.0,
+        **({"reduced": round(k, 4)} if k != 1.0 else {}),
+    }
+
+
+def _limit(limit) -> int:
+    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= MAX_LIMIT:
+        raise ValueError(f"limit: a whole number 1-{MAX_LIMIT}, got {limit!r}.")
+    return limit
+
+
+def _size_bounds(size, cal: Calibration, k: float) -> tuple[float, float]:
+    """``size`` [min, max] in drawing units (either may be None); default min 3 px."""
+    lo = hi = None
+    if size is not None:
+        if isinstance(size, str | bytes) or not isinstance(size, list | tuple):
+            raise ValueError(f"size: expected [min, max] in drawing units, got {size!r}.")
+        if len(size) not in (1, 2):
+            raise ValueError(f"size: expected [min, max] in drawing units, got {size!r}.")
+        lo, hi = (list(size) + [None])[:2]
+    try:
+        lo = 3.0 * cal.upp * k if lo is None else float(lo)
+        hi = math.inf if hi is None else float(hi)
+    except (TypeError, ValueError):
+        raise ValueError(f"size: expected [min, max] in drawing units, got {size!r}.") from None
+    if lo < 0 or hi < lo:
+        raise ValueError(f"size: need 0 <= min <= max, got {size!r}.")
+    return lo, hi
+
+
+def _mask(arr, color, tolerance):
+    import numpy as np
+
+    rgb = parse_color(color)
+    if isinstance(tolerance, bool) or not isinstance(tolerance, int | float):
+        raise ValueError(f"tolerance: a number 0-255, got {tolerance!r}.")
+    if not 0 <= tolerance <= 255:
+        raise ValueError(f"tolerance: a number 0-255, got {tolerance!r}.")
+    diff = np.abs(arr - np.array(rgb, dtype=np.int16)).max(axis=2)
+    return diff <= tolerance, rgb
+
+
+def _runs(mask):
+    """Row runs of ``mask``: arrays (row, start, end) with end exclusive, row-major."""
+    import numpy as np
+
+    h, w = mask.shape
+    padded = np.zeros((h, w + 2), dtype=np.int8)
+    padded[:, 1:-1] = mask
+    edges = np.diff(padded, axis=1)
+    rs, cs = np.nonzero(edges == 1)
+    re, ce = np.nonzero(edges == -1)
+    if len(rs) > MAX_RUNS:
+        raise ValueError(
+            f"color/tolerance: {len(rs)} separate runs of that colour - this is noise, "
+            "not features; narrow the tolerance or the region."
+        )
+    # nonzero is row-major, and each row's starts and ends alternate, so they pair
+    return rs, cs, ce
+
+
+def _feature(cal: Calibration, origin, k, c0, r0, c1, r1, count) -> dict:
+    """A detected box in array px [c0, c1) x [r0, r1) as a WCS row."""
+    u0, v0 = origin
+    c0, r0, c1, r1, count = int(c0), int(r0), int(c1), int(r1), float(count)
+    pu0, pv0, pu1, pv1 = u0 + c0 * k, v0 + r0 * k, u0 + c1 * k, v0 + r1 * k
+    cx, cy = cal.to_wcs((pu0 + pu1) / 2.0, (pv0 + pv1) / 2.0)
+    return {
+        "center": [round(cx, 3), round(cy, 3)],
+        "size": [round((pu1 - pu0) * cal.upp, 3), round((pv1 - pv0) * cal.upp, 3)],
+        "box": [round(v, 3) for v in cal.box_to_wcs(pu0, pv0, pu1, pv1)],
+        "px": [round(pu0, 2), round(pv0, 2), round(pu1, 2), round(pv1, 2)],
+        "pixels": int(count),
+        "fill": round(count / max(1, (c1 - c0) * (r1 - r0)), 3),
+    }
+
+
+def _bounded(rows: list[dict], limit: int, out: dict, key: str) -> dict:
+    out["count"] = len(rows)
+    out[key] = rows[:limit]
+    if len(rows) > limit:
+        out["truncated"] = True
+    return out
+
+
+def _detect_head(path, align, region, region_px, color, tolerance, size, limit):
+    cal = Calibration(align)
+    limit = _limit(limit)
+    arr, origin, k, scan_size = _pixels(path, cal, region, region_px)
+    mask, rgb = _mask(arr, color, tolerance)
+    lo, hi = _size_bounds(size, cal, k)
+    head = {
+        "ok": True,
+        "scan": _scan_report(path, cal, scan_size, origin, k, arr),
+        "color": "#{:02x}{:02x}{:02x}".format(*rgb),
+        "tolerance": tolerance,
+        "size_limits": [round(lo, 3), None if math.isinf(hi) else round(hi, 3)],
+    }
+    if abs(math.remainder(cal.rotation, 90.0)) > 0.05:
+        head["note"] = (
+            "the scan is turned against WCS: sizes are along the image axes and "
+            "box is the WCS bounding box of the turned rectangle"
+        )
+    return cal, mask, origin, k, lo, hi, head, limit
+
+
+def find_rects(
+    path, align, *, color, tolerance=40, size=None, region=None, region_px=None, limit=100
+):
+    """Axis-aligned filled rectangles of ``color``; see the module docstring."""
+    cal, mask, origin, k, lo, hi, out, limit = _detect_head(
+        path, align, region, region_px, color, tolerance, size, limit
+    )
+    rows, starts, ends = _runs(mask)
+    done: list[list[int]] = []  # [c0, r0, c1, r1, count]
+    open_: list[list[int]] = []
+    i, n = 0, len(rows)
+    while i < n:
+        row = rows[i]
+        j = i
+        while j < n and rows[j] == row:
+            j += 1
+        still: list[list[int]] = []
+        pool = [r for r in open_ if r[3] == row]  # rects that reached the previous row
+        for s, e in zip(starts[i:j].tolist(), ends[i:j].tolist(), strict=True):
+            hit = None
+            for rect in pool:
+                if abs(rect[5] - s) <= 1 and abs(rect[6] - e) <= 1:
+                    hit = rect
+                    break
+            if hit is None:
+                still.append([s, row, e, row + 1, e - s, s, e])
+            else:
+                pool.remove(hit)
+                hit[0], hit[2] = min(hit[0], s), max(hit[2], e)
+                hit[3] = row + 1
+                hit[4] += e - s
+                still.append(hit)
+        kept = {id(r) for r in still}
+        done.extend(r for r in open_ if id(r) not in kept)
+        open_ = still
+        i = j
+    done.extend(open_)
+    unit = cal.upp * k
+    found = []
+    for c0, r0, c1, r1, count, *_ in done:
+        w, h = (c1 - c0) * unit, (r1 - r0) * unit
+        if lo <= w <= hi and lo <= h <= hi:
+            found.append(_feature(cal, origin, k, c0, r0, c1, r1, count))
+    found.sort(key=lambda f: -f["pixels"])
+    return _bounded(found, limit, out, "rects")
+
+
+def find_blobs(
+    path, align, *, color, tolerance=40, size=None, region=None, region_px=None, limit=100
+):
+    """8-connected components of ``color``: centroid, size, pixel count."""
+    import numpy as np
+
+    cal, mask, origin, k, lo, hi, out, limit = _detect_head(
+        path, align, region, region_px, color, tolerance, size, limit
+    )
+    rows, starts, ends = _runs(mask)
+    n = len(rows)
+    parent = list(range(n))
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    rl, sl, el = rows.tolist(), starts.tolist(), ends.tolist()
+    prev_lo = prev_hi = 0  # the previous row's runs [prev_lo, prev_hi)
+    i = 0
+    while i < n:
+        row = rl[i]
+        j = i
+        while j < n and rl[j] == row:
+            j += 1
+        if prev_hi > prev_lo and rl[prev_lo] == row - 1:
+            p = prev_lo
+            for q in range(i, j):
+                while p < prev_hi and el[p] < sl[q]:  # ends before q starts - 1
+                    p += 1
+                t = p
+                while t < prev_hi and sl[t] <= el[q]:  # 8-connected overlap
+                    ra, rb = find(t), find(q)
+                    if ra != rb:
+                        parent[rb] = ra
+                    t += 1
+        prev_lo, prev_hi = i, j
+        i = j
+    if n == 0:
+        return _bounded([], limit, out, "blobs")
+    labels = np.array([find(x) for x in range(n)])
+    _, comp = np.unique(labels, return_inverse=True)
+    m = int(comp.max()) + 1
+    length = (ends - starts).astype(np.float64)
+    count = np.bincount(comp, weights=length, minlength=m)
+    # sum of column centres over a run [s, e): length * (s + e) / 2
+    su = np.bincount(comp, weights=length * (starts + ends) / 2.0, minlength=m)
+    sv = np.bincount(comp, weights=length * (rows + 0.5), minlength=m)
+    c0 = np.full(m, np.iinfo(np.int64).max)
+    r0 = c0.copy()
+    c1 = np.full(m, -1)
+    r1 = c1.copy()
+    np.minimum.at(c0, comp, starts)
+    np.minimum.at(r0, comp, rows)
+    np.maximum.at(c1, comp, ends)
+    np.maximum.at(r1, comp, rows + 1)
+    unit = cal.upp * k
+    found = []
+    for c in range(m):
+        w, h = (c1[c] - c0[c]) * unit, (r1[c] - r0[c]) * unit
+        if not (lo <= w <= hi and lo <= h <= hi):
+            continue
+        row = _feature(cal, origin, k, int(c0[c]), int(r0[c]), int(c1[c]), int(r1[c]), count[c])
+        u = origin[0] + float(su[c] / count[c]) * k
+        v = origin[1] + float(sv[c] / count[c]) * k
+        x, y = cal.to_wcs(u, v)
+        row["center"] = [round(x, 3), round(y, 3)]  # the centroid, not the box centre
+        found.append(row)
+    found.sort(key=lambda f: (-f["pixels"], f["center"]))
+    return _bounded(found, limit, out, "blobs")
+
+
+def _nice_step(span: float, target: int = 10) -> float:
+    raw = span / target
+    power = 10 ** math.floor(math.log10(raw))
+    for m in (1, 2, 2.5, 5, 10):
+        if m * power >= raw:
+            return m * power
+    return 10 * power
+
+
+def _fmt(value: float) -> str:
+    text = f"{value:.6f}".rstrip("0").rstrip(".")
+    return "0" if text in ("-0", "") else text
+
+
+def _font(size: int):
+    from PIL import ImageFont
+
+    try:
+        return ImageFont.load_default(size=size)
+    except TypeError:  # Pillow < 10.1
+        return ImageFont.load_default()
+
+
+def grid_crop(path, align, *, region=None, region_px=None, zoom=None, max_px=1568, grid=None):
+    """The window resampled into WCS axes with a labelled grid; ``png`` + report."""
+    cal = Calibration(align)
+    max_px = check_max_px(max_px)
+    image = _open(path)
+    u0, v0, u1, v1 = _window_px(cal, image.size, region, region_px)
+    if region is not None:
+        x0, y0, x1, y1 = normalize_region(region)
+    else:
+        x0, y0, x1, y1 = cal.box_to_wcs(u0, v0, u1, v1)
+    span_px = max(x1 - x0, y1 - y0) / cal.upp  # the window's long side in scan pixels
+    fit = max_px / span_px
+    if zoom is None:
+        zoom = min(MAX_AUTO_ZOOM, fit)
+    else:
+        if isinstance(zoom, bool) or not isinstance(zoom, int | float) or not zoom > 0:
+            raise ValueError(f"zoom: output pixels per scan pixel, > 0, got {zoom!r}.")
+    note = None
+    if zoom > fit:
+        note = f"zoom {zoom:g} would exceed max_px {max_px}; drawn at {fit:.4g}"
+        zoom = fit
+    ppu = zoom / cal.upp  # output px per drawing unit
+    width = max(1, round((x1 - x0) * ppu))
+    height = max(1, round((y1 - y0) * ppu))
+    # output pixel (X, Y) is WCS (x0 + X/ppu, y1 - Y/ppu); back into the scan
+    a_inv = 1.0 / cal.a
+    # (u - i v) = a_inv * (x + i y - b)
+    base = a_inv * (complex(x0, y1) - cal.b)
+    dx = a_inv * complex(1.0 / ppu, 0.0)
+    dy = a_inv * complex(0.0, -1.0 / ppu)
+    coeffs = (dx.real, dy.real, base.real, -dx.imag, -dy.imag, -base.imag)
+    from PIL import Image, ImageDraw
+
+    out = image.transform(
+        (width, height), Image.AFFINE, coeffs, resample=Image.BILINEAR, fillcolor=(235, 235, 235)
+    ).convert("RGBA")
+    if grid is None:
+        step = _nice_step(max(x1 - x0, y1 - y0))
+        while step * ppu < 40:
+            step = _nice_step(step * 2.5, 1)
+    else:
+        if isinstance(grid, bool) or not isinstance(grid, int | float) or not grid > 0:
+            raise ValueError(f"grid: the step in drawing units, > 0, got {grid!r}.")
+        step = float(grid)
+        if (x1 - x0) / step > 400 or (y1 - y0) / step > 400:
+            raise ValueError(f"grid: {step:g} gives over 400 lines across the window.")
+    minor = next((step / n for n in (5, 2) if step / n * ppu >= 12), None)
+    layer = Image.new("RGBA", out.size, (0, 0, 0, 0))
+    pen = ImageDraw.Draw(layer)
+
+    def lines(s, colour):
+        xs = [i * s for i in range(math.ceil(x0 / s), math.floor(x1 / s) + 1)]
+        ys = [j * s for j in range(math.ceil(y0 / s), math.floor(y1 / s) + 1)]
+        for x in xs:
+            px = round((x - x0) * ppu)
+            pen.line([(px, 0), (px, height)], fill=colour, width=1)
+        for y in ys:
+            py = round((y1 - y) * ppu)
+            pen.line([(0, py), (width, py)], fill=colour, width=1)
+        return xs, ys
+
+    if minor:
+        lines(minor, (0, 110, 255, 70))
+    xs, ys = lines(step, (230, 0, 0, 170))
+    font = _font(12)
+    for x in xs:
+        label = _fmt(x)
+        px = round((x - x0) * ppu) + 2
+        box = pen.textbbox((px, 1), label, font=font)
+        pen.rectangle(box, fill=(255, 255, 255, 200))
+        pen.text((px, 1), label, fill=(200, 0, 0, 255), font=font)
+    for y in ys:
+        label = _fmt(y)
+        py = round((y1 - y) * ppu)
+        box = pen.textbbox((2, py - 14), label, font=font)
+        pen.rectangle(box, fill=(255, 255, 255, 200))
+        pen.text((2, py - 14), label, fill=(200, 0, 0, 255), font=font)
+    picture = Image.alpha_composite(out, layer).convert("RGB")
+    buf = io.BytesIO()
+    picture.save(buf, format="PNG")
+    report = {
+        "png": buf.getvalue(),
+        "applied": True,
+        "px": [width, height],
+        "region": [round(v, 6) for v in (x0, y0, x0 + width / ppu, y1)],
+        "px_per_unit": round(ppu, 6),
+        "zoom": round(zoom, 4),
+        "grid": {"step": step, "minor": minor},
+        "scan": {
+            "path": str(path),
+            "pixels": list(image.size),
+            "window_px": [u0, v0, u1, v1],
+            "units_per_px": round(cal.upp, 6),
+            "rotation_deg": round(cal.rotation, 4) + 0.0,
+        },
+        "read": "red lines every grid.step, labelled in drawing units (x on top, y at "
+        "the left, above its line); pixel (X, Y) is WCS (x0 + X/ppu, y1 - Y/ppu)",
+    }
+    if note:
+        report["note"] = note
+    return report
+
+
+# ── compare ────────────────────────────────────────────────────────────────
+
+
+def compare_window(path, align, *, region=None, region_px=None) -> dict:
+    """Step 1 of a compare: the scan window and the render the drawing needs.
+
+    Returns ``{"render_region": WCS box, "render_max_px": int, ...}`` for
+    ``view_render``; :func:`compare` takes it back with the render.
+    """
+    cal = Calibration(align)
+    arr, origin, k, size = _pixels(path, cal, region, region_px)
+    h, w = arr.shape[:2]
+    u0, v0 = origin
+    box = cal.box_to_wcs(u0, v0, u0 + w * k, v0 + h * k)
+    long_units = max(box[2] - box[0], box[3] - box[1])
+    render_px = min(4096, max(64, round(long_units / (cal.upp * k))))
+    return {
+        "cal": cal,
+        "arr": arr,
+        "origin": origin,
+        "k": k,
+        "size": size,
+        "path": path,
+        "render_region": list(box),
+        "render_max_px": render_px,
+    }
+
+
+def _dilate(mask, r: int):
+
+    out = mask.copy()
+    for axis in (0, 1):
+        grown = out.copy()
+        for d in range(1, r + 1):
+            grown[(slice(d, None),) if axis == 0 else (slice(None), slice(d, None))] |= out[
+                (slice(None, -d),) if axis == 0 else (slice(None), slice(None, -d))
+            ]
+            grown[(slice(None, -d),) if axis == 0 else (slice(None), slice(None, -d))] |= out[
+                (slice(d, None),) if axis == 0 else (slice(None), slice(d, None))
+            ]
+        out = grown
+    return out
+
+
+def compare(window: dict, render: dict, *, max_px: int = 1568) -> dict:
+    """The source's line pixels against the drawing's, in the scan's pixels."""
+    import numpy as np
+    from PIL import Image
+
+    cal, arr, (u0, v0), k = window["cal"], window["arr"], window["origin"], window["k"]
+    h, w = arr.shape[:2]
+    lum = np.rint(0.299 * arr[..., 0] + 0.587 * arr[..., 1] + 0.114 * arr[..., 2])
+    source = lum < LINE_LUMINANCE
+
+    with Image.open(io.BytesIO(render["png"])) as png:
+        ink_img = np.asarray(png.convert("RGB"), dtype=np.int16)
+    ink = ink_img.min(axis=2) <= INK_CHANNEL
+    rx0, _ry0, _rx1, ry1 = render["region"]
+    rppu = render["px_per_unit"]
+    rh, rw = ink.shape
+    drawn = np.zeros((h, w), dtype=bool)
+    cols = np.arange(w)
+    for r_start in range(0, h, 256):
+        rr = np.arange(r_start, min(h, r_start + 256))
+        uu = u0 + (cols[None, :] + 0.5) * k
+        vv = v0 + (rr[:, None] + 0.5) * k
+        z = cal.a * (uu - 1j * vv) + cal.b
+        ci = np.floor((z.real - rx0) * rppu).astype(np.int64)
+        ri = np.floor((ry1 - z.imag) * rppu).astype(np.int64)
+        ok = (ci >= 0) & (ci < rw) & (ri >= 0) & (ri < rh)
+        block = np.zeros(ok.shape, dtype=bool)
+        block[ok] = ink[ri[ok], ci[ok]]
+        drawn[rr[0] : rr[-1] + 1] = block
+
+    tol = COMPARE_TOLERANCE_PX
+    near_drawn, near_source = _dilate(drawn, tol), _dilate(source, tol)
+    missing = source & ~near_drawn  # in the source, nothing drawn near it
+    extra = drawn & ~near_source  # drawn, nothing in the source near it
+    n_src, n_drw = int(source.sum()), int(drawn.sum())
+
+    def pct(part, whole):
+        return None if whole == 0 else round(100.0 * part / whole, 1)
+
+    cell = max(16, math.ceil(max(h, w) / 16))
+    gh, gw = math.ceil(h / cell), math.ceil(w / cell)
+
+    def cells(m):
+        padded = np.zeros((gh * cell, gw * cell), dtype=np.int64)
+        padded[:h, :w] = m
+        return padded.reshape(gh, cell, gw, cell).sum(axis=(1, 3))
+
+    miss_c, extra_c = cells(missing), cells(extra)
+    score = miss_c + extra_c
+    order = np.argsort(-score, axis=None, kind="stable")
+    regions = []
+    for flat in order[:COMPARE_REGIONS]:
+        gy, gx = divmod(int(flat), gw)
+        if score[gy, gx] == 0:
+            break
+        c0, r0 = gx * cell, gy * cell
+        c1, r1 = min(w, c0 + cell), min(h, r0 + cell)
+        regions.append(
+            {
+                "box": [
+                    round(v, 3)
+                    for v in cal.box_to_wcs(u0 + c0 * k, v0 + r0 * k, u0 + c1 * k, v0 + r1 * k)
+                ],
+                "missing_px": int(miss_c[gy, gx]),
+                "extra_px": int(extra_c[gy, gx]),
+            }
+        )
+
+    # the picture: source lines grey, missing red, extra blue, drawn lines dark green
+    pic = np.full((h, w, 3), 255, dtype=np.uint8)
+    pic[source] = (190, 190, 190)
+    pic[drawn & near_source] = (0, 130, 0)
+    pic[missing] = (230, 0, 0)
+    pic[extra] = (0, 70, 255)
+    image = Image.fromarray(pic)
+    scale = min(MAX_AUTO_ZOOM, max_px / max(image.size))
+    if scale > 1:
+        scale = math.floor(scale)  # whole pixels, so a 1 px line stays 1 px wide
+    if scale != 1:
+        size = (max(1, round(w * scale)), max(1, round(h * scale)))
+        image = image.resize(size, resample=Image.NEAREST)
+    buf = io.BytesIO()
+    image.save(buf, format="PNG")
+    return {
+        "png": buf.getvalue(),
+        "applied": True,
+        "ok": True,
+        "source_covered_pct": pct(n_src - int(missing.sum()), n_src),
+        "drawing_on_source_pct": pct(n_drw - int(extra.sum()), n_drw),
+        "source_line_px": n_src,
+        "drawing_line_px": n_drw,
+        "regions": regions,
+        "scan": _scan_report(window["path"], cal, window["size"], (u0, v0), k, arr),
+        "px": list(image.size),
+        "method": {
+            "frame": "drawing rendered on white at the scan's resolution, resampled into "
+            "the scan's pixels through align",
+            "source_line_px": f"scan luminance < {LINE_LUMINANCE} (0-255)",
+            "drawing_line_px": f"render pixel with a channel <= {INK_CHANNEL}",
+            "tolerance_px": tol,
+            "fills": "a filled area (wall poche) counts every pixel: compare a drawing "
+            "with hatches, or narrow region to lines",
+            "regions": f"cells of {cell} scan px, ranked by missing + extra",
+            "picture": "grey source, green matched drawing, red source not drawn, "
+            "blue drawn not in source",
+        },
+    }

@@ -238,7 +238,7 @@ _GUIDE_STEPS: tuple[tuple[str, ...], ...] = (
     ("drawing_new", "drawing_open"),
     ("drawing_apply_standard", "drawing_settings"),
     ("drawing_apply_iso_layers", "layer_create"),
-    ("image_map",),
+    ("scan_read",),
     ("entity_batch_create", "arch_plan_from_spec", "mech_part_from_spec"),
     ("dimension_auto", "dimension_chain"),
     ("page_setup_apply", "viewport_create"),

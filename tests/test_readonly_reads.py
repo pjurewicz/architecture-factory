@@ -44,7 +44,7 @@ NO_DOCUMENT_READ = {
     "drawing_preflight": "checks an intent and its requirements, no drawing",
     "analysis_measure_distance": "arithmetic on the two points it is given",
     "analysis_measure_area": "arithmetic on the polygon it is given",
-    "image_map": "arithmetic on the calibration pairs and points it is given",
+    "scan_read": "mode=map is arithmetic on the calibration pairs and points it is given",
     "selection_get": "returns the backend's remembered selection",
 }
 
@@ -115,7 +115,7 @@ async def test_every_read_cost_tool_reaches_the_engine_readonly(
         "point_tangent": {"circle_handle": circle, "from_x": 100, "from_y": 100},
         "entity_select_smart": {"predicate": {"type": "LINE"}},
         "pid_tag_parse": {"tag": "FIC-101"},
-        "image_map": {"align": [[0, 0, 0, 0], [10, 0, 100, 0]], "pixels": [[5, 5]]},
+        "scan_read": {"align": [[0, 0, 0, 0], [10, 0, 100, 0]], "pixels": [[5, 5]]},
         "drawing_scale_check": {"reference": str(reference)},
     }
 

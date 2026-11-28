@@ -3811,29 +3811,6 @@
       }
     },
     {
-      "name": "image_map",
-      "group": "architecture",
-      "cost": "read",
-      "summary": "Map scan pixels to drawing points and back (overlay calibration).",
-      "acad": [],
-      "synonyms": [
-        "image pixels to drawing coordinates",
-        "measure on scan raster",
-        "calibrate scan convert points",
-        "trace a plan from an image",
-        "piksele na wspolrzedne",
-        "pomiar z rastra"
-      ],
-      "tags": [
-        "arch",
-        "query"
-      ],
-      "annotations": {
-        "title": "Architecture: Map Image Points",
-        "readOnlyHint": true
-      }
-    },
-    {
       "name": "interior_tile_layout",
       "group": "architecture",
       "cost": "mutate",
@@ -5224,6 +5201,37 @@
       "annotations": {
         "title": "Sheet: Add Revision",
         "destructiveHint": false
+      }
+    },
+    {
+      "name": "scan_read",
+      "group": "architecture",
+      "cost": "read",
+      "summary": "Read a calibrated scan: map points, gridded crop, colour features, compare.",
+      "acad": [],
+      "synonyms": [
+        "read source scan",
+        "read source image",
+        "image pixels to drawing coordinates",
+        "measure on scan raster",
+        "calibrate scan convert points",
+        "trace a plan from an image",
+        "trace scan overlay",
+        "overlay image grid crop",
+        "detect wall poche colour rectangles",
+        "find symbols by colour in image",
+        "compare drawing with scan overlay coverage",
+        "piksele na wspolrzedne",
+        "pomiar z rastra",
+        "odczyt skanu"
+      ],
+      "tags": [
+        "arch",
+        "query"
+      ],
+      "annotations": {
+        "title": "Architecture: Read Scan",
+        "readOnlyHint": true
       }
     },
     {
