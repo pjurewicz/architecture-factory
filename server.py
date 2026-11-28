@@ -14761,10 +14761,10 @@ async def arch_title_block(
 )
 async def scan_read(
     align: Annotated[
-        list[list[float]] | dict,
+        list[list[float]] | dict | None,
         "overlay_align pairs (3+ report rms), or a shortcut: {sheet, scale, origin?} or "
         "{points: [[u, v], [u, v]], length, at?, angle?} - answered as align",
-    ],
+    ] = None,
     mode: Annotated[
         Literal["map", "grid", "rects", "blobs", "compare"], "What to read; see Details"
     ] = "map",
@@ -14780,6 +14780,9 @@ async def scan_read(
     limit: Annotated[int, "rects/blobs: rows returned (1-1000)"] = 100,
     zoom: Annotated[float | None, "grid: output px per scan px"] = None,
     grid: Annotated[float | None, "grid: step in drawing units (auto)"] = None,
+    layout: Annotated[
+        str | None, "compare: this paper layout, the scan fitted page to page without align"
+    ] = None,
     max_px: Annotated[int, Field(description="Image long side", ge=64, le=4096)] = 1568,
     ctx: Context = None,
 ):
@@ -14807,13 +14810,16 @@ async def scan_read(
     `center`, `size`, `box`, `pixels`. Both: `count` and at most `limit` rows
     (`truncated`); `size` [min, max] filters both sides (default min 3 px).
 
-    `compare`: the drawing (model space) rendered on white at the scan's
-    resolution, resampled into the scan's pixels through `align`;
-    `source_covered_pct` (scan line pixels with a drawn pixel within
-    `method.tolerance_px`), `drawing_on_source_pct` (the reverse), `regions`
-    (WCS boxes with the most missing + extra pixels) and a PNG: grey source,
-    green matched, red not drawn, blue not in the source. `method` states the
-    thresholds.
+    `compare`: the drawing rendered on white at the scan's resolution,
+    resampled into the scan's pixels through `align` - model space, or
+    `layout` (paper units; without `align` the scan is the page, fitted page
+    to page). Source ink is every pixel off the paper colour, coloured lines
+    and grey fills too. `source_covered_pct` (source ink with a drawn pixel
+    within `method.tolerance_px`), `drawing_on_source_pct` (the reverse),
+    `source` {strokes, fills: px, covered_pct}, `drawing` {lines, text, fills:
+    drawn_px, on_source_pct}, `regions` (boxes with the most missing + extra)
+    and a PNG: grey source, green matched, red not drawn, blue not in the
+    source. `method` states the thresholds.
 
     Without Pillow every file mode is refused, capability `scan_image`.
     """
@@ -14822,6 +14828,8 @@ async def scan_read(
 
     try:
         path = None if image is None else str(validate_path(image))
+        if align is None and not (layout and mode == "compare"):
+            raise ValueError("align: the calibration pairs or a shortcut (see Details).")
         calibration = None
         if isinstance(align, dict):  # round 6: a shortcut, answered as align to paste
             size = None if path is None or "sheet" not in align else sr.image_size(path)
@@ -14834,6 +14842,9 @@ async def scan_read(
             return out if calibration is None else {**out, "calibration": calibration}
         if path is None:
             raise ValueError(f"image: mode {mode!r} reads the scan file; give its path.")
+        if layout and mode != "compare":
+            raise ValueError("layout: compare only (the other modes read the scan alone).")
+
         window = {"region": region, "region_px": region_px}
         if mode == "grid":
             report = await asyncio.to_thread(
@@ -14852,12 +14863,20 @@ async def scan_read(
                 limit=limit,
                 **window,
             )
+        b = _backend(ctx)
+        sheet = {"layout": layout} if layout else {}
+        if align is None and layout:  # the page fitted to the sheet, as view_screenshot does
+            page = await _view_render(b, region=None, max_px=64, **sheet)
+            size = await asyncio.to_thread(sr.image_size, path)
+            align = sr.page_align(size, page["region"])
         src = await asyncio.to_thread(sr.compare_window, path, align, **window)
         render = await _view_render(
-            _backend(ctx),
+            b,
             region=src["render_region"],
             max_px=src["render_max_px"],
             background="white",
+            classify=True,
+            **sheet,
         )
         if render.get("png") is None:
             raise ToolError(

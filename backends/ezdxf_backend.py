@@ -4112,7 +4112,9 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         return await self._async(_sync)
 
     @staticmethod
-    def _plot_figure(doc, target, paper, *, plot_style=None, background="auto", warnings):
+    def _plot_figure(
+        doc, target, paper, *, plot_style=None, background="auto", warnings, classify=False
+    ):
         """``(fig, ax, applied)``: ``target`` drawn as it plots - the one route of
         ``drawing_export_pdf`` and of ``view_screenshot(layout=)``.
 
@@ -4136,6 +4138,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             plot_style=plot_style,
             background=background,
             warnings=warnings,
+            classify=classify,
         )
         if paper is not None:
             ax.set_xlim(*paper["xlim"])
@@ -4143,7 +4146,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
             ax.set_aspect("equal", adjustable="box")
         return fig, ax, applied
 
-    def _render_sheet(self, doc, layout, region, size, overlay) -> dict:
+    def _render_sheet(self, doc, layout, region, size, overlay, classify=False) -> dict:
         """A paper layout as ``drawing_export_pdf`` plots it, as a PNG.
 
         The PDF's own figure rasterised: the same plot style, no-plot layers
@@ -4159,7 +4162,9 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         target = doc.layouts.get(resolved)
         paper = self._paper_frame(target)
         warnings: list[str] = []
-        fig, ax, applied = self._plot_figure(doc, target, paper, warnings=warnings)
+        fig, ax, applied = self._plot_figure(
+            doc, target, paper, warnings=warnings, classify=classify
+        )
         (x0, x1), (y0, y1) = paper["xlim"], paper["ylim"]
         loaded = None
         if overlay is not None:
@@ -10619,8 +10624,12 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
         overlay_opacity: float = 0.5,
         background: str = "auto",
         layout: str | None = None,
+        classify: bool = False,
     ) -> dict:
         """The current space drawn at a stated scale, the window applied (1.8-07).
+
+        ``classify`` draws lines, text and fills in their class colours
+        (``region_render.CLASS_COLORS``; scan_read compare).
 
         ``document`` (preview.py only) names another open document by its
         ``document_id``; it is drawn in model space and stays inactive.
@@ -10654,7 +10663,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     overlay = None
                     if overlay_image is not None:
                         overlay = (overlay_image, overlay_align, overlay_opacity)
-                    report = self._render_sheet(doc, layout, wanted, size, overlay)
+                    report = self._render_sheet(doc, layout, wanted, size, overlay, classify)
                 except ImportError:
                     return {"png": None, "applied": False, "source": "headless"}
                 report["source"] = "headless"
@@ -10676,6 +10685,7 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
                     if overlay_image is None
                     else load_overlay(overlay_image, overlay_align, overlay_opacity),
                     background=background,
+                    classify=classify,
                 )
             except ImportError:
                 log.warning("matplotlib not installed - region render unavailable")

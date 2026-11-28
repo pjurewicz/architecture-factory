@@ -445,8 +445,13 @@ def draw_layout(
     plot_style: str | None = None,
     background: str = "auto",
     warnings: list | None = None,
+    classify: bool = False,
 ) -> dict:
     """Draw ``layout`` through the matplotlib backend ``out``, the way it plots.
+
+    ``classify`` (scan_read compare, round 6) draws every entity in its class's
+    colour instead (:data:`CLASS_COLORS`), so one render
+    tells lines, text and fills apart; a WIPEOUT or IMAGE keeps its own.
 
     ``plot`` as passed (a PDF) leaves out every layer whose plot flag is off,
     as AutoCAD plots. An IMAGE is drawn with its pixels under the vectors and
@@ -596,14 +601,37 @@ def draw_layout(
     # every ezdxf pen "use object"; export_mode drops the no-plot layers
     ctx = _PlotContext(doc, ctb=acadctb.new_ctb(), export_mode=export)
     psltscale = bool(doc.header.get("$PSLTSCALE", 1))
-    _Frontend(ctx, _glyph_pipeline(out, psltscale), config=config).draw_layout(
-        layout, finalize=True
-    )
+    frontend = _Frontend(ctx, _glyph_pipeline(out, psltscale), config=config)
+    if classify:
+        frontend.push_property_override_function(_class_colour)
+    frontend.draw_layout(layout, finalize=True)
     result = {"name": name or None, "ink": ink, "exact": exact}
     report = _pen_report(pens)
     if report:
         result["pens"] = report
     return result
+
+
+#: ``classify``'s colours: one pure channel per class, so a pixel's dominant
+#: channel names its class (antialiasing only adds white).
+CLASS_COLORS = {"lines": "#ff0000", "text": "#00ff00", "fills": "#0000ff"}
+TEXT_TYPES = frozenset({"TEXT", "MTEXT", "ATTRIB", "MULTILEADER"})
+FILL_TYPES = frozenset({"HATCH", "SOLID", "TRACE", "MPOLYGON"})
+
+
+def entity_class(dxftype: str) -> str | None:
+    """``lines`` / ``text`` / ``fills``, None for what keeps its own colour."""
+    if dxftype in ("WIPEOUT", "IMAGE", "VIEWPORT"):
+        return None
+    if dxftype in TEXT_TYPES:
+        return "text"
+    return "fills" if dxftype in FILL_TYPES else "lines"
+
+
+def _class_colour(entity, properties) -> None:
+    kind = entity_class(entity.dxftype())
+    if kind is not None:
+        properties.color = CLASS_COLORS[kind]
 
 
 #: PLOTSETTINGS flag "Plot paperspace last" (DXF 70, bit 512).
@@ -803,6 +831,7 @@ def render_layout(
     label_anchor: Callable | None = None,
     overlay: dict | None = None,
     background: str = "auto",
+    classify: bool = False,
 ) -> dict:
     """Render ``layout`` of ``doc`` to PNG; ``region`` None frames the extents.
 
@@ -818,7 +847,9 @@ def render_layout(
     ax = fig.add_axes((0.0, 0.0, 1.0, 1.0))
     out = MatplotlibBackend(ax, adjust_figure=False)
     warnings: list[str] = []
-    plot_style = draw_layout(doc, layout, out, plot=False, background=background, warnings=warnings)
+    plot_style = draw_layout(
+        doc, layout, out, plot=False, background=background, warnings=warnings, classify=classify
+    )
 
     if region is None:
         (ex0, ex1), (ey0, ey1) = ax.get_xlim(), ax.get_ylim()

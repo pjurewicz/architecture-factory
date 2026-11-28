@@ -52,6 +52,8 @@ class ViewContract(ABC):
         overlay_align: list | None = None,
         overlay_opacity: float = 0.5,
         background: str = "auto",
+        layout: str | None = None,
+        classify: bool = False,
     ) -> dict:
         """A PNG of ``region`` (``[x0, y0, x1, y1]``, WCS) and the scale it was drawn at (1.8-07).
 

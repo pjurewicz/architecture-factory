@@ -41,8 +41,12 @@ from backends.region_render import (
 MAX_LIMIT, DEFAULT_LIMIT = 1000, 100
 #: A colour mask with more row runs than this is noise, not features.
 MAX_RUNS = 400_000
-#: A scan pixel is a line pixel when its luminance (0-255) is below this.
-LINE_LUMINANCE = 128
+#: A scan pixel is ink when some channel differs from the paper's by more than
+#: this (0-255): orange notes, red dimensions and grey poche count, not only
+#: dark lines (round 6; a luminance threshold lost them).
+SOURCE_INK_DISTANCE = 48
+#: A source pixel with ink all round it within this radius is inside a fill.
+FILL_CORE_PX = 3
 #: A rendered pixel is ink when some channel is at most this (white paper).
 INK_CHANNEL = 191
 #: Compare: a line pixel counts as matched within this many pixels.
@@ -685,23 +689,38 @@ def _dilate(mask, r: int):
     return out
 
 
+def _erode(mask, r: int):
+    return ~_dilate(~mask, r)
+
+
 def compare(window: dict, render: dict, *, max_px: int = 1568) -> dict:
-    """The source's line pixels against the drawing's, in the scan's pixels."""
+    """The source's ink against the drawing's, in the scan's pixels.
+
+    The source is every pixel off the paper colour (the window's median), split
+    into ``fills`` (inside an area of ink) and ``strokes``; the drawing was
+    rendered with ``classify`` (lines, text, fills in their own colour), so the
+    answer scores each class apart besides the totals.
+    """
     import numpy as np
     from PIL import Image
 
+    from backends.region_render import CLASS_COLORS
+
     cal, arr, (u0, v0), k = window["cal"], window["arr"], window["origin"], window["k"]
     h, w = arr.shape[:2]
-    lum = np.rint(0.299 * arr[..., 0] + 0.587 * arr[..., 1] + 0.114 * arr[..., 2])
-    source = lum < LINE_LUMINANCE
+    paper = np.median(arr.reshape(-1, 3), axis=0)
+    source = np.abs(arr - paper).max(axis=2) > SOURCE_INK_DISTANCE
+    src_fill = _dilate(_erode(source, FILL_CORE_PX), FILL_CORE_PX) & source
+    src_stroke = source & ~src_fill
 
     with Image.open(io.BytesIO(render["png"])) as png:
         ink_img = np.asarray(png.convert("RGB"), dtype=np.int16)
     ink = ink_img.min(axis=2) <= INK_CHANNEL
+    kind = np.where(ink, ink_img.argmax(axis=2), -1)  # 0 lines, 1 text, 2 fills
     rx0, _ry0, _rx1, ry1 = render["region"]
     rppu = render["px_per_unit"]
     rh, rw = ink.shape
-    drawn = np.zeros((h, w), dtype=bool)
+    drawn_kind = np.full((h, w), -1, dtype=np.int8)
     cols = np.arange(w)
     for r_start in range(0, h, 256):
         rr = np.arange(r_start, min(h, r_start + 256))
@@ -711,9 +730,10 @@ def compare(window: dict, render: dict, *, max_px: int = 1568) -> dict:
         ci = np.floor((z.real - rx0) * rppu).astype(np.int64)
         ri = np.floor((ry1 - z.imag) * rppu).astype(np.int64)
         ok = (ci >= 0) & (ci < rw) & (ri >= 0) & (ri < rh)
-        block = np.zeros(ok.shape, dtype=bool)
-        block[ok] = ink[ri[ok], ci[ok]]
-        drawn[rr[0] : rr[-1] + 1] = block
+        block = np.full(ok.shape, -1, dtype=np.int8)
+        block[ok] = kind[ri[ok], ci[ok]]
+        drawn_kind[rr[0] : rr[-1] + 1] = block
+    drawn = drawn_kind >= 0
 
     tol = COMPARE_TOLERANCE_PX
     near_drawn, near_source = _dilate(drawn, tol), _dilate(source, tol)
@@ -723,6 +743,19 @@ def compare(window: dict, render: dict, *, max_px: int = 1568) -> dict:
 
     def pct(part, whole):
         return None if whole == 0 else round(100.0 * part / whole, 1)
+
+    classes = {}
+    for i, name in enumerate(CLASS_COLORS):
+        mine = drawn_kind == i
+        n = int(mine.sum())
+        classes[name] = {"drawn_px": n, "on_source_pct": pct(int((mine & near_source).sum()), n)}
+    source_parts = {
+        name: {
+            "px": int(part.sum()),
+            "covered_pct": pct(int((part & near_drawn).sum()), int(part.sum())),
+        }
+        for name, part in (("strokes", src_stroke), ("fills", src_fill))
+    }
 
     cell = max(16, math.ceil(max(h, w) / 16))
     gh, gw = math.ceil(h / cell), math.ceil(w / cell)
@@ -753,7 +786,7 @@ def compare(window: dict, render: dict, *, max_px: int = 1568) -> dict:
             }
         )
 
-    # the picture: source lines grey, missing red, extra blue, drawn lines dark green
+    # the picture: source grey, missing red, extra blue, drawn lines dark green
     pic = np.full((h, w, 3), 255, dtype=np.uint8)
     pic[source] = (190, 190, 190)
     pic[drawn & near_source] = (0, 130, 0)
@@ -776,17 +809,21 @@ def compare(window: dict, render: dict, *, max_px: int = 1568) -> dict:
         "drawing_on_source_pct": pct(n_drw - int(extra.sum()), n_drw),
         "source_line_px": n_src,
         "drawing_line_px": n_drw,
+        "source": source_parts,
+        "drawing": classes,
         "regions": regions,
         "scan": _scan_report(window["path"], cal, window["size"], (u0, v0), k, arr),
         "px": list(image.size),
         "method": {
             "frame": "drawing rendered on white at the scan's resolution, resampled into "
             "the scan's pixels through align",
-            "source_line_px": f"scan luminance < {LINE_LUMINANCE} (0-255)",
+            "source_line_px": f"scan pixel with a channel more than {SOURCE_INK_DISTANCE} off "
+            f"the paper colour {[int(c) for c in paper]}",
             "drawing_line_px": f"render pixel with a channel <= {INK_CHANNEL}",
+            "classes": "drawing: text = TEXT / MTEXT / ATTRIB / MULTILEADER, fills = HATCH / "
+            "SOLID, lines = the rest (dimensions too); source: fills = ink with ink all round "
+            f"within {FILL_CORE_PX} px, strokes = the rest",
             "tolerance_px": tol,
-            "fills": "a filled area (wall poche) counts every pixel: compare a drawing "
-            "with hatches, or narrow region to lines",
             "regions": f"cells of {cell} scan px, ranked by missing + extra",
             "picture": "grey source, green matched drawing, red source not drawn, "
             "blue drawn not in source",

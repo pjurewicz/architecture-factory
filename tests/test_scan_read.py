@@ -308,3 +308,56 @@ async def test_a_page_at_one_to_n_or_two_points_and_a_length_calibrate_in_one_ca
         raise_on_error=False,
     )
     assert bad.is_error and "calibrate.scale" in bad.structured_content["message"]
+
+
+@pytest.mark.asyncio
+async def test_compare_counts_coloured_lines_and_grey_fills_of_the_source(client, tmp_path):
+    """Round 6: a luminance threshold (< 128) lost orange lines and a grey poche,
+    so a correctly drawn one counted as extra. Synthetic source, known truth."""
+    pytest.importorskip("matplotlib")
+    image = Image.new("RGB", (400, 300), "white")
+    pen = ImageDraw.Draw(image)
+    for v in (50, 150):
+        pen.line([(20, v), (380, v)], fill=(255, 140, 0), width=3)  # orange, luminance 158
+    pen.rectangle([220, 180, 319, 259], fill=(200, 200, 200))  # grey poche, luminance 200
+    scan = tmp_path / "colour.png"
+    image.save(scan)
+    ents = [
+        {"type": "line", "x1": wcs(20, v)[0], "y1": wcs(20, v)[1], "x2": wcs(380, v)[0],
+         "y2": wcs(380, v)[1]}
+        for v in (50, 150)
+    ]  # fmt: skip
+    box = [wcs(220, 260), wcs(320, 260), wcs(320, 180), wcs(220, 180)]
+    ents.append({"type": "hatch", "boundary_points": box, "pattern": "SOLID"})
+    await client.call_tool("entity_batch_create", {"entities": ents})
+    out = (
+        await client.call_tool("scan_read", {"align": ALIGN, "image": str(scan), "mode": "compare"})
+    ).structured_content
+    assert out["source_covered_pct"] > 95 and out["drawing_on_source_pct"] > 95
+    assert out["source"]["fills"]["px"] > 5000 and out["source"]["fills"]["covered_pct"] > 95
+    assert out["source"]["strokes"]["px"] > 1500  # the two lines, not counted as fill
+    assert out["drawing"]["fills"]["on_source_pct"] > 95
+    assert out["drawing"]["lines"]["on_source_pct"] > 95
+    assert out["drawing"]["text"] == {"drawn_px": 0, "on_source_pct": None}
+
+
+@pytest.mark.asyncio
+async def test_compare_on_a_layout_fits_the_page_and_sees_paper_space(client, tmp_path):
+    """Round 6: model-only compare called the frame and title block always missing."""
+    pytest.importorskip("matplotlib")
+    await client.call_tool("layout_create", {"name": "A3"})
+    await client.call_tool("page_setup_apply", {"layout": "A3", "paper": "A3"})
+    frame = {"type": "rectangle", "x1": 20, "y1": 10, "x2": 410, "y2": 287}
+    await client.call_tool("entity_batch_create", {"entities": [frame], "layout": "A3"})
+    image = Image.new("RGB", (1680, 1188), "white")  # the page at 4 px a mm
+    ImageDraw.Draw(image).rectangle([80, 40, 1640, 1148], outline="black", width=3)
+    scan = tmp_path / "page.png"
+    image.save(scan)
+    out = (
+        await client.call_tool("scan_read", {"image": str(scan), "mode": "compare", "layout": "A3"})
+    ).structured_content
+    assert out["source_covered_pct"] > 90 and out["drawing_on_source_pct"] > 90
+    bad = await client.call_tool(
+        "scan_read", {"image": str(scan), "mode": "grid"}, raise_on_error=False
+    )
+    assert bad.is_error and "align:" in bad.structured_content["message"]
