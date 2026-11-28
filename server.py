@@ -14859,7 +14859,7 @@ async def scan_read(
         "{points: [[u, v], [u, v]], length, at?, angle?} - answered as align",
     ] = None,
     mode: Annotated[
-        Literal["map", "grid", "rects", "blobs", "walls", "compare", "snap"],
+        Literal["map", "grid", "rects", "blobs", "walls", "poche", "compare", "snap"],
         "What to read; see Details",
     ] = "map",
     image: Annotated[str | None, "The scan file (all modes but map)"] = None,
@@ -14875,14 +14875,14 @@ async def scan_read(
     ] = None,
     tolerance: Annotated[float, "rects/blobs/walls: max channel difference 0-255"] = 40,
     size: Annotated[
-        list[float] | None, "rects/blobs: [min, max] side; walls: thickness (drawing units)"
+        list[float] | None, "rects/blobs: [min, max] side; walls/poche: thickness (min 80)"
     ] = None,
-    skip: Annotated[str | list | None, "rects/walls: colours counted as `color`"] = None,
+    skip: Annotated[str | list | None, "rects/walls/poche: colours counted as `color`"] = None,
     gap: Annotated[float | None, "rects/walls: join collinear pieces across gaps up to"] = None,
-    origin: Annotated[list[float] | None, "walls: the WCS point answered as [0, 0]"] = None,
+    origin: Annotated[list[float] | None, "walls/poche: the WCS point answered as [0, 0]"] = None,
     limit: Annotated[int, "rects/blobs: rows returned (1-1000)"] = 100,
     zoom: Annotated[float | None, "grid: output px per scan px"] = None,
-    grid: Annotated[float | None, "grid: step in drawing units (auto); walls: rounding (1)"] = None,
+    grid: Annotated[float | None, "grid: step (auto); walls/poche: rounding (1)"] = None,
     layout: Annotated[
         str | None, "compare: this paper layout, the scan fitted page to page without align"
     ] = None,
@@ -14923,9 +14923,17 @@ async def scan_read(
 
     `walls`: the poche as spec walls to paste into arch_plan_from_spec -
     `walls` [{id, axis, thickness}], `openings` [{wall, offset, width}] for
-    each gap `gap` bridged (kind not read), `dropped` pieces; thin lines and
-    lettering are opened away (`size` = thickness range), crossing ends meet
-    on the axes (L / T / X), `origin` makes them local, `grid` rounds.
+    each gap `gap` bridged (kind not read), `dropped` pieces; fills thinner
+    than `size[0]` (default 80) are opened away, and without `region` only
+    the biggest cluster of fill is read (`cluster`: the plan, not the title
+    block). On a scan square to WCS every axis is horizontal or vertical on
+    the `grid` (default 1), crossing ends meet on the axes (L / T / X),
+    collinear pieces and duplicates are joined, an axis shorter than half its
+    thickness is dropped; `warning` when the median thickness is under 50.
+    `origin` makes them local. `poche`: the same fill as `wall_polygons`
+    [{id, points}] for arch_plan_from_spec's `wall_polygons` - hole-free
+    outlines (a ring of walls is cut through its rooms), square on the grid;
+    they host no opening, so a door gap stays open (room_separators close it).
 
     `compare`: the drawing rendered on white at the scan's resolution,
     resampled into the scan's pixels through `align` - model space, or
@@ -14980,17 +14988,22 @@ async def scan_read(
         if mode == "snap":
             out = await asyncio.to_thread(sr.snap_points, path, align, pixels=pixels, limit=limit)
             return out if calibration is None else {**out, "calibration": calibration}
-        if mode in ("rects", "blobs", "walls"):
+        if mode in ("rects", "blobs", "walls", "poche"):
             extra = {}
             if mode != "blobs":
                 extra = {"skip": skip, "gap": gap}
             elif skip is not None or gap is not None:
-                raise ValueError("skip / gap: rects and walls only.")
-            if mode == "walls":
+                raise ValueError("skip / gap: rects, walls and poche only.")
+            if mode in ("walls", "poche"):
                 extra |= {"origin": origin, "step": grid}
             elif origin is not None:
-                raise ValueError("origin: walls only.")
-            finder = {"rects": sr.find_rects, "blobs": sr.find_blobs, "walls": sr.find_walls}
+                raise ValueError("origin: walls and poche only.")
+            finder = {
+                "rects": sr.find_rects,
+                "blobs": sr.find_blobs,
+                "walls": sr.find_walls,
+                "poche": sr.find_poche,
+            }
             out = await asyncio.to_thread(
                 finder[mode],
                 path,

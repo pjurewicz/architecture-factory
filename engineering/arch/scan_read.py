@@ -13,6 +13,8 @@ in the ``(u, v)`` the calibration uses, so its centre is ``(i + 0.5, j + 0.5)``.
 * :func:`find_rects` - axis-aligned filled rectangles of one colour (wall
   poché): row runs of the colour merged downwards while their ends stay within
   a pixel, so an L or a T becomes its arms.
+* :func:`find_walls` / :func:`find_poche` - the wall poche as spec walls (axes,
+  thicknesses, openings) or as hole-free outlines for ``wall_polygons``.
 * :func:`find_blobs` - 8-connected components of one colour (symbols, dots,
   rings): centroid, size and pixel count.
 * :func:`compare` - the drawing rasterised (``view_render``) at the scan's
@@ -472,7 +474,16 @@ def _boxes(mask) -> list[list[int]]:
     return [r[:5] for r in done]
 
 
-def _wall_bands(boxes, mask, gap_px: float) -> list[dict]:
+def _behind(out: list[dict], item: dict, way: str, reach: float):
+    """The rows of ``out`` (sorted by ``way`` then centre ``c``) of ``item``'s
+    direction whose centre is within ``reach`` before it, nearest first."""
+    for prev in reversed(out):
+        if prev[way] != item[way] or item["c"] - prev["c"] > reach:
+            return
+        yield prev
+
+
+def _wall_bands(boxes, mask, gap_px: float, stack: bool = False) -> list[dict]:
     """Boxes as bands along their long side, collinear ones joined (round 7).
 
     A band is {h, a0, a1, c, t, count, gaps}: horizontal or not, its run
@@ -480,7 +491,8 @@ def _wall_bands(boxes, mask, gap_px: float) -> list[dict]:
     array px. Two bands of one direction whose centre lines and thicknesses
     agree within 15 % (2 px at least) are one band when the stretch between
     them is filled in ``mask`` (a junction the run merge cut) or no longer
-    than ``gap_px``; such a gap is kept in ``gaps`` (an opening candidate).
+    than ``gap_px``; such a gap is kept in ``gaps`` (an opening candidate);
+    with ``stack`` bands side by side are joined too (:func:`_stack`).
     """
     bands = []
     for c0, r0, c1, r1, count in boxes:
@@ -494,11 +506,10 @@ def _wall_bands(boxes, mask, gap_px: float) -> list[dict]:
     while merged:
         merged = False
         bands.sort(key=lambda b: (b["h"], round(b["c"]), b["a0"]))
+        reach = 1.0 + max(2.0, 0.3 * max((b["t"] for b in bands), default=0.0))
         out: list[dict] = []
         for band in bands:
-            for prev in reversed(out):
-                if prev["h"] != band["h"]:
-                    continue
+            for prev in _behind(out, band, "h", reach):
                 tol = max(2.0, 0.15 * max(prev["t"], band["t"]))
                 if abs(prev["c"] - band["c"]) > tol or abs(prev["t"] - band["t"]) > tol:
                     continue
@@ -527,7 +538,39 @@ def _wall_bands(boxes, mask, gap_px: float) -> list[dict]:
             else:
                 out.append(band)
         bands = out
+        if stack:  # round 8: a band split lengthwise by edge drift
+            stacked = _stack(bands)
+            merged = merged or len(stacked) < len(bands)
+            bands = stacked
     return bands
+
+
+def _stack(bands: list[dict]) -> list[dict]:
+    """Bands of one direction lying side by side along most of the shorter
+    one (a turned or antialiased edge cut the run merge lengthwise) as one."""
+    reach = 1.0 + max((b["t"] for b in bands), default=0.0)
+    out: list[dict] = []
+    for band in sorted(bands, key=lambda b: (b["h"], b["c"])):
+        if band["a1"] - band["a0"] < 4 * band["t"]:
+            out.append(band)  # a speck or a pier: never stacked, nothing snowballs
+            continue
+        for prev in _behind(out, band, "h", reach):
+            shared = min(prev["a1"], band["a1"]) - max(prev["a0"], band["a0"])
+            if shared < 0.8 * min(prev["a1"] - prev["a0"], band["a1"] - band["a0"]):
+                continue
+            lo = min(prev["c"] - prev["t"] / 2, band["c"] - band["t"] / 2)
+            hi = max(prev["c"] + prev["t"] / 2, band["c"] + band["t"] / 2)
+            if hi - lo > prev["t"] + band["t"] + 1 or prev["a1"] - prev["a0"] < 4 * prev["t"]:
+                continue  # apart across, not touching, or a speck
+            if band["t"] > prev["t"]:  # the openings the thicker one read
+                prev["gaps"] = band["gaps"]
+            prev["c"], prev["t"] = (lo + hi) / 2, hi - lo
+            prev["a0"], prev["a1"] = min(prev["a0"], band["a0"]), max(prev["a1"], band["a1"])
+            prev["count"] += band["count"]
+            break
+        else:
+            out.append(band)
+    return out
 
 
 def _band_box(b) -> tuple[float, float, float, float]:
@@ -579,6 +622,211 @@ def _nonnegative(value, name: str) -> float:
     return float(value)
 
 
+#: walls / poche without ``size``: the thinnest fill read as a wall (drawing units, mm).
+WALL_MIN_THICKNESS = 80.0
+#: walls whose median thickness is under this are hatching or furniture lines: warned.
+WALL_THIN_MEDIAN = 50.0
+#: fills this close (drawing units) are one cluster; without
+#: a region only the biggest cluster is read - the plan, not the title block.
+CLUSTER_REACH = 1000.0
+
+
+def _label(mask, diag: bool = True):
+    """Connected components of ``mask``: (label image, 0 = empty; boxes
+    [[c0, r0, c1, r1], ...]; pixel counts), 8-connected or, without ``diag``, 4."""
+    import numpy as np
+
+    rows, starts, ends = _runs(mask)
+    n = len(rows)
+    parent = list(range(n))
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    rl, sl, el = rows.tolist(), starts.tolist(), ends.tolist()
+    reach = 0 if diag else 1  # 8-connected runs may touch corner to corner
+    prev_lo = prev_hi = 0  # the previous row's runs [prev_lo, prev_hi)
+    i = 0
+    while i < n:
+        row = rl[i]
+        j = i
+        while j < n and rl[j] == row:
+            j += 1
+        if prev_hi > prev_lo and rl[prev_lo] == row - 1:
+            p = prev_lo
+            for q in range(i, j):
+                while p < prev_hi and el[p] - reach < sl[q]:
+                    p += 1
+                t = p
+                while t < prev_hi and sl[t] + reach <= el[q]:
+                    ra, rb = find(t), find(q)
+                    if ra != rb:
+                        parent[rb] = ra
+                    t += 1
+        prev_lo, prev_hi = i, j
+        i = j
+    if n == 0:
+        return np.zeros(mask.shape, dtype=np.int32), np.zeros((0, 4), dtype=np.int64), np.zeros(0)
+    _, comp = np.unique(np.array([find(x) for x in range(n)]), return_inverse=True)
+    m = int(comp.max()) + 1
+    lab = np.zeros(mask.shape, dtype=np.int32)
+    for r, s, e, c in zip(rl, sl, el, comp.tolist(), strict=True):
+        lab[r, s:e] = c + 1
+    boxes = np.empty((m, 4), dtype=np.int64)
+    boxes[:, :2] = np.iinfo(np.int64).max
+    boxes[:, 2:] = -1
+    np.minimum.at(boxes[:, 0], comp, starts)
+    np.minimum.at(boxes[:, 1], comp, rows)
+    np.maximum.at(boxes[:, 2], comp, ends)
+    np.maximum.at(boxes[:, 3], comp, rows + 1)
+    count = np.bincount(comp, weights=(ends - starts).astype(np.float64), minlength=m)
+    return lab, boxes, count
+
+
+def _main_cluster(mask, reach_px: float):
+    """[c0, r0, c1, r1) of the cluster with the most fill, fills within
+    ``reach_px`` of each other joined; read on a coarse copy of the mask."""
+    import numpy as np
+
+    f = max(1, math.ceil(reach_px / 8.0))
+    h, w = mask.shape
+    hp, wp = -(-h // f) * f, -(-w // f) * f
+    padded = np.zeros((hp, wp), dtype=bool)
+    padded[:h, :w] = mask
+    coarse = padded.reshape(hp // f, f, wp // f, f).any(axis=(1, 3))
+    lab, boxes, count = _label(_dilate(coarse, max(1, round(reach_px / f / 2))))
+    if not len(count):
+        return None
+    weight = np.bincount(lab[coarse], minlength=len(count) + 1)[1:]
+    c0, r0, c1, r1 = boxes[int(weight.argmax())].tolist()
+    c0, r0, c1, r1 = c0 * f, r0 * f, min(w, c1 * f), min(h, r1 * f)
+    ys, xs = np.nonzero(mask[r0:r1, c0:c1])  # tighten to the fill inside the box
+    return [c0 + int(xs.min()), r0 + int(ys.min()), c0 + int(xs.max()) + 1, r0 + int(ys.max()) + 1]
+
+
+def _wall_mask(path, align, color, tolerance, size, region, region_px, limit, skip, gap):
+    """The poche mask of walls / poche: closed over 2 px cuts, opened by the
+    minimum thickness (``size[0]``, default :data:`WALL_MIN_THICKNESS`) and,
+    without a window, cut to its biggest cluster (``cluster`` in WCS)."""
+    if size is None:
+        size = [WALL_MIN_THICKNESS]
+    cal, mask, at, k, lo, hi, out, limit = _detect_head(
+        path, align, region, region_px, color, tolerance, size, limit, skip
+    )
+    unit = cal.upp * k
+    gap_px = 0.0 if gap is None else _nonnegative(gap, "gap") / unit
+    r = max(0, int((lo / unit - 1) // 2))
+    mask = _erode(_dilate(mask, 2), 2)
+    if r:
+        mask = _dilate(_erode(mask, r), r)
+    if region is None and region_px is None:
+        box = _main_cluster(mask, CLUSTER_REACH / unit)
+        if box is not None:
+            c0, r0, c1, r1 = box
+            keep = mask[r0:r1, c0:c1].copy()
+            mask[:] = False
+            mask[r0:r1, c0:c1] = keep
+            corners = (at[0] + c0 * k, at[1] + r0 * k, at[0] + c1 * k, at[1] + r1 * k)
+            out["cluster"] = [round(v, 1) for v in cal.box_to_wcs(*corners)]
+    return cal, mask, at, k, lo, hi, out, limit, unit, gap_px
+
+
+def _snapper(step):
+    step = 1.0 if step is None else _nonnegative(step, "grid")
+    if step == 0:
+        raise ValueError("grid: the walls rounding step must be above zero.")
+
+    def rnd(v):
+        q = round(v / step) * step
+        return int(q) if float(q).is_integer() else round(q, 3)
+
+    return step, rnd
+
+
+def _carried(bands) -> list[list]:
+    """Per band end, the index of the crossing band it touches (or None)."""
+    import bisect
+
+    reach = max((b["t"] for b in bands), default=0.0)
+    by_dir = {}
+    for h in (True, False):
+        idx = sorted((j for j, b in enumerate(bands) if b["h"] == h), key=lambda j: bands[j]["c"])
+        by_dir[h] = (idx, [bands[j]["c"] for j in idx])
+    carried = []
+    for b in bands:
+        pair = [None, None]
+        idx, cs = by_dir[not b["h"]]
+        for i, e in enumerate((b["a0"], b["a1"])):
+            probe = (e, e + b["t"]) if i == 0 else (e - b["t"], e)
+            box = _band_box({**b, "a0": probe[0], "a1": probe[1]})
+            lo = bisect.bisect_left(cs, e - b["t"] - reach)
+            hi = bisect.bisect_right(cs, e + b["t"] + reach)
+            for j in idx[lo:hi]:
+                other = bands[j]
+                ob = _band_box(other)
+                tol = max(2.0, 0.25 * min(b["t"], other["t"]))  # a turned scan's slivers
+                if (
+                    all((box[n] <= ob[n + 2] + tol and ob[n] <= box[n + 2] + tol) for n in (0, 1))
+                    and abs(other["c"] - e) <= b["t"] + other["t"]
+                ):
+                    if pair[i] is None or abs(other["c"] - e) < abs(bands[pair[i]]["c"] - e):
+                        pair[i] = j
+        carried.append(pair)
+    return carried
+
+
+def _thickness(mask, b) -> float:
+    """A band's thickness in px: the median of its fill across, column by
+    column (row by row), so a turned scan's drift and a crossing wall do not
+    widen it as the band's bounding box does."""
+    import numpy as np
+
+    lo, hi = max(0, math.floor(b["c"] - b["t"])), math.ceil(b["c"] + b["t"]) + 1
+    sl = mask[lo:hi, b["a0"] : b["a1"]] if b["h"] else mask[b["a0"] : b["a1"], lo:hi].T
+    per = sl.sum(axis=0)
+    per = per[per > 0]
+    return float(np.median(per)) if per.size else b["t"]
+
+
+def _join_square(segs, step: float, gap: float) -> list[dict]:
+    """Square axes {o, c, a: [a0, a1], t, gaps} joined in WCS: collinear
+    pieces that overlap (a duplicate) always, across a space up to ``gap``
+    (kept as an opening) when their thicknesses agree."""
+    joined = [{**s, "a": list(s["a"]), "gaps": list(s["gaps"])} for s in segs]
+    merged = True
+    while merged:
+        merged = False
+        out: list[dict] = []
+        reach = step + 0.15 * max((s["t"] for s in joined), default=0.0)
+        for s in sorted(joined, key=lambda s: (s["o"], s["c"], s["a"][0])):
+            for prev in _behind(out, s, "o", reach):
+                tol = max(step, 0.15 * max(prev["t"], s["t"]))
+                if abs(prev["c"] - s["c"]) > tol:
+                    continue
+                space = max(s["a"][0] - prev["a"][1], prev["a"][0] - s["a"][1])
+                if space > step and (space > gap or abs(prev["t"] - s["t"]) > tol):
+                    continue
+                lp, ls = prev["a"][1] - prev["a"][0], s["a"][1] - s["a"][0]
+                if ls > lp:
+                    prev["c"] = s["c"]
+                if space <= 0:
+                    prev["t"] = max(prev["t"], s["t"])
+                else:
+                    prev["t"] = (prev["t"] * lp + s["t"] * ls) / max(lp + ls, 1e-9)
+                    prev["gaps"].append((prev["a"][1], s["a"][0]))
+                prev["gaps"] = sorted(prev["gaps"] + s["gaps"])
+                prev["a"] = [min(prev["a"][0], s["a"][0]), max(prev["a"][1], s["a"][1])]
+                merged = True
+                break
+            else:
+                out.append(s)
+        joined = out
+    return joined
+
+
 def find_walls(
     path,
     align,
@@ -594,83 +842,289 @@ def find_walls(
     origin=None,
     step=None,
 ):
-    """Wall poche of ``color`` read as axes and thicknesses (round 7).
+    """Wall poche of ``color`` read as axes and thicknesses (round 7, round 8).
 
-    The mask (``skip`` colours counted as ``color``) is closed over 2 px cuts
-    and opened by the minimum thickness (``size[0]``, default 3 px), so lines,
-    hatching and lettering drop out; its rectangles become bands joined along
-    their axes (:func:`_wall_bands`, gaps up to ``gap`` kept as openings) and each
-    band end that touches a crossing band is carried onto that band's axis, so
-    L, T and X meet as ``arch_plan_from_spec`` joins them. Rows are spec walls
-    {id, axis, thickness} and openings {wall, offset, width} (kind not read);
-    ``origin`` is subtracted from every point, ``step`` rounds (default 1).
+    The mask (``skip`` colours counted as ``color``) is :func:`_wall_mask`'s;
+    its rectangles become bands joined along their axes (:func:`_wall_bands`,
+    gaps up to ``gap`` kept as openings) and each band end that touches a
+    crossing band is carried onto that band's axis, so L, T and X meet as
+    ``arch_plan_from_spec`` joins them. On a scan square to WCS every axis is
+    then exactly horizontal or vertical on the ``step`` grid (default 1), a
+    carried end on the crossing wall's snapped axis, and collinear pieces are
+    joined again in WCS (:func:`_join_square`); an axis shorter than half its
+    thickness is dropped. Rows are spec walls {id, axis, thickness} and
+    openings {wall, offset, width} (kind not read); ``origin`` is subtracted.
     """
-    cal, mask, at, k, lo, hi, out, limit = _detect_head(
-        path, align, region, region_px, color, tolerance, size, limit, skip
+    cal, mask, at, k, lo, hi, out, limit, unit, gap_px = _wall_mask(
+        path, align, color, tolerance, size, region, region_px, limit, skip, gap
     )
-    unit = cal.upp * k
-    gap_px = 0.0 if gap is None else _nonnegative(gap, "gap") / unit
-    step = 1.0 if step is None else _nonnegative(step, "grid")
-    if step == 0:
-        raise ValueError("grid: the walls rounding step must be above zero.")
+    step, rnd = _snapper(step)
     ox, oy = (0.0, 0.0) if origin is None else _xy(origin, "origin")
-    r = max(0, int((lo / unit - 1) // 2))
-    mask = _erode(_dilate(mask, 2), 2)
-    if r:
-        mask = _dilate(_erode(mask, r), r)
     bands, dropped = [], 0
-    for b in _wall_bands(_boxes(mask), mask, gap_px):
+    for b in _wall_bands(_boxes(mask), mask, gap_px, stack=True):
         if not lo <= b["t"] * unit <= hi or b["a1"] - b["a0"] < b["t"]:
             dropped += 1  # thinner / thicker than size, or a pier no longer than thick
             continue
         bands.append(b)
-    ends = []  # each band end carried onto the axis of a crossing band it touches
-    for b in bands:
-        new = [float(b["a0"]), float(b["a1"])]
-        for i, e in enumerate((b["a0"], b["a1"])):
-            probe = (e, e + b["t"]) if i == 0 else (e - b["t"], e)
-            box = _band_box({**b, "a0": probe[0], "a1": probe[1]})
-            best = None
-            for other in bands:
-                if other["h"] == b["h"]:
-                    continue
-                ob = _band_box(other)
-                if (
-                    all((box[j] <= ob[j + 2] + 2 and ob[j] <= box[j + 2] + 2) for j in (0, 1))
-                    and abs(other["c"] - e) <= b["t"] + other["t"]
-                ):
-                    if best is None or abs(other["c"] - e) < abs(best - e):
-                        best = other["c"]
-            if best is not None:
-                new[i] = best
-        ends.append(new)
+    carried = _carried(bands)
 
     def wcs(b, a):
         c, v = (a, b["c"]) if b["h"] else (b["c"], a)
         x, y = cal.to_wcs(at[0] + c * k, at[1] + v * k)
         return x - ox, y - oy
 
-    def rnd(v):
-        q = round(v / step) * step
-        return int(q) if float(q).is_integer() else round(q, 3)
-
-    walls, openings = [], []
-    order = sorted(range(len(bands)), key=lambda i: -(ends[i][1] - ends[i][0]) * bands[i]["t"])
-    for n, i in enumerate(order, 1):
-        b, (a0, a1) = bands[i], ends[i]
-        p, q = wcs(b, a0), wcs(b, a1)
-        if (q[0], q[1]) < (p[0], p[1]):
-            p, q = q, p
-        wid = f"W{n}"
-        walls.append(
-            {"id": wid, "axis": [[rnd(p[0]), rnd(p[1])], [rnd(q[0]), rnd(q[1])]],
-             "thickness": rnd(b["t"] * unit)}
+    square = abs(math.remainder(cal.rotation, 90.0)) <= 0.5
+    across = []  # per band: along WCS x or y, and its snapped cross coordinate
+    for b in bands:
+        p, q = wcs(b, b["a0"]), wcs(b, b["a1"])
+        flat = abs(q[0] - p[0]) >= abs(q[1] - p[1])
+        across.append(("x", rnd((p[1] + q[1]) / 2)) if flat else ("y", rnd((p[0] + q[0]) / 2)))
+    square_segs, rows = [], []
+    for i, b in enumerate(bands):
+        ends_px = [
+            float(e) if j is None else bands[j]["c"]
+            for e, j in zip((b["a0"], b["a1"]), carried[i], strict=True)
+        ]
+        p, q = wcs(b, ends_px[0]), wcs(b, ends_px[1])
+        gaps = [(wcs(b, g0), wcs(b, g1)) for g0, g1 in b["gaps"]]
+        thick = _thickness(mask, b) * unit
+        if not square:  # a turned scan: the axis as read, rounded
+            if (q[0], q[1]) < (p[0], p[1]):
+                p, q = q, p
+            spans = [tuple(sorted(math.dist(p, g) for g in pair)) for pair in gaps]
+            rows.append(((rnd(p[0]), rnd(p[1])), (rnd(q[0]), rnd(q[1])), thick, spans))
+            continue
+        orient, cross = across[i]
+        ax = 0 if orient == "x" else 1
+        along = [
+            across[j][1] if j is not None else rnd(pt[ax])
+            for pt, j in zip((p, q), carried[i], strict=True)
+        ]
+        square_segs.append(
+            {"o": orient, "c": cross, "a": sorted(along), "t": thick,
+             "gaps": sorted(tuple(sorted((g[0][ax], g[1][ax]))) for g in gaps)}
         )  # fmt: skip
-        for g0, g1 in b["gaps"]:
-            s = sorted(math.dist(p, wcs(b, g)) for g in (g0, g1))
-            openings.append({"wall": wid, "offset": rnd(s[0]), "width": rnd(s[1] - s[0])})
+    for s in _join_square(square_segs, step, 0.0 if gap is None else float(gap)):
+        a0, a1 = s["a"]
+        p, q = ((a0, s["c"]), (a1, s["c"])) if s["o"] == "x" else ((s["c"], a0), (s["c"], a1))
+        spans = [(g0 - a0, g1 - a0) for g0, g1 in s["gaps"] if a0 <= g0 < g1 <= a1]
+        rows.append((p, q, s["t"], spans))
+    kept = []
+    for p, q, t, spans in rows:
+        if math.dist(p, q) < max(t / 2.0, step):
+            dropped += 1  # both ends carried onto one crossing wall: no wall left
+            continue
+        kept.append((p, q, t, spans))
+    kept.sort(key=lambda w: (-math.dist(w[0], w[1]) * w[2], w[0], w[1]))
+    walls, openings = [], []
+    for n, (p, q, t, spans) in enumerate(kept, 1):
+        wid = f"W{n}"
+        axis = [[rnd(p[0]), rnd(p[1])], [rnd(q[0]), rnd(q[1])]]
+        walls.append({"id": wid, "axis": axis, "thickness": rnd(t)})
+        for g0, g1 in sorted(spans):
+            openings.append({"wall": wid, "offset": rnd(g0), "width": rnd(g1 - g0)})
     out = _bounded(walls, limit, out, "walls")
     out["openings"] = [o for o in openings if any(w["id"] == o["wall"] for w in out["walls"])]
+    out["dropped"] = dropped
+    if walls:
+        thick = sorted(w["thickness"] for w in walls)
+        median = thick[len(thick) // 2]
+        if median < WALL_THIN_MEDIAN:
+            out["warning"] = (
+                f"median thickness {median} < {WALL_THIN_MEDIAN:g}: these are hatching, "
+                "furniture or table lines, not walls - raise size[0] or check color"
+            )
+    if origin is not None:
+        out["origin"] = [ox, oy]
+    return out
+
+
+def _pieces(mask):
+    """``mask`` as hole-free 4-connected pieces [(r0, c0, submask)]: a piece
+    with a hole (a room inside its walls) is cut down a column through the
+    hole, again until none is left; a one-pixel-wide hole is filled."""
+    import numpy as np
+
+    stack, out = [], []
+
+    def push(m, r0, c0):
+        lab, boxes, _ = _label(m, diag=False)
+        for n, (b0, b1, b2, b3) in enumerate(boxes.tolist(), 1):
+            stack.append((r0 + b1, c0 + b0, lab[b1:b3, b0:b2] == n))
+
+    push(mask, 0, 0)
+    while stack:
+        r0, c0, s = stack.pop()
+        lab, boxes, _ = _label(np.pad(~s, 1, constant_values=True))
+        outside = int(lab[0, 0])
+        holes = [(b, n) for n, b in enumerate(boxes.tolist(), 1) if n != outside]
+        if not holes:
+            out.append((r0, c0, s))
+            continue
+        for (h0, _, h2, _), n in holes:
+            if h2 - h0 < 2:  # a pixel wide: filled
+                s |= lab[1:-1, 1:-1] == n
+        wide = [b for b, _ in holes if b[2] - b[0] >= 2]
+        if not wide:
+            stack.append((r0, c0, s))
+            continue
+        h0, _, h2, _ = max(wide, key=lambda b: b[2] - b[0])
+        cut = (h0 + h2) // 2 - 1  # pad columns -> piece columns
+        push(s[:, :cut], r0, c0)
+        push(s[:, cut:], r0, c0 + cut)
+    return out
+
+
+def _trace(s) -> list[tuple[int, int]]:
+    """The outline of one hole-free 4-connected piece: its corners (x, y) in
+    pixel-corner coordinates, clockwise on screen."""
+    import numpy as np
+
+    p = np.pad(s, 1)
+    core = p[1:-1, 1:-1]
+    nxt: dict[tuple[int, int], list[tuple[int, int]]] = {}
+    for dr, dc, a, b in (
+        (-1, 0, (0, 0), (1, 0)),  # empty above: the top edge, left to right
+        (0, 1, (1, 0), (1, 1)),  # empty right: down
+        (1, 0, (1, 1), (0, 1)),  # empty below: right to left
+        (0, -1, (0, 1), (0, 0)),  # empty left: up
+    ):
+        side = p[1 + dr : p.shape[0] - 1 + dr, 1 + dc : p.shape[1] - 1 + dc]
+        rs, cs = np.nonzero(core & ~side)
+        for r, c in zip(rs.tolist(), cs.tolist(), strict=True):
+            nxt.setdefault((c + a[0], r + a[1]), []).append((c + b[0], r + b[1]))
+    start = min(nxt)
+    ring, here, came = [start], start, None
+    while True:
+        options = nxt[here]
+        to = options[0]
+        if len(options) > 1:  # two corners of the piece touch here: turn right
+            dx, dy = here[0] - came[0], here[1] - came[1]
+            to = next((o for o in options if (o[0] - here[0], o[1] - here[1]) == (-dy, dx)), to)
+        options.remove(to)
+        came, here = here, to
+        if here == start:
+            break
+        ring.append(here)
+    n = len(ring)
+    return [
+        b
+        for i, b in enumerate(ring)
+        if (b[0] - ring[i - 1][0]) * (ring[(i + 1) % n][1] - b[1])
+        != (b[1] - ring[i - 1][1]) * (ring[(i + 1) % n][0] - b[0])
+    ]
+
+
+def _simplify(points, eps: float):
+    """Douglas-Peucker on a closed ring: a scan's staircase jitter flattened."""
+    if len(points) <= 4:
+        return points
+
+    def dp(pts):
+        a, b = pts[0], pts[-1]
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        span = math.hypot(dx, dy) or 1e-9
+        far, idx = -1.0, 0
+        for i in range(1, len(pts) - 1):
+            d = abs(dx * (pts[i][1] - a[1]) - dy * (pts[i][0] - a[0])) / span
+            if d > far:
+                far, idx = d, i
+        if far <= eps:
+            return [a, b]
+        return dp(pts[: idx + 1])[:-1] + dp(pts[idx:])
+
+    i1 = max(range(len(points)), key=lambda i: math.dist(points[0], points[i]))
+    return dp(points[: i1 + 1])[:-1] + dp(points[i1:] + points[:1])[:-1]
+
+
+def _square_ring(ring, tol: float) -> None:
+    """Each run of nearly vertical (horizontal) edges of ``ring`` put on one x
+    (y), the length-weighted mean of the run - a scan square to WCS."""
+    n = len(ring)
+    kind = []
+    for i in range(n):
+        dx, dy = (abs(ring[(i + 1) % n][j] - ring[i][j]) for j in (0, 1))
+        kind.append("v" if dx <= tol < dy else "h" if dy <= tol < dx else None)
+    start = next((i for i in range(n) if kind[i] != kind[i - 1]), None)
+    if start is None:
+        return
+    i = start
+    for _ in range(n):
+        if kind[i] is None or kind[i - 1] == kind[i] and i != start:
+            i = (i + 1) % n
+            continue
+        run = [i]
+        while kind[(run[-1] + 1) % n] == kind[i] and len(run) < n:
+            run.append((run[-1] + 1) % n)
+        j = 0 if kind[i] == "v" else 1
+        pts = [ring[e] for e in run] + [ring[(run[-1] + 1) % n]]
+        lengths = [math.dist(a, b) for a, b in zip(pts, pts[1:], strict=False)]
+        mean = sum(
+            (a[j] + b[j]) / 2 * w for a, b, w in zip(pts, pts[1:], lengths, strict=False)
+        ) / max(sum(lengths), 1e-9)
+        for p in pts:
+            p[j] = mean
+        i = (run[-1] + 1) % n
+        if i == start:
+            break
+
+
+def find_poche(
+    path,
+    align,
+    *,
+    color,
+    tolerance=40,
+    size=None,
+    region=None,
+    region_px=None,
+    limit=100,
+    skip=None,
+    gap=None,
+    origin=None,
+    step=None,
+):
+    """The poche as outlines for ``arch_plan_from_spec``'s ``wall_polygons``
+    (round 8): :func:`_wall_mask`'s fill cut into hole-free pieces
+    (:func:`_pieces`), each traced, its scan jitter simplified (1.5 px) and
+    put on the ``step`` grid; biggest first, ``origin`` subtracted."""
+    cal, mask, at, k, lo, hi, out, limit, unit, _ = _wall_mask(
+        path, align, color, tolerance, size, region, region_px, limit, skip, gap
+    )
+    step, rnd = _snapper(step)
+    ox, oy = (0.0, 0.0) if origin is None else _xy(origin, "origin")
+    square = abs(math.remainder(cal.rotation, 90.0)) <= 0.5
+    found, dropped = [], 0
+    for r0, c0, s in _pieces(mask):
+        ring = []
+        for x, y in _simplify(_trace(s), 1.5):
+            wx, wy = cal.to_wcs(at[0] + (c0 + x) * k, at[1] + (r0 + y) * k)
+            ring.append([wx - ox, wy - oy])
+        if square:
+            _square_ring(ring, 2.0 * unit)
+        pts = []
+        for wx, wy in ring:
+            pt = [rnd(wx), rnd(wy)]
+            if not pts or pt != pts[-1]:
+                pts.append(pt)
+        while len(pts) > 1 and pts[0] == pts[-1]:
+            pts.pop()
+        n = len(pts)
+        clean = [  # corners the grid made collinear dropped
+            b
+            for i, b in enumerate(pts)
+            if (b[0] - pts[i - 1][0]) * (pts[(i + 1) % n][1] - b[1])
+            != (b[1] - pts[i - 1][1]) * (pts[(i + 1) % n][0] - b[0])
+        ]
+        ring = list(zip(clean, clean[1:] + clean[:1], strict=True))
+        area = abs(sum(a[0] * b[1] - b[0] * a[1] for a, b in ring)) / 2
+        if len(clean) < 3 or area < lo * lo:
+            dropped += 1
+            continue
+        found.append((area, clean))
+    found.sort(key=lambda f: (-f[0], f[1]))
+    polygons = [{"id": f"P{n}", "points": pts} for n, (_, pts) in enumerate(found, 1)]
+    out = _bounded(polygons, limit, out, "wall_polygons")
     out["dropped"] = dropped
     if origin is not None:
         out["origin"] = [ox, oy]

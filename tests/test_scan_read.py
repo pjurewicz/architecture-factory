@@ -506,7 +506,7 @@ async def test_scan_walls_paste_into_arch_plan_from_spec(client, tmp_path):
     bad = await client.call_tool(
         "scan_read", {**args, "mode": "blobs", "skip": "#ff0000"}, raise_on_error=False
     )
-    assert bad.is_error and "rects and walls only" in bad.structured_content["message"]
+    assert bad.is_error and "rects, walls and poche only" in bad.structured_content["message"]
 
 
 @pytest.mark.asyncio
@@ -531,3 +531,117 @@ async def test_compare_does_not_let_a_dense_hatch_cover_the_lines_under_it(clien
     assert out["source_covered_pct"] < 10
     assert out["source_covered_by_fills_only_pct"] > 50
     assert "font" in out["method"]["text"]
+
+
+def _sheet_scan(tmp_path) -> tuple[str, list]:
+    """Round 8: a sheet at 5 mm/px turned 0.2 degrees, everything one grey: a
+    250 mm shell (0..6000 x 0..4000 on the axes) with a 900 mm door in the top
+    wall, 120 mm walls at x 3500 and y 2000, hatching and furniture outlines
+    (30 mm) in the rooms, a title block's rows and a solid logo 2 m below the
+    plan and a sheet frame - only the walls may come back."""
+    turn = math.radians(0.2)
+
+    def px(x, y):  # WCS -> scan px; scan (0, 0) on WCS (-1000, 5000)
+        dx, dy = x + 1000, y - 5000
+        c, s = math.cos(-turn), math.sin(-turn)
+        return (dx * c - dy * s) / 5.0, -(dx * s + dy * c) / 5.0
+
+    image = Image.new("RGB", (1700, 1700), "white")
+    pen = ImageDraw.Draw(image)
+    fill = (185, 185, 185)
+    for x0, y0, x1, y1 in (
+        (-125, -125, 6125, 125), (-125, 3875, 2000, 4125), (2900, 3875, 6125, 4125),
+        (-125, -125, 125, 4125), (5875, -125, 6125, 4125),
+        (3440, 125, 3560, 3875), (125, 1940, 3440, 2060), (6600, -3200, 6900, -2900),
+    ):  # fmt: skip
+        pen.polygon([px(x0, y0), px(x1, y0), px(x1, y1), px(x0, y1)], fill=fill)
+    for d in range(0, 3000, 100):
+        pen.line([px(300 + d, 300), px(1800 + d, 1800)], fill=fill, width=1)
+    for x0, y0, x1, y1 in ((4000, 500, 5500, 1500), (600, 2500, 2400, 3400)):
+        pen.rectangle([*px(x0, y1), *px(x1, y0)], outline=fill, width=6)
+    for i in range(6):
+        pen.line([px(6500, -2200 - i * 200), px(7000, -2200 - i * 200)], fill=fill, width=5)
+    pen.rectangle([2, 2, 1697, 1697], outline=fill, width=3)
+    path = tmp_path / "sheet.png"
+    image.save(path)
+    align = []
+    for x, y in ((-1000, 5000), (7000, 5000), (-1000, -1000)):
+        align.append([*px(x, y), x, y])
+    return str(path), align
+
+
+def test_walls_on_a_sheet_are_the_plan_only_square_on_the_grid(tmp_path):
+    """Round 8: without size the thinnest wall is 80 mm, without a region only
+    the biggest cluster of fill is read, every axis is square on the grid and
+    a carried end lies on the crossing wall's axis - pasted as they come."""
+    scan, align = _sheet_scan(tmp_path)
+    out = sr.find_walls(scan, align, color="#b9b9b9", tolerance=25, gap=3000, step=5)
+    got = sorted((tuple(map(tuple, w["axis"])), w["thickness"]) for w in out["walls"])
+    want = [
+        (((0, 0), (6000, 0)), 250), (((0, 4000), (6000, 4000)), 250),
+        (((0, 0), (0, 4000)), 250), (((6000, 0), (6000, 4000)), 250),
+        (((3500, 0), (3500, 4000)), 120), (((0, 2000), (3500, 2000)), 120),
+    ]  # fmt: skip
+    assert [a for a, _ in got] == sorted(a for a, _ in want)
+    for (_, t), (_, w) in zip(got, sorted(want), strict=True):
+        assert abs(t - w) <= 5
+    top = next(w["id"] for w in out["walls"] if w["axis"] == [[0, 4000], [6000, 4000]])
+    (door,) = out["openings"]
+    assert (
+        door["wall"] == top and abs(door["offset"] - 2000) <= 5 and abs(door["width"] - 900) <= 10
+    )
+    assert out["cluster"][1] > -500 and "warning" not in out  # the title block left out
+    thin = sr.find_walls(
+        scan, align, color="#b9b9b9", tolerance=25, size=[5], region=[-1000, -4000, 7000, 5000]
+    )
+    assert "median thickness" in thin["warning"]
+
+
+def test_overlapping_and_collinear_pieces_become_one_wall():
+    segs = [
+        {"o": "x", "c": 0, "a": [0, 3000], "t": 200, "gaps": []},
+        {"o": "x", "c": 0, "a": [0, 3000], "t": 190, "gaps": []},  # a duplicate
+        {"o": "x", "c": 5, "a": [3800, 6000], "t": 200, "gaps": []},  # across a 800 gap
+        {"o": "x", "c": 0, "a": [9500, 9800], "t": 200, "gaps": []},  # beyond gap
+    ]
+    joined = sr._join_square(segs, 5.0, 1000.0)
+    assert [(s["a"], s["gaps"]) for s in joined] == [
+        ([0, 6000], [(3000, 3800)]),
+        ([9500, 9800], []),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_poche_and_walls_from_a_sheet_paste_into_arch_plan_from_spec(client, tmp_path):
+    scan, align = _sheet_scan(tmp_path)
+    args = {
+        "align": align,
+        "image": scan,
+        "color": "#b9b9b9",
+        "tolerance": 25,
+        "gap": 3000,
+        "grid": 5,
+    }
+    poche = (await client.call_tool("scan_read", {**args, "mode": "poche"})).structured_content
+    polygons = poche["wall_polygons"]
+    for polygon in polygons:  # square on the grid: every edge horizontal or vertical
+        pts = polygon["points"]
+        for a, b in zip(pts, pts[1:] + pts[:1], strict=True):
+            assert a[0] == b[0] or a[1] == b[1]
+            assert a[0] % 5 == 0 and a[1] % 5 == 0
+
+    def area_of(pts):
+        ring = zip(pts, pts[1:] + pts[:1], strict=True)
+        return abs(sum(a[0] * b[1] - b[0] * a[1] for a, b in ring)) / 2
+
+    area = sum(area_of(p["points"]) for p in polygons)
+    shell = 6250 * 4250 - 5750 * 3750 - 900 * 250 + 120 * 3750 + 120 * 3315
+    assert area == pytest.approx(shell, rel=0.02)
+    walls = (await client.call_tool("scan_read", {**args, "mode": "walls"})).structured_content
+    # polygons host no opening: the room behind the door gap reads open
+    for spec, closed in (({"wall_polygons": polygons}, 2), ({"walls": walls["walls"]}, 3)):
+        await client.call_tool("drawing_new", {})
+        plan = await client.call_tool("arch_plan_from_spec", {"spec": spec})
+        assert not plan.is_error and plan.structured_content["omitted"] == []
+        rooms = (await client.call_tool("arch_rooms_detect", {})).structured_content
+        assert len(rooms["rooms"]) == closed, spec.keys()

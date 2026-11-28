@@ -298,8 +298,10 @@ def validate_spec(spec: dict) -> dict:
         raise ValueError(f"poche: expected true, false or 'solid', got {poche!r}")
 
     raw_walls = _list(spec, "walls")
-    if not raw_walls:
-        raise ValueError("walls: name at least one wall - a plan without walls has no rooms")
+    if not raw_walls and not _list(spec, "wall_polygons"):
+        raise ValueError(
+            "walls: name at least one wall or wall_polygons - a plan without walls has no rooms"
+        )
     walls = [wall_from_dict(item, f"walls[{i}]") for i, item in enumerate(raw_walls)]
     try:
         polygons = _draw.parse_wall_polygons(_list(spec, "wall_polygons"))

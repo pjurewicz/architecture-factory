@@ -2565,6 +2565,7 @@ TOOL_ALIASES: dict[str, ToolAliases] = {
             "trace scan overlay",
             "overlay image grid crop",
             "detect wall poche colour rectangles",
+            "walls and wall outlines from a scanned plan",
             "find symbols by colour in image",
             "compare drawing with scan overlay coverage",
             "piksele na wspolrzedne",
