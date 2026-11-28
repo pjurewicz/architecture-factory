@@ -95,6 +95,59 @@ def fill_period(definition, hatch_scale: float = 1.0) -> float:
     return period * hatch_scale
 
 
+def check_joints(joints, where: str = "joints") -> list[float] | None:
+    """``[spacing]`` or ``[along, across]`` mm as ``[along, across]``; a 0 drops
+    that family (``[20, 0]``: lines across the axis only - vertical flutes)."""
+    if joints is None:
+        return None
+    if not isinstance(joints, (list, tuple)) or not 1 <= len(joints) <= 2:
+        raise ValueError(f"{where}: give [spacing] or [along, across] in mm")
+    out = [float(v) for v in joints]
+    if min(out) < 0 or max(out) <= 0:
+        raise ValueError(f"{where}: spacings must be >= 0 mm, one of them > 0")
+    return out * 2 if len(out) == 1 else out
+
+
+def fill_hatches(msp, loops, attribs, *, pattern, pscale, angle, joints, origin) -> dict:
+    """The ``pattern`` HATCH and the ``joints`` ``_USER`` HATCH over ``loops``
+    (either may be None); ``{"pattern": handle, "joints": handle}``."""
+    from ezdxf.lldxf import const as dxfconst
+
+    def _hatch():
+        hatch = msp.add_hatch(color=attribs.get("color", 256), dxfattribs=attribs)
+        for loop in loops:
+            flag = 1 if signed_area(loop) > 0 else 0
+            hatch.paths.add_polyline_path(list(loop), is_closed=True, flags=flag)
+        return hatch
+
+    handles = {}
+    if pattern == "SOLID":
+        hatch = _hatch()
+        hatch.set_solid_fill(color=hatch.dxf.color)
+        handles["pattern"] = hatch.dxf.handle
+    elif pattern is not None:
+        hatch = _hatch()
+        hatch.set_pattern_fill(pattern, color=hatch.dxf.color, scale=pscale, angle=float(angle))
+        handles["pattern"] = hatch.dxf.handle
+    if joints is not None:
+        along, across = joints
+        a = math.radians(angle)
+        families = []
+        if across > 0:
+            families.append([angle, origin, (-across * math.sin(a), across * math.cos(a)), []])
+        if along > 0:
+            families.append([angle + 90.0, origin, (along * math.cos(a), along * math.sin(a)), []])
+        hatch = _hatch()
+        hatch.set_pattern_fill(
+            "_USER",
+            color=hatch.dxf.color,
+            pattern_type=dxfconst.HATCH_TYPE_USER_DEFINED,
+            definition=families,
+        )
+        handles["joints"] = hatch.dxf.handle
+    return handles
+
+
 def _fill_report(kind: str, period: float, side: float) -> tuple[dict, dict | None]:
     """``(row, warning)`` for one fill of period ``period`` across ``side`` mm."""
     repeats = side / period
@@ -482,13 +535,7 @@ async def floor_zone(
     minus = check_minus(minus)
     if not (scale > 0 and pattern_scale > 0):
         raise ValueError("scale / pattern_scale: must be > 0")
-    if joints is not None:
-        if not isinstance(joints, (list, tuple)) or not 1 <= len(joints) <= 2:
-            raise ValueError("joints: give [spacing] or [along, across] in mm")
-        joints = [float(v) for v in joints]
-        if min(joints) <= 0:
-            raise ValueError("joints: spacings must be > 0 mm")
-        joints = joints * 2 if len(joints) == 1 else joints
+    joints = check_joints(joints)
     if lay is not None and joints is not None:
         raise ValueError("joints: lay draws the joints of its pieces; give one of lay / joints")
     if lay is not None and (
@@ -644,15 +691,12 @@ async def floor_zone(
     if dry_run:
         return result
 
-    from ezdxf.lldxf import const as dxfconst
-
     from backends.xdata_specs import encode_values
     from engineering.annotation_record import APP_ID, annotation_values, replace_set
     from engineering.arch.catalogue import _ensure_layer
     from engineering.arch.services import ISO_PEN
     from engineering.mech.draw import guarded_transaction
 
-    a = math.radians(angle)
     origin = tuple(start) if start is not None else (min(xs), min(ys))
     lay_spec = lay and {  # what arch_legend's sample redraws
         "pattern": lay, "length": float(plank[0]), "width": float(plank[1]), "gap": float(gap),
@@ -663,41 +707,16 @@ async def floor_zone(
         doc = backend._require_doc()
         msp = doc.modelspace()
         attribs = {"layer": layer, **({"color": int(color)} if color is not None else {})}
-
-        def _hatch():
-            hatch = msp.add_hatch(color=256, dxfattribs=attribs)
-            for loop in loops:
-                flag = 1 if signed_area(loop) > 0 else 0
-                hatch.paths.add_polyline_path(list(loop), is_closed=True, flags=flag)
-            return hatch
-
-        handles = {}
-        if pattern == "SOLID":
-            hatch = _hatch()
-            hatch.set_solid_fill(color=hatch.dxf.color)
-            handles["pattern"] = hatch.dxf.handle
-        elif pattern is not None:
-            hatch = _hatch()
-            hatch.set_pattern_fill(
-                pattern,
-                color=hatch.dxf.color,
-                scale=hatch_scale(pattern, scale, pattern_scale),
-                angle=float(angle),
-            )
-            handles["pattern"] = hatch.dxf.handle
-        if joints is not None:
-            along, across = joints
-            hatch = _hatch()
-            hatch.set_pattern_fill(
-                "_USER",
-                color=hatch.dxf.color,
-                pattern_type=dxfconst.HATCH_TYPE_USER_DEFINED,
-                definition=[
-                    [angle, origin, (-across * math.sin(a), across * math.cos(a)), []],
-                    [angle + 90.0, origin, (along * math.cos(a), along * math.sin(a)), []],
-                ],
-            )
-            handles["joints"] = hatch.dxf.handle
+        handles = fill_hatches(
+            msp,
+            loops,
+            attribs,
+            pattern=pattern,
+            pscale=pattern and hatch_scale(pattern, scale, pattern_scale),
+            angle=angle,
+            joints=joints,
+            origin=origin,
+        )
         if planks:
             handles["pieces"] = [
                 msp.add_lwpolyline(loop, close=True, dxfattribs=attribs).dxf.handle

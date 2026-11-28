@@ -318,3 +318,14 @@ async def test_skirting_takes_a_projects_layer_and_colour_and_greys_with_the_und
     await floor_zone(backend, room=[1500, 2000], pattern="none", skirting="flush")
     under = await arch_underlay(backend)
     assert "A-FLOR-SKRF-E-N" in under["layers"]
+
+
+@pytest.mark.asyncio
+async def test_color_reaches_the_hatches_and_a_zero_joint_drops_its_family(backend):
+    await _room(backend)
+    zone = await floor_zone(backend, room=[2500, 2000], pattern="ANSI31", joints=[0, 300], color=5)
+    pattern = backend._doc.entitydb[zone["handles"]["pattern"]]
+    joints = backend._doc.entitydb[zone["handles"]["joints"]]
+    assert pattern.dxf.color == joints.dxf.color == 5
+    # [0, 300]: only the rows along the axis, 300 apart
+    assert [round(line.angle) for line in joints.pattern.lines] == [0]
