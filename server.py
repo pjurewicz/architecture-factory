@@ -14493,8 +14493,8 @@ async def arch_services(
         Field(
             description=(
                 "[{kind?, at: [x, y] | path: [[x, y], ...] (runs), count?, height?: mm, label?, "
-                "rotation?, circuit?, circuits?, length? (radiator), dim_from?: wall id | "
-                "{wall, ref: face|axis}}]"
+                "rotation?, circuit?, circuits?, length? (radiator), code? (letters in the symbol), "
+                "dim_from?: wall id | {wall, ref: face|axis}}]"
             )
         ),
     ],
@@ -14532,7 +14532,7 @@ async def arch_services(
       apart on the face) outdoor_tap rain_shower (P-DOMW-E-N); drain stack
       floor_gully, run linear_drain (P-SANR-E-N).
     - heating (M-HEAT-E-N): radiator (`length` mm, real size, default 600)
-      manifold thermostat.
+      manifold (C.O.) thermostat boiler dhw_tank (DHW); `code` changes the letters.
     - ventilation (M-VENT-E-N, EN 16798-3 codes): supply (SUP) extract (ETA)
       ceiling terminals; intake (ODA) exhaust (EHA) on a wall.
 

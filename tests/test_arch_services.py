@@ -300,3 +300,31 @@ async def test_the_underlay_greys_the_architecture_only_and_is_reversible(backen
         await arch_underlay(backend, on=False)
     with pytest.raises(InvalidArgsError, match="lineweight: an ISO 128 weight"):
         await arch_underlay(backend, lineweight=0.2)
+
+
+@pytest.mark.asyncio
+async def test_heating_kinds_and_a_code_given_per_item(backend):
+    """Round 7: the manifold drew `MF`; it is a box lettered C.O., the boiler and
+    the hot water cylinder exist, and `code` changes a symbol's letters."""
+    await _plan(backend)
+    result = await insert_points(
+        backend,
+        [
+            {"kind": "manifold", "at": [1000, 140]},
+            {"kind": "boiler", "at": [2000, 140]},
+            {"kind": "dhw_tank", "at": [2500, 140], "code": "CWU"},
+        ],
+    )
+    codes = []
+    for item in result["items"]:
+        ref = backend._doc.entitydb[item["handle"]]
+        codes.append({a.dxf.tag: a.dxf.text for a in ref.attribs}["CODE"])
+        # the anchor on the inner face y = 125, the symbol in the room
+        assert ref.dxf.insert.y == pytest.approx(125.0)
+    assert codes == ["C.O.", "B", "CWU"]
+    box = backend._doc.blocks.get("ARCH_H_MANIFOLD_50")
+    (poly,) = [e for e in box if e.dxftype() == "LWPOLYLINE"]
+    xs = [p[0] for p in poly.get_points()]
+    assert max(xs) - min(xs) == pytest.approx(10.0 * 50)  # 10 paper mm at 1:50
+    with pytest.raises(InvalidArgsError, match=r"items\[0\]\.code: a radiator carries 0"):
+        await insert_points(backend, [{"kind": "radiator", "at": [1000, 140], "code": "X"}])

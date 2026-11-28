@@ -375,7 +375,7 @@ KINDS: dict[str, Kind] = {
             _H,
             "heating",
             True,
-            "MF",
+            "C.O.",
             "manifold",
             "heating manifold",
             "rozdzielacz ogrzewania",
@@ -391,6 +391,18 @@ KINDS: dict[str, Kind] = {
             "room thermostat",
             "termostat pokojowy",
             "termostat",
+        ),
+        _k("boiler", _H, "heating", True, "B", "boiler", "boiler", "kocioł", "kombi"),
+        _k(
+            "dhw_tank",
+            _H,
+            "heating",
+            True,
+            "DHW",
+            "tank",
+            "hot water cylinder",
+            "zasobnik c.w.u.",
+            "boyler",
         ),
         # ventilation (EN 16798-3 air names)
         _k(
@@ -660,9 +672,12 @@ def _shape(shape: str) -> tuple[list[dict], tuple[float, float], float]:
             _disc(1.5 * math.cos(a), 1.5 * math.sin(a), 0.35) for a in (0.0, 1.571, 3.142, 4.712)
         ]
         return [_circle(0.0, 0.0, 3.0), *jets, _disc(0.0, 0.0, 0.35)], (0.0, 0.0), 3.0
-    if shape == "manifold":  # a bar on the wall face with its outlets
-        ticks = [_line(x, 3.0, x, 4.0) for x in (-3.0, -1.0, 1.0, 3.0)]
-        return [_rect(-4.0, 0.0, 4.0, 3.0), *ticks], (0.0, 1.5), 4.0
+    if shape == "manifold":  # a box on the wall face, its code inside
+        return [_rect(-5.0, 0.0, 5.0, 4.0)], (0.0, 2.0), 5.0
+    if shape == "boiler":  # a box with its flue spigot
+        return [_rect(-3.5, 0.0, 3.5, 6.0), _circle(0.0, 4.5, 0.8)], (0.0, 2.25), 6.0
+    if shape == "tank":  # a cylinder seen from above, standing at the face
+        return [_circle(0.0, 3.5, 3.5)], (0.0, 3.5), 7.0
     if shape == "diffuser":  # a square terminal with its code
         d = 2.5
         corners = [_line(sx * d, sy * d, sx * 1.9, sy * 1.9) for sx in (-1, 1) for sy in (-1, 1)]
@@ -878,6 +893,7 @@ _ITEM_KEYS = {
     "circuits",
     "length",
     "dim_from",
+    "code",
 }
 _DIM_REFS = ("face", "axis")
 
@@ -948,6 +964,15 @@ def parse_items(items, default_kind: str | None) -> list[dict]:
             if not lo <= _finite(length, f"{where}.length") <= hi:
                 raise _refuse(f"{where}.length: a radiator is {lo:g}-{hi:g} mm long.")
             length = float(length)
+        code = item.get("code")
+        if code is not None:
+            n = len(KINDS[kind].code.split("|")) if KINDS[kind].code else 0
+            code = _name(code, f"{where}.code").split("|")
+            if not n or len(code) != n:
+                coded = sorted(k for k, r in KINDS.items() if r.code)
+                raise _refuse(
+                    f"{where}.code: a {kind} carries {n} code(s); coded kinds are {coded}."
+                )
         rotation = item.get("rotation")
         circuits = item.get("circuits")
         if kind == "switch_frame":
@@ -970,6 +995,7 @@ def parse_items(items, default_kind: str | None) -> list[dict]:
                 "circuits": circuits,
                 "length": length,
                 "dim_from": _dim_from(item.get("dim_from"), f"{where}.dim_from"),
+                "code": code,
             }
         )
     return out
@@ -1159,6 +1185,8 @@ async def insert_points(
             "N": f"{row['count']}x" if row["count"] > 1 else "",
             "H": height_text(row["height"]),
         }
+        for i, code in enumerate(row.get("code") or ()):
+            values["CODE" if i == 0 else f"CODE{i + 1}"] = code
         work.append(
             {
                 "row": row,
