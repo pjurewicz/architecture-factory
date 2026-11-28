@@ -771,6 +771,13 @@ async def test_several_names_brief_a_huge_schema_and_one_name_keeps_it_whole():
             )
         ).structured_content["tools"]
         one = await _describe(client, "entity_batch_create")
+        whole = (
+            await client.call_tool(
+                "describe_tool", {"names": ["entity_batch_create", "layer_list"], "full": True}
+            )
+        ).structured_content["tools"]
+    # round 5 (A9a): full=true keeps every nested schema, no second call
+    assert whole[0]["input_schema"] == one["input_schema"] and "schema" not in whole[0]
     batch, layers = both
     assert batch["schema"].startswith("brief") and "schema" not in layers
     assert set(batch["input_schema"]["properties"]) == set(one["input_schema"]["properties"])
@@ -1086,7 +1093,7 @@ async def test_call_tool_refuses_describe_tool_like_the_other_synthetic_tools():
 async def test_describe_tool_takes_one_name_or_several_and_reads_only(transform):
     tool = transform._make_describe_tool()
     assert tool.name == "describe_tool"
-    assert set(tool.parameters["properties"]) == {"name", "names"}
+    assert set(tool.parameters["properties"]) == {"name", "names", "full"}
     assert not tool.parameters.get("required")
     assert tool.parameters["properties"]["names"]["maxItems"] == MAX_DESCRIBE_NAMES
     assert tool.annotations is not None and tool.annotations.readOnlyHint is True

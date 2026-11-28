@@ -401,3 +401,20 @@ async def test_a_plan_in_model_space_is_read_while_a_paper_sheet_is_current(back
     assert {r.focus for r in rows} == set(ARCH_FOCUSES)
     assert all(r.status == "checked" and r.n > 0 for r in rows)
     assert (await build_index(backend))["faces"]
+
+
+def test_a_services_sheet_drops_room_labels_and_letters_down_to_1_8_mm():
+    """Round 5 (A9c): on a trade sheet 7x arch_room_unlabelled and 1.8 mm symbol
+    text were noise; 1.5 mm lettering and every other row still report."""
+    from server import _sheet_noise
+
+    def text(smallest):
+        return {
+            "focus": "iso128",
+            "detail": {"code": "plotted_text_too_small", "smallest_mm": smallest},
+        }
+
+    assert _sheet_noise({"focus": "arch_room_unlabelled", "detail": {}})
+    assert _sheet_noise(text(1.8)) and _sheet_noise(text(2.2))
+    assert not _sheet_noise(text(1.5))
+    assert not _sheet_noise({"focus": "arch_wall_gap", "detail": {"code": "gap"}})

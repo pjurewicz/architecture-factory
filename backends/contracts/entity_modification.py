@@ -168,6 +168,23 @@ class EntityModificationContract(ABC):
         ...
 
     @abstractmethod
+    async def entity_delete_where(
+        self,
+        where: dict,
+        space: str = "model",
+        expect_count: int | None = None,
+        dry_run: bool = False,
+    ) -> dict:
+        """Delete every entity ``where`` matches in ``space`` (round 5, A5).
+
+        The selection, the locked-layer rule and ``expect_count`` are
+        ``entity_modify_where``'s; a callout part takes its whole callout. A
+        dry run deletes nothing. ``{ok, space, matched, deleted, handles,
+        truncated, skipped_locked, changes}``.
+        """
+        ...
+
+    @abstractmethod
     async def entity_modify_where(
         self,
         where: dict,

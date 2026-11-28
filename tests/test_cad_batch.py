@@ -548,17 +548,23 @@ async def test_cad_batch_cannot_nest_inside_itself(client):
         await _batch(client, [{"tool": "cad_batch", "args": {"steps": [_line()]}}])
 
 
-async def test_a_screenshot_step_is_refused_rather_than_losing_its_image(client):
-    """A step's result is its structured content; the PNG would be dropped while
-    the step reported ok. Refused before anything runs, pointing at the direct call."""
-    steps = [_line(), {"tool": "view_screenshot", "args": {"max_px": 128}}]
-    result = await _batch(client, steps, dry_run=True)
-    error = result["results"][1]["error"]
-    assert error["kind"] == "denied"
-    assert "Call it directly" in error["message"]
+async def test_a_last_screenshot_step_comes_with_the_answer_any_other_is_refused(client):
+    """Round 5 (A9b): a screenshot was refused anywhere. As the last step it
+    runs after the others and its PNG is attached; elsewhere it is still refused
+    before anything runs (its image would be dropped)."""
+    shot = {"tool": "view_screenshot", "args": {"max_px": 128}}
+    raw = await client.call_tool("cad_batch", {"steps": [_line(), shot]})
+    kinds = [block.type for block in raw.content]
+    assert kinds[0] == "image" and kinds[-1] == "text"
+    payload = raw.structured_content
+    assert payload["ok"] and payload["screenshot"]["ok"] and len(payload["results"]) == 1
+    assert await _entity_count(client) == 1
+    steps = [_line(), shot, _line()]
+    error = (await _batch(client, steps, dry_run=True))["results"][1]["error"]
+    assert error["kind"] == "denied" and "last step" in error["message"]
     with pytest.raises(ToolError, match="view_screenshot"):
         await _batch(client, steps)
-    assert await _entity_count(client) == 0, "step 0 must not draw"
+    assert await _entity_count(client) == 1, "nothing ran"
 
 
 async def test_a_tool_with_no_discovery_card_is_not_run_blind(client):

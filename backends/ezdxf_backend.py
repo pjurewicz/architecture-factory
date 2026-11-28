@@ -8984,6 +8984,65 @@ class EzdxfBackend(EzdxfCheckpoints, EzdxfChangeSets, AutoCADBackend):
 
         return await self._async(_sync, readonly=True)
 
+    async def entity_delete_where(
+        self, where, space="model", expect_count=None, dry_run=False
+    ) -> dict:
+        from backends import set_edits as se
+        from engineering.changes.preview import StaleRevisionError
+
+        query, scope = se.parse_where(where), se.parse_space(space)
+
+        def _sync():
+            doc = self._require_doc()
+            found, skipped = se.ezdxf_select(doc, query, scope)
+            if expect_count is not None and len(found) != int(expect_count):
+                raise StaleRevisionError(
+                    f"stale_revision: expect_count={int(expect_count)} but where now matches "
+                    f"{len(found)} entities; nothing was deleted. Run the dry run again.",
+                    changed=[
+                        {"count": "where", "expected": int(expect_count), "actual": len(found)}
+                    ],
+                )
+            doomed: dict[str, object] = {}
+            for entity in found:
+                group = self._callout_group(entity)
+                members = [m for m in group if m.is_alive] if group is not None else [entity]
+                for member in members:
+                    doomed.setdefault(str(member.dxf.handle), member)
+                if group is not None and not dry_run:
+                    doc.groups.delete(group)
+            handles = sorted(doomed, key=lambda h: int(h, 16))
+            if not dry_run:
+                for entity in doomed.values():
+                    if entity.is_alive:
+                        self._owner_layout(entity).delete_entity(entity)
+                if doomed:
+                    self._mark_dirty()
+            return {
+                "ok": True,
+                **({"dry_run": True} if dry_run else {}),
+                "space": scope,
+                "where": query.to_dict(),
+                "matched": len(found),
+                "deleted": 0 if dry_run else len(handles),
+                "count": len(handles),
+                "handles": handles[: se.HANDLE_SAMPLE],
+                "truncated": len(handles) > se.HANDLE_SAMPLE,
+                "skipped_locked": se.skipped_payload(skipped),
+                "changes": {
+                    "added": [],
+                    "deleted": [] if dry_run else handles,
+                    "counts": {
+                        "added": 0,
+                        "deleted": 0 if dry_run else len(handles),
+                        "modified": 0,
+                    },
+                    "complete": True,
+                },
+            }
+
+        return await self._async(_sync, readonly=dry_run)
+
     async def entity_modify_where(self, where, set_, space="model", expect_count=None) -> dict:
         from backends import set_edits as se
         from engineering.changes.preview import StaleRevisionError

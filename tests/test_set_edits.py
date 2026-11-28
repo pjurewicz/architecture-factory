@@ -565,3 +565,30 @@ async def test_messy_layers_reach_the_target_state_in_two_calls(client, outside_
     rows = listed["result"] if isinstance(listed, dict) else listed
     names = {row["name"] for row in rows} - {"0", "Defpoints"}
     assert names == {"A-WALL", "A-DOOR", "A-GLAZ", "A-FURN"}, "no empty layer is left"
+
+
+async def test_delete_where_erases_a_selection_with_its_dry_run_and_count(backend, drawn):
+    """Round 5 (A5): a failed generator's 58 entities were one delete each."""
+    sheet = _doc(backend).layouts.get("Layout1")
+    before = len(sheet)
+    preview = await backend.entity_delete_where({"layer": "wall*"}, "paper", dry_run=True)
+    assert preview["count"] == 1 and preview["deleted"] == 0 and len(sheet) == before
+    with pytest.raises(StaleRevisionError):
+        await backend.entity_delete_where({"layer": "wall*"}, "all", expect_count=1)
+    result = await backend.entity_delete_where({"layer": "wall*"}, "all", expect_count=6)
+    gone = sorted(drawn["walls"] + drawn["more"] + [drawn["paper"]], key=lambda h: int(h, 16))
+    assert result["changes"]["deleted"] == gone and result["deleted"] == 6
+    db = _doc(backend).entitydb
+    assert not any(db.get(h) is not None and db.get(h).is_alive for h in gone)
+    assert all(h in _doc(backend).entitydb for h in drawn["notes"])
+
+
+async def test_modify_where_takes_set_or_delete_never_both(client):
+    await client.call_tool("entity_create_line", {"x1": 0, "y1": 0, "x2": 1, "y2": 0})
+    for args in ({}, {"set": {"color": 1}, "delete": True}):
+        refused = await client.call_tool(
+            "entity_modify_where", {"where": {"type": "LINE"}, **args}, raise_on_error=False
+        )
+        assert refused.structured_content["kind"] == "invalid_args"
+    done = await _call(client, "entity_modify_where", {"where": {"type": "LINE"}, "delete": True})
+    assert done["deleted"] == 1

@@ -4509,15 +4509,17 @@ async def entity_modify_where(
         ),
     ],
     set: Annotated[
-        dict,
+        dict | None,
         Field(
+            default=None,
             description=(
                 "What to write, at least one key: layer (created when missing), color "
                 "(0-256), linetype, lineweight ('ByLayer' = -1, never -3), visible; HATCH: "
                 "pattern, pattern_scale, pattern_angle; text: text_style, text_height, width_factor."
-            )
+            ),
         ),
-    ],
+    ] = None,
+    delete: Annotated[bool, "Delete what `where` matches instead of `set`"] = False,
     space: Annotated[
         str,
         "model, paper (every paper layout) or all. Block definitions are never searched.",
@@ -4554,8 +4556,23 @@ async def entity_modify_where(
     anything is written: an unknown or malformed `where` / `set` key (invalid_args),
     a `set.layer` no layer may carry, an `expect_count` the drawing no longer matches
     (stale_revision).
+
+    delete=True (no `set`) erases the same selection - a generator's old output,
+    a layer's leftovers - with the same dry run and `expect_count`; a callout
+    part takes its whole callout; `changes.deleted` lists the handles.
     """
     backend = _backend(ctx)
+    if (set is None) == (not delete):
+        raise InvalidArgsError("invalid_args: give exactly one of `set` or delete=true")
+    if delete:
+        from backends.set_edits import parse_where
+        from engineering.changes.preview import make_preview
+
+        result = await backend.entity_delete_where(where, space, expect_count, dry_run)
+        if dry_run:
+            region = parse_where(where).region
+            result["preview"] = (await make_preview(backend, region=region)).to_dict()
+        return result
     if dry_run:
         from backends.set_edits import parse_where
         from engineering.changes.preview import make_preview
@@ -6719,8 +6736,8 @@ async def cad_batch(
             default=None,
             ge=0,
             description=(
-                "Run only if the document's content revision is still this one (a dry "
-                "run's `preview.revision`); otherwise refused stale_revision, no step run."
+                "Run only if the content revision is still this one (a dry run's "
+                "`preview.revision`); else stale_revision, nothing run."
             ),
         ),
     ] = None,
@@ -6729,23 +6746,14 @@ async def cad_batch(
         Field(
             default=None,
             description=(
-                "A dry run's `preview.preconditions` ({handle, fingerprint} per literal "
-                "handle): run only if every entity is exactly as previewed; otherwise "
-                "refused stale_revision, no step run."
+                "A dry run's `preview.preconditions`: run only if every entity is as "
+                "previewed; else stale_revision, nothing run."
             ),
         ),
     ] = None,
     operation_id: Annotated[
         str | None,
-        Field(
-            description=(
-                "Your own id for this batch (1-128 printable characters). Sent again with the "
-                "same steps it returns the recorded result (replayed: true) instead of running "
-                "twice; with other steps it is refused (operation_conflict); after a run whose "
-                "outcome is unknown (cancelled or timed out mid-write) it is refused "
-                "(requires_reconcile). Held in memory only: a server restart forgets it."
-            )
-        ),
+        Field(description=("Your id (1-128 chars); resent, it replays the recorded result.")),
     ] = None,
     label: Annotated[
         str | None,
@@ -6821,8 +6829,14 @@ async def cad_batch(
     CHANGES: `changes` {added, deleted, counts, complete} sums the steps; a
     failed batch reports `partial_changes`.
 
-    NOT CALLABLE from a batch: cad_batch itself, and view_screenshot (its image
-    would be lost; call it directly after the batch). A step the server's tool policy
+    OPERATION_ID: resent with other steps it is refused (operation_conflict);
+    after a run whose outcome is unknown (cancelled or timed out mid-write) it
+    is refused (requires_reconcile). It is kept in the durable journal, so it
+    replays across a restart.
+
+    NOT CALLABLE from a batch: cad_batch itself; view_screenshot only as the
+    last step - it runs once every other step succeeded and its image comes
+    with the answer (`screenshot` is its report). A step the server's tool policy
     refuses (READ_ONLY, TOOL_ALLOWLIST / TOOL_DENYLIST, MAX_TOOL_COST) refuses
     the whole batch before any step runs, kind policy_refused.
 
@@ -6834,6 +6848,11 @@ async def cad_batch(
         raise ToolError(
             f"cad_batch: on_error must be one of {BATCH_ON_ERROR_MODES}, got {on_error!r}."
         )
+    # round 5 (A9b): a screenshot as the last step runs after the batch and
+    # its image is attached to the answer; anywhere else it is refused.
+    shot = None
+    if steps and isinstance(steps[-1], dict) and steps[-1].get("tool") in _BATCH_IMAGE_TOOLS:
+        shot, steps = steps[-1], steps[:-1]
     if not steps:
         raise ToolError("cad_batch: `steps` is empty; there is nothing to run.")
     if len(steps) > MAX_BATCH_STEPS:
@@ -6895,8 +6914,8 @@ async def cad_batch(
         elif name in _BATCH_IMAGE_TOOLS:
             _invalid(
                 "denied",
-                f"{name!r} answers with an image, and cad_batch answers JSON only, so the "
-                "picture would be dropped. Call it directly after the batch.",
+                f"{name!r} answers with an image: only the last step may be one, and its "
+                "picture is attached to the batch's answer.",
             )
         elif (policy_refused := _policy_refusal(name)) is not None:
             # 1.8-17: steps skip the middleware (run_middleware=False), so the
@@ -7503,7 +7522,35 @@ async def cad_batch(
             _BATCH_FULL_CHANGES[batch_id] = full
     if not verbose:
         _fold_batch_handles(payload)
+    if shot is not None:
+        return await _batch_screenshot(ctx, payload, shot, dry_run)
     return payload
+
+
+async def _batch_screenshot(ctx, payload: dict, shot: dict, dry_run: bool):
+    """The batch's answer with its last step's screenshot attached (round 5).
+
+    Run after every other step and only when they all succeeded: the image is
+    the drawing the batch left. Its report is ``screenshot``; a screenshot
+    that fails is reported there and never fails the batch."""
+    from mcp.types import ImageContent, TextContent
+
+    if dry_run or not payload.get("ok"):
+        payload["screenshot"] = {"skipped": "dry run" if dry_run else "the batch did not succeed"}
+        return payload
+    try:
+        outcome = await ctx.fastmcp.call_tool(
+            shot["tool"], dict(shot.get("args") or {}), run_middleware=False
+        )
+    except Exception as exc:
+        payload["screenshot"] = {"error": annotate(classify(exc), "refused")}
+        return payload
+    images = [c for c in outcome.content if isinstance(c, ImageContent)]
+    payload["screenshot"] = outcome.structured_content
+    text = json.dumps(payload, ensure_ascii=False, default=str)
+    return ToolResult(
+        content=[*images, TextContent(type="text", text=text)], structured_content=payload
+    )
 
 
 #: A handle list longer than this is printed as its count and ends (round 3).
@@ -9550,6 +9597,10 @@ async def drawing_critique(
     severity: Annotated[
         Literal["error", "warning", "info"] | None, "Only rows this severe or worse"
     ] = None,
+    sheet: Annotated[
+        Literal["services", "interior"] | None,
+        "A trade or interior sheet: no room-label rows, lettering down to 1.8 mm",
+    ] = None,
     ctx: Context = None,
 ) -> list[dict] | dict:
     """Run premium-quality checks. Returns zero issues for a clean drawing.
@@ -9584,6 +9635,8 @@ async def drawing_critique(
     shared: dict = {}
     issues = await _backend(ctx).drawing_critique(focus, shared=shared)
     rows = [_dc(i) for i in issues]
+    if sheet is not None:
+        rows = [row for row in rows if not _sheet_noise(row)]
     paged = summary or limit is not None or severity is not None
     if not (report or paged):
         return rows
@@ -9597,6 +9650,25 @@ async def drawing_critique(
         snap = (shared.get(QA_SNAPSHOT_KEY) or (None, None))[0]
         out["coverage"] = ledger.report(snap.layouts if snap is not None else ())
     return out
+
+
+#: ISO 3098-0's smallest nominal lettering height, which a trade or interior
+#: sheet letters its symbols at (arch_services' default); 2.5 mm stays the
+#: rule of a production drawing.
+_SHEET_MIN_TEXT_MM = 1.8
+
+
+def _sheet_noise(row: dict) -> bool:
+    """A critique row ``sheet="services"|"interior"`` leaves out (round 5, A9c):
+    an unlabelled room - a services sheet labels its points, not the rooms -
+    and lettering that plots at 1.8 mm or more."""
+    if row.get("focus") == "arch_room_unlabelled":
+        return True
+    detail = row.get("detail") or {}
+    return (
+        detail.get("code") == "plotted_text_too_small"
+        and float(detail.get("smallest_mm") or 0.0) >= _SHEET_MIN_TEXT_MM - 1e-9
+    )
 
 
 @cad_tool(

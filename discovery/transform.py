@@ -687,6 +687,7 @@ def _describe_tool_for(transform: Any) -> Tool:
     async def describe_tool(
         name: str | None = None,
         names: Annotated[list[str] | None, Field(max_length=MAX_DESCRIBE_NAMES)] = None,
+        full: bool = False,
         ctx: Context = None,  # type: ignore[assignment]
     ) -> dict[str, Any]:
         """Full schema, risk and examples of a tool (name) or several (names)."""
@@ -730,7 +731,7 @@ def _describe_tool_for(transform: Any) -> Tool:
         ]
         if names is None:
             return cards[0]
-        if len(cards) > 1:
+        if len(cards) > 1 and not full:
             cards = [brief_card(card) for card in cards]
         out: dict[str, Any] = {"tools": cards}
         if unknown:
