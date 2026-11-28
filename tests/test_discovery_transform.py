@@ -114,6 +114,20 @@ async def test_short_command_aliases_resolve(transform, catalog, command, expect
     assert _names(transform.rank(catalog, command).hits)[0] == expected
 
 
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ("delete many", "entity_delete_many"),
+        ("usuń wiele", "entity_delete_many"),
+        ("delete by layer", "entity_modify_where"),
+        ("usuń wszystko z warstwy", "entity_modify_where"),
+    ],
+)
+async def test_delete_beyond_one_handle_finds_the_set_tools(transform, catalog, query, expected):
+    """`entity_delete` takes one handle; the list and the filter must be found."""
+    assert expected in _names(transform.rank(catalog, query, limit=3).hits)
+
+
 async def test_searchable_text_extends_the_stock_document(transform, catalog):
     """The hook adds alias vocabulary; it never drops the stock text."""
     from fastmcp.server.transforms.search.base import _extract_searchable_text

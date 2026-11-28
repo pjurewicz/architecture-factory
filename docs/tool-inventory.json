@@ -3239,6 +3239,8 @@
         "delete several",
         "erase many",
         "bulk delete",
+        "delete many",
+        "usuń wiele",
         "remove a list of entities"
       ],
       "tags": [
@@ -3463,6 +3465,10 @@
         "set everything to bylayer",
         "remove colour overrides",
         "bulk change properties",
+        "delete by layer",
+        "delete everything on a layer",
+        "delete all matching a filter",
+        "usuń wszystko z warstwy",
         "modify where",
         "restyle by filter",
         "select by properties and change"

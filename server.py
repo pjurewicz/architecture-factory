@@ -4127,11 +4127,12 @@ async def entity_chamfer(
     tags={"entity", "modify"},
 )
 async def entity_delete(
-    handle: Annotated[str, "Entity handle to delete"],
+    handle: Annotated[str, "Handle"],
     ctx: Context = None,
 ) -> dict:
-    """Permanently delete an entity by its handle. A part of a `callout`
-    erases the whole callout and its GROUP (`deleted_handles`)."""
+    """Delete ONE entity (a `callout` part erases the callout and its GROUP,
+    `deleted_handles`). Many: entity_delete_many; by layer/filter:
+    entity_modify_where(delete=true, dry_run, expect_count)."""
     await ctx.warning(f"Deleting entity {handle}")
     return await _backend(ctx).entity_delete(handle)
 
@@ -4794,13 +4795,10 @@ async def entity_list(
     tags={"entity", "modify"},
 )
 async def entity_delete_many(
-    handles: Annotated[list[str], "List of entity handles to delete"],
+    handles: Annotated[list[str], "Handles"],
     ctx: Context = None,
 ) -> dict:
-    """Delete multiple entities in one call. Returns count of deleted entities.
-
-    All or none (unknown_handle, rolled_back).
-    """
+    """Delete many entities by handle; returns the count. All or none (unknown_handle, rolled_back)."""
     # 1.8-09 in full: every handle is checked first, in one read, and a missing
     # one refuses the call with each index in `missing` - nothing deleted. The
     # deletes run inside a transaction; a failure rolls it back to the snapshot
