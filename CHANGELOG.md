@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parameters are shorter (the known keys moved to `describe_tool`), so the idle
   arch pack is 2 tokens smaller.
 
+- `sheet_frame(borders="both"|"frame"|"edge")`: draw the frame alone or the
+  trimmed edge alone (a source with one outline); `margins` and `band` work as
+  before (`band` needs the frame), `outer_border` / `inner_border` are `null`
+  for the outline not drawn, and `arch_title_block` anchors to the frame that
+  was drawn.
+
 - Wall materials `glass` and `demolition` (`arch_wall`, `arch_plan_from_spec`).
   A glass wall is the curtain-wall glazing end to end, junction to junction,
   with no poche: two glass walls at an L meet on the mitre with no post, a

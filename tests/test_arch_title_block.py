@@ -325,3 +325,19 @@ async def test_an_office_frame_with_a_band_anchors_the_block_and_notes_number_th
         await draw_title_block(backend, notes={"items": ["x"], "numbering": "#"}, layout="A3")
     with pytest.raises(ValueError, match="margins: one number or"):
         await draw_sheet_frame(backend, layout="A3", margins=[5, 5])
+
+
+@pytest.mark.asyncio
+async def test_the_block_finds_the_frame_when_it_is_the_only_outline(backend):
+    """Round 9 (12b): `borders="frame"` leaves no trimmed-sheet rectangle; the
+    anchor is still the drawn frame, not ISO 5457's."""
+    from engineering.sheet.frames import draw_sheet_frame
+
+    await _sheet(backend)
+    frame = await draw_sheet_frame(
+        backend, layout="A3", margins=5, zones=False, marks=False, borders="frame"
+    )
+    assert frame["outer_border"] is None
+    out = await draw_title_block(backend, fields={"title": "X"}, layout="A3", width=60)
+    assert out["at"] == [415.0, 5.0]
+    assert out["anchor"] == {"frame": frame["inner_border"]}

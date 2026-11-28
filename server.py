@@ -13109,7 +13109,7 @@ async def sheet_frame(
         str, Field(default="", description="landscape | portrait; empty: the layout's")
     ] = "",
     zones: Annotated[bool, Field(default=True, description="ISO 5457 grid references")] = True,
-    marks: Annotated[bool, Field(default=True, description="Centring and trim marks")] = True,
+    marks: Annotated[bool, Field(default=True, description="Centring/trim marks")] = True,
     origin_x: Annotated[float, Field(default=0.0, description="Sheet lower-left X")] = 0.0,
     origin_y: Annotated[float, Field(default=0.0, description="Sheet lower-left Y")] = 0.0,
     layout: Annotated[
@@ -13117,16 +13117,16 @@ async def sheet_frame(
     ] = "",
     margins: Annotated[
         float | list[float] | None,
-        Field(default=None, description="mm, or [left, right, top, bottom]; default ISO"),
+        Field(default=None, description="mm, or [l, r, top, bottom]; default ISO"),
     ] = None,
     band: Annotated[
         float | None, Field(default=None, description="Bottom strip height (mm): a line")
     ] = None,
+    borders: Annotated[str, Field(default="both", description="both | frame | edge")] = "both",
     ctx: Context = None,
 ) -> dict:
-    """ISO 5457 drawing frame for A4-A0: a 20 mm filing margin, 10 mm on the
-    other three edges, the grid reference system and the centring/trimming marks;
-    `margins` draws an office frame instead, `band` a strip for the title block.
+    """ISO 5457 frame for A4-A0 (20 mm filing margin, 10 mm elsewhere), zone grid
+    and centring/trim marks; `margins` an office frame, `band` a title-block strip.
 
     Borders, rules and marks land on TITLEBLOCK; the zone lettering on TEXT.
     Refusals, all before the first entity is drawn: a size outside A4-A0 is
@@ -13135,8 +13135,9 @@ async def sheet_frame(
     empty `size` on a layout whose paper is not A4-A0. With `layout`, an empty
     size / orientation is the layout's paper as plotted; an explicit one
     overrides it, with `warnings` when they differ (`sheet_source` says
-    which). The zone divisions drawn are equal -- ISO 5457's shorter corner fields are not
-    implemented -- while the division counts are the standard's.
+    which). `borders` "frame" or "edge" draws that one outline (`band` needs
+    the frame). The zone divisions drawn are equal -- ISO 5457's shorter corner
+    fields are not implemented -- while the division counts are the standard's.
     """
     from engineering.sheet.frames import draw_sheet_frame
 
@@ -13151,6 +13152,7 @@ async def sheet_frame(
         layout=layout or None,
         margins=margins,
         band=band,
+        borders=borders,
     )
 
 

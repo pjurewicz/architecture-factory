@@ -44,6 +44,7 @@ if TYPE_CHECKING:
     from backends.base import AutoCADBackend
 
 __all__ = [
+    "BORDERS",
     "CENTRING_OVERSHOOT",
     "EDGE_MARGIN",
     "FILING_MARGIN",
@@ -110,6 +111,7 @@ ZONE_DIVISIONS: dict[str, tuple[int, int]] = {
 }
 
 ORIENTATIONS = ("landscape", "portrait")
+BORDERS = ("both", "frame", "edge")
 _LETTERS = string.ascii_uppercase
 
 
@@ -212,19 +214,28 @@ def frame_prims(
     marks: bool = True,
     margins=None,
     band: float | None = None,
+    borders: str = "both",
 ) -> tuple[Prim, ...]:
     """The ISO 5457 sheet as primitive descriptions, sheet-local, with (0, 0) at
     the lower-left corner of the trimmed sheet.
 
-    Order is pinned: [0] the trimmed sheet, [1] the drawing frame, then the zone
-    ticks, then the zone labels, then the four centring marks, then the eight
-    trimming rectangles.
+    Order is pinned: the trimmed sheet (unless ``borders`` is "frame"), the
+    drawing frame (unless "edge"), then the zone ticks, then the zone labels,
+    then the four centring marks, then the eight trimming rectangles.
     """
+    if borders not in BORDERS:
+        raise ValueError(f"borders must be one of {BORDERS}, got {borders!r}")
+    if band and borders == "edge":
+        raise ValueError("band: a strip inside the frame; borders='edge' draws no frame")
     metrics = frame_metrics(size, orientation=orientation, margins=margins)
     w, h = metrics["sheet"]
     x0, y0, x1, y1 = metrics["frame"]
     m = metrics["margins"]
-    prims: list[Prim] = [_rect(0.0, 0.0, w, h), _rect(x0, y0, x1, y1)]
+    prims: list[Prim] = []
+    if borders != "frame":
+        prims.append(_rect(0.0, 0.0, w, h))
+    if borders != "edge":
+        prims.append(_rect(x0, y0, x1, y1))
     if band:  # round 7: the strip the title block and legend sit in
         prims.append(Line(p1=(x0, y0 + band), p2=(x1, y0 + band)))
 
@@ -422,8 +433,10 @@ async def draw_sheet_frame(
     layout: str | None = None,
     margins=None,
     band: float | None = None,
+    borders: str = "both",
 ) -> dict:
     """Draw the ISO 5457 frame (or one at ``margins``, with a bottom ``band``).
+    ``borders``: "both" (trimmed edge and frame), "frame" or "edge" alone.
     Every refusal fires before the first entity.
 
     An empty ``size`` / ``orientation`` is read from ``layout``'s page setup
@@ -438,7 +451,13 @@ async def draw_sheet_frame(
             raise ValueError(f"band: a height in mm inside the frame (0-{y1 - y0:g}); got {band!r}")
         metrics["band"] = [x0, y0, x1, y0 + float(band)]
     prims = frame_prims(
-        size, orientation=orientation, zones=zones, marks=marks, margins=margins, band=band
+        size,
+        orientation=orientation,
+        zones=zones,
+        marks=marks,
+        margins=margins,
+        band=band,
+        borders=borders,
     )
     previous = await enter_layout(backend, layout, caller="sheet_frame")
     try:
@@ -456,8 +475,9 @@ async def draw_sheet_frame(
         "zones": zones,
         "marks": marks,
         "handles": handles,
-        "outer_border": handles[0],
-        "inner_border": handles[1],
+        "borders": borders,
+        "outer_border": handles[0] if borders != "frame" else None,
+        "inner_border": None if borders == "edge" else handles[0 if borders == "frame" else 1],
         "metrics": metrics,
         "bbox": {"min": [ox, oy], "max": [ox + w, oy + h]},
         **report,

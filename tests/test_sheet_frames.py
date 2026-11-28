@@ -350,3 +350,34 @@ async def test_a_layout_paper_outside_a4_a0_is_refused_when_size_is_empty(backen
         await draw_sheet_frame(backend, layout=layout)
     assert "ANSI_B" in str(excinfo.value) and "pass size" in str(excinfo.value)
     assert len(await backend.entity_list()) == before
+
+
+@pytest.mark.asyncio
+async def test_borders_draws_one_outline_or_both_and_refuses_the_rest(backend):
+    async def outlines(**kw):
+        r = await draw_sheet_frame(backend, "A3", zones=False, marks=False, **kw)
+        rects = [
+            sorted({round(p[0]) for p in e.get_points("xy")})
+            for e in backend._doc.modelspace().query("LWPOLYLINE")
+            if e.dxf.handle in r["handles"]
+        ]
+        await backend.entity_delete_many(r["handles"])
+        return r, rects
+
+    both, rects = await outlines()
+    assert len(both["handles"]) == 2 and len(rects) == 2
+    frame, rects = await outlines(borders="frame")
+    assert frame["handles"] == [frame["inner_border"]] and frame["outer_border"] is None
+    assert rects == [[20, 410]]  # the frame, not the 0..420 edge
+    edge, rects = await outlines(borders="edge")
+    assert edge["handles"] == [edge["outer_border"]] and edge["inner_border"] is None
+    assert rects == [[0, 420]]
+    framed, _ = await outlines(borders="frame", margins=5, band=40)
+    assert framed["metrics"]["band"] == [5.0, 5.0, 415.0, 45.0] and len(framed["handles"]) == 2
+
+    before = len(await backend.entity_list())
+    with pytest.raises(ValueError, match="borders must be one of"):
+        await draw_sheet_frame(backend, "A3", borders="outer")
+    with pytest.raises(ValueError, match="band"):
+        await draw_sheet_frame(backend, "A3", borders="edge", band=40)
+    assert len(await backend.entity_list()) == before
