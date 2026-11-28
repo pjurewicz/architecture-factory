@@ -10,8 +10,9 @@ and reports every visible entity of that space drawn *before* the INSERT in
 its draw order (``entities_in_redraw_order``, so DRAWORDER counts) that the
 polygon covers: its bounding box's centre, or a corner of it, lies inside.
 Code ``hidden_by_wipeout``, one issue per masking INSERT, a warning, never
-repaired - ``draw_order(where=...)`` or ``arch_catalogue_insert``'s default
-``send_to_back`` is the fix.
+repaired - ``draw_order(where=...)`` is the fix. A catalogue item's intended
+layering (``arch_catalogue_insert``'s tiers: a rug under a table, a niche over
+the wall it cuts) is not a finding.
 
 Not tested: a WIPEOUT drawn directly in a space (not in a block) and a mask
 inside a nested block; an entity on a frozen or off layer; the INSERT's own
@@ -63,48 +64,70 @@ def _masks(doc) -> dict[str, list[list[tuple[float, float]]]]:
     return out
 
 
-def _scan(doc) -> dict[str, dict]:
-    """``{space: {n, hits: [(insert handle, block, [(handle, type)])]}}``."""
+def mask_hits(doc, layout, focus: set[str] | None = None, masks=None) -> tuple[int, list]:
+    """``(masks tested, [(insert handle, block, [(handle, type)])])`` for one space.
+
+    ``focus`` (handles) scopes the read to what concerns those entities: a mask
+    in ``focus`` is tested against everything drawn before it, any other mask
+    only against the ``focus`` entities drawn before it. A catalogue item's
+    intended layering (``engineering.arch.catalogue.intended_cover``: a rug
+    under a table, a niche over the wall it cuts) is not a hit.
+    """
     from ezdxf import bbox
 
-    masks = _masks(doc)
+    from engineering.arch.catalogue import intended_cover
+
+    masks = _masks(doc) if masks is None else masks
     if not masks:
-        return {}
+        return 0, []
     hidden_layers = {
         lyr.dxf.name.upper() for lyr in doc.layers if lyr.is_frozen() or not lyr.is_on()
     }
+    order = list(layout.entities_in_redraw_order())
+    n, hits = 0, []
+    for i, ref in enumerate(order):
+        if ref.dxftype() != "INSERT" or ref.dxf.name.upper() not in masks:
+            continue
+        n += 1
+        mine = focus is None or ref.dxf.handle in focus
+        m = ref.matrix44()
+        rings = [
+            [tuple(m.transform((x, y, 0)))[:2] for x, y in r] for r in masks[ref.dxf.name.upper()]
+        ]
+        hit = []
+        for e in order[:i]:
+            if not mine and e.dxf.handle not in focus:
+                continue
+            if e.dxftype() in ("VIEWPORT",) or e.dxf.get("invisible", 0):
+                continue
+            if str(e.dxf.get("layer", "0")).upper() in hidden_layers:
+                continue
+            if intended_cover(ref, e):
+                continue
+            try:
+                box = bbox.extents([e], fast=True)
+            except Exception:  # noqa: BLE001 - an unreadable box is not a finding
+                continue
+            if not box.has_data:
+                continue
+            (x0, y0), (x1, y1) = box.extmin.vec2, box.extmax.vec2
+            probes = [((x0 + x1) / 2, (y0 + y1) / 2), (x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+            if any(_inside(p, r) for r in rings for p in probes):
+                hit.append((e.dxf.handle, e.dxftype()))
+        if hit:
+            hits.append((ref.dxf.handle, ref.dxf.name, hit))
+    return n, hits
+
+
+def _scan(doc) -> dict[str, dict]:
+    """``{space: {n, hits: [(insert handle, block, [(handle, type)])]}}``."""
+    masks = _masks(doc)
+    if not masks:
+        return {}
     found: dict[str, dict] = {}
     for layout in doc.layouts:
-        order = list(layout.entities_in_redraw_order())
-        row = {"n": 0, "hits": []}
-        for i, ref in enumerate(order):
-            if ref.dxftype() != "INSERT" or ref.dxf.name.upper() not in masks:
-                continue
-            row["n"] += 1
-            m = ref.matrix44()
-            rings = [
-                [tuple(m.transform((x, y, 0)))[:2] for x, y in r]
-                for r in masks[ref.dxf.name.upper()]
-            ]
-            hit = []
-            for e in order[:i]:
-                if e.dxftype() in ("VIEWPORT",) or e.dxf.get("invisible", 0):
-                    continue
-                if str(e.dxf.get("layer", "0")).upper() in hidden_layers:
-                    continue
-                try:
-                    box = bbox.extents([e], fast=True)
-                except Exception:  # noqa: BLE001 - an unreadable box is not a finding
-                    continue
-                if not box.has_data:
-                    continue
-                (x0, y0), (x1, y1) = box.extmin.vec2, box.extmax.vec2
-                probes = [((x0 + x1) / 2, (y0 + y1) / 2), (x0, y0), (x1, y0), (x1, y1), (x0, y1)]
-                if any(_inside(p, r) for r in rings for p in probes):
-                    hit.append((e.dxf.handle, e.dxftype()))
-            if hit:
-                row["hits"].append((ref.dxf.handle, ref.dxf.name, hit))
-        found[layout.name] = row
+        n, hits = mask_hits(doc, layout, masks=masks)
+        found[layout.name] = {"n": n, "hits": hits}
     return found
 
 

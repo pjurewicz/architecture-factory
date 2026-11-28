@@ -36,22 +36,34 @@ async def test_list_searches_in_turkish_and_states_the_size_basis(client):
     assert not {"size_basis", "label_en", "label_tr", "origin"} & set(result["items"][0])
 
 
-async def test_insert_twice_defines_once(client):
-    first = (
-        await client.call_tool("arch_catalogue_insert", {"name": "wc", "x": 0.0, "y": 0.0})
-    ).structured_content
-    second = (
+async def test_insert_takes_many_items_and_defines_each_block_once(client):
+    result = (
         await client.call_tool(
-            "arch_catalogue_insert", {"name": "wc", "x": 1000.0, "y": 0.0, "rotation": 180.0}
+            "arch_catalogue_insert",
+            {
+                "items": [
+                    {"name": "wc", "x": 0.0, "y": 0.0},
+                    {"name": "wc", "x": 1000.0, "y": 0.0, "rotation": 180.0},
+                    {"name": "wardrob", "x": 0.0, "y": 0.0},
+                ]
+            },
         )
     ).structured_content
-    assert first["defined"] is True and second["defined"] is False
-    assert first["block_name"] == second["block_name"] == "ARCH_WC"
-    assert first["layer"] == ARCH_ROLE_LAYER["sanitary"]
+    assert [row["block"] for row in result["inserted"]] == ["ARCH_WC", "ARCH_WC"]
+    assert result["defined"] == ["ARCH_WC"]
+    assert result["layers_created"] == [ARCH_ROLE_LAYER["sanitary"]]
+    (refused,) = result["refused"]
+    assert refused["i"] == 2 and "nearest: wardrobe" in refused["message"]
 
 
-async def test_an_unknown_item_is_a_tool_error_naming_the_nearest(client):
-    with pytest.raises(ToolError, match="nearest: wardrobe"):
-        await client.call_tool("arch_catalogue_insert", {"name": "wardrob", "x": 0.0, "y": 0.0})
+async def test_every_item_refused_is_invalid_args_naming_them(client):
+    raw = await client.call_tool(
+        "arch_catalogue_insert",
+        {"items": [{"name": "wardrob", "x": 0.0, "y": 0.0}]},
+        raise_on_error=False,
+    )
+    assert raw.is_error and raw.structured_content["kind"] == "invalid_args"
+    assert "items[0]" in raw.structured_content["message"]
+    assert "nearest: wardrobe" in raw.structured_content["message"]
     with pytest.raises(ToolError, match="furniture, sanitary"):
         await client.call_tool("arch_catalogue_list", {"family": "garden"})

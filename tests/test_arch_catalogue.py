@@ -39,12 +39,17 @@ def _spec_points(spec: dict) -> list[tuple[float, float]]:
     raise AssertionError(f"unexpected spec type {kind!r}")
 
 
-def test_the_catalogue_holds_thirty_eight_items_in_two_families():
-    assert len(ITEMS) == 38
-    assert len(set(CATALOGUE_NAMES)) == 38
+#: Items whose drawing reaches past the w x d footprint: door swings in front
+#: of a wardrobe, a niche's mask over the wall face line.
+BEYOND = {"wardrobe", "wall_niche"}
+
+
+def test_the_catalogue_holds_forty_three_items_in_two_families():
+    assert len(ITEMS) == 43
+    assert len(set(CATALOGUE_NAMES)) == 43
     assert FAMILIES == ("furniture", "sanitary")
-    assert sum(item.family == "furniture" for item in ITEMS) == 27
-    assert sum(item.family == "sanitary" for item in ITEMS) == 11
+    assert sum(item.family == "furniture" for item in ITEMS) == 29
+    assert sum(item.family == "sanitary" for item in ITEMS) == 14
     assert {
         "single_bed",
         "double_bed",
@@ -81,10 +86,13 @@ def test_every_item_stays_inside_its_declared_nominal_size(name):
     spec = block_spec(name)
     w, d = spec["size"]
     assert w > 0 and d > 0
+    x0, y0, x1, y1 = spec["extent"]
+    if name not in BEYOND:
+        assert [x0, y0] == pytest.approx([0, 0]) and x1 <= w + 1e-9 and y1 <= d + 1e-9
     for entity in spec["entities"]:
         for x, y in _spec_points(entity):
-            assert -1e-9 <= x <= w + 1e-9, (name, entity)
-            assert -1e-9 <= y <= d + 1e-9, (name, entity)
+            assert x0 - 1e-6 <= x <= x1 + 1e-6, (name, entity)
+            assert y0 - 1e-6 <= y <= y1 + 1e-6, (name, entity)
     for att in spec["attdefs"]:
         assert 0.0 <= att["x"] <= w and 0.0 <= att["y"] <= d
 
@@ -115,7 +123,9 @@ def test_every_block_starts_with_its_wipeouts(name):
     """Inside a block a WIPEOUT hides only what is drawn before it."""
     kinds = [entity["type"] for entity in block_spec(name)["entities"]]
     masks = kinds.count("wipeout")
-    assert masks >= 1 and kinds[:masks] == ["wipeout"] * masks, name
+    # the concealed WC frame is drawn dashed inside the pre-wall: it masks nothing
+    assert (masks >= 1) != (name == "concealed_wc_frame"), name
+    assert kinds[:masks] == ["wipeout"] * masks, name
 
 
 def test_a_shaped_item_masks_its_outline_not_its_bounding_box():
@@ -148,7 +158,8 @@ def test_every_outline_reaches_its_declared_size():
         assert max(x for x, _ in points) == pytest.approx(w, abs=1e-9), name
         assert min(y for _, y in points) == pytest.approx(0.0, abs=1e-9), name
         # the wc's bowl arc stops at y = 680 inside its 700 mm nominal depth
-        assert max(y for _, y in points) <= d + 1e-9, name
+        if name not in BEYOND:
+            assert max(y for _, y in points) <= d + 1e-9, name
 
 
 def test_the_wc_bowl_is_a_semicircle_joining_its_two_sides():
@@ -214,6 +225,9 @@ def test_family_filter_and_the_label_language():
         "freestanding_bathtub",
         "sink_bowl",
         "countertop_basin",
+        "radiator",
+        "concealed_wc_frame",
+        "prewall",
     ]
     assert all(row["layer"] == ARCH_ROLE_LAYER["sanitary"] for row in sanitary)
     (row,) = catalogue("fridge", lang="tr")
@@ -221,7 +235,7 @@ def test_family_filter_and_the_label_language():
     assert row["size"] == [600.0, 650.0]
     assert row["size_basis"] == SIZE_BASIS
     assert row["block"] == "ARCH_FRIDGE"
-    assert len(catalogue()) == 38
+    assert len(catalogue()) == 43
 
 
 def test_polish_labels_cover_every_item_and_are_searchable_without_diacritics():
@@ -344,7 +358,8 @@ def test_every_item_redraws_inside_its_footprint_at_the_ends_of_its_range(name):
             validate_entity_specs(spec["entities"])
             points = [p for entity in spec["entities"] for p in _spec_points(entity)]
             assert max(x for x, _ in points) == pytest.approx(w, abs=1e-6), (name, w, d)
-            assert all(-1e-6 <= x <= w + 1e-6 and -1e-6 <= y <= d + 1e-6 for x, y in points)
+            top = spec["extent"][3] if name in BEYOND else d
+            assert all(-1e-6 <= x <= w + 1e-6 and -1e-6 <= y <= top + 1e-6 for x, y in points)
 
 
 def test_a_resized_item_is_redrawn_not_scaled():
@@ -401,3 +416,140 @@ def test_round_3s_refused_sizes_now_fit_or_name_the_item_that_does():
     assert block_spec("sink_bowl", 420)["size"] == [420.0, 450.0]
     with pytest.raises(ValueError, match="take 420 x 500: sink_bowl\\.$"):
         block_spec("kitchen_sink", 420)  # a drainer needs the width; the single bowl does not
+
+
+# -- round 5: many items, tiers, the new items ---------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_refused_item_is_reported_and_does_not_stop_the_others(backend):
+    """Round 5 (A1): step 53 of 75 single inserts was refused and the batch
+    rollback undid the 52 good ones."""
+    from engineering.arch.catalogue import check_insert_args, check_items, insert_items
+
+    items = [
+        {"name": "double_bed", "x": 0, "y": 0},
+        {"name": "round_table", "x": 3000, "y": 0, "width": 1480, "depth": 2600},
+        {"name": "wc", "x": 6000, "y": 0, "anchor": "middle"},
+        {"name": "wc", "x": 6000, "y": 0, "colour": 3},
+        {"name": "plant", "x": 9000, "y": 0},
+    ]
+    problems = check_items(items)
+    assert [p["i"] for p in problems] == [1, 2, 3]
+    assert "items[1]: round_table depth 2600" in problems[0]["message"]
+    assert "anchor must be one of" in problems[1]["message"]
+    assert "unknown key(s) colour" in problems[2]["message"]
+    check_insert_args({"items": items})  # some refused: the step still runs
+    result = await insert_items(backend, items)
+    assert [row["i"] for row in result["inserted"]] == [0, 4]
+    assert set(result["inserted"][0]) == {"i", "handle", "block", "footprint"}
+    assert result["refused"] == problems
+    assert len(await backend.entity_list(type_filter="INSERT")) == 2
+
+    from engineering.errors import InvalidArgsError
+
+    before = len(await backend.entity_list())
+    bad = [items[2], {"name": "bathtup", "x": 0, "y": float("nan")}]
+    with pytest.raises(ValueError, match=r"items\[1\]: y must be finite"):
+        check_insert_args({"items": bad})
+    with pytest.raises(InvalidArgsError, match=r"every item was refused.*items\[0\].*items\[1\]"):
+        await insert_items(backend, bad)
+    with pytest.raises(InvalidArgsError, match="non-empty list"):
+        await insert_items(backend, [])
+    assert len(await backend.entity_list()) == before
+
+
+def _order(backend) -> list[str]:
+    return [e.dxf.handle for e in backend._doc.modelspace().entities_in_redraw_order()]
+
+
+@pytest.mark.asyncio
+async def test_items_are_layered_by_tier_whatever_order_they_come_in(backend):
+    """Round 5 (A6): send_to_back pushed a table and a plant under the rug's
+    mask, inserted earlier - 22 items vanished with no warning."""
+    from engineering.arch.catalogue import insert_items
+    from engineering.critique import run_critique
+
+    await backend.layer_create("TEXT")
+    note = await backend.entity_create_text("SALON", 900, 900, 100, layer="TEXT")
+    first = await insert_items(
+        backend,
+        [
+            {"name": "plant", "x": 1500, "y": 1500, "anchor": "center"},
+            {
+                "name": "round_table",
+                "x": 900,
+                "y": 900,
+                "anchor": "center",
+                "options": {"chairs": 4},
+            },
+        ],
+    )
+    rug = await insert_items(
+        backend, [{"name": "round_rug", "x": 900, "y": 900, "anchor": "center", "width": 2600}]
+    )
+    plant, table = (row["handle"] for row in first["inserted"])
+    order = _order(backend)
+    rank = [order.index(h) for h in (rug["inserted"][0]["handle"], table, plant, note.handle)]
+    assert rank == sorted(rank)  # rug < table < plant < what else the space draws
+    assert rug["warnings"] == [] and first["warnings"] == []
+    assert await run_critique(backend, focus=["wipeout_mask"]) == []
+
+
+@pytest.mark.asyncio
+async def test_an_item_masking_another_of_its_tier_is_a_warning(backend):
+    from engineering.arch.catalogue import insert_items
+
+    desk = await insert_items(backend, [{"name": "desk", "x": 0, "y": 0}])
+    chair = await insert_items(backend, [{"name": "chair", "x": 500, "y": 100}])
+    (warning,) = chair["warnings"]
+    assert warning["i"] == 0 and warning["handle"] == chair["inserted"][0]["handle"]
+    assert warning["masks"] == [desk["inserted"][0]["handle"]]
+
+
+@pytest.mark.asyncio
+async def test_a_niche_goes_on_top_and_cuts_the_wall_without_a_warning(backend):
+    from engineering.arch.catalogue import insert_items
+
+    await backend.layer_create("A-WALL-E-N")
+    wall = await backend.entity_create_line(0, 0, 3000, 0, layer="A-WALL-E-N")
+    niche = await insert_items(
+        backend,
+        [{"name": "wall_niche", "x": 1500, "y": 0, "rotation": 180, "anchor": "back_center"}],
+    )
+    await insert_items(backend, [{"name": "bookshelf", "x": 0, "y": 0}])
+    order = _order(backend)
+    # on top of the wall it cuts, and of a shelf inserted after it
+    assert order[-1] == niche["inserted"][0]["handle"] and wall.handle in order[:-1]
+    assert niche["warnings"] == []
+
+
+def test_options_are_validated_by_name_and_name_the_block():
+    spec = block_spec("round_table", 1800, 1800, options={"chairs": 8})
+    assert spec["name"] == "ARCH_ROUND_TABLE_1800x1800_C8"
+    seats = [e for e in spec["entities"] if e["type"] == "polyline" and e["closed"]]
+    assert len(seats) == 8
+    x0, y0, x1, y1 = spec["extent"]
+    assert x0 < 0 and y0 < 0 and x1 > 1800 and y1 > 1800  # the chairs stand round the top
+    assert block_spec("round_table")["name"] == "ARCH_ROUND_TABLE"  # 0 chairs, nominal
+    with pytest.raises(ValueError, match="options.chairs 13 is outside 0-12"):
+        block_spec("round_table", options={"chairs": 13})
+    with pytest.raises(ValueError, match="options.legs: unknown; round_table takes chairs"):
+        block_spec("round_table", options={"legs": 4})
+    with pytest.raises(ValueError, match="takes no options"):
+        block_spec("plant", options={"chairs": 1})
+    with pytest.raises(ValueError, match="8 chairs need 4000 mm"):
+        block_spec("round_table", 800, 800, options={"chairs": 8})
+
+
+def test_a_wardrobe_draws_a_rail_hangers_and_one_dashed_swing_per_door():
+    spec = block_spec("wardrobe", 2400, options={"doors": 3})
+    assert spec["name"] == "ARCH_WARDROBE_2400x600_D3"
+    arcs = [e for e in spec["entities"] if e["type"] == "arc"]
+    # hinged left, right, left: the second and third leaves are a pair on x = 1600
+    assert sorted({(a["cx"], a["cy"]) for a in arcs}) == [(0.0, 600.0), (1600.0, 600.0)]
+    assert len(arcs) > 3 * 3  # dashed: several short arcs per swing
+    assert spec["extent"][3] == pytest.approx(600 + 800)  # a leaf's swing in front
+    assert block_spec("wardrobe")["name"] == "ARCH_WARDROBE"  # 2 doors by default
+    with pytest.raises(ValueError, match="a leaf takes 300-1000 mm"):
+        block_spec("wardrobe", 2400, options={"doors": 1})

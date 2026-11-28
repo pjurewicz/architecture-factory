@@ -23,9 +23,8 @@ async def _strip(backend):
 
 async def test_a_wardrobe_on_top_masks_the_strip_and_the_focus_names_it(backend):
     strip = await _strip(backend)
-    on_top = await insert_item(
-        backend, "built_in_wardrobe", at=(1000, 0), width=1000, send_to_back=False
-    )
+    on_top = await insert_item(backend, "built_in_wardrobe", at=(1000, 0), width=1000)
+    await backend.draw_order([on_top["handle"]], "bring_to_front")
     issues = await run_critique(backend, focus=["wipeout_mask"])
     (issue,) = [i for i in issues if i.focus == "wipeout_mask"]
     assert issue.detail["code"] == "hidden_by_wipeout"
@@ -40,7 +39,7 @@ async def test_a_wardrobe_on_top_masks_the_strip_and_the_focus_names_it(backend)
 async def test_by_default_the_wardrobe_goes_under_what_is_already_drawn(backend):
     await _strip(backend)
     placed = await insert_item(backend, "built_in_wardrobe", at=(1000, 0), width=1000)
-    assert placed["draw_order"] == "back"
+    assert placed["tier"] == "furniture" and placed["warnings"] == []
     order = [e.dxf.handle for e in backend._doc.modelspace().entities_in_redraw_order()]
     assert order[0] == placed["handle"]
     assert await run_critique(backend, focus=["wipeout_mask"]) == []

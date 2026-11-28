@@ -79,10 +79,17 @@ words and the decimal comma; any other language is refused with the list.
 `arch_schedule` draws door / window / room schedules as real TABLEs read from
 the `ACADMCP_ARCH` records; `arch_dimension_chains` adds exterior chains.
 Furniture and sanitary blocks carry nominal catalogue sizes and say so.
-`arch_catalogue_insert` takes `width` / `depth` / `height` (mm) within each
-item's `size_range` (from `arch_catalogue_list`): the symbol is redrawn for the
-footprint, not scaled, and each footprint is its own block
-(`ARCH_<NAME>_<W>x<D>`) with a `SIZE` attribute `WxDxH`.
+`arch_catalogue_insert(items=[{name, x, y, rotation?, anchor?, width?, depth?,
+height?, options?}])` places a whole room in one call: a refused item is listed
+in `refused` and the others are inserted (never one call per item, never
+`cad_batch` of single inserts). `width` / `depth` / `height` (mm) stay within
+each item's `size_range` (from `arch_catalogue_list`); `options` sets an item's
+own parameters (round_table `chairs`, wardrobe `doors`). The symbol is redrawn
+for the footprint, not scaled, and each footprint is its own block
+(`ARCH_<NAME>_<W>x<D>`) with a `SIZE` attribute `WxDxH`. Draw order follows
+the item's `tier` (rugs and pre-walls under furniture, plants and decor on
+top, a wall niche over the wall it cuts), whatever order the items come in;
+read `warnings` for an item whose mask hides something.
 
 ## Interior and installation sheets: points, underlay, legend, title block
 

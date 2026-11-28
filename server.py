@@ -6253,6 +6253,21 @@ def _batch_block_define(args: dict) -> None:
     block_specs.validate_base_point(args.get("base_x", 0.0), args.get("base_y", 0.0))
 
 
+def _batch_catalogue_insert(args: dict) -> None:
+    """arch_catalogue_insert: names, anchors, ranges and options of every item.
+    Inside a batch, which is all or nothing, any refused item refuses the batch
+    at plan time with every problem listed (a direct call inserts the others)."""
+    from engineering.arch.catalogue import check_items
+
+    if _batch_refs_in(args):
+        return
+    problems = check_items(args.get("items"))
+    if problems:
+        shown = "; ".join(p["message"] for p in problems[:5])
+        more = f"; and {len(problems) - 5} more" if len(problems) > 5 else ""
+        raise ValueError(f"{len(problems)} item(s) refused: {shown}{more}")
+
+
 #: Argument checks a tool body makes before writing that its JSON Schema cannot
 #: express, run at plan time so a batch is refused before step 1 instead of
 #: halting halfway (a batch that opens a document runs without a rollback).
@@ -6260,6 +6275,7 @@ _BATCH_SEMANTIC_CHECKS = {
     "dimstyle_create": _batch_dim_overrides,
     "dimstyle_modify": _batch_dim_overrides,
     "block_define": _batch_block_define,
+    "arch_catalogue_insert": _batch_catalogue_insert,
 }
 
 
@@ -14196,9 +14212,9 @@ async def arch_catalogue_list(
 
     Sizes are nominal catalogue dimensions - what a furniture or appliance
     catalogue lists as a common size - and every row says so in `size_basis`;
-    they are not standards values. Thirty-eight items: twenty-seven furniture,
-    eleven sanitary. Each row carries its `height` and the `size_range` arch_catalogue_insert
-    accepts. Refusals: a `family` other than furniture/sanitary and a `lang`
+    they are not standards values. Forty-three items: twenty-nine furniture,
+    fourteen sanitary. Each row carries its `height`, the `size_range` and any
+    `options` arch_catalogue_insert accepts, and its draw-order `tier`. Refusals: a `family` other than furniture/sanitary and a `lang`
     other than en/tr/pl, each with the list.
     """
     from engineering.arch.catalogue import FAMILIES, FRONT_DIR, ORIGIN, SIZE_BASIS, catalogue
@@ -14222,7 +14238,7 @@ async def arch_catalogue_list(
 
 
 @cad_tool(
-    summary="Insert a furniture or sanitary item - bed, sofa, WC, basin, bathtub - as a block.",
+    summary="Insert furniture and sanitary items - bed, sofa, WC, basin, bathtub - as blocks.",
     cost="mutate",
 )
 @mcp.tool(
@@ -14230,87 +14246,49 @@ async def arch_catalogue_list(
     tags={"arch", "create"},
 )
 async def arch_catalogue_insert(
-    name: Annotated[
-        str,
+    items: Annotated[
+        list[dict],
         Field(
             description=(
-                "Catalogue name from arch_catalogue_list, e.g. 'double_bed', 'sofa_3_seat', "
-                "'wc', 'wall_basin', 'kitchen_counter'"
+                "[{name, x, y, rotation?, anchor?, width?, depth?, height?, options?}] - "
+                "name from arch_catalogue_list; (x, y) WCS of the anchor"
             )
         ),
     ],
-    x: Annotated[float, Field(description="X (WCS) of the anchor point")],
-    y: Annotated[float, Field(description="Y (WCS) of the anchor point")],
-    rotation: Annotated[
-        float,
-        Field(
-            default=0.0,
-            description=(
-                "Degrees CCW about (x, y); 0 puts the item's back (its wall side) along +X "
-                "with its front facing +Y. Against a wall face running from P to Q with the "
-                "room on its left, use the direction of P->Q"
-            ),
-        ),
-    ] = 0.0,
-    anchor: Annotated[
-        str,
-        Field(
-            default="back_left",
-            description=(
-                "Which footprint point lands on (x, y): back_left | back_center | "
-                "back_right | center | front_center"
-            ),
-        ),
-    ] = "back_left",
-    width: Annotated[
-        float | None,
-        Field(default=None, description="Width along the back, mm; omit for the nominal size"),
-    ] = None,
-    depth: Annotated[
-        float | None,
-        Field(default=None, description="Depth away from the back, mm; omit for the nominal size"),
-    ] = None,
-    height: Annotated[
-        float | None,
-        Field(default=None, description="Height, mm - written into the SIZE attribute only"),
-    ] = None,
-    send_to_back: Annotated[
-        bool, Field(default=True, description="False: on top, its mask hides what is under it")
-    ] = True,
     ctx: Context = None,
 ) -> dict:
-    """Define the item's block once per footprint, insert it on the furniture or sanitary layer.
+    """Insert catalogue items as blocks; a refused item does not stop the others.
 
     Details:
 
-    `width` / `depth` redraw the symbol for that footprint (rails, rims and
-    chairs keep their real sizes - it is not scaled); the nominal size is block
-    ARCH_<NAME>, any other ARCH_<NAME>_<W>x<D>. Each item has a size range
-    (`size_range` in arch_catalogue_list). The block carries invisible ITEM
-    and SIZE (`WxDxH` mm) attributes. Sizes are nominal catalogue dimensions
-    (`size_basis`), not standards values. Refusals, all before any write: an
-    unknown name (with the nearest names), an unknown anchor, a size outside the
-    item's range and a non-finite coordinate or rotation. The result reports the
-    WCS `footprint` corners, `back_center`, `center`, `front_dir` and the block's
-    `insert_point`.
-    """
-    from engineering.arch.catalogue import insert_item
+    Per item: `rotation` degrees CCW about (x, y) - 0 puts the item's back (its
+    wall side) along +X, front facing +Y; against a wall face running P->Q with
+    the room on its left, use the direction of P->Q. `anchor`: back_left
+    (default) | back_center | back_right | center | front_center. `width` /
+    `depth` (mm) redraw the symbol for that footprint within the item's
+    `size_range` (not scaled); `height` goes into the SIZE attribute only;
+    `options` sets an item's own parameters (`options` in arch_catalogue_list:
+    round_table `chairs` 0-12, wardrobe `doors`). Each footprint is block
+    ARCH_<NAME>[_<W>x<D>], with invisible ITEM and SIZE (`WxDxH`) attributes.
+    Sizes are nominal catalogue dimensions (`size_basis`), not standards values.
 
-    await ctx.info(f"arch catalogue: {name} at ({x}, {y})")
-    try:
-        return await insert_item(
-            _backend(ctx),
-            name,
-            at=(x, y),
-            rotation=rotation,
-            anchor=anchor,
-            width=width,
-            depth=depth,
-            height=height,
-            send_to_back=send_to_back,
-        )
-    except ValueError as exc:
-        raise ToolError(str(exc)) from exc
+    Draw order is fixed by the item's `tier`: rugs and pre-walls lowest, then
+    furniture and sanitary, then plants, curtains and decor on top - all under
+    whatever else the space draws (LED strips, symbols, text); a wall niche on
+    top of everything, its mask cutting the wall. `warnings` names a new item
+    whose mask hides something, or that another item's mask hides.
+
+    Every item is checked before anything is written; a refused item is listed
+    in `refused` [{i, name, message}] and the rest are inserted. Refused as a
+    whole (invalid_args, nothing written) only when every item is refused.
+    Answer: `inserted` [{i, handle, block, footprint}] (WCS corners back-left,
+    back-right, front-right, front-left; `extent` too when chairs or door swings
+    reach past it).
+    """
+    from engineering.arch.catalogue import insert_items
+
+    await ctx.info(f"arch catalogue: {len(items)} item(s)")
+    return await insert_items(_backend(ctx), items)
 
 
 @cad_tool(

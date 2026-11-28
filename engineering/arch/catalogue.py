@@ -154,7 +154,14 @@ class CatalogueItem(NamedTuple):
     height: it changes nothing in plan and is written into the SIZE attribute.
     ``mask(w, d)`` returns the polygons the block's wipeouts cover - the
     item's own outline, so a floor pattern stops at it; ``None`` is the whole
-    ``w x d`` footprint.
+    ``w x d`` footprint, :data:`NO_MASK` none at all.
+
+    ``tier`` fixes the item's draw order among catalogue items (``TIERS``).
+    ``options`` names the parameters beyond the size, ``{name: (low, high,
+    default)}`` (integers; ``default`` may be ``callable(w, d)``); an item with
+    options is drawn by ``draw(w, d, opts)`` / ``mask(w, d, opts)``. A
+    table's chairs and a wardrobe's door swings lie beyond the ``w x d``
+    footprint; ``block_spec`` reports the whole drawing as ``extent``.
     """
 
     name: str
@@ -166,13 +173,41 @@ class CatalogueItem(NamedTuple):
     h: float
     w_range: tuple[float, float]
     d_range: tuple[float, float]
-    draw: Callable[[float, float], tuple[dict, ...]]
-    mask: Callable[[float, float], list[list[tuple[float, float]]]] | None = None
+    draw: Callable[..., tuple[dict, ...]]
+    mask: Callable[..., list[list[tuple[float, float]]]] | None = None
+    tier: str = "furniture"
+    options: dict | None = None
+
+    def defaults(self, w: float, d: float) -> dict:
+        """Every option at its default for a ``w x d`` item."""
+        return {
+            key: int(default(w, d) if callable(default) else default)
+            for key, (_lo, _hi, default) in (self.options or {}).items()
+        }
+
+    def call(self, fn, w: float, d: float, opts: dict | None = None):
+        """``fn(w, d)``, or ``fn(w, d, opts)`` for an item with options."""
+        if not self.options:
+            return fn(w, d)
+        return fn(w, d, self.defaults(w, d) if opts is None else opts)
 
     @property
     def entities(self) -> tuple[dict, ...]:
         """The primitives at the nominal size."""
-        return self.draw(self.w, self.d)
+        return self.call(self.draw, self.w, self.d)
+
+
+#: Draw order among catalogue items, lowest first (round 5, A6): floor
+#: coverings and pre-walls, then furniture and sanitary, then small items on
+#: top; ``wall`` items (a niche) go over everything, so their mask cuts the
+#: wall poche they stand in. Every catalogue item but a ``wall`` one stays
+#: under the rest of its space (LED strips, symbols, text).
+TIERS: tuple[str, ...] = ("floor", "furniture", "decor", "wall")
+
+
+def NO_MASK(*_args) -> list:  # noqa: N802 - a sentinel used like a constant
+    """An item drawn without wipeouts (a concealed frame shown dashed)."""
+    return []
 
 
 #: A chair seat: square, its back rail 60 mm in from its back edge.
@@ -230,8 +265,75 @@ def _double_bed(w, d):
     )
 
 
-def _wardrobe(w, d):
-    return (_rect(0, 0, w, d), _line(50, d / 2, w - 50, d / 2))
+def _dash_count(length: float, dash: float, gap: float) -> tuple[int, float]:
+    """Dashes and their length so a dashed run starts and ends on a dash."""
+    n = max(1, round((length + gap) / (dash + gap)))
+    return n, max((length - (n - 1) * gap) / n, length / (2 * n))
+
+
+def _dashed_line(x1, y1, x2, y2, dash: float = 80.0, gap: float = 50.0) -> tuple[dict, ...]:
+    """A dashed line as short LINEs: it reads dashed whatever the linetype or LTSCALE."""
+    length = math.hypot(x2 - x1, y2 - y1)
+    n, piece = _dash_count(length, dash, gap)
+    if n == 1:
+        return (_line(x1, y1, x2, y2),)
+    ux, uy = (x2 - x1) / length, (y2 - y1) / length
+    out = []
+    for k in range(n):
+        s = k * (piece + gap)
+        out.append(_line(x1 + ux * s, y1 + uy * s, x1 + ux * (s + piece), y1 + uy * (s + piece)))
+    return tuple(out)
+
+
+def _dashed_arc(cx, cy, r, start_deg, end_deg, dash: float = 100.0, gap: float = 60.0):
+    """A dashed CCW arc as short ARCs."""
+    sweep = (end_deg - start_deg) % 360.0 or 360.0
+    n, piece = _dash_count(math.radians(sweep) * r, dash, gap)
+    to_deg = 180.0 / (math.pi * r)
+    return tuple(
+        _arc(
+            cx,
+            cy,
+            r,
+            start_deg + k * (piece + gap) * to_deg,
+            start_deg + (k * (piece + gap) + piece) * to_deg,
+        )
+        for k in range(n)
+    )
+
+
+def _wardrobe(w, d, opts):
+    """Front panel 20 mm, a hanging rail with hangers, a dashed swing per door.
+
+    Doors are hinged left, right, left, ... and swing 90 degrees into the room,
+    so the swings lie beyond the front (``extent``); they are not masked.
+    """
+    n = opts["doors"]
+    leaf = w / n
+    if not 300.0 <= leaf <= 1000.0:
+        raise ValueError(f"{n} door(s) make {_mm(leaf)} mm leaves; a leaf takes 300-1000 mm")
+    front = d - 20.0
+    rail = front / 2.0
+    hanger = min(440.0, front - 60.0) / 2.0
+    count = max(1, int((w - 100.0) // 150.0))
+    hangers = tuple(
+        _line(x, rail - hanger, x, rail + hanger)
+        for x in (100.0 + (w - 200.0) * (k + 0.5) / count for k in range(count))
+    )
+    swings: list[dict] = []
+    for k in range(n):
+        if k % 2 == 0:
+            swings += _dashed_arc(k * leaf, d, leaf, 0.0, 90.0)
+        else:
+            swings += _dashed_arc((k + 1) * leaf, d, leaf, 90.0, 180.0)
+    return (
+        _rect(0, 0, w, d),
+        _line(0, front, w, front),
+        _line(50, rail, w - 50, rail),
+        *hangers,
+        *(_line(k * leaf, front, k * leaf, d) for k in range(1, n)),
+        *swings,
+    )
 
 
 def _sofa(w, d):
@@ -535,8 +637,150 @@ def _oval(x0, y0, x1, y1) -> tuple[dict, ...]:
     )
 
 
-def _round_table(w, d):
-    return _oval(0, 0, w, d)
+#: How far a chair seat around a round table stands under the table's edge.
+CHAIR_TUCK = 100.0
+
+
+def _ring(w: float, d: float, off: float, n: int) -> list[tuple[float, float, float, float]]:
+    """``n`` points evenly by arc length on the oval ``_oval(0, 0, w, d)`` offset
+    outwards by ``off``, from the top centre: ``(x, y, ux, uy)`` with the outward
+    normal. A taller-than-wide oval is the wide one with x and y swapped."""
+    if d > w:
+        return [(y, x, uy, ux) for x, y, ux, uy in _ring(d, w, off, n)]
+    r = d / 2.0
+    big = r + off
+    flat = w - d
+    segs = (flat / 2.0, math.pi * big, flat, math.pi * big, flat / 2.0)
+    total = sum(segs)
+    out = []
+    for k in range(n):
+        s = total * k / n
+        if s < segs[0]:
+            out.append((w / 2.0 - s, r + big, 0.0, 1.0))
+            continue
+        s -= segs[0]
+        if s < segs[1]:
+            a = math.pi / 2.0 + s / big
+            out.append((r + big * math.cos(a), r + big * math.sin(a), math.cos(a), math.sin(a)))
+            continue
+        s -= segs[1]
+        if s < segs[2]:
+            out.append((r + s, r - big, 0.0, -1.0))
+            continue
+        s -= segs[2]
+        if s < segs[3]:
+            a = -math.pi / 2.0 + s / big
+            out.append((w - r + big * math.cos(a), r + big * math.sin(a), math.cos(a), math.sin(a)))
+            continue
+        out.append((w - r - (s - segs[3]), r + big, 0.0, 1.0))
+    return out
+
+
+def _seat_pts(x, y, ux, uy) -> list[tuple[float, float]]:
+    """A chair seat's corners, its centre at (x, y), its back towards (ux, uy)."""
+    h = CHAIR / 2.0
+    tx, ty = -uy, ux
+    return [
+        (x - tx * h - ux * h, y - ty * h - uy * h),
+        (x + tx * h - ux * h, y + ty * h - uy * h),
+        (x + tx * h + ux * h, y + ty * h + uy * h),
+        (x - tx * h + ux * h, y - ty * h + uy * h),
+    ]
+
+
+def _round_seats(w, d, n):
+    if not n:
+        return []
+    off = CHAIR / 2.0 - CHAIR_TUCK
+    ring = _ring(w, d, off, n)
+    r = min(w, d) / 2.0
+    perimeter = math.pi * 2 * (r + off) + 2 * abs(w - d)
+    need = n * (CHAIR + 50.0)
+    if perimeter < need - 1e-6:
+        least = 2 * (need / (2 * math.pi) - off)
+        raise ValueError(
+            f"{n} chairs need {_mm(need)} mm round the table at the seats, it gives "
+            f"{perimeter:.0f}; a round table seating {n} is at least {least:.0f} mm across"
+        )
+    return ring
+
+
+def _round_table(w, d, opts):
+    """The table, and ``chairs`` seats evenly round it, tucked 100 mm under its edge."""
+    chairs: list[dict] = []
+    h = CHAIR / 2.0 - 60.0
+    for x, y, ux, uy in _round_seats(w, d, opts["chairs"]):
+        chairs.append(_poly(_seat_pts(x, y, ux, uy), True))
+        tx, ty = -uy, ux
+        bx, by = x + ux * h, y + uy * h
+        chairs.append(
+            _line(
+                bx - tx * CHAIR / 2, by - ty * CHAIR / 2, bx + tx * CHAIR / 2, by + ty * CHAIR / 2
+            )
+        )
+    return (*_oval(0, 0, w, d), *chairs)
+
+
+def _round_table_mask(w, d, opts):
+    return [_oval_pts(w, d), *(_seat_pts(*p) for p in _round_seats(w, d, opts["chairs"]))]
+
+
+def _round_rug(w, d):
+    """A round or oval rug with a border 80 mm in."""
+    inner = _oval(80, 80, w - 80, d - 80) if min(w, d) > 400 else ()
+    return (*_oval(0, 0, w, d), *inner)
+
+
+def _radiator(w, d):
+    """A panel radiator in plan: the panel off the wall on two brackets, its fins."""
+    gap = min(50.0, d / 3.0)
+    fins = tuple(_line(x, gap, x, d) for x in range(100, int(math.ceil(w)), 100) if x < w)
+    br = min(150.0, w / 4.0)
+    return (_rect(0, gap, w, d), *fins, _line(br, 0, br, gap), _line(w - br, 0, w - br, gap))
+
+
+def _radiator_mask(w, d):
+    return [_box_pts(0, min(50.0, d / 3.0), w, d)]
+
+
+def _wc_frame(w, d):
+    """A concealed WC frame, dashed (inside the pre-wall), with the Ø110 soil outlet."""
+    return (
+        *_dashed_line(0, 0, w, 0),
+        *_dashed_line(w, 0, w, d),
+        *_dashed_line(w, d, 0, d),
+        *_dashed_line(0, d, 0, 0),
+        *_dashed_line(0, 0, w, d),
+        *_dashed_line(w, 0, 0, d),
+        _circle(w / 2.0, d / 2.0, min(55.0, d / 2.0 - 5.0)),
+    )
+
+
+def _prewall(w, d):
+    """A plasterboard pre-wall: the board 25 mm on the room side, insulation between."""
+    out = [_rect(0, 0, w, d)]
+    if d >= 60.0:
+        out.append(_line(0, d - 25.0, w, d - 25.0))
+    if d >= 100.0:
+        low, high = 15.0, d - 40.0
+        step = high - low
+        n = max(1, round(w / step))
+        out.append(_poly([(w * k / n, high if k % 2 else low) for k in range(n + 1)], False))
+    return tuple(out)
+
+
+#: How far a niche's mask reaches into the room past the wall face, so the
+#: face line across the recess is hidden too.
+NICHE_LIP = 10.0
+
+
+def _niche(w, d):
+    """A wall niche: the recess's back and sides; its front is the wall face."""
+    return (_poly(((0, d), (0, 0), (w, 0), (w, d)), False),)
+
+
+def _niche_mask(w, d):
+    return [_box_pts(0, 0, w, d + NICHE_LIP)]
 
 
 def _stool(w, d):
@@ -584,9 +828,36 @@ def _sink_bowl(w, d):
     return (_rect(0, 0, w, d), _rect(40, 40, w - 40, d - 40), _circle(w / 2, d / 2, 30))
 
 
-def _item(name, family, en, tr, w, d, h, w_range, d_range, draw, mask=None) -> CatalogueItem:
+def _item(
+    name,
+    family,
+    en,
+    tr,
+    w,
+    d,
+    h,
+    w_range,
+    d_range,
+    draw,
+    mask=None,
+    *,
+    tier="furniture",
+    options=None,
+) -> CatalogueItem:
     return CatalogueItem(
-        name, family, en, tr, float(w), float(d), float(h), w_range, d_range, draw, mask
+        name,
+        family,
+        en,
+        tr,
+        float(w),
+        float(d),
+        float(h),
+        w_range,
+        d_range,
+        draw,
+        mask,
+        tier,
+        options,
     )
 
 
@@ -627,6 +898,7 @@ ITEMS: tuple[CatalogueItem, ...] = (
         (400, 4000),
         (350, 700),
         _wardrobe,
+        options={"doors": (1, 12, lambda w, d: max(1, round(w / 600.0)))},
     ),
     _item(
         "sofa_3_seat",
@@ -978,15 +1250,16 @@ ITEMS: tuple[CatalogueItem, ...] = (
     _item(
         "round_table",
         "furniture",
-        "round or oval table",
+        "round or oval table, chairs round it",
         "yuvarlak masa",
         1000,
         1000,
         750,
         (500, 2400),
-        (500, 1400),
+        (500, 2400),
         _round_table,
-        lambda w, d: [_oval_pts(w, d)],
+        _round_table_mask,
+        options={"chairs": (0, 12, 0)},
     ),
     _item(
         "bar_stool",
@@ -1013,6 +1286,7 @@ ITEMS: tuple[CatalogueItem, ...] = (
         (200, 2000),
         _plant,
         lambda w, d: [_oval_pts(w, d)],
+        tier="decor",
     ),
     _item(
         "curtain",
@@ -1025,6 +1299,7 @@ ITEMS: tuple[CatalogueItem, ...] = (
         (300, 10000),
         (80, 400),
         _curtain,
+        tier="decor",
     ),
     _item(
         "rug",
@@ -1037,6 +1312,7 @@ ITEMS: tuple[CatalogueItem, ...] = (
         (600, 6000),
         (400, 5000),
         _rug,
+        tier="floor",
     ),
     _item(
         "built_in_wardrobe",
@@ -1061,6 +1337,74 @@ ITEMS: tuple[CatalogueItem, ...] = (
         (400, 2400),
         (300, 700),
         _countertop_basin,
+    ),
+    # -- round 5 (B3) --------------------------------------------------------
+    _item(
+        "round_rug",
+        "furniture",
+        "round or oval rug",
+        "yuvarlak halı",
+        2000,
+        2000,
+        10,
+        (600, 6000),
+        (600, 6000),
+        _round_rug,
+        lambda w, d: [_oval_pts(w, d)],
+        tier="floor",
+    ),
+    _item(
+        "radiator",
+        "sanitary",
+        "panel radiator",
+        "panel radyatör",
+        1000,
+        150,
+        600,
+        (300, 3000),
+        (60, 300),
+        _radiator,
+        _radiator_mask,
+    ),
+    _item(
+        "concealed_wc_frame",
+        "sanitary",
+        "concealed WC frame (behind the WC, in the pre-wall)",
+        "gömme rezervuar",
+        500,
+        150,
+        1120,
+        (400, 600),
+        (80, 300),
+        _wc_frame,
+        NO_MASK,
+    ),
+    _item(
+        "prewall",
+        "sanitary",
+        "plasterboard pre-wall",
+        "alçıpan ön duvar",
+        1200,
+        200,
+        1200,
+        (300, 6000),
+        (80, 600),
+        _prewall,
+        tier="floor",
+    ),
+    _item(
+        "wall_niche",
+        "furniture",
+        "wall niche (recess at a wall face)",
+        "duvar nişi",
+        600,
+        150,
+        400,
+        (200, 3000),
+        (50, 600),
+        _niche,
+        _niche_mask,
+        tier="wall",
     ),
 )
 
@@ -1106,12 +1450,17 @@ LABEL_PL: dict[str, str] = {
     "sink_bowl": "zlewozmywak jednokomorowy",
     "modular_sofa": "sofa modułowa",
     "corner_sofa_left": "sofa narożna L, lewa",
-    "round_table": "stół okrągły lub owalny",
+    "round_table": "stół okrągły lub owalny z krzesłami",
     "bar_stool": "stołek / hoker",
     "plant": "roślina w donicy",
     "curtain": "zasłona na karniszu",
     "rug": "dywan",
     "built_in_wardrobe": "zabudowa meblowa / szafa wnękowa (z krzyżem)",
+    "round_rug": "dywan okrągły lub owalny",
+    "radiator": "grzejnik płytowy",
+    "concealed_wc_frame": "stelaż podtynkowy WC",
+    "prewall": "przedścianka GK",
+    "wall_niche": "wnęka w ścianie",
 }
 
 _FOLD = str.maketrans(
@@ -1168,6 +1517,17 @@ def _row(item: CatalogueItem, lang: str) -> dict:
         "size_basis": SIZE_BASIS,
         "block": f"{BLOCK_PREFIX}{item.name.upper()}",
         "layer": ARCH_ROLE_LAYER[item.family],
+        "tier": item.tier,
+        **(
+            {
+                "options": {
+                    k: {"range": [lo, hi], "default": item.defaults(item.w, item.d)[k]}
+                    for k, (lo, hi, _default) in item.options.items()
+                }
+            }
+            if item.options
+            else {}
+        ),
     }
 
 
@@ -1251,26 +1611,77 @@ def _mm(value: float) -> str:
     return f"{value:.1f}".rstrip("0").rstrip(".")
 
 
+def _options(item: CatalogueItem, given, w: float, d: float) -> dict:
+    """The item's options with ``given`` validated by name (integers in range)."""
+    opts = item.defaults(w, d)
+    if given is None:
+        return opts
+    if not isinstance(given, dict):
+        raise ValueError(f"options must be an object, got {given!r}")
+    allowed = item.options or {}
+    for key, value in given.items():
+        if key not in allowed:
+            takes = f"takes {', '.join(allowed)}" if allowed else "takes no options"
+            raise ValueError(f"options.{key}: unknown; {item.name} {takes}")
+        low, high, _default = allowed[key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value != int(value):
+            raise ValueError(f"options.{key} must be a whole number, got {value!r}")
+        if not low <= value <= high:
+            raise ValueError(f"options.{key} {value!r} is outside {low}-{high}")
+        opts[key] = int(value)
+    return opts
+
+
+def _bounds(entities) -> tuple[float, float, float, float]:
+    """The block-local box of primitive specs, an arc by its real sweep."""
+    pts: list[tuple[float, float]] = []
+    for e in entities:
+        kind = e["type"]
+        if kind == "line":
+            pts += [(e["x1"], e["y1"]), (e["x2"], e["y2"])]
+        elif kind == "circle":
+            cx, cy, r = e["cx"], e["cy"], e["radius"]
+            pts += [(cx - r, cy - r), (cx + r, cy + r)]
+        elif kind == "arc":
+            cx, cy, r = e["cx"], e["cy"], e["radius"]
+            a0, a1 = e["start_angle"], e["end_angle"]
+            sweep = (a1 - a0) % 360.0 or 360.0
+            angles = [a0, a0 + sweep] + [q for q in range(0, 720, 90) if a0 < q < a0 + sweep]
+            pts += [
+                (cx + r * math.cos(math.radians(a)), cy + r * math.sin(math.radians(a)))
+                for a in angles
+            ]
+        else:
+            pts += [tuple(p) for p in e["points"]]
+    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
 def block_spec(
     name: str,
     width: float | None = None,
     depth: float | None = None,
     height: float | None = None,
+    options: dict | None = None,
 ) -> dict:
     """The typed primitives and the ITEM / SIZE ATTDEFs ``block_define`` takes for one item.
 
     ``width`` / ``depth`` / ``height`` (mm) override the nominal size; the
     symbol is redrawn for the footprint, not scaled, so rails, rims and chairs
-    keep their real sizes. The nominal size keeps the block ``ARCH_<NAME>``;
-    any other footprint is ``ARCH_<NAME>_<W>x<D>``. The height changes nothing
-    in plan and is written into the SIZE attribute (``WxDxH``).
+    keep their real sizes. ``options`` sets an item's own parameters by name
+    (``CatalogueItem.options``: a round table's ``chairs``, a wardrobe's
+    ``doors``). The nominal size with the default options keeps the block
+    ``ARCH_<NAME>``; any other is ``ARCH_<NAME>_<W>x<D>``, then ``_<KEY><n>``
+    per option off its default (``ARCH_ROUND_TABLE_1800x1800_C8``). The height
+    changes nothing in plan and is written into the SIZE attribute (``WxDxH``).
 
     ``entities`` begins with the item's wipeouts (see the module docstring).
+    ``extent`` is the block-local box of everything drawn - wider than the
+    ``w x d`` footprint where chairs or door swings reach past it.
 
-    Returns ``{"name", "entities", "attdefs", "base_x", "base_y", "item",
-    "family", "size", "height", "size_basis"}``. An unknown name (with the
-    nearest names) and a size outside the item's range are refused before
-    anything is built.
+    Refusals (``ValueError``, before anything is built): an unknown name (with
+    the nearest names), a size outside the item's range, an unknown or
+    out-of-range option, a size the symbol cannot hold.
     """
     item = _resolve(name)
     try:
@@ -1280,17 +1691,24 @@ def block_spec(
         raise ValueError(f"{exc}{_holds(item, width, depth)}") from None
     h = _size(height, item.h, HEIGHT_RANGE, "height", item.name)
     try:
-        entities = item.draw(w, d)
+        opts = _options(item, options, w, d)
+    except ValueError as exc:
+        raise ValueError(f"arch catalogue: {item.name} {exc}.") from None
+    try:
+        entities = item.call(item.draw, w, d, opts)
     except ValueError as exc:
         raise ValueError(f"arch catalogue: {item.name} {_mm(w)} x {_mm(d)}: {exc}.") from None
     # The wipeouts come first: inside a block a WIPEOUT hides what is drawn
     # before it, so the item's own lines, listed after, stay on top of it.
-    masks = item.mask(w, d) if item.mask else [_box_pts(0.0, 0.0, w, d)]
+    masks = item.call(item.mask, w, d, opts) if item.mask else [_box_pts(0.0, 0.0, w, d)]
     entities = (*(_wipeout(poly) for poly in masks), *entities)
-    nominal = (w, d) == (item.w, item.d)
+    defaults = item.defaults(w, d)
+    changed = {k: v for k, v in opts.items() if v != defaults[k]}
+    nominal = (w, d) == (item.w, item.d) and not changed
     block = f"{BLOCK_PREFIX}{item.name.upper()}"
     if not nominal:
         block = f"{block}_{_mm(w)}x{_mm(d)}".replace(".", "_")
+        block += "".join(f"_{k[0].upper()}{v}" for k, v in sorted(changed.items()))
     common = {"x": w / 2.0, "height": ITEM_TAG_HEIGHT, "align": "middle_center", "invisible": True}
     return {
         "name": block,
@@ -1315,11 +1733,211 @@ def block_spec(
         "base_y": 0.0,
         "item": item.name,
         "family": item.family,
+        "tier": item.tier,
         "size": [w, d],
+        "extent": [round(v, 6) + 0.0 for v in _bounds(entities)],
         "height": h,
+        "options": opts,
         "nominal": nominal,
         "size_basis": SIZE_BASIS,
     }
+
+
+# -- many items in one call (round 5, A1) -------------------------------------
+
+#: The keys an ``items[]`` entry takes.
+ITEM_KEYS: tuple[str, ...] = (
+    "name",
+    "x",
+    "y",
+    "rotation",
+    "anchor",
+    "width",
+    "depth",
+    "height",
+    "options",
+)
+
+
+def _finite(value, what: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{what} must be a number, got {value!r}")
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"{what} must be finite, got {value!r}")
+    return number
+
+
+def parse_item(entry) -> dict:
+    """One ``items[]`` entry checked and resolved, without touching a drawing.
+
+    Returns ``{"at", "rotation", "anchor", "spec"}`` (``spec`` is
+    :func:`block_spec`'s answer). Raises ``ValueError`` naming the key - an
+    unknown key, a missing name or coordinate, a non-finite number, an unknown
+    anchor, anything :func:`block_spec` refuses.
+    """
+    if not isinstance(entry, dict):
+        raise ValueError(f"must be an object {{name, x, y, ...}}, got {entry!r}")
+    unknown = sorted(str(k) for k in entry if k not in ITEM_KEYS)
+    if unknown:
+        raise ValueError(
+            f"unknown key(s) {', '.join(unknown)}; an item takes {', '.join(ITEM_KEYS)}"
+        )
+    for key in ("name", "x", "y"):
+        if key not in entry:
+            raise ValueError(f"{key} is required")
+    if not isinstance(entry["name"], str):
+        raise ValueError(f"name must be a string, got {entry['name']!r}")
+    at = (_finite(entry["x"], "x"), _finite(entry["y"], "y"))
+    rotation = _finite(entry.get("rotation", 0.0), "rotation")
+    anchor = entry.get("anchor", ORIGIN)
+    if anchor not in ANCHORS:
+        raise ValueError(f"anchor must be one of {', '.join(ANCHORS)}, got {anchor!r}")
+    spec = block_spec(
+        entry["name"],
+        entry.get("width"),
+        entry.get("depth"),
+        entry.get("height"),
+        entry.get("options"),
+    )
+    return {"at": at, "rotation": rotation, "anchor": anchor, "spec": spec}
+
+
+def _strip(message: str) -> str:
+    return message.removeprefix("arch catalogue: ").rstrip(".")
+
+
+def check_items(items) -> list[dict]:
+    """Every problem of an ``arch_catalogue_insert`` ``items`` list, nothing written.
+
+    ``[{i, name, message}]``, empty when every item would be inserted. A list
+    that is not a list (or is empty) raises ``ValueError``: the call itself is
+    malformed. Pure - the batch planner calls it at plan time.
+    """
+    if not isinstance(items, (list, tuple)) or not items:
+        raise ValueError(f"items must be a non-empty list of {{name, x, y, ...}}, got {items!r}")
+    problems = []
+    for i, entry in enumerate(items):
+        try:
+            parse_item(entry)
+        except ValueError as exc:
+            name = entry.get("name") if isinstance(entry, dict) else None
+            problems.append({"i": i, "name": name, "message": f"items[{i}]: {_strip(str(exc))}"})
+    return problems
+
+
+def check_insert_args(args: dict) -> None:
+    """``cad_batch``'s plan-time check of an ``arch_catalogue_insert`` step.
+
+    Raises ``ValueError`` only when the call would refuse as a whole: ``items``
+    malformed or every item refused. A step with some refused items runs - each
+    is reported in its ``refused`` and the others are inserted.
+    """
+    items = args.get("items") if isinstance(args, dict) else None
+    problems = check_items(items)
+    if len(problems) == len(items):
+        raise ValueError(_all_refused(problems))
+
+
+def _all_refused(problems: list[dict]) -> str:
+    shown = "; ".join(p["message"] for p in problems[:5])
+    more = f"; and {len(problems) - 5} more" if len(problems) > 5 else ""
+    return f"arch_catalogue_insert: every item was refused, nothing inserted: {shown}{more}"
+
+
+# -- draw order by tier (round 5, A6) -----------------------------------------
+
+_TIER_RANK = {tier: k for k, tier in enumerate(TIERS)}
+
+
+def item_of_block(block: str) -> CatalogueItem | None:
+    """``ARCH_DOUBLE_BED`` / ``ARCH_DOUBLE_BED_1800x2000`` -> its item (not ``ARCH_E_*``)."""
+    upper = block.upper()
+    if not upper.startswith(BLOCK_PREFIX) or upper.startswith(f"{BLOCK_PREFIX}E_"):
+        return None
+    rest = block[len(BLOCK_PREFIX) :].lower()
+    for name in sorted(CATALOGUE_NAMES, key=len, reverse=True):
+        if rest == name or rest.startswith(f"{name}_"):
+            return _BY_NAME[name]
+    return None
+
+
+def intended_cover(ref, entity) -> bool:
+    """Whether catalogue INSERT ``ref``'s mask covers ``entity`` by design.
+
+    A catalogue item masks the floor finish (``A-FLOR-E-N``) and any catalogue
+    item of a lower tier (a table over its rug); a ``wall`` item (a niche) also
+    masks the wall it is cut into (``A-WALL*``).
+    """
+    mine = item_of_block(ref.dxf.name)
+    if mine is None:
+        return False
+    layer = str(entity.dxf.get("layer", "")).upper()
+    if layer == ARCH_ROLE_LAYER["floor"].upper():
+        return True
+    if mine.tier == "wall" and layer.startswith("A-WALL"):
+        return True
+    if entity.dxftype() == "INSERT":
+        other = item_of_block(entity.dxf.name)
+        return other is not None and _TIER_RANK[other.tier] < _TIER_RANK[mine.tier]
+    return False
+
+
+def _layer_new(order: list, new: dict[str, str]) -> list:
+    """``order`` (the space's entities, drawn first first) with each new catalogue
+    INSERT (``new``: handle -> tier) moved to its tier's place.
+
+    A ``wall`` item goes on top of everything. Any other goes just under the
+    first catalogue item of a higher tier already placed; failing one, just over
+    the last catalogue item of its tier or lower; failing one, under everything.
+    Nothing else moves, so what was drawn over the catalogue items stays over.
+    """
+    placed = [e for e in order if e.dxf.handle not in new]
+    by_handle = {e.dxf.handle: e for e in order}
+
+    def rank(e) -> int | None:
+        if e.dxftype() != "INSERT":
+            return None
+        if e.dxf.handle in new:
+            return _TIER_RANK[new[e.dxf.handle]]
+        item = item_of_block(e.dxf.name)
+        return None if item is None or item.tier == "wall" else _TIER_RANK[item.tier]
+
+    for handle in (e.dxf.handle for e in order if e.dxf.handle in new):
+        entity, mine = by_handle[handle], _TIER_RANK[new[handle]]
+        if new[handle] == "wall":
+            placed.append(entity)
+            continue
+        ranks = [rank(e) for e in placed]
+        higher = next((k for k, r in enumerate(ranks) if r is not None and r > mine), None)
+        if higher is None:
+            lower = [k for k, r in enumerate(ranks) if r is not None and r <= mine]
+            higher = lower[-1] + 1 if lower else 0
+        placed.insert(higher, entity)
+    return placed
+
+
+def _apply_order(backend, new: dict[str, str]):
+    """Write the tier order of the new INSERTs into model space's SORTENTSTABLE,
+    then read what masks touch them. Returns ``(changed, hits)``."""
+    from engineering.wipeout_mask import mask_hits
+
+    doc = backend._require_doc()
+    msp = doc.modelspace()
+    current = list(msp.entities_in_redraw_order())
+    target = _layer_new(current, new)
+    changed = target != current
+    if changed:
+        # the backend's draw_order rule: the space's own handles, ascending,
+        # reassigned to the new order (unique, never "0")
+        keys = sorted((e.dxf.handle for e in current), key=lambda h: int(h, 16))
+        msp.set_redraw_order(
+            {e.dxf.handle: k for e, k in zip(target, keys, strict=True) if e.dxf.handle != k}
+        )
+    return changed, mask_hits(doc, msp, focus=set(new))[1]
+
+
+# -- insert ---------------------------------------------------------------------
 
 
 async def _ensure_layer(backend: AutoCADBackend, name: str) -> bool:
@@ -1354,6 +1972,136 @@ def _placement(w: float, d: float, at, angle: float, anchor: str) -> dict:
     }
 
 
+def _warnings(hits, index: dict[str, int]) -> list[dict]:
+    """Mask hits that concern the new items, as ``[{i, handle, masks | hidden_by}]``."""
+    out: list[dict] = []
+    for insert, _block, hit in hits:
+        if insert in index:
+            out.append(
+                {
+                    "i": index[insert],
+                    "handle": insert,
+                    "masks": [h for h, _t in hit[:20]],
+                    "message": f"its mask hides {len(hit)} entit"
+                    f"{'y' if len(hit) == 1 else 'ies'} drawn before it",
+                }
+            )
+            continue
+        for handle, _t in hit:
+            if handle in index:
+                out.append(
+                    {
+                        "i": index[handle],
+                        "handle": handle,
+                        "hidden_by": insert,
+                        "message": f"INSERT {insert}'s mask hides it",
+                    }
+                )
+    return sorted(out, key=lambda row: row["i"])
+
+
+async def _insert_items(backend: AutoCADBackend, items) -> dict:
+    """Insert many catalogue items in one call; an item refused does not stop the others.
+
+    Every item is checked first (:func:`parse_item`); the valid ones are
+    inserted in model space (each block defined once per footprint and options,
+    on the furniture or sanitary layer) and layered by tier (``TIERS``: rugs and
+    pre-walls lowest, then furniture and sanitary, then plants and decor; a
+    niche on top). The answer lists ``inserted [{i, handle, block, footprint}]``
+    (``extent`` too when the drawing reaches past the footprint),
+    ``refused [{i, name, message}]`` and ``warnings`` - a new item whose mask
+    hides something, or one another item's mask hides (the ``wipeout_mask``
+    focus, scoped to the new items; intended layering is not a warning).
+
+    Raises ``InvalidArgsError`` naming the items when every one is refused
+    (nothing is written then) or ``items`` is not a non-empty list.
+    """
+    from engineering.errors import InvalidArgsError
+
+    try:
+        problems = check_items(items)
+    except ValueError as exc:
+        raise InvalidArgsError(f"invalid_args: {exc}") from None
+    if len(problems) == len(items):
+        raise InvalidArgsError(f"invalid_args: {_all_refused(problems)}")
+    bad = {p["i"] for p in problems}
+    parsed = [(i, parse_item(entry)) for i, entry in enumerate(items) if i not in bad]
+
+    layers_created = []
+    for layer in dict.fromkeys(ARCH_ROLE_LAYER[p["spec"]["family"]] for _i, p in parsed):
+        if await _ensure_layer(backend, layer):
+            layers_created.append(layer)
+    existing = {block.name.upper() for block in await backend.block_list()}
+    defined: list[str] = []
+    inserted: list[dict] = []
+    new: dict[str, str] = {}
+    for i, p in parsed:
+        spec = p["spec"]
+        if spec["name"].upper() not in existing:
+            await backend.block_define(
+                spec["name"],
+                spec["entities"],
+                spec["attdefs"],
+                spec["base_x"],
+                spec["base_y"],
+                False,
+                False,
+            )
+            existing.add(spec["name"].upper())
+            defined.append(spec["name"])
+        w, d = spec["size"]
+        placed = _placement(w, d, p["at"], p["rotation"], p["anchor"])
+        ref = await backend.block_insert(
+            spec["name"],
+            placed["insert_point"][0],
+            placed["insert_point"][1],
+            1.0,
+            1.0,
+            p["rotation"],
+            {ITEM_TAG: spec["item"], SIZE_TAG: spec["attdefs"][1]["default"]},
+            ARCH_ROLE_LAYER[spec["family"]],
+        )
+        new[ref.handle] = spec["tier"]
+        row = {"i": i, "handle": ref.handle, "block": spec["name"], **placed}
+        x0, y0, x1, y1 = spec["extent"]
+        if x0 < -1e-6 or y0 < -1e-6 or x1 > w + 1e-6 or y1 > d + 1e-6:
+            ox, oy = placed["insert_point"]
+            c, s = math.cos(math.radians(p["rotation"])), math.sin(math.radians(p["rotation"]))
+            row["extent"] = [
+                [round(ox + c * x - s * y, 6) + 0.0, round(oy + s * x + c * y, 6) + 0.0]
+                for x, y in ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
+            ]
+        row["_spec"] = spec
+        inserted.append(row)
+
+    changed, hits = await backend._async(_apply_order, backend, new)
+    if changed:
+        backend._mark_dirty()
+    index = {row["handle"]: row["i"] for row in inserted}
+    return {
+        "ok": True,
+        "count": len(inserted),
+        "inserted": inserted,
+        "refused": problems,
+        "warnings": _warnings(hits, index),
+        "defined": defined,
+        "layers_created": layers_created,
+        "size_basis": SIZE_BASIS,
+        "backend": backend.name,
+    }
+
+
+async def insert_items(backend: AutoCADBackend, items) -> dict:
+    """:func:`_insert_items`, each inserted row cut to ``i``, ``handle``, ``block``,
+    ``footprint`` (and ``extent`` when the drawing is wider) - the tool's answer."""
+    result = await _insert_items(backend, items)
+    keep = ("i", "handle", "block", "footprint", "extent")
+    return {
+        **result,
+        "inserted": [{k: row[k] for k in keep if k in row} for row in result["inserted"]],
+    }
+
+
 async def insert_item(
     backend: AutoCADBackend,
     name: str,
@@ -1364,86 +2112,51 @@ async def insert_item(
     width: float | None = None,
     depth: float | None = None,
     height: float | None = None,
-    send_to_back: bool = True,
+    options: dict | None = None,
 ) -> dict:
-    """Define the item's block once per footprint, insert it so its ``anchor`` lands on ``at``.
+    """One item through :func:`insert_items`, its refusal a ``ValueError``.
 
-    ``send_to_back`` (round 4, the default) draws the INSERT under everything
-    already in its space, so its wipeout masks nothing drawn before it - LED
-    strips and symbols in a wardrobe stayed hidden until a 300 dpi PDF showed
-    it; ``False`` keeps it on top, masking what lies under its footprint.
-
-    ``anchor`` names a point of the footprint (``ANCHORS``; the block's own
-    base is ``back_left``); ``rotation`` is degrees CCW about ``at``;
-    ``width`` / ``depth`` / ``height`` as in :func:`block_spec`. The result
-    carries the block's real ``insert_point``, the WCS ``footprint`` (back-left,
-    back-right, front-right, front-left), ``back_center``, ``center`` and the WCS
-    ``front_dir``. Refusals - an unknown item (with the nearest names) or
-    anchor, a size out of range, a non-finite coordinate or rotation - fire
-    before any write.
+    The library route (scripts, tests): the result carries the block's
+    ``insert_point``, the WCS ``footprint`` (back-left, back-right,
+    front-right, front-left), ``back_center``, ``center``, ``front_dir``,
+    ``block_name``, ``defined``, ``layer``, ``tier``, ``size`` and ``warnings``.
     """
-    spec = block_spec(name, width, depth, height)
-    if anchor not in ANCHORS:
-        raise ValueError(
-            f"arch catalogue: anchor must be one of {', '.join(ANCHORS)}, got {anchor!r}."
-        )
+    entry = {"name": name, "rotation": rotation, "anchor": anchor}
     try:
-        x, y = float(at[0]), float(at[1])
-    except (TypeError, IndexError, ValueError) as exc:
+        entry["x"], entry["y"] = at[0], at[1]
+    except (TypeError, IndexError) as exc:
         raise ValueError(f"arch catalogue: 'at' must be two numbers, got {at!r}.") from exc
-    if not (math.isfinite(x) and math.isfinite(y)):
-        raise ValueError(f"arch catalogue: 'at' must be two finite numbers, got {at!r}.")
-    angle = float(rotation)
-    if not math.isfinite(angle):
-        raise ValueError(f"arch catalogue: rotation must be finite, got {rotation!r}.")
-
-    w, d = spec["size"]
-    placed = _placement(w, d, (x, y), angle, anchor)
-
+    for key, value in (("width", width), ("depth", depth), ("height", height)):
+        if value is not None:
+            entry[key] = value
+    if options is not None:
+        entry["options"] = options
+    problems = check_items([entry])
+    if problems:
+        raise ValueError(f"arch catalogue: {problems[0]['message'].removeprefix('items[0]: ')}.")
+    result = await _insert_items(backend, [entry])
+    row = result["inserted"][0]
+    spec = row.pop("_spec")
     layer = ARCH_ROLE_LAYER[spec["family"]]
-    layer_created = await _ensure_layer(backend, layer)
-    existing = {block.name.upper() for block in await backend.block_list()}
-    defined = spec["name"].upper() not in existing
-    if defined:
-        await backend.block_define(
-            spec["name"],
-            spec["entities"],
-            spec["attdefs"],
-            spec["base_x"],
-            spec["base_y"],
-            False,
-            False,
-        )
-    ref = await backend.block_insert(
-        spec["name"],
-        placed["insert_point"][0],
-        placed["insert_point"][1],
-        1.0,
-        1.0,
-        angle,
-        {ITEM_TAG: spec["item"], SIZE_TAG: spec["attdefs"][1]["default"]},
-        layer,
-    )
-    masks = any(e.get("type") == "wipeout" for e in spec["entities"])
-    if send_to_back and masks:
-        await backend.draw_order([ref.handle], "send_to_back")
     return {
         "ok": True,
-        "handle": ref.handle,
-        "draw_order": ("back" if send_to_back else "front") if masks else "none (no mask)",
+        "handle": row["handle"],
         "block_name": spec["name"],
-        "defined": defined,
+        "defined": bool(result["defined"]),
         "item": spec["item"],
         "family": spec["family"],
+        "tier": spec["tier"],
         "layer": layer,
-        "layer_created": layer_created,
-        "at": [x, y],
+        "layer_created": layer in result["layers_created"],
+        "at": [float(at[0]), float(at[1])],
         "anchor": anchor,
-        "rotation": angle,
-        **placed,
+        "rotation": float(rotation),
+        **{k: row[k] for k in ("insert_point", "back_center", "center", "footprint", "front_dir")},
         "size": spec["size"],
         "height": spec["height"],
+        "options": spec["options"],
         "nominal": spec["nominal"],
+        "warnings": result["warnings"],
         "size_basis": SIZE_BASIS,
         "backend": backend.name,
     }

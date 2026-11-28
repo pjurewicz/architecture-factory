@@ -445,6 +445,28 @@ async def test_an_unknown_dimension_variable_refuses_the_batch_before_step_1(cli
     assert result["results"][0]["error"]["kind"] == "unresolved_ref", "only the value is bound"
 
 
+async def test_a_domain_refusal_refuses_the_batch_before_step_1(client):
+    """Round 5 (A1): an out-of-range catalogue size at step 3 or a bad block
+    primitive rolled back every step before it; both are refused at plan time,
+    the dry run names the same, and the hint says nothing was written."""
+    table = {"name": "round_table", "x": 0, "y": 0, "width": 2600, "depth": 2600}
+    bed = {"name": "double_bed", "x": 5000, "y": 0}
+    steps = [
+        _line(),
+        {"tool": "arch_catalogue_insert", "args": {"items": [bed]}},
+        {"tool": "arch_catalogue_insert", "args": {"items": [bed, table]}},
+        {"tool": "block_define", "args": {"name": "B", "entities": [{"type": "circle"}]}},
+    ]
+    with pytest.raises(ToolError) as excinfo:
+        await _batch(client, steps)
+    assert "items[1]" in str(excinfo.value) and "2600" in str(excinfo.value)
+    assert await _entity_count(client) == 0, "nothing may run before the refusal"
+    rows = (await _batch(client, steps, dry_run=True))["results"]
+    kinds = [r.get("error", {}).get("kind") for r in rows]
+    assert kinds == [None, None, "invalid_args", "invalid_args"]
+    assert rows[2]["error"]["hint"].startswith("Refused before any write")
+
+
 async def test_an_invalid_step_stops_a_real_batch_before_anything_runs(client):
     with pytest.raises(ToolError) as excinfo:
         await _batch(client, [_line(), {"tool": "entity_create_dragon", "args": {}}])
@@ -1704,7 +1726,10 @@ async def test_an_undo_reports_what_it_took_back_and_a_diff_that_matches(client)
     operations the checkpoint step undid."""
     await client.call_tool(
         "call_tool",
-        {"name": "arch_catalogue_insert", "arguments": {"name": "double_bed", "x": 0, "y": 0}},
+        {
+            "name": "arch_catalogue_insert",
+            "arguments": {"items": [{"name": "double_bed", "x": 0, "y": 0}]},
+        },
     )
     await client.call_tool(
         "call_tool", {"name": "draw_order", "arguments": {"where": {"layer": "*"}}}

@@ -14,7 +14,10 @@ from .catalogue import (
     CatalogueItem,
     block_spec,
     catalogue,
+    check_insert_args,
+    check_items,
     insert_item,
+    insert_items,
 )
 from .dimension import (
     FIRST_OFFSET_PAPER_MM,
@@ -124,6 +127,8 @@ __all__ = [
     "block_spec",
     "blondel",
     "catalogue",
+    "check_insert_args",
+    "check_items",
     "decode",
     "detect_rooms",
     "draw_grid",
@@ -140,6 +145,7 @@ __all__ = [
     "grid_axes",
     "grid_prims",
     "insert_item",
+    "insert_items",
     "label_room",
     "opening_closures",
     "opening_from_dict",
