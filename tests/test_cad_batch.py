@@ -1733,7 +1733,7 @@ async def test_layer_and_chain_steps_answer_names_counts_and_handles(client):
     steps.append(
         {
             "tool": "dimension_chain",
-            "args": {"points": [[0, 0], [120, 0], [250, 0]], "offset": 10},
+            "args": {"points": [[0, 0], [120, 0], [250, 0]], "offset": 10, "overall": True},
             "bind": "chain",
         }
     )

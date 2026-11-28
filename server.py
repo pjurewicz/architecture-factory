@@ -3749,9 +3749,7 @@ async def dimension_chain(
     offset: Annotated[
         float | None,
         Field(
-            description="Dimension line distance beyond the outermost point: + above a "
-            "horizontal chain, right of a vertical one, left of an aligned one (first->last); "
-            "0: on the points, texts above / left"
+            description="Line distance beyond the outermost point (sign: Details); 0: on the points"
         ),
     ] = None,
     orientation: Annotated[
@@ -3762,8 +3760,8 @@ async def dimension_chain(
         ),
     ] = "auto",
     overall: Annotated[
-        bool, Field(default=True, description="Add the overall dimension one row farther out")
-    ] = True,
+        bool, Field(default=False, description="Add the overall dimension one row farther out")
+    ] = False,
     step: Annotated[
         float | None,
         Field(default=None, gt=0, description="Chain row -> overall row (default 8 mm on paper)"),
@@ -3773,8 +3771,7 @@ async def dimension_chain(
         Field(
             default=None,
             gt=0,
-            description="Plot-scale denominator used as DIMSCALE for the chain; default: "
-            "the drawing's DIMSCALE",
+            description="Plot-scale denominator, DIMSCALE for the chain; default the drawing's",
         ),
     ] = None,
     leader: Annotated[
@@ -3800,8 +3797,7 @@ async def dimension_chain(
         Field(
             default=None,
             gt=0,
-            description="Fixed extension-line length from the dimension line toward each "
-            "point (DIMFXL); with offset 0 a tick through each point. Default: to the point",
+            description="Fixed extension-line length (DIMFXL); offset 0: a tick through each point",
         ),
     ] = None,
     style: Annotated[
@@ -3809,10 +3805,11 @@ async def dimension_chain(
         Field(default=None, description="Dimension style; the current one stays"),
     ] = None,
     texts: Annotated[
-        dict[str, str] | None,
+        dict[str, str | dict] | None,
         Field(
             default=None,
-            description="Row text: {'0': 'OŚ <>', 'overall': ...}; <> = the value",
+            description="Row text {'0': 'OŚ <>', 'overall': ..}, <> = value; or {text?, side?: "
+            "above|below, shift?: [along, up]} to place it",
         ),
     ] = None,
     chains: Annotated[
@@ -3829,9 +3826,17 @@ async def dimension_chain(
 
     Details:
 
+    `offset` is + above a horizontal chain, right of a vertical one, left of an
+    aligned one (first->last); 0 puts the line on the points, texts above / left.
+    The overall row is off by default (`overall=True`; drawn with two rows or more).
+
     A text wider than its span (e.g. 60 / 105 at 1:20) is staggered onto
     alternating tiers beyond the line, else slid to the nearest free place with
-    a leader; the overall row moves out to clear them. Each row reports
+    a leader; the overall row moves out to clear them. A span narrower than half
+    a text height (a 1 cm step at 1:50) takes no text under it: the text slides
+    out beside its neighbours with a DIMTMOVE 1 leader. `texts` places a row's
+    text with `{text?, side: above|below, shift: [along, up]}` (above = the
+    DIMTAD side; the planner keeps its hands off it). Each row reports
     `placement` inline | staggered | moved. Equal tight neighbours are warned
     `tight_repeats`; `merge_repeats` draws them as one `4 × 205 = 820`.
     Drawn in one transaction.

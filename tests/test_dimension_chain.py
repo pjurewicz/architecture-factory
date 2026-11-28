@@ -27,7 +27,7 @@ def _box(row):
 async def test_tight_spans_are_staggered_beyond_the_line_and_the_overall_row_clears_them(backend):
     # "60" (75 wide) and "105" (112.5 wide) do not fit their spans; "150" does
     points = [[315, 0], [0, 0], [60, 0], [165, 0], [915, 0]]  # given out of order
-    out = await draw_chain(backend, points, -200, scale=20)
+    out = await draw_chain(backend, points, -200, scale=20, overall=True)
     chain = [r for r in out["dimensions"] if r["row"] == "chain"]
     assert [(r["value"], r["placement"]) for r in chain] == [
         (60, "staggered"),
@@ -57,7 +57,7 @@ async def test_tight_spans_are_staggered_beyond_the_line_and_the_overall_row_cle
 
 @pytest.mark.asyncio
 async def test_a_text_with_no_free_tier_slides_out_with_a_leader(backend):
-    out = await draw_chain(backend, [[i * 60, 0] for i in range(6)], -200, scale=20)
+    out = await draw_chain(backend, [[i * 60, 0] for i in range(6)], -200, scale=20, overall=True)
     placements = [r["placement"] for r in out["dimensions"] if r["row"] == "chain"]
     assert placements == ["staggered"] * 4 + ["moved"]
     for r, d in zip(out["dimensions"], _dims(backend, out["handles"]), strict=True):
@@ -77,7 +77,9 @@ async def test_a_text_with_no_free_tier_slides_out_with_a_leader(backend):
 @pytest.mark.asyncio
 async def test_the_drawing_dimscale_is_put_back_and_dry_run_draws_nothing(backend):
     before = len(await backend.entity_list())
-    plan = await draw_chain(backend, [[0, 0], [10, 0], [30, 0]], 10, scale=5, dry_run=True)
+    plan = await draw_chain(
+        backend, [[0, 0], [10, 0], [30, 0]], 10, scale=5, dry_run=True, overall=True
+    )
     assert plan["count"] == 3 and "handles" not in plan
     assert len(await backend.entity_list()) == before
     await draw_chain(backend, [[0, 0], [10, 0], [30, 0]], 10, scale=5)
@@ -87,14 +89,16 @@ async def test_the_drawing_dimscale_is_put_back_and_dry_run_draws_nothing(backen
 @pytest.mark.asyncio
 async def test_vertical_and_aligned_chains_measure_along_their_direction(backend):
     # a section's steps: the stations are the y values, x only decides the outermost
-    out = await draw_chain(backend, [[0, 0], [5, 20], [30, 60]], 10)
+    out = await draw_chain(backend, [[0, 0], [5, 20], [30, 60]], 10, overall=True)
     assert out["orientation"] == "vertical"
     dims = _dims(backend, out["handles"])
     assert sorted(round(d.get_measurement(), 6) for d in dims) == [20, 40, 60]
     assert {round(d.dxf.defpoint.x, 6) for d in dims} == {40.0, 48.0}
 
     # aligned: a 45° run of three points 30 apart in x is 2 x 30√2 plus the overall
-    out = await draw_chain(backend, [[0, 0], [30, 30], [60, 60]], 10, orientation="aligned")
+    out = await draw_chain(
+        backend, [[0, 0], [30, 30], [60, 60]], 10, orientation="aligned", overall=True
+    )
     measured = sorted(d.get_measurement() for d in _dims(backend, out["handles"]))
     assert measured == pytest.approx([30 * math.sqrt(2)] * 2 + [60 * math.sqrt(2)])
 
@@ -102,14 +106,14 @@ async def test_vertical_and_aligned_chains_measure_along_their_direction(backend
 @pytest.mark.asyncio
 async def test_offset_zero_puts_the_line_on_the_points_texts_above_or_left(backend):
     # internal dimensions: the line through the points, the style's text side
-    out = await draw_chain(backend, [[0, 0], [100, 0], [250, 0]], 0)
+    out = await draw_chain(backend, [[0, 0], [100, 0], [250, 0]], 0, overall=True)
     chain = [r for r in out["dimensions"] if r["row"] == "chain"]
     dims = _dims(backend, out["handles"])
     assert [round(d.dxf.defpoint.y, 6) for d in dims[:2]] == [0.0, 0.0]
     assert all(r["placement"] == "inline" and r["text_at"][1] > 0 for r in chain)
     assert dims[2].dxf.defpoint.y > 0  # the overall row on the text's side too
 
-    out = await draw_chain(backend, [[10, 0], [10, 40], [10, 100]], 0)
+    out = await draw_chain(backend, [[10, 0], [10, 40], [10, 100]], 0, overall=True)
     assert out["orientation"] == "vertical"
     dims = _dims(backend, out["handles"])
     assert [round(d.dxf.defpoint.x, 6) for d in dims[:2]] == [10.0, 10.0]
@@ -145,7 +149,7 @@ JOISTS = [[0, 0], [300, 0], [505, 0], [710, 0], [915, 0], [1120, 0], [1420, 0]]
 async def test_tight_repeats_are_warned_and_merged_into_one_honest_dimension(backend):
     from engineering.critique import run_critique
 
-    warned = await draw_chain(backend, JOISTS, -500, scale=50, dry_run=True)
+    warned = await draw_chain(backend, JOISTS, -500, scale=50, dry_run=True, overall=True)
     assert [r["value"] for r in warned["dimensions"]] == [300, 205, 205, 205, 205, 300, 1420]
     assert [(w["code"], w["count"], w["value"]) for w in warned["warnings"]] == [
         ("tight_repeats", 4, 205)
@@ -156,7 +160,7 @@ async def test_tight_repeats_are_warned_and_merged_into_one_honest_dimension(bac
     msp = backend._require_doc().modelspace()
     for x, _ in JOISTS:
         msp.add_line((x, 0), (x, 100))
-    out = await draw_chain(backend, JOISTS, -500, scale=50, merge_repeats=True)
+    out = await draw_chain(backend, JOISTS, -500, scale=50, merge_repeats=True, overall=True)
     assert out["warnings"] == []
     chain = [r for r in out["dimensions"] if r["row"] == "chain"]
     assert [r["value"] for r in chain] == [300, 820, 300]
@@ -173,7 +177,7 @@ async def test_tight_repeats_are_warned_and_merged_into_one_honest_dimension(bac
 
 @pytest.mark.asyncio
 async def test_axis_points_get_center_extension_lines_and_none_has_zero_length(backend):
-    out = await draw_chain(backend, [[0, -50], [100, 0], [250, -50]], 0, axis=[0])
+    out = await draw_chain(backend, [[0, -50], [100, 0], [250, -50]], 0, axis=[0], overall=True)
     dims = _dims(backend, out["handles"])
 
     def extensions(dim):
@@ -201,7 +205,7 @@ async def test_axis_points_get_center_extension_lines_and_none_has_zero_length(b
 
 
 def test_one_station_and_one_span_are_handled_by_name():
-    plan = plan_chain([[0, 0], [0, 20], [5, 20]], 10, orientation="vertical")
+    plan = plan_chain([[0, 0], [0, 20], [5, 20]], 10, orientation="vertical", overall=True)
     # two points on y = 20: the one nearer the dimension line keeps the station
     assert plan["merged"] == [{"point": [0.0, 20.0], "kept": [5.0, 20.0]}]
     # one span restates the overall: no overall row
@@ -224,7 +228,12 @@ async def test_the_tool_refuses_by_name_and_draws_on_the_dim_layer():
             "dimension_chain", {"points": [[0, 0], [60, 0], [165, 0], [315, 0]], "offset": -15}
         )
         assert made.structured_content["layer"] == "DIM"
-        assert made.structured_content["count"] == 4
+        assert made.structured_content["count"] == 3  # no overall row unless asked
+        with_overall = await client.call_tool(
+            "dimension_chain",
+            {"points": [[0, 0], [60, 0], [165, 0], [315, 0]], "offset": -15, "overall": True},
+        )
+        assert with_overall.structured_content["count"] == 4
         on_points = await client.call_tool(
             "dimension_chain", {"points": [[0, 0], [60, 0]], "offset": 0}
         )
@@ -248,7 +257,12 @@ async def test_a_chain_in_another_style_with_a_segment_text_leaves_the_current_s
     before = backend._doc.header["$DIMTXT"]
     texts = {"1": "BATERIA= OŚ WANNY <>"}
     out = await draw_chain(
-        backend, [[0, 0], [300, 0], [340, 0], [900, 0]], -100, style="second", texts=texts
+        backend,
+        [[0, 0], [300, 0], [340, 0], [900, 0]],
+        -100,
+        style="second",
+        texts=texts,
+        overall=True,
     )
     assert out["style"] == "SECOND"
     dims = _dims(backend, out["handles"])
@@ -258,6 +272,83 @@ async def test_a_chain_in_another_style_with_a_segment_text_leaves_the_current_s
     assert backend._doc.header["$DIMSTYLE"] == "Standard"
     assert backend._doc.header["$DIMTXT"] == before
     with pytest.raises(ValueError, match="rows 0..2 and 'overall'"):
-        await draw_chain(backend, [[0, 0], [300, 0], [385, 0], [900, 0]], -100, texts={"7": "x"})
+        await draw_chain(
+            backend, [[0, 0], [300, 0], [385, 0], [900, 0]], -100, texts={"7": "x"}, overall=True
+        )
     with pytest.raises(ValueError, match="dimstyle_list"):
         await draw_chain(backend, [[0, 0], [300, 0]], -100, style="NOPE")
+
+
+@pytest.mark.asyncio
+async def test_a_narrow_span_gets_its_text_out_beside_it_on_a_leader_not_under_it(backend):
+    """A 1 cm step at 1:50 is 0.2 mm on paper: a text staggered under it reads as
+    its neighbour's. It slides out beside the neighbours (DIMTMOVE 1 leader)."""
+    out = await draw_chain(backend, [[0, 0], [300, 0], [310, 0], [700, 0]], -200, scale=50)
+    narrow = out["dimensions"][1]
+    assert narrow["value"] == 10
+    assert narrow["placement"] == "moved" and narrow["leader"] is True
+    assert not 300 < narrow["text_at"][0] < 310, "the text does not stand under its span"
+    # beside its neighbour on the first tier, not stacked on the second under it
+    assert narrow["text_at"][1] == out["dimensions"][0]["text_at"][1]
+    # the leader is drawn: a line from the dimension line's middle that leaves the line
+    dim = _dims(backend, out["handles"])[1]
+    middle = (305.0, dim.dxf.defpoint.y)
+    leaders = [
+        e
+        for e in dim.get_geometry_block()
+        if e.dxftype() == "LINE"
+        and math.dist((e.dxf.start.x, e.dxf.start.y), middle) < 1e-6
+        and abs(e.dxf.end.y - e.dxf.start.y) > 1e-6
+    ]
+    assert leaders
+    assert out["moved"] == 1
+    # the same step wide enough (a text height wide) is staggered under its span as before
+    wide = await draw_chain(backend, [[0, 0], [400, 0], [550, 0], [1100, 0]], -200, scale=50)
+    assert [r["placement"] for r in wide["dimensions"]] == ["inline", "staggered", "inline"]
+
+
+@pytest.mark.asyncio
+async def test_texts_side_and_shift_place_a_row_text_and_the_others_keep_clear(backend):
+    # 1:20, h 50, gap 12.5: chain line at y 200 (above the points), text above it at 237.5
+    pts = [[0, 0], [1000, 0], [2000, 0], [3000, 0]]
+    plain = await draw_chain(backend, pts, 200, scale=20)
+    assert [r["text_at"][1] for r in plain["dimensions"]] == [237.5] * 3
+
+    placed = {"1": {"text": "OŚ <>", "side": "below"}, "2": {"shift": [100, 50]}}
+    out = await draw_chain(backend, pts, 200, scale=20, texts=placed)
+    rows = out["dimensions"]
+    assert rows[0]["text_at"] == [500, 237.5] and rows[0]["placement"] == "inline"
+    # below the line: mirrored about it, still centred on its span, no leader
+    assert rows[1]["text_at"] == [1500, 162.5] and rows[1]["placement"] == "staggered"
+    assert rows[1]["leader"] is False
+    # shifted 100 along and 50 up inside the span: only the place moves
+    assert rows[2]["text_at"] == [2600, 287.5] and rows[2]["placement"] == "staggered"
+    dims = _dims(backend, out["handles"])
+    assert dims[1].dxf.text == "OŚ <>" and dims[2].dxf.text in ("", "<>")
+    assert (round(dims[1].dxf.text_midpoint.x, 6), round(dims[1].dxf.text_midpoint.y, 6)) == (
+        1500,
+        162.5,
+    )
+    # a shift out of the span is a moved text: it gets the leader
+    far = await draw_chain(backend, pts, 200, scale=20, texts={"0": {"shift": [-700, 0]}})
+    assert far["dimensions"][0]["placement"] == "moved" and far["dimensions"][0]["leader"]
+    # a tight neighbour keeps clear of an explicit text: row 1 takes tier 1, row 0 goes out
+    tight = [[0, 0], [60, 0], [165, 0]]
+    free = await draw_chain(backend, tight, -200, scale=20, dry_run=True)
+    taken = await draw_chain(
+        backend, tight, -200, scale=20, dry_run=True, texts={"1": {"side": "below"}}
+    )
+    assert free["dimensions"][0]["text_at"] == [30, -262.5]
+    assert taken["dimensions"][0]["text_at"] != free["dimensions"][0]["text_at"]
+    (x0, y0), (x1, y1) = (r["text_at"] for r in taken["dimensions"])
+    assert [x1, y1] == [112.5, -237.5]  # the line is at -200, below it by gap + h/2
+    assert not (abs(x0 - x1) < 75 and abs(y0 - y1) < H), ((x0, y0), (x1, y1))
+
+    for bad, match in (
+        ({"0": {"side": "left"}}, "above or below"),
+        ({"0": {"shift": [1]}}, "shift"),
+        ({"0": {"colour": "red"}}, "expected a string or"),
+        ({"overall": {"side": "above"}}, "chain row"),
+    ):
+        with pytest.raises(ValueError, match=match):
+            await draw_chain(backend, pts, 200, scale=20, overall=True, texts=bad)

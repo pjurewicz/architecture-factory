@@ -2,8 +2,8 @@
 
 ``dimension_chain`` dimensions a run of points - a section's steps, a detail's
 holes, a polyline's vertices - as one row of linear DIMENSIONs sharing one
-dimension line, plus an overall dimension one row farther out. Every
-dimension measures along the chain's direction:
+dimension line, plus (``overall=True``, off by default) an overall dimension
+one row farther out. Every dimension measures along the chain's direction:
 
 - ``horizontal`` (0°) and ``vertical`` (90°), or ``auto``: horizontal when the
   points spread at least as far in X as in Y;
@@ -27,9 +27,22 @@ on its span on the first free of two tiers beyond the dimension line, past the
 extension lines' overshoot (DIMEXE), so neighbouring tight spans alternate
 tiers. With neither tier free it slides along them to the nearest free place;
 a text that leaves its own span gets a leader to its dimension line
-(``leader=True``), so it cannot be read as its neighbour's. The overall row
-moves out until it clears every chain text. Text widths are estimated from the
-formatted value (``TEXT_WIDTH_FACTOR``), not measured from a font.
+(``leader=True``), so it cannot be read as its neighbour's. A span narrower
+than half a text height (``NARROW_SPAN``: a 1 cm step at 1:50 is 0.2 mm on
+paper, its two extension lines read as one) never takes a text under it: the
+text slides out beside the neighbours and a leader ties it to its span. The
+leader is AutoCAD's own: the text carries a user location with DIMTMOVE 1, the
+renderer draws the broken leader with its shelf under the text. The overall
+row moves out until it clears every chain text. Text widths are estimated from
+the formatted value (``TEXT_WIDTH_FACTOR``), not measured from a font.
+
+``texts`` overrides a row's text (``<>`` is the measured value) and, as
+``{"text"?, "side"?, "shift"?}``, places it: ``side`` ``above`` / ``below`` the
+dimension line in the dimension's reading frame (above a horizontal chain,
+left of a vertical one: the DIMTAD side), ``shift`` ``[along, up]`` drawing
+units from there (along the chain, toward its above side). A text so placed is
+never moved by the planner, the others keep clear of it, and one that leaves
+its span gets the leader.
 
 Repeated tight spans - two or more equal neighbours whose texts do not fit,
 a stair's or a joist spacing's 4 x 205 - are reported in ``repeats`` with a
@@ -63,6 +76,8 @@ from engineering.dimtext import format_value
 ORIENTATIONS: tuple[str, ...] = ("auto", "horizontal", "vertical", "aligned")
 #: Default distance between the chain row and the overall row: 8 mm on paper.
 STEP_PAPER_MM = 8.0
+#: A span narrower than this many text heights takes no text beneath it.
+NARROW_SPAN = 0.5
 _STYLE_VARS = (
     "dimtxt",
     "dimgap",
@@ -96,6 +111,29 @@ def _points(points) -> list[tuple[float, float]]:
     return out
 
 
+def _text_spec(key, value) -> tuple[str | None, str | None, tuple[float, float] | None]:
+    """``texts[key]``: a string, or ``{text?, side?, shift?}`` -> (text, side, shift)."""
+    if isinstance(value, str):
+        return value, None, None
+    if not isinstance(value, dict) or not value or set(value) - {"text", "side", "shift"}:
+        raise ValueError(
+            f"texts[{key!r}]: expected a string or {{text, side, shift}}, got {value!r}"
+        )
+    text, where, shift = value.get("text"), value.get("side"), value.get("shift")
+    if text is not None and not isinstance(text, str):
+        raise ValueError(f"texts[{key!r}].text: expected a string, got {type(text).__name__}")
+    if where not in (None, "above", "below"):
+        raise ValueError(f"texts[{key!r}].side: expected above or below, got {where!r}")
+    if shift is not None:
+        if not isinstance(shift, (list, tuple)) or len(shift) != 2:
+            raise ValueError(f"texts[{key!r}].shift: expected [along, up], got {shift!r}")
+        shift = (
+            _number(shift[0], f"texts[{key!r}].shift[0]"),
+            _number(shift[1], f"texts[{key!r}].shift[1]"),
+        )
+    return text, where, shift
+
+
 def _axis(axis, count: int) -> set[int]:
     if axis is None:
         return set()
@@ -116,7 +154,7 @@ def plan_chain(
     offset,
     *,
     orientation: str = "auto",
-    overall: bool = True,
+    overall: bool = False,
     step=None,
     text_height: float = 2.5,
     gap: float = 0.625,
@@ -132,7 +170,8 @@ def plan_chain(
 
     ``texts`` ``{index: text}`` overrides a chain row's text (0 the first span,
     after ``merge_repeats``; ``"overall"`` the overall row); ``<>`` in it is
-    the measured value. A text is placed by its own width.
+    the measured value; a value may be ``{text?, side?, shift?}`` to place it
+    (module docstring). A text is placed by its own width.
 
     ``text_height`` and ``gap`` are DIMTXT and DIMGAP times DIMSCALE, ``step``
     the distance from the chain row to the overall row (default
@@ -283,10 +322,12 @@ def plan_chain(
     warnings.reverse()
     with_overall = bool(overall) and len(units) >= 2
     overall_text = None
-    for key, text in (texts or {}).items():
-        if not isinstance(text, str):
-            raise ValueError(f"texts[{key!r}]: expected a string, got {type(text).__name__}")
+    want: dict[int, tuple[str | None, tuple[float, float] | None]] = {}
+    for key, value in (texts or {}).items():
+        text, where, shift = _text_spec(key, value)
         if str(key) == "overall" and with_overall:
+            if where or shift:
+                raise ValueError(f"texts[{key!r}]: side and shift place a chain row's text")
             overall_text = text
             continue
         try:
@@ -298,8 +339,10 @@ def plan_chain(
                 f"texts: key {key!r} names no row; the chain has rows 0..{len(units) - 1}"
                 + (" and 'overall'" if with_overall else "")
             )
-        a, b, repeat, _ = units[index]
-        units[index] = (a, b, repeat, text)
+        a, b, repeat, old = units[index]
+        units[index] = (a, b, repeat, old if text is None else text)
+        if where or shift:
+            want[index] = (where, shift)
 
     def label(unit) -> str:
         a, b, _, text = unit
@@ -317,9 +360,29 @@ def plan_chain(
     def rect(along: float, w: float, away: float, base: float = 0.0):
         return (along - w / 2.0, along + w / 2.0, base + away - h / 2.0, base + away + h / 2.0)
 
+    # explicit places first: the others keep clear of them
+    placed: dict[int, tuple[float, float, str]] = {}
+    for i, (where, shift) in want.items():
+        a, b = units[i][0], units[i][1]
+        along, w = (a[0] + b[0]) / 2.0, width(label(units[i]))
+        away = t0 if where is None else side * (g + h / 2.0) * (1 if where == "above" else -1)
+        if shift:
+            along, away = along + shift[0], away + side * shift[1]
+        boxes.append(rect(along, w, away))
+        kind = (
+            "moved"
+            if not a[0] < along < b[0]
+            else "staggered"
+            if abs(away - t0) > eps
+            else "inline"
+        )
+        placed[i] = (along, away, kind)
     texts: list[tuple[float, float, str]] = []  # along, away from the chain line, placement
     tight: list[int] = []
     for i, unit in enumerate(units):
+        if i in placed:
+            texts.append(placed[i])
+            continue
         a, b = unit[0], unit[1]
         mid, w = (a[0] + b[0]) / 2.0, width(label(unit))
         r = rect(mid, w, t0)
@@ -333,9 +396,15 @@ def plan_chain(
     for i in tight:
         a, b = units[i][0], units[i][1]
         mid, w = (a[0] + b[0]) / 2.0, width(label(units[i]))
-        spot = next(
-            ((mid, away, "staggered") for away in tiers if free(rect(mid, w, away))),
-            None,
+        # a narrow span takes no text under it: out beside the neighbours, with a leader
+        narrow = b[0] - a[0] < NARROW_SPAN * h
+        spot = (
+            None
+            if narrow
+            else next(
+                ((mid, away, "staggered") for away in tiers if free(rect(mid, w, away))),
+                None,
+            )
         )
         if spot is None:
             alongs = {mid}
@@ -347,9 +416,13 @@ def plan_chain(
                 (
                     (along, away, "staggered" if a[0] < along < b[0] else "moved")
                     for _, _, along, away in sorted(
-                        (abs(x - mid), k, x, tiers[k]) for x in alongs for k in range(len(tiers))
+                        # a narrow span's text takes the first tier beside it, not the nearest
+                        (k, abs(x - mid), x, tiers[k]) if narrow else (abs(x - mid), k, x, tiers[k])
+                        for x in alongs
+                        for k in range(len(tiers))
                     )
-                    if free(r := rect(along, w, away))
+                    if not (narrow and a[0] < along < b[0])
+                    and free(r := rect(along, w, away))
                     and not any(r[0] - g < e < r[1] + g for e in ends)
                 ),
                 (mid, tiers[0], "staggered"),
@@ -441,7 +514,7 @@ async def draw_chain(
     offset,
     *,
     orientation: str = "auto",
-    overall: bool = True,
+    overall: bool = False,
     step=None,
     scale=None,
     layer: str | None = None,

@@ -61,12 +61,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a model hatch's pattern, angle and scale, so a knurled sample is no longer
   drawn at 0 degrees; a refusal names the keys it does not accept. A
   `scale` that differs from the layout's viewports is warned (`scale: ...`).
+- `dimension_chain(texts={"1": {text?, side, shift}})` places a row's text, not
+  only words it: `side` `above` / `below` the dimension line in the dimension's
+  reading frame (above a horizontal chain, left of a vertical one - the DIMTAD
+  side), `shift` `[along, up]` drawing units from there. A text so placed is
+  never moved by the planner, the other texts keep clear of it, and one shifted
+  out of its span gets the DIMTMOVE 1 leader.
+- A span narrower than half a text height (`NARROW_SPAN`: a 1 cm step at 1:50
+  is 0.2 mm on paper) takes no text under it any more - that read as its
+  neighbour's, and the next one went a tier lower. The text goes out beside its
+  neighbours on the first tier with the DIMTMOVE 1 leader (the broken leader
+  with its shelf under the text, AutoCAD's own: the text carries a user
+  location). The headless renderer ignores DIMATFIT, so the fit is decided here.
 
 ### Changed (breaking)
 
 - `arch_legend(only=[])` keeps no model row (extra rows alone); it used to
   mean "no filter" and drew every row. A hatch sample's outline is ByLayer, no
   longer tinted by `color` (the lettering, frame and title still are).
+- `dimension_chain`'s `overall` is `false` by default (it was `true`, and agents
+  switched it off in every call since round 4); `overall=True` draws the
+  overall row one row out as before. `plan_chain` / `draw_chain` default alike.
 - A curtain wall's mullions stand square to the wall, spaced over the stretch
   both faces share; in a corner gap they were drawn slanted.
 - `arch_legend`'s `gypsum_board` row reads "plasterboard partition" /
