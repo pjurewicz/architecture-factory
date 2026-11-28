@@ -368,18 +368,18 @@ async def test_a_label_mask_is_clipped_to_the_room_and_off_by_default(backend):
 async def test_a_masked_label_plots_without_a_frame_and_tiles_laid_later_stay_under_it(
     backend, tmp_path
 ):
-    from engineering.arch.draw import draw_tile_layout
+    from engineering.arch.floor import floor_zone
 
     await draw_lines(
         backend, [*rect(-200.0, -200.0, 4200.0, 5200.0), *rect(0.0, 0.0, 4000.0, 5000.0)], WALL
     )
     label = await label_room(backend, {"name": "LIVING", "at": [1400.0, 2500.0]}, mask=True)
-    tiles = await draw_tile_layout(
-        backend, outline=rect_points(0.0, 0.0, 4000.0, 5000.0), length=600, width=600, joint=0
+    tiles = await floor_zone(
+        backend, outline=rect_points(0.0, 0.0, 4000.0, 5000.0), lay="grid", plank=(600, 600), gap=0
     )
     order = [e.dxf.handle for e in backend._doc.modelspace().entities_in_redraw_order()]
     (mask,) = label["mask"]["handles"]
-    assert max(order.index(h) for h in tiles["handles"]) < order.index(mask)
+    assert max(order.index(h) for h in tiles["handles"]["pieces"]) < order.index(mask)
     path = tmp_path / "plan.dxf"
     await backend.drawing_save_as(str(path))
     saved = ezdxf.readfile(path)

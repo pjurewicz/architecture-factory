@@ -67,6 +67,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   into one zone (two HATCHes), `edge=True` adds the outline polylines, and the
   result's `handle` is `handles {pattern, joints, edge}`; `pattern` defaults
   to ANSI37 only when `joints` is not given.
+- `interior_tile_layout` is gone, folded into `arch_floor_zone`: `lay`
+  (`grid` | `running_bond` | `herringbone` | new `chevron`, the French
+  herringbone) with `plank_length` / `plank_width` / `gap` / `bond` /
+  `cut_angle` / `waste_pct` / `kerf` cuts every tile or plank to the zone -
+  the room or outline minus fitted items, `minus_handles` and the face's
+  holes - from `start` at `angle`, as closed polylines carrying the zone's
+  `ACADMCP_ANNOT` record (`set`, `legend`), with the takeoff under `lay`
+  (`handles.pieces`). Renamed: `tile_length` / `tile_width` -> `plank_length`
+  / `plank_width`, `joint` -> `gap`, `angle_deg` -> `angle`, `start_x` /
+  `start_y` -> `start`, `cutouts` -> `minus_handles` (or the outline);
+  `offcut_reuse` dropped (`tiles_no_reuse` is always reported beside the
+  reuse count). A chevron's `plank_length` is its long edge, its band is
+  length x sin(cut_angle), it reuses no offcut and counts its planks by hand
+  (`by_hand` A / B). `angle` is now the pattern axis for a herringbone
+  (0 = the zigzag runs along X; it was the planks' frame, 45 = the axis along
+  Y), also in `interior_wall_elevation`'s `spec.tiling`. `arch_floor_zone`'s
+  result no longer carries `outline` / `cutouts` (they fed the removed tool).
 
 ### Fixed
 

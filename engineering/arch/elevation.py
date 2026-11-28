@@ -275,8 +275,8 @@ SPEC_FIELDS = (
     "title",
     "tiling",
 )
-#: ``spec.tiling`` fields: the band, what it stops at, and ``interior_tile_layout``'s own
-#: arguments under the same names (``start_x`` / ``start_y`` elevation-local).
+#: ``spec.tiling`` fields: the band, what it stops at, and the laying engine's
+#: (``engineering.arch.tiles.layout``) arguments (``start_x`` / ``start_y`` elevation-local).
 TILING_FIELDS = (
     "bottom",
     "top",

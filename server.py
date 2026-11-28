@@ -2255,7 +2255,6 @@ PACK_TOOL_NAMES: dict[str, frozenset[str]] = {
             "arch_dimension_chains",
             "arch_plan_from_spec",
             "arch_plan_patch",
-            "interior_tile_layout",
             "interior_wall_elevation",
             "arch_floor_zone",
         }
@@ -13757,7 +13756,7 @@ async def data_extract(
 
 
 # ---------------------------------------------------------------------------
-# ── SECTION 25: Architecture (22 tools) ────────────────────────────────────
+# ── SECTION 25: Architecture (21 tools) ────────────────────────────────────
 # ---------------------------------------------------------------------------
 
 
@@ -14007,121 +14006,7 @@ async def arch_stair(
 
 
 @cad_tool(
-    summary="Lay out floor tiles or panels over a floor outline, cut to it, with a takeoff.",
-    cost="mutate",
-)
-@mcp.tool(
-    annotations={"title": "Architecture: Tile Layout", "destructiveHint": False},
-    tags={"arch", "create"},
-)
-async def interior_tile_layout(
-    outline: Annotated[
-        list[list[float]],
-        Field(description="Floor outline, WCS [[x, y], ...], a simple polygon"),
-    ],
-    tile_length: Annotated[float, Field(description="Along the lay direction, mm")],
-    tile_width: Annotated[float, Field(description="mm")],
-    pattern: Annotated[
-        str, Field(default="grid", description="grid | running_bond | herringbone")
-    ] = "grid",
-    joint: Annotated[float, Field(default=3.0, description="Joint width, mm; 0 for panels")] = 3.0,
-    start_x: Annotated[
-        float | None,
-        Field(
-            default=None,
-            description="Start tile corner X; default the outline's min X",
-        ),
-    ] = None,
-    start_y: Annotated[
-        float | None,
-        Field(default=None, description="Default the outline's min Y"),
-    ] = None,
-    angle_deg: Annotated[
-        float,
-        Field(default=0.0, description="Lay direction, degrees CCW"),
-    ] = 0.0,
-    bond: Annotated[
-        float,
-        Field(
-            default=0.5,
-            description="running_bond row shift, share of the length",
-        ),
-    ] = 0.5,
-    cutouts: Annotated[
-        list[dict] | None,
-        Field(
-            default=None,
-            description="Untiled areas: [{points: [[x, y], ...], label}]",
-        ),
-    ] = None,
-    waste_pct: Annotated[float, Field(default=10.0, description="Waste allowance, %")] = 10.0,
-    dry_run: Annotated[bool, Field(default=False, description="Takeoff only")] = False,
-    offcut_reuse: Annotated[
-        bool,
-        Field(
-            default=True,
-            description="Cut pieces from earlier offcuts",
-        ),
-    ] = True,
-    kerf: Annotated[float, Field(default=3.0, description="Lost per cut, mm")] = 3.0,
-    ctx: Context = None,
-) -> dict:
-    """A tile or panel layout cut to a floor outline, drawn thin on `A-FLOR-E-N`, with its takeoff.
-
-    Tiles are laid from the start corner in the turned frame and every tile is
-    intersected exactly with the outline minus the cutouts: a piece holding the
-    whole tile is `full`, any other is `cut`, a tile missing the floor is not
-    drawn. Each piece is a closed polyline (a cutout inside one tile is a second
-    loop). The takeoff: `floor_area_m2` (outline minus cutouts), `full`, `cut`,
-    `tiles`, `order_tiles` = ceil(tiles x (1 + waste_pct/100)) and its area.
-    With `offcut_reuse` (default) cut pieces are packed into the offcuts of
-    earlier cuts - each piece's bounding rectangle in the tile's frame, no 90°
-    turn, `kerf` lost per cut - so `cut_tiles` can be below `cut`; a 45° cut's
-    triangle offcut is not matched, so diagonal layouts stay conservative.
-    `tiles_no_reuse` (every cut piece a whole tile) is always reported.
-    `smallest_cut_share` flags slivers - move the start point if it is small.
-    Units are mm (areas in m²).
-
-    Drawn in one transaction, like `interior_wall_elevation`: a piece that fails
-    rolls every piece back, and a transaction already open is a refusal with
-    nothing drawn.
-
-    Refused by name before anything is drawn: an unknown pattern, a
-    non-positive size, a negative joint or kerf, a bond outside (0, 1), herringbone with
-    a plank not longer than wide, a self-crossing or empty outline or cutout,
-    and a layout of more than 20000 tiles.
-    """
-    from engineering.arch.draw import draw_tile_layout
-
-    start = None
-    if start_x is not None or start_y is not None:
-        if start_x is None or start_y is None:
-            raise ToolError("start_x / start_y: give both or neither")
-        start = (start_x, start_y)
-    await ctx.info(f"interior_tile_layout: {pattern} {tile_length:g}x{tile_width:g}")
-    try:
-        return await draw_tile_layout(
-            _backend(ctx),
-            dry_run=dry_run,
-            outline=outline,
-            length=tile_length,
-            width=tile_width,
-            pattern=pattern,
-            joint=joint,
-            start=start,
-            angle_deg=angle_deg,
-            bond=bond,
-            cutouts=cutouts or (),
-            waste_pct=waste_pct,
-            offcut_reuse=offcut_reuse,
-            kerf=kerf,
-        )
-    except ValueError as exc:
-        raise ToolError(str(exc)) from exc
-
-
-@cad_tool(
-    summary="Hatch a floor zone (room or outline minus fitted items), measure it, run skirting.",
+    summary="Floor zone (room or outline minus fitted items): hatch, joints or laid planks; skirting.",
     cost="mutate",
 )
 @mcp.tool(
@@ -14148,8 +14033,18 @@ async def arch_floor_zone(
     joints: Annotated[
         list[float] | None, Field(default=None, description="[along, across] joint spacing, mm")
     ] = None,
-    angle: Annotated[float, Field(description="Pattern / joint angle, degrees")] = 0.0,
+    angle: Annotated[float, Field(description="Pattern / joint / lay axis, degrees")] = 0.0,
     start: Annotated[list[float] | None, Field(default=None, description="Joint origin")] = None,
+    lay: Annotated[
+        str | None, Field(default=None, description="grid | running_bond | herringbone | chevron")
+    ] = None,
+    plank_length: Annotated[float | None, Field(default=None, gt=0, description="mm")] = None,
+    plank_width: Annotated[float | None, Field(default=None, gt=0)] = None,
+    gap: Annotated[float, Field(ge=0, description="lay joint, mm")] = 3.0,
+    bond: Annotated[float, Field(description="running_bond row shift")] = 0.5,
+    cut_angle: Annotated[float, Field(description="chevron cut to the axis")] = 45.0,
+    waste_pct: float = 10.0,
+    kerf: float = 3.0,
     scale: Annotated[float, Field(gt=0, description="Plot-scale denominator")] = 50.0,
     pattern_scale: Annotated[float, Field(gt=0)] = 1.0,
     label: Annotated[str | None, Field(default=None, description="Legend label")] = None,
@@ -14170,9 +14065,13 @@ async def arch_floor_zone(
     appliances, sanitary; `movable` = furniture) or name, and `minus_handles`.
     AR-* patterns are building mm (pattern_scale only); others scale x pattern_scale.
     Each fill reports `period_mm` / `repeats`, warned below 3. `area_m2` is
-    measured. `label` names the arch_legend row; `outline` / `cutouts` feed
-    interior_tile_layout. `skirting` runs along the faces, stopping at doors and
-    fitted items; its length is measured (m). pattern "none": no hatch.
+    measured. `label` names the arch_legend row. `skirting` runs along the faces,
+    stopping at doors and fitted items; its length is measured (m). pattern
+    "none": no hatch.
+
+    `lay` cuts every tile / plank to the zone as polylines from `start`, with a
+    `takeoff` (full / cut, offcuts reused, `order_tiles` with `waste_pct`; a
+    chevron's `plank_length` is its long edge, planks counted by hand A / B).
     """
     from engineering.arch.floor import floor_zone
 
@@ -14195,6 +14094,13 @@ async def arch_floor_zone(
             color=color,
             edge=edge,
             skirting=skirting,
+            lay=lay,
+            plank=None if lay is None else (plank_length, plank_width),
+            gap=gap,
+            bond=bond,
+            cut_angle=cut_angle,
+            waste_pct=waste_pct,
+            kerf=kerf,
             dry_run=dry_run,
         )
     except ValueError as exc:
@@ -15327,12 +15233,11 @@ async def interior_wall_elevation(
     chain below through the jambs, socket and service axes plus the length. The
     result lists every `level` with what sets it.
 
-    `spec.tiling` tiles the wall between `bottom` and `top` with the engine of
-    `interior_tile_layout` (same field names, same takeoff) on `A-ELEV-TILE-E-N`:
-    the tiles stop at every opening and at the worktops, cabinets and panels
-    (`cut_around` names others), a mirror, socket or switch sits on them.
-    The result's `tiling` has `interior_tile_layout`'s keys (`layer`, `start`, `pattern`,
-    `cutouts`, `takeoff`, `smallest_cut_share`, `handles`, `count`) plus `bottom` / `top`.
+    `spec.tiling` tiles the wall between `bottom` and `top` with arch_floor_zone's
+    laying engine (its takeoff) on `A-ELEV-TILE-E-N`: the tiles stop at every
+    opening and at the worktops, cabinets and panels (`cut_around` names others).
+    The result's `tiling`: `layer`, `start`, `pattern`, `cutouts`, `takeoff`,
+    `smallest_cut_share`, `handles`, `count`, `bottom`, `top`.
 
     No height is assumed: every height comes from `spec` or the plan. With
     `from_plan` the length is the clear face between junctions measured off the

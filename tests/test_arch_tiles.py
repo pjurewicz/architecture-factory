@@ -1,13 +1,11 @@
-"""interior_tile_layout: the cut grid and its takeoff, with hand-derived expectations."""
+"""The laying engine of arch_floor_zone: the cut pattern and its takeoff, hand-derived."""
 
 from __future__ import annotations
 
-import pytest
-import pytest_asyncio
-from fastmcp import Client
-from fastmcp.exceptions import ToolError
+import math
 
-import server
+import pytest
+
 from engineering.arch.tiles import layout
 
 ROOM = [[0, 0], [4000, 0], [4000, 3000], [0, 3000]]
@@ -88,6 +86,7 @@ def test_herringbone_at_45_degrees_on_an_l_room_tiles_the_exact_floor_without_jo
         ({"bond": 1.0}, "bond"),
         ({"outline": [[0, 0], [30, 10], [30, 0], [0, 10], [-5, 5]]}, "cross"),
         ({"length": 1, "width": 1}, "tiles would cover"),
+        ({"pattern": "chevron", "cut_deg": 90}, "cut_deg"),
     ],
 )
 def test_refusals_name_their_cause(kwargs, match):
@@ -96,60 +95,99 @@ def test_refusals_name_their_cause(kwargs, match):
         layout(**args)
 
 
-@pytest_asyncio.fixture
-async def client(monkeypatch):
-    monkeypatch.setenv("AUTOCAD_MCP_BACKEND", "ezdxf")
-    async with Client(server.mcp) as connected:
-        await connected.call_tool("drawing_new", {})
-        yield connected
+def _key(points):
+    return tuple(sorted((round(x, 3), round(y, 3)) for x, y in points))  # 1 µm
 
 
-@pytest.mark.asyncio
-async def test_the_tool_draws_one_closed_polyline_per_piece_on_the_floor_layer(client):
-    args = {"outline": ROOM, "tile_length": 600, "tile_width": 300, "joint": 0}
-    dry = (
-        await client.call_tool("interior_tile_layout", args | {"dry_run": True})
-    ).structured_content
-    assert dry["handles"] == [] and dry["count"] == 0 and dry["takeoff"]["tiles"] == 70
-    drawn = (await client.call_tool("interior_tile_layout", args)).structured_content
-    assert drawn["count"] == 70 and drawn["layer"] == "A-FLOR-E-N"
-    listed = (
-        await client.call_tool("entity_list", {"layer_filter": "A-FLOR-E-N", "limit": 1000})
-    ).structured_content
-    rows = listed.get("entities", listed.get("result", listed))
-    assert len(rows) == 70
-    with pytest.raises(ToolError, match="give both or neither"):
-        await client.call_tool("interior_tile_layout", args | {"start_x": 5})
+def _repeats(pieces, vector) -> int:
+    """How many full pieces, moved by ``vector``, land exactly on another full piece."""
+    full = [p.corners for p in pieces if p.full]
+    keys = {_key(c) for c in full}
+    dx, dy = vector
+    return sum(_key((x + dx, y + dy) for x, y in c) in keys for c in full)
 
 
-@pytest.mark.asyncio
-async def test_tiles_laid_after_the_furniture_go_behind_its_wipeout(backend):
-    """The pieces are sent to the back, so a bed inserted first still masks them."""
-    from engineering.arch.catalogue import insert_item
-    from engineering.arch.draw import draw_tile_layout
-
-    bed = await insert_item(backend, "single_bed", at=(600.0, 300.0))
-    drawn = await draw_tile_layout(backend, outline=ROOM, length=600, width=300, joint=0)
-    order = [e.dxf.handle for e in backend._doc.modelspace().entities_in_redraw_order()]
-    assert order.index(bed["handle"]) > max(order.index(h) for h in drawn["handles"])
+def _direction(a, b) -> float:
+    return math.degrees(math.atan2(b[1] - a[1], b[0] - a[0])) % 180.0
 
 
-@pytest.mark.asyncio
-async def test_a_layout_that_fails_half_way_leaves_nothing_drawn(monkeypatch):
-    """The layout is one transaction: pieces drawn before a failure are rolled back."""
-    from backends.ezdxf_backend import EzdxfBackend
-    from engineering.arch.draw import draw_tile_layout
+BIG = [[0, 0], [6000, 0], [6000, 5000], [0, 5000]]
 
-    backend = EzdxfBackend()
-    await backend.drawing_new()
-    before = {e.handle for e in await backend.entity_list(limit=100000)}
-    real = backend.entity_batch_create
 
-    async def half_then_fail(specs):
-        await real(specs[: len(specs) // 2])
-        raise RuntimeError("disk full")
+def test_chevron_bands_period_and_cut_angle_from_the_plank_size():
+    # The source's French herringbone: joints every 253.7 mm along the axis, a 45°
+    # zigzag. A 358.79 mm long edge x sin 45° = a 253.70 mm band; 90 mm planks
+    # repeat every 90 / sin 45° = 127.28 mm along the axis.
+    r = layout(BIG, length=358.79, width=90, joint=0, pattern="chevron", start=(0, 0))
+    full = [p for p in r["pieces"] if p.full]
+    band = 358.79 * math.sin(math.radians(45))
+    assert band == pytest.approx(253.7, abs=0.01)
+    for p in full:  # ends on the band edges, long sides at +45 (A) / -45 (B)
+        ys = sorted({round(y, 6) for _x, y in p.corners})
+        assert len(ys) == 2 and ys[1] - ys[0] == pytest.approx(band)
+        assert ys[0] / band == pytest.approx(round(ys[0] / band))
+        assert _direction(p.corners[1], p.corners[2]) == pytest.approx(
+            45.0 if p.hand == "A" else 135.0
+        )
+        assert p.area == pytest.approx(358.79 * 90)
+    step = 90 / math.sin(math.radians(45))
+    assert _repeats(full, (step, 0)) > 0.8 * len(full)
+    assert _repeats(full, (step * 0.5, 0)) == 0
+    # two bands (one A, one B) repeat across the axis, one band does not
+    assert _repeats(full, (0, 2 * band)) > 0.7 * len(full)
+    assert _repeats(full, (0, band)) == 0
+    t = r["takeoff"]
+    assert t["by_hand"]["A"] + t["by_hand"]["B"] == t["tiles"] == t["tiles_no_reuse"]
+    assert t["offcut_reuse"] is False and t["tiled_area_m2"] == pytest.approx(30.0)
 
-    monkeypatch.setattr(backend, "entity_batch_create", half_then_fail)
-    with pytest.raises(RuntimeError, match="disk full"):
-        await draw_tile_layout(backend, outline=ROOM, length=600, width=300, joint=0)
-    assert {e.handle for e in await backend.entity_list(limit=100000)} == before
+
+def test_chevron_turned_and_started_cuts_the_notched_room_exactly():
+    floor = [[0, 0], [5000, 0], [5000, 2000], [2000, 2000], [2000, 4000], [0, 4000]]
+    notch = {"points": [[3000, 0], [4000, 0], [4000, 1500], [3500, 1500], [3500, 500], [3000, 500]]}
+    start = (1234.5, 678.9)
+    r = layout(
+        floor, length=600, width=100, joint=0, pattern="chevron", angle_deg=30,
+        cut_deg=60, start=start, cutouts=[notch],
+    )  # fmt: skip
+    expected = (5000 * 2000 + 2000 * 2000 - (1000 * 500 + 500 * 1000)) / 1e6
+    assert sum(p.area for p in r["pieces"]) / 1e6 == pytest.approx(expected, rel=1e-9)
+    assert any(math.dist(c, start) < 1e-6 for p in r["pieces"] if p.full for c in p.corners)
+    for p in (p for p in r["pieces"] if p.full):  # ends along the 30° axis, sides at 30 ± 60
+        assert _direction(p.corners[0], p.corners[1]) == pytest.approx(30.0)
+        assert _direction(p.corners[1], p.corners[2]) == pytest.approx(
+            90.0 if p.hand == "A" else 150.0
+        )
+    for p in r["pieces"]:  # nothing in the notch
+        assert all(
+            not (3000 + 1e-6 < x < 4000 - 1e-6 and y < 500 - 1e-6)
+            for loop in p.loops
+            for x, y in loop
+        )
+
+
+def test_herringbone_axis_follows_angle_and_repeats_every_width_root_two():
+    r = layout(BIG, length=600, width=100, joint=2, pattern="herringbone", angle_deg=0)
+    full = [p for p in r["pieces"] if p.full]
+    # angle 0: the zigzag runs along x, its planks along +45 and -45 degrees
+    long_edges = {
+        round(_direction(*max(((c[0], c[1]), (c[1], c[2])), key=lambda e: math.dist(*e))))
+        for c in (p.corners for p in full)
+    }
+    assert long_edges == {45, 135}
+    period = 102 * math.sqrt(2)
+    assert _repeats(full, (period, 0)) > 0.8 * len(full)
+    assert _repeats(full, (0, period)) == 0
+    assert _repeats(full, (0, 602 * math.sqrt(2))) > 0.6 * len(full)
+
+
+def test_grid_and_offset_tiles_start_at_the_start_point():
+    r = layout(BIG, length=600, width=300, joint=3, start=(100, 50), angle_deg=0)
+    full = [p for p in r["pieces"] if p.full]
+    assert any(
+        _key(p.corners) == _key([(100, 50), (700, 50), (700, 350), (100, 350)]) for p in full
+    )
+    assert _repeats(full, (603, 0)) > 0.8 * len(full) and _repeats(full, (0, 303)) > 0.8 * len(full)
+    third = layout(BIG, length=600, width=300, joint=0, pattern="running_bond", bond=1 / 3)
+    full = [p for p in third["pieces"] if p.full]
+    assert _repeats(full, (200, 300)) > 0.8 * len(full)  # each row a third further
+    assert _repeats(full, (300, 300)) == 0

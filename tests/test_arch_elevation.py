@@ -221,18 +221,7 @@ async def test_dry_run_draws_nothing_and_the_tiles_land_on_their_layer(client):
     drawn = (await client.call_tool("interior_wall_elevation", args)).structured_content
     assert drawn["tiling"]["takeoff"] == dry["tiling"]["takeoff"]
     assert drawn["tiling"]["cutouts"] == ["D1", "O1", "BLAT"]
-    # the wall tiling answers with the floor layout's keys, plus its band
-    floor = (
-        await client.call_tool(
-            "interior_tile_layout",
-            {
-                "outline": [[0, 0], [1200, 0], [1200, 900], [0, 900]],
-                "tile_length": 600,
-                "tile_width": 300,
-                "dry_run": True,
-            },
-        )
-    ).structured_content
+    # the wall tiling answers with the layout keys, plus its band
     tile_keys = {
         "layer",
         "start",
@@ -243,7 +232,7 @@ async def test_dry_run_draws_nothing_and_the_tiles_land_on_their_layer(client):
         "handles",
         "count",
     }
-    assert tile_keys <= set(floor) and set(drawn["tiling"]) == tile_keys | {"bottom", "top"}
+    assert set(drawn["tiling"]) == tile_keys | {"bottom", "top"}
     assert [r["value"] for r in drawn["dimensions"]] == pytest.approx(
         [r["value"] for r in dry["dimensions"]]
     )

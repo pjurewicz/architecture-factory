@@ -14,6 +14,7 @@ from engineering.arch.catalogue import FITTED, ITEMS, insert_items
 from engineering.arch.floor import floor_zone
 from engineering.arch.legend import draw_legend
 from engineering.arch.spec import draw_plan_from_spec
+from engineering.arch.tiles import signed_area
 
 SPEC = {
     "sheet": {"intent": "flat", "sheet_size": "A3", "scale": 50},
@@ -235,3 +236,65 @@ async def test_skirting_legend_rows_and_refusals(backend):
     typed = await floor_zone(backend, outline=ROOM, skirting="flush", dry_run=True)
     assert typed["skirting"]["flush_m"] == pytest.approx(11.4)
     assert "skirting_openings_unknown" in [w["code"] for w in typed["warnings"]]
+
+
+@pytest.mark.asyncio
+async def test_a_laid_floor_is_cut_to_the_zone_minus_the_fitted_run(backend):
+    await _room(backend)
+    args = {"room": [2500, 2000], "lay": "chevron", "plank": (358.79, 90), "gap": 0}
+    dry = await floor_zone(
+        backend, **args, label="dąb jodełka francuska", name="PARKIET", dry_run=True
+    )
+    assert "handles" not in dry and dry["lay"]["takeoff"]["by_hand"]["A"] > 0
+    zone = await floor_zone(backend, **args, label="dąb jodełka francuska", name="PARKIET")
+    db = backend._doc.entitydb
+    pieces = [db[h] for h in zone["handles"]["pieces"]]
+    assert set(zone["handles"]) == {"pieces"} and zone["lay"]["cut_angle"] == 45.0
+    # the planks cover exactly the measured zone: the room less the kitchen run
+    covered = sum(abs(signed_area(e.get_points("xy"))) for e in pieces) / 1e6
+    assert covered == pytest.approx(zone["area_m2"], rel=1e-6)
+    assert zone["area_m2"] == pytest.approx(17.8125 - 1.44)
+    assert zone["lay"]["takeoff"]["floor_area_m2"] == zone["area_m2"]
+    for e in pieces:  # nothing under the 2400 x 600 counter in the corner
+        assert all(not (x < 2525 - 1e-6 and y < 725 - 1e-6) for x, y in e.get_points("xy"))
+    assert {e.dxf.layer for e in pieces} == {"A-FLOR-E-N"}
+    records = [read_annotation(e) for e in pieces]
+    assert {(r["tool"], r["set"], r["legend"]) for r in records} == {
+        ("arch_floor_zone", "PARKIET", "dąb jodełka francuska")
+    }
+    # a rerun replaces the whole set; a wood hatch under a grid of boards is one zone
+    again = await floor_zone(
+        backend, room=[2500, 2000], lay="running_bond", plank=(1200, 200), gap=0,
+        pattern="AR-PARQ1", name="PARKIET",
+    )  # fmt: skip
+    assert again["replaced"] == len(pieces) and set(again["handles"]) == {"pattern", "pieces"}
+    order = [e.dxf.handle for e in backend._doc.modelspace().entities_in_redraw_order()]
+    assert order[0] == again["handles"]["pattern"]  # the hatch under its boards
+
+
+@pytest.mark.asyncio
+async def test_lay_refusals_name_this_tools_arguments(backend):
+    room = {"outline": ROOM}
+    with pytest.raises(ValueError, match="give one of lay / joints"):
+        await floor_zone(backend, **room, lay="grid", plank=(600, 300), joints=[600])
+    with pytest.raises(ValueError, match="plank_length / plank_width"):
+        await floor_zone(backend, **room, lay="grid", plank=(600, None))
+    with pytest.raises(ValueError, match="cut_angle: a chevron"):
+        await floor_zone(backend, **room, lay="chevron", plank=(600, 100), cut_angle=5)
+    with pytest.raises(ValueError, match="lay: 'basket'"):
+        await floor_zone(backend, **room, lay="basket", plank=(600, 100))
+    with pytest.raises(ValueError, match="plank_length: herringbone"):
+        await floor_zone(backend, **room, lay="herringbone", plank=(100, 100))
+
+
+@pytest.mark.asyncio
+async def test_a_layout_that_fails_half_way_leaves_nothing_drawn(backend, monkeypatch):
+    before = {e.handle for e in await backend.entity_list(limit=100000)}
+
+    async def fail(*_a, **_k):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(backend, "draw_order", fail)
+    with pytest.raises(RuntimeError, match="disk full"):
+        await floor_zone(backend, outline=ROOM, lay="grid", plank=(600, 300))
+    assert {e.handle for e in await backend.entity_list(limit=100000)} == before

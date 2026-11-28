@@ -867,7 +867,7 @@ async def draw_interior_elevation(
     With ``from_plan`` (``{wall, segment, side, at, heights}``) the length and
     the openings are read from the plan on the drawing; ``spec`` then must not
     type them. ``spec.tiling`` lays tiles over the wall with the same engine
-    as ``interior_tile_layout`` and reports its takeoff. Everything is
+    as ``arch_floor_zone``'s ``lay`` and reports its takeoff. Everything is
     validated before the transaction opens; ``dry_run`` returns the levels,
     the dimension rows and the takeoff and draws nothing.
     """
@@ -987,49 +987,15 @@ async def draw_interior_elevation(
     return result
 
 
-# -- floor tiles ----------------------------------------------------------------------
-
-
-async def draw_tile_layout(backend, *, dry_run: bool = False, **spec) -> dict:
-    """`engineering.arch.tiles.layout` drawn: one closed polyline per tile piece on the floor layer.
-
-    A full tile is its four corners; a cut piece is each closed loop of its
-    boundary (a cutout wholly inside one tile is a second loop), sent to the
-    back of the draw order so furniture wipeouts cover it. Refusals fire
-    before the first entity; ``dry_run`` computes the takeoff and draws nothing.
-    """
-    from engineering.arch.tiles import layout
-
-    result = layout(**spec)
-    layer = ARCH_ROLE_LAYER["floor"]
-    pieces = result["pieces"]
-    handles: list[str] = []
-    if not dry_run:
-        from engineering.mech.draw import guarded_transaction
-
-        async def job():
-            drawn = await draw_tile_pieces(backend, pieces, layer, what="tile layout")
-            # Floor patterns go to the back (DRAWORDER), so the wipeouts of
-            # furniture inserted before the layout still hide them.
-            if drawn:
-                await backend.draw_order(drawn, "send_to_back")
-            return drawn
-
-        handles = await guarded_transaction(backend, job, what="interior_tile_layout", done="drawn")
-    return {
-        "ok": True,
-        "dry_run": bool(dry_run),
-        **tile_summary(result, spec, layer=layer, handles=handles),
-        "backend": backend.name,
-    }
+# -- wall tiles ----------------------------------------------------------------------
 
 
 def tile_summary(result: dict, args: dict, *, layer: str, handles: list[str]) -> dict:
-    """The tile keys both tile tools answer with, drawn or dry run alike.
+    """The tile keys an elevation's wall tiling answers with, drawn or dry run alike.
 
     ``result`` is ``engineering.arch.tiles.layout``'s, ``args`` the arguments
-    it was called with; ``start`` is in the caller's frame (WCS for a floor,
-    elevation-local for a wall), ``cutouts`` names what the tiles stop at.
+    it was called with; ``start`` is elevation-local, ``cutouts`` names what
+    the tiles stop at.
     """
     cut = [p for p in result["pieces"] if not p.full]
     tile_area = float(args["length"]) * float(args["width"])
@@ -1050,9 +1016,8 @@ async def draw_tile_pieces(
 ) -> list[str]:
     """Every loop of every tile piece as a closed polyline on ``layer``, in one batch.
 
-    Shared by the floor layout and the wall tiling of an interior elevation;
-    both call it inside a transaction, so a piece that fails raises and the
-    rollback takes back everything the call drew.
+    The wall tiling of an interior elevation calls it inside a transaction, so
+    a piece that fails raises and the rollback takes back everything drawn.
     """
     dx, dy = float(offset[0]), float(offset[1])
     await ensure_arch_layers(backend, [layer])

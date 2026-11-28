@@ -2,8 +2,8 @@
 
 The zone is the region :mod:`engineering.arch.tiles` cuts tiles to - the
 outline (a room's wall face, its explicit boundary, or a typed outline) minus
-cutouts - and its area is that region's exact area, the same Green's sum
-``interior_tile_layout`` reports: measured from the geometry, never typed.
+cutouts - and its area is that region's exact area, the same Green's sum the
+laid pieces add up to: measured from the geometry, never typed.
 
 Cutouts are the face's own holes (a column), the footprints of catalogue
 items selected by class or name (``fitted`` - joinery, appliances, sanitary
@@ -14,9 +14,13 @@ one, else its block extents turned with it; a closed polyline or a hatch is
 its outline.
 
 The zone is drawn on ``A-FLOR-E-N`` as up to three parts, in this order: a
-predefined ``pattern`` HATCH, a ``joints`` HATCH (``_USER`` lines at a real
-spacing - a board or tile division) and, with ``edge``, the zone's loops as
-closed polylines - a tile with dots, its joints and its outline in one call.
+predefined ``pattern`` HATCH, then its joints - a ``joints`` HATCH (``_USER``
+lines at a real spacing - a board or tile division) or, with ``lay``, every
+tile or plank of a laying pattern cut to the zone as closed polylines
+(:func:`engineering.arch.tiles.layout`: grid, running bond, herringbone,
+chevron, from the plank's size, ``angle`` and ``start``, with the takeoff) -
+and, with ``edge``, the zone's loops as closed polylines - a tile with dots,
+its joints and its outline in one call.
 A pattern's size follows acadiso.pat: the ``AR-*`` patterns are drawn in
 building millimetres (a brick of AR-HBONE is 101.6 x 304.8 mm), so their hatch
 scale is ``pattern_scale`` alone; every other pattern is a sheet pattern drawn
@@ -53,6 +57,15 @@ import math
 from engineering.arch.tiles import Region, _inside, clip, polygon, signed_area
 
 TOOL = "arch_floor_zone"
+#: ``tiles.layout``'s argument names in its refusals -> this tool's.
+_LAY_NAMES = (
+    ("tile_length", "plank_length"),
+    ("tile_width", "plank_width"),
+    ("joint:", "gap:"),
+    ("angle_deg", "angle"),
+    ("cut_deg", "cut_angle"),
+    ("pattern:", "lay:"),
+)
 CLASSES = ("fitted", "movable")
 #: Vertices of a circle's footprint polygon.
 CIRCLE_SIDES = 32
@@ -438,6 +451,13 @@ async def floor_zone(
     color: int | None = None,
     edge: bool = False,
     skirting=None,
+    lay: str | None = None,
+    plank=None,
+    gap: float = 3.0,
+    bond: float = 0.5,
+    cut_angle: float = 45.0,
+    waste_pct: float = 10.0,
+    kerf: float = 3.0,
     dry_run: bool = False,
 ) -> dict:
     """Measure, and unless ``dry_run`` draw, one floor zone; see the module docstring."""
@@ -455,15 +475,21 @@ async def floor_zone(
         if min(joints) <= 0:
             raise ValueError("joints: spacings must be > 0 mm")
         joints = joints * 2 if len(joints) == 1 else joints
+    if lay is not None and joints is not None:
+        raise ValueError("joints: lay draws the joints of its pieces; give one of lay / joints")
+    if lay is not None and (
+        not isinstance(plank, (list, tuple)) or len(plank) != 2 or None in plank
+    ):
+        raise ValueError("plank_length / plank_width: lay needs both, mm")
     no_fill = isinstance(pattern, str) and pattern.strip().lower() == "none"
     if no_fill:
         pattern = None
-    elif pattern is not None or joints is None:
+    elif pattern is not None or (joints is None and lay is None):
         pattern = _hatch_pattern(pattern or "ANSI37")
     floor, holes, source, records = await _outline(backend, room, outline)
     walls = {w.id for w in records["walls"]} if records else set()
     types = check_skirting(skirting, walls)
-    if pattern is None and joints is None and not edge and types is None:
+    if pattern is None and joints is None and lay is None and not edge and types is None:
         raise ValueError("pattern: 'none' with no joints, edge or skirting draws nothing")
     layer = layer or ARCH_ROLE_LAYER["floor"]
 
@@ -526,8 +552,6 @@ async def floor_zone(
         "excluded": excluded,
         "loops": len(loops),
         "layer": layer,
-        "outline": [list(p) for p in floor],
-        "cutouts": [[list(p) for p in c] for c in cutouts],
     }
     from ezdxf.tools.pattern import ISO_PATTERN
 
@@ -538,6 +562,42 @@ async def floor_zone(
         row, warn = _fill_report(pattern, fill_period(ISO_PATTERN[pattern], pscale), side)
         result["pattern"] = {"name": pattern, "hatch_scale": pscale, **row}
         warnings += [warn] if warn else []
+    planks = []  # the laid pieces
+    if lay is not None:
+        from engineering.arch.tiles import layout
+
+        try:
+            laid = layout(
+                floor,
+                length=plank[0],
+                width=plank[1],
+                pattern=lay,
+                joint=gap,
+                start=start,
+                angle_deg=angle,
+                bond=bond,
+                cut_deg=cut_angle,
+                cutouts=[{"points": c} for c in cutouts],
+                waste_pct=waste_pct,
+                kerf=kerf,
+            )
+        except ValueError as exc:  # the engine names its own arguments; name ours
+            text = str(exc)
+            for old, new in _LAY_NAMES:
+                text = text.replace(old, new)
+            raise ValueError(text) from None
+        planks = laid["pieces"]
+        cut_shares = [p.area / (plank[0] * plank[1]) for p in planks if not p.full]
+        result["lay"] = {
+            "pattern": lay,
+            "plank": [float(plank[0]), float(plank[1])],
+            "gap": float(gap),
+            "start": list(laid["origin"]),
+            "angle": float(angle),
+            **({"cut_angle": float(cut_angle)} if lay == "chevron" else {}),
+            "takeoff": laid["takeoff"],
+            "smallest_cut_share": round(min(cut_shares), 4) if cut_shares else None,
+        }
     if joints is not None:
         row, warn = _fill_report("joints", max(joints), side)
         result["joints"] = {"spacing_mm": joints, **row}
@@ -572,7 +632,8 @@ async def floor_zone(
 
     from ezdxf.lldxf import const as dxfconst
 
-    from engineering.annotation_record import replace_set, tag_annotation
+    from backends.xdata_specs import encode_values
+    from engineering.annotation_record import APP_ID, annotation_values, replace_set
     from engineering.arch.catalogue import _ensure_layer
     from engineering.arch.services import ISO_PEN
     from engineering.mech.draw import guarded_transaction
@@ -581,7 +642,8 @@ async def floor_zone(
     origin = tuple(start) if start is not None else (min(xs), min(ys))
 
     def _draw():
-        msp = backend._require_doc().modelspace()
+        doc = backend._require_doc()
+        msp = doc.modelspace()
         attribs = {"layer": layer, **({"color": int(color)} if color is not None else {})}
 
         def _hatch():
@@ -618,6 +680,12 @@ async def floor_zone(
                 ],
             )
             handles["joints"] = hatch.dxf.handle
+        if planks:
+            handles["pieces"] = [
+                msp.add_lwpolyline(loop, close=True, dxfattribs=attribs).dxf.handle
+                for piece in planks
+                for loop in piece.loops
+            ]
         if edge:
             handles["edge"] = [
                 msp.add_lwpolyline(loop, close=True, dxfattribs=attribs).dxf.handle
@@ -635,6 +703,17 @@ async def floor_zone(
             skirts.append((line.dxf.handle, f"skirting_{piece['type']}"))
         if skirts:
             handles["skirting"] = [h for h, _ in skirts]
+        if APP_ID not in doc.appids:
+            doc.appids.add(APP_ID)
+        tagged = [
+            (h, label)
+            for key, v in handles.items()
+            if key != "skirting"
+            for h in (v if isinstance(v, list) else [v])
+        ]
+        for handle, legend in [*tagged, *skirts]:
+            tags = encode_values(annotation_values(TOOL, handle, name, legend))
+            doc.entitydb[handle].set_xdata(APP_ID, tags)
         backend._mark_dirty()
         return handles, skirts
 
@@ -653,10 +732,6 @@ async def floor_zone(
             if key != "skirting"
             for h in (v if isinstance(v, list) else [v])
         ]
-        for handle in drawn:
-            await tag_annotation(backend, handle, TOOL, set_name=name, legend=label)
-        for handle, key in skirts:
-            await tag_annotation(backend, handle, TOOL, set_name=name, legend=key)
         if drawn:
             await backend.draw_order(drawn, "send_to_back")
         return handles, replaced

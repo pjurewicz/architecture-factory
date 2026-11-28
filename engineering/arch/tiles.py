@@ -14,16 +14,24 @@ oriented with the piece on its left, so the piece's area is Green's sum over
 those edges - exact, holes included - and the edges chain into the closed
 loops that are drawn. A tile edge lying on a wall is kept once, from the tile.
 
-Patterns, in a frame turned by ``angle_deg`` about the start point:
+Patterns, in a frame turned by ``angle_deg`` about the start point - the
+direction the rows (grid, running bond) or the pattern's axis (herringbone,
+chevron) run:
 
 * ``grid`` - tile corners on a lattice of pitch (length + joint, width + joint);
 * ``running_bond`` - every row shifted by ``bond`` x pitch further than the one
   below it (0.5 = half bond, 1/3 = third bond);
-* ``herringbone`` - pairs of one horizontal and one vertical tile, the vertical
-  one standing at the horizontal one's right end; the pair repeats on the
-  lattice (W', W') and (L', -L'), primes meaning size + joint. Any length > width
-  tiles the plane (lengths need not be a multiple of the width). Laid at 45° it
-  is the classic floor.
+* ``herringbone`` - pairs of one plank along +45° and one along -45° to the
+  axis, the second standing at the first one's end; the pair repeats on the
+  lattice (W', W') and (L', -L') in the planks' frame, primes meaning size +
+  joint, so the pattern repeats every W' x sqrt 2 along the axis. Any length >
+  width tiles the plane (lengths need not be a multiple of the width);
+* ``chevron`` (French herringbone) - parallelogram planks in bands along the
+  axis, their ends on the band edges and their long sides at ``cut_deg`` to the
+  axis, leaning one way in even bands and the other in odd ones, so the joints
+  zigzag. ``length`` is the long edge, so a band is length x sin(cut) wide and
+  its planks repeat every (width + joint) / sin(cut) along the axis. The planks
+  are handed (A in even bands, B in odd), counted apart.
 
 The quantities: a full piece is one tile. Cut pieces are, by default, packed
 into tiles the way a fitter reuses offcuts (``cut_tiles``): each piece needs
@@ -31,7 +39,8 @@ its bounding rectangle in the tile's own frame (grain and pattern direction
 kept, no 90° turn), cut guillotine-style from a fresh tile or from the
 best-fitting offcut left by an earlier cut, every cut losing ``kerf``. A
 diagonal piece still needs its whole bounding rectangle, so the matching
-triangle of a 45° cut is not reused - the count is conservative there.
+triangle of a 45° cut is not reused - the count is conservative there; a
+chevron plank is a parallelogram, so a chevron reuses no offcut at all.
 ``tiles_no_reuse`` (every cut piece a whole tile) is reported beside it as the
 upper bound. The waste allowance is applied on top of the chosen count. Units
 are drawing units, taken to be millimetres (areas in m²).
@@ -45,7 +54,7 @@ from dataclasses import dataclass
 
 Pt = tuple[float, float]
 
-PATTERNS = ("grid", "running_bond", "herringbone")
+PATTERNS = ("grid", "running_bond", "herringbone", "chevron")
 
 #: A piece is full when it holds this share of the tile's area.
 FULL_SHARE = 1.0 - 1e-9
@@ -66,6 +75,7 @@ class Piece:
     loops: tuple[tuple[Pt, ...], ...]
     area: float
     full: bool
+    hand: str | None = None
 
 
 # -- validation -------------------------------------------------------------------
@@ -327,8 +337,15 @@ def _local_bbox(points, origin: Pt, cos_a: float, sin_a: float) -> tuple[float, 
     return min(xs), min(ys), max(xs), max(ys)
 
 
-def local_tiles(pattern: str, length: float, width: float, joint: float, bond: float, box):
-    """Local-frame tile rectangles (x0, y0, x1, y1) covering ``box`` = (x0, y0, x1, y1)."""
+def _rect(x0: float, y0: float, x1: float, y1: float) -> tuple[Pt, ...]:
+    return ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
+
+
+def local_tiles(
+    pattern: str, length: float, width: float, joint: float, bond: float, box, cut=45.0
+):
+    """Local-frame ``(corners, hand)`` of the tiles covering ``box`` = (x0, y0, x1, y1);
+    corners counter-clockwise, ``hand`` "A" / "B" for a chevron plank, else None."""
     lp, wp = length + joint, width + joint
     bx0, by0, bx1, by1 = box
     if pattern in ("grid", "running_bond"):
@@ -338,9 +355,29 @@ def local_tiles(pattern: str, length: float, width: float, joint: float, bond: f
             dx = ((k * shift) % 1.0) * lp
             for i in range(math.floor((bx0 - dx) / lp) - 1, math.ceil((bx1 - dx) / lp) + 1):
                 x, y = i * lp + dx, k * wp
-                yield (x, y, x + length, y + width)
+                yield _rect(x, y, x + length, y + width), None
         return
-    # herringbone: cell origin o = m*(wp, wp) + n*(lp, -lp); solve the box corners for (m, n)
+    if pattern == "chevron":
+        sin_c, cot_c = math.sin(math.radians(cut)), 1.0 / math.tan(math.radians(cut))
+        band, end = length * sin_c, width / sin_c  # band width; an end's length on the band edge
+        run, step = band * cot_c, wp / sin_c  # a long side's run along the axis; plank pitch
+        for k in range(math.floor(by0 / (band + joint)) - 1, math.ceil(by1 / (band + joint)) + 1):
+            y = k * (band + joint)
+            for i in range(math.floor((bx0 - run) / step) - 1, math.ceil(bx1 / step) + 1):
+                x = i * step
+                if k % 2 == 0:
+                    yield (
+                        ((x, y), (x + end, y), (x + end + run, y + band), (x + run, y + band)),
+                        "A",
+                    )
+                else:
+                    yield (
+                        ((x + run, y), (x + run + end, y), (x + end, y + band), (x, y + band)),
+                        "B",
+                    )
+        return
+    # herringbone, in the planks' frame (the axis along (1, 1)): cell origin
+    # o = m*(wp, wp) + n*(lp, -lp); solve the box corners for (m, n)
     det = wp * (-lp) - lp * wp
     ms, ns = [], []
     for cx, cy in ((bx0, by0), (bx1, by0), (bx0, by1), (bx1, by1)):
@@ -349,8 +386,8 @@ def local_tiles(pattern: str, length: float, width: float, joint: float, bond: f
     for m in range(math.floor(min(ms)) - 2, math.ceil(max(ms)) + 2):
         for n in range(math.floor(min(ns)) - 2, math.ceil(max(ns)) + 2):
             ox, oy = m * wp + n * lp, m * wp - n * lp
-            yield (ox, oy, ox + length, oy + width)  # horizontal
-            yield (ox + lp, oy + wp - lp, ox + lp + width, oy + wp - lp + length)  # vertical
+            yield _rect(ox, oy, ox + length, oy + width), None
+            yield _rect(ox + lp, oy + wp - lp, ox + lp + width, oy + wp - lp + length), None
 
 
 # -- the layout --------------------------------------------------------------------------
@@ -409,6 +446,7 @@ def layout(
     waste_pct=10.0,
     offcut_reuse: bool = True,
     kerf=3.0,
+    cut_deg=45.0,
 ) -> dict:
     """Every piece of the layout and its takeoff. Refuses by name before computing."""
     if pattern not in PATTERNS:
@@ -434,6 +472,9 @@ def layout(
             f"bond: the row shift is a share of the tile length in (0, 1), got {bond:g}"
         )
     angle = _number(angle_deg, "angle_deg")
+    cut = _number(cut_deg, "cut_deg")
+    if pattern == "chevron" and not 10.0 <= cut <= 80.0:
+        raise ValueError(f"cut_deg: a chevron's cut is 10-80 degrees to its axis, got {cut:g}")
     waste = _number(waste_pct, "waste_pct")
     if not 0.0 <= waste <= 100.0:
         raise ValueError(f"waste_pct: expected 0-100, got {waste:g}")
@@ -458,7 +499,8 @@ def layout(
         origin = (_number(start[0], "start_x"), _number(start[1], "start_y"))
 
     region = Region.of(floor, holes)
-    cos_a, sin_a = math.cos(math.radians(angle)), math.sin(math.radians(angle))
+    frame = angle - 45.0 if pattern == "herringbone" else angle  # its planks' frame
+    cos_a, sin_a = math.cos(math.radians(frame)), math.sin(math.radians(frame))
     box = _local_bbox(floor, origin, cos_a, sin_a)
     lp, wp = length + joint, width + joint
     estimate = (box[2] - box[0] + 2 * lp) * (box[3] - box[1] + 2 * lp) / (lp * wp)
@@ -470,15 +512,13 @@ def layout(
 
     tile_area = length * width
     pieces: list[Piece] = []
-    for x0, y0, x1, y1 in local_tiles(pattern, length, width, joint, bond, box):
-        corners = tuple(
-            _rotate(p, origin, cos_a, sin_a) for p in ((x0, y0), (x1, y0), (x1, y1), (x0, y1))
-        )
+    for local, hand in local_tiles(pattern, length, width, joint, bond, box, cut):
+        corners = tuple(_rotate(p, origin, cos_a, sin_a) for p in local)
         area, loops = clip(corners, region)
         if area <= tile_area * 1e-9 or not loops:
             continue
         full = area >= tile_area * FULL_SHARE
-        pieces.append(Piece(len(pieces), corners, (corners,) if full else loops, area, full))
+        pieces.append(Piece(len(pieces), corners, (corners,) if full else loops, area, full, hand))
 
     # The region's own area: the same clip against a tile that covers all of it.
     fx = [p[0] for p in floor]
@@ -495,6 +535,7 @@ def layout(
     full_count = sum(1 for p in pieces if p.full)
     cut_count = len(pieces) - full_count
     no_reuse = full_count + cut_count
+    offcut_reuse = offcut_reuse and pattern != "chevron"  # a parallelogram's offcut fits no plank
     used_for_cuts = cut_tiles(pieces, length, width, kerf) if offcut_reuse else cut_count
     total = full_count + used_for_cuts
     factor = 1.0 + waste / 100.0
@@ -519,5 +560,10 @@ def layout(
             "floor_area_with_waste_m2": round(floor_area * factor / 1e6, 4),
             "order_tiles": order,
             "order_area_m2": round(order * tile_area / 1e6, 4),
+            **(
+                {"by_hand": {h: sum(p.hand == h for p in pieces) for h in ("A", "B")}}
+                if pattern == "chevron"
+                else {}
+            ),
         },
     }
